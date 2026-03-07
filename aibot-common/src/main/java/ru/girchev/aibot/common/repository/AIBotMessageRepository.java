@@ -13,21 +13,21 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Репозиторий для работы с сообщениями в диалогах.
- * Заменяет UserRequestRepository и ServiceResponseRepository.
+ * Repository for dialog messages.
+ * Replaces UserRequestRepository and ServiceResponseRepository.
  */
 @Repository
 public interface AIBotMessageRepository extends JpaRepository<AIBotMessage, Long> {
     
     /**
-     * Находит все сообщения для thread, отсортированные по sequence number
+     * Finds all messages for thread, sorted by sequence number.
      */
     @Query("SELECT m FROM Message m WHERE m.thread = :thread " +
            "ORDER BY m.sequenceNumber ASC")
     List<AIBotMessage> findByThreadOrderBySequenceNumberAsc(@Param("thread") ConversationThread thread);
     
     /**
-     * Находит все сообщения для thread с sequenceNumber больше указанного значения, отсортированные по sequence number
+     * Finds all messages for thread with sequenceNumber greater than given value, sorted by sequence number.
      */
     @Query("SELECT m FROM Message m WHERE m.thread = :thread AND m.sequenceNumber > :minSequenceNumber " +
            "ORDER BY m.sequenceNumber ASC")
@@ -36,7 +36,7 @@ public interface AIBotMessageRepository extends JpaRepository<AIBotMessage, Long
             @Param("minSequenceNumber") Integer minSequenceNumber);
     
     /**
-     * Находит все сообщения для thread с указанной ролью, отсортированные по sequence number
+     * Finds all messages for thread with given role, sorted by sequence number.
      */
     @Query("SELECT m FROM Message m WHERE m.thread = :thread AND m.role = :role " +
            "ORDER BY m.sequenceNumber ASC")
@@ -45,13 +45,13 @@ public interface AIBotMessageRepository extends JpaRepository<AIBotMessage, Long
             @Param("role") MessageRole role);
     
     /**
-     * Подсчитывает количество сообщений в thread
+     * Counts messages in thread.
      */
     @Query("SELECT COUNT(m) FROM Message m WHERE m.thread = :thread")
     Integer countByThread(@Param("thread") ConversationThread thread);
     
     /**
-     * Подсчитывает количество сообщений в thread с указанной ролью
+     * Counts messages in thread with given role.
      */
     @Query("SELECT COUNT(m) FROM Message m WHERE m.thread = :thread AND m.role = :role")
     Integer countByThreadAndRole(
@@ -59,15 +59,15 @@ public interface AIBotMessageRepository extends JpaRepository<AIBotMessage, Long
             @Param("role") MessageRole role);
     
     /**
-     * Находит последнее сообщение в thread (максимальный sequence_number)
+     * Finds last message in thread (max sequence_number).
      */
     @Query("SELECT m FROM Message m WHERE m.thread = :thread " +
            "ORDER BY m.sequenceNumber DESC")
     List<AIBotMessage> findByThreadOrderBySequenceNumberDesc(@Param("thread") ConversationThread thread);
     
     /**
-     * Находит последнее сообщение в thread (максимальный sequence_number)
-     * Использует Top1 для получения первого результата
+     * Finds last message in thread (max sequence_number).
+     * Uses Top1 to get first result.
      */
     default Optional<AIBotMessage> findLastByThread(ConversationThread thread) {
         List<AIBotMessage> messages = findByThreadOrderBySequenceNumberDesc(thread);
@@ -75,14 +75,14 @@ public interface AIBotMessageRepository extends JpaRepository<AIBotMessage, Long
     }
     
     /**
-     * Находит все сообщения пользователя, отсортированные по дате создания
+     * Finds all user messages, sorted by creation date.
      */
     @Query("SELECT m FROM Message m WHERE m.user = :user " +
            "ORDER BY m.createdAt DESC")
     List<AIBotMessage> findByUserOrderByCreatedAtDesc(@Param("user") User user);
     
     /**
-     * Находит все сообщения пользователя в указанном thread
+     * Finds all user messages in given thread.
      */
     @Query("SELECT m FROM Message m WHERE m.user = :user AND m.thread = :thread " +
            "ORDER BY m.sequenceNumber ASC")

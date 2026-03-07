@@ -17,9 +17,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Сервис для построения контекста для AI запроса с учетом token budget.
- * Формирует "скользящее окно" истории диалога, включая summary и memory bullets.
- * Для USER-сообщений с вложениями (message.attachments) подтягивает изображения из MinIO до истечения TTL.
+ * Service for building context for AI request within token budget.
+ * Builds a sliding window of conversation history including summary and memory bullets.
+ * For USER messages with attachments (message.attachments), loads images from MinIO until TTL expires.
  */
 @Slf4j
 public class ConversationContextBuilderService {
@@ -48,13 +48,13 @@ public class ConversationContextBuilderService {
     }
     
     /**
-     * Строит контекст для AI запроса с учетом token budget.
-     * Content может быть строкой или списком content parts (text + image_url) для multimodal.
+     * Builds context for AI request within token budget.
+     * Content may be a string or list of content parts (text + image_url) for multimodal.
      *
-     * @param thread текущий conversation thread
-     * @param currentUserMessage новый запрос пользователя
-     * @param assistantRole роль ассистента (AssistantRole Entity)
-     * @return список сообщений: каждый Map содержит "role" и "content" (String или List of parts)
+     * @param thread current conversation thread
+     * @param currentUserMessage new user request
+     * @param assistantRole assistant role (AssistantRole entity)
+     * @return list of messages: each Map contains "role" and "content" (String or List of parts)
      */
     public List<Map<String, Object>> buildContext(
             ConversationThread thread, 
@@ -66,7 +66,7 @@ public class ConversationContextBuilderService {
         int promptBudget = coreCommonProperties.getMaxTotalPromptTokens() - historyConfig.getMaxResponseTokens();
         int remainingTokens = promptBudget;
 
-        // 1. Добавляем system prompt из AssistantRole (обязательно)
+        // 1. Add system prompt from AssistantRole (required)
         if (historyConfig.getIncludeSystemPrompt() && assistantRole != null) {
             String systemPrompt = assistantRole.getContent();
             int systemTokens = tokenCounter.estimateTokens(systemPrompt);
@@ -76,7 +76,7 @@ public class ConversationContextBuilderService {
                 assistantRole.getId(), systemTokens);
         }
         
-        // 2. Добавляем summary (если есть)
+        // 2. Add summary (if present)
         if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
             String summaryContent = "Краткое содержание предыдущей беседы:\n" + thread.getSummary();
             if (thread.getMemoryBullets() != null && !thread.getMemoryBullets().isEmpty()) {
@@ -89,11 +89,11 @@ public class ConversationContextBuilderService {
             log.debug("Added summary: {} tokens", summaryTokens);
         }
         
-        // 3. Загружаем историю из Message (уже отсортированы по sequence_number)
+        // 3. Load history from Message (already sorted by sequence_number)
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
         FileStorageService fileStorage = fileStorageServiceProvider.getIfAvailable();
         
-        // 4. Добавляем сообщения, пока не упремся в лимит
+        // 4. Add messages until we hit the limit
         List<Map<String, Object>> historyMessages = new ArrayList<>();
         int historyTokens = 0;
         int currentMessageTokens = tokenCounter.estimateTokens(currentUserMessage);
@@ -135,10 +135,10 @@ public class ConversationContextBuilderService {
         log.info("Added {} history messages ({} tokens), remaining budget: {}", 
             historyMessages.size(), historyTokens, remainingTokens);
         
-        // Текущий запрос пользователя НЕ добавляем в context: его добавит SpringAIGateway через
-        // chatOptions.userRole() и createUserMessage(..., attachments), чтобы текущее сообщение
-        // шло с вложениями (фото/документы). Если бы мы добавили его сюда как текст, gateway
-        // считал бы alreadyPresent и не добавлял бы сообщение с медиа.
+        // Current user request is NOT added to context: SpringAIGateway will add it via
+        // chatOptions.userRole() and createUserMessage(..., attachments) so the current message
+        // is sent with attachments (photos/documents). If we added it here as text, the gateway
+        // would consider it alreadyPresent and would not add the message with media.
         int currentTokens = tokenCounter.estimateTokens(currentUserMessage);
         remainingTokens -= currentTokens;
         int budgetUsed = promptBudget - remainingTokens;
@@ -149,8 +149,8 @@ public class ConversationContextBuilderService {
     }
     
     /**
-     * Строит content как список parts (text + image_url с data:base64) для сообщений с вложениями.
-     * Подтягивает только IMAGE из MinIO, если не истёк TTL.
+     * Builds content as list of parts (text + image_url with data:base64) for messages with attachments.
+     * Loads only IMAGE from MinIO if TTL has not expired.
      */
     private List<Map<String, Object>> buildContentWithAttachments(
             String textContent,

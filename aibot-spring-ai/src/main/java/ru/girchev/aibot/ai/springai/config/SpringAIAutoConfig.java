@@ -202,9 +202,9 @@ public class SpringAIAutoConfig {
     }
 
     /**
-     * Создает WebClient.Builder для Ollama с правильным DNS резолвером.
-     * Spring AI использует WebClient.Builder для создания своего WebClient.
-     * Этот bean может быть использован Spring AI автоконфигурацией.
+     * Creates WebClient.Builder for Ollama with proper DNS resolver.
+     * Spring AI uses WebClient.Builder to create its WebClient.
+     * This bean may be used by Spring AI auto-configuration.
      */
     @Profile({"dev"})
     @Primary
@@ -217,11 +217,11 @@ public class SpringAIAutoConfig {
         
         int timeoutSeconds = properties.getTimeouts() != null && properties.getTimeouts().getResponseTimeoutSeconds() != null
                 ? properties.getTimeouts().getResponseTimeoutSeconds()
-                : 600; // Дефолт: 10 минут
-        
-        // Настраиваем HttpClient с системным DNS резолвером для поддержки .local доменов
+                : 600; // Default: 10 minutes
+
+        // Configure HttpClient with system DNS resolver for .local domain support
         HttpClient httpClient = HttpClient.create()
-                .resolver(DefaultAddressResolverGroup.INSTANCE) // Использует системный DNS (включая /etc/hosts и mDNS)
+                .resolver(DefaultAddressResolverGroup.INSTANCE) // Uses system DNS (including /etc/hosts and mDNS)
                 .responseTimeout(java.time.Duration.ofSeconds(timeoutSeconds));
         
         log.info("Ollama WebClient response timeout: {} seconds", timeoutSeconds);
@@ -234,8 +234,8 @@ public class SpringAIAutoConfig {
     }
     
     /**
-     * WebClientCustomizer для настройки таймаутов для OpenAI/OpenRouter WebClient.
-     * Spring AI использует WebClientCustomizer для настройки WebClient через автоконфигурацию.
+     * WebClientCustomizer for OpenAI/OpenRouter WebClient timeouts.
+     * Spring AI uses WebClientCustomizer for WebClient autoconfiguration.
      */
     @Bean
     @ConditionalOnMissingBean
@@ -243,7 +243,7 @@ public class SpringAIAutoConfig {
         return builder -> {
             int timeoutSeconds = properties.getTimeouts() != null && properties.getTimeouts().getResponseTimeoutSeconds() != null
                     ? properties.getTimeouts().getResponseTimeoutSeconds()
-                    : 600; // Дефолт: 10 минут
+                    : 600; // Default: 10 minutes
             
             log.info("Configuring AI WebClient response timeout: {} seconds", timeoutSeconds);
             
@@ -252,7 +252,7 @@ public class SpringAIAutoConfig {
             
             builder.clientConnector(new ReactorClientHttpConnector(httpClient));
 
-            // OpenRouter app attribution (дашборд: столбец App)
+            // OpenRouter app attribution (dashboard: App column)
             if (properties.getOpenrouterApp() != null) {
                 if (StringUtils.hasText(properties.getOpenrouterApp().getSiteUrl())) {
                     builder.defaultHeader("HTTP-Referer", properties.getOpenrouterApp().getSiteUrl());

@@ -1,22 +1,22 @@
 package ru.girchev.aibot.common.model;
 
 /**
- * Перечисление ролей сообщений в диалоге.
- * Соответствует Spring AI Message roles.
+ * Enumeration of message roles in dialog.
+ * Matches Spring AI Message roles.
  */
 public enum MessageRole {
     /**
-     * Сообщение от пользователя
+     * Message from user
      */
     USER,
     
     /**
-     * Сообщение от ассистента (AI)
+     * Message from assistant (AI)
      */
     ASSISTANT,
     
     /**
-     * Системное сообщение (system prompt, summary и т.д.)
+     * System message (system prompt, summary, etc.)
      */
     SYSTEM
 }

@@ -34,15 +34,15 @@ import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.lenient;
 
 /**
- * Тест для проверки работы SpringAIGateway с memory adviser и summary.
- * 
- * Проверяет:
- * 1. Вызов ChatMemory.get() через MessageChatMemoryAdvisor
- * 2. Вызов summary через SummarizingChatMemory
- * 3. Правильный порядок сообщений в запросе: System -> Summary (если есть) -> History (из ChatMemory) -> User
- * 
- * ВАЖНО: Тест проверяет работу MessageOrderingAdvisor, который исправляет известную проблему Spring AI (issue #4170),
- * когда MessageChatMemoryAdvisor добавляет историю перед System сообщениями.
+ * Test for SpringAIGateway with memory adviser and summary.
+ *
+ * Verifies:
+ * 1. ChatMemory.get() call via MessageChatMemoryAdvisor
+ * 2. Summary call via SummarizingChatMemory
+ * 3. Correct message order in request: System -> Summary (if any) -> History (from ChatMemory) -> User
+ *
+ * IMPORTANT: Test verifies MessageOrderingAdvisor, which fixes known Spring AI issue #4170
+ * where MessageChatMemoryAdvisor adds history before System messages.
  */
 @ExtendWith(MockitoExtension.class)
 class SpringAIGatewayMemoryAdvisorTest {
@@ -76,23 +76,23 @@ class SpringAIGatewayMemoryAdvisorTest {
 
     @BeforeEach
     void setUp() {
-        // Настраиваем моки
+        // Setup mocks
         when(springAIProperties.getMock()).thenReturn(false);
         
-        // Создаем реальный ChatClient с моком ChatModel
+        // Create real ChatClient with mocked ChatModel
         ollamaChatClient = ChatClient.builder(ollamaChatModel).build();
         
-        // Создаем SpringAIPromptFactory с useChatMemoryAdvisor = true
+        // Create SpringAIPromptFactory with useChatMemoryAdvisor = true
         promptFactory = new SpringAIPromptFactory(
                 ollamaChatClient,
-                ollamaChatClient, // openAiChatClient тоже используем ollama для простоты
+                ollamaChatClient, // use ollama for openAiChatClient too for simplicity
                 mock(ru.girchev.aibot.ai.springai.tool.WebTools.class),
                 chatMemory,
                 springAIModelType,
                 true // useChatMemoryAdvisor = true
         );
         
-        // Создаем реальный SpringAIChatService
+        // Create real SpringAIChatService
         @SuppressWarnings("unchecked")
         org.springframework.beans.factory.ObjectProvider<ru.girchev.aibot.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker> objectProvider =
                 mock(org.springframework.beans.factory.ObjectProvider.class);
@@ -102,7 +102,7 @@ class SpringAIGatewayMemoryAdvisorTest {
                 objectProvider
         );
         
-        // Настраиваем модель
+        // Setup model
         modelConfig = new SpringAIModelConfig();
         modelConfig.setName("test-model");
         modelConfig.setCapabilities(List.of(ModelCapabilities.CHAT));
@@ -117,7 +117,7 @@ class SpringAIGatewayMemoryAdvisorTest {
                 .thenReturn(List.of(modelConfig));
         lenient().when(springAIModelRegistry.getByModelName(any())).thenReturn(Optional.of(modelConfig));
 
-        // Создаем SpringAIGateway (RAG выключен - передаем null/empty providers)
+        // Create SpringAIGateway (RAG disabled - pass null/empty providers)
         @SuppressWarnings("unchecked")
         org.springframework.beans.factory.ObjectProvider<DocumentProcessingService> docProvider = 
                 mock(org.springframework.beans.factory.ObjectProvider.class);
@@ -148,20 +148,20 @@ class SpringAIGatewayMemoryAdvisorTest {
         String systemRole = "You are a helpful assistant";
         String userRole = "Hello, how are you?";
         
-        // Настраиваем ChatMemory для возврата истории
+        // Setup ChatMemory to return history
         List<Message> historyMessages = List.of(
                 new UserMessage("Previous user message"),
                 new AssistantMessage("Previous assistant response")
         );
         when(chatMemory.get(threadKey)).thenReturn(historyMessages);
         
-        // Настраиваем ChatModel для возврата ответа
+        // Setup ChatModel to return response
         ChatResponse mockResponse = ChatResponse.builder()
                 .generations(List.of(new Generation(new AssistantMessage("Test response"))))
                 .build();
         when(ollamaChatModel.call(any(Prompt.class))).thenReturn(mockResponse);
         
-        // Создаем команду с threadKey
+        // Create command with threadKey
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, threadKey);
         ChatAICommand command = new ChatAICommand(
@@ -179,7 +179,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         springAIGateway.generateResponse(command);
         
         // Assert
-        // Проверяем, что ChatMemory.get() был вызван с правильным threadKey
+        // Verify ChatMemory.get() was called with correct threadKey
         verify(chatMemory, times(1)).get(threadKey);
     }
 
@@ -190,8 +190,8 @@ class SpringAIGatewayMemoryAdvisorTest {
         String systemRole = "You are a friendly assistant. respond concisely and to the point.";
         String userRole = "Что ты знаешь?";
         
-        // Настраиваем ChatMemory для возврата истории
-        // История должна быть: User -> Assistant
+        // Setup ChatMemory to return history
+        // History should be: User -> Assistant
         String historyUser = "Тест";
         String historyAssistant = "Okay.";
         List<Message> historyMessages = List.of(
@@ -200,16 +200,16 @@ class SpringAIGatewayMemoryAdvisorTest {
         );
         when(chatMemory.get(threadKey)).thenReturn(historyMessages);
         
-        // Настраиваем ChatModel для возврата ответа
+        // Setup ChatModel to return response
         ChatResponse mockResponse = ChatResponse.builder()
                 .generations(List.of(new Generation(new AssistantMessage("Test response"))))
                 .build();
         
-        // Используем ArgumentCaptor для перехвата Prompt
+        // Use ArgumentCaptor to capture Prompt
         ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
         when(ollamaChatModel.call(promptCaptor.capture())).thenReturn(mockResponse);
         
-        // Создаем команду с threadKey
+        // Create command with threadKey
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, threadKey);
         ChatAICommand command = new ChatAICommand(
@@ -227,24 +227,24 @@ class SpringAIGatewayMemoryAdvisorTest {
         springAIGateway.generateResponse(command);
         
         // Assert
-        // Проверяем, что Prompt был перехвачен
+        // Verify Prompt was captured
         Prompt capturedPrompt = promptCaptor.getValue();
         assertNotNull(capturedPrompt, "Prompt должен быть перехвачен");
         
-        // Получаем список сообщений из Prompt
+        // Get message list from Prompt
         List<Message> messages = capturedPrompt.getInstructions();
         assertNotNull(messages, "Список сообщений не должен быть null");
         assertFalse(messages.isEmpty(), "Список сообщений не должен быть пустым");
         
-        // Проверяем точный порядок сообщений согласно требованиям:
-        // 1. System сообщение (первое) - исправлено MessageOrderingAdvisor
-        // 2. История из ChatMemory (User -> Assistant)
-        // 3. Последнее User сообщение (текущий запрос)
-        // 
-        // MessageOrderingAdvisor переупорядочивает сообщения после MessageChatMemoryAdvisor,
-        // чтобы System сообщения были первыми (исправление бага Spring AI #4170)
+        // Verify exact message order per requirements:
+        // 1. System message (first) - fixed by MessageOrderingAdvisor
+        // 2. History from ChatMemory (User -> Assistant)
+        // 3. Last User message (current request)
+        //
+        // MessageOrderingAdvisor reorders messages after MessageChatMemoryAdvisor
+        // so System messages come first (fix for Spring AI bug #4170)
         
-        // Находим индексы сообщений
+        // Find message indices
         int systemIndex = -1;
         int historyUserIndex = -1;
         int historyAssistantIndex = -1;
@@ -272,36 +272,36 @@ class SpringAIGatewayMemoryAdvisorTest {
             }
         }
         
-        // Проверяем, что все сообщения найдены
+        // Verify all messages were found
         assertTrue(systemIndex >= 0, "System сообщение должно быть найдено");
         assertTrue(historyUserIndex >= 0, "История User сообщение должно быть найдено");
         assertTrue(historyAssistantIndex >= 0, "История Assistant сообщение должно быть найдено");
         assertTrue(currentUserIndex >= 0, "Текущее User сообщение должно быть найдено");
         
-        // Проверяем правильный порядок согласно требованиям:
+        // Verify correct order per requirements:
         // System (index 0) -> History User (index 1) -> History Assistant (index 2) -> Current User (index 3)
         
-        // Проверяем, что System сообщение первое
+        // Verify System message is first
         assertEquals(0, systemIndex, 
                 "System сообщение должно быть первым (index 0), но было на index: " + systemIndex + 
                 ". Текущий порядок: " + getMessagesOrderString(messages));
         
-        // Проверяем, что история User идет после System
+        // Verify history User comes after System
         assertEquals(1, historyUserIndex, 
                 "История User должна быть на index 1, но была на index: " + historyUserIndex + 
                 ". Текущий порядок: " + getMessagesOrderString(messages));
         
-        // Проверяем, что история Assistant идет после истории User
+        // Verify history Assistant comes after history User
         assertEquals(2, historyAssistantIndex, 
                 "История Assistant должна быть на index 2, но была на index: " + historyAssistantIndex + 
                 ". Текущий порядок: " + getMessagesOrderString(messages));
         
-        // Проверяем, что текущее User сообщение последнее
+        // Verify current User message is last
         assertEquals(3, currentUserIndex, 
                 "Текущее User сообщение должно быть последним (index 3), но было на index: " + currentUserIndex + 
                 ". Текущий порядок: " + getMessagesOrderString(messages));
         
-        // Итоговая проверка: порядок должен быть System -> History (User -> Assistant) -> User
+        // Final check: order must be System -> History (User -> Assistant) -> User
         assertEquals(4, messages.size(), 
                 "Должно быть 4 сообщения: System, History User, History Assistant, Current User");
     }
@@ -330,24 +330,24 @@ class SpringAIGatewayMemoryAdvisorTest {
         String userRole = "Hello, how are you?";
         String summaryText = "Краткое содержание предыдущей беседы:\nSummary text\n\nКлючевые моменты:\n• Point 1\n• Point 2";
         
-        // Настраиваем ChatMemory для возврата summary как SystemMessage
+        // Setup ChatMemory to return summary as SystemMessage
         List<Message> historyWithSummary = List.of(
-                new SystemMessage(summaryText), // Summary как SystemMessage
+                new SystemMessage(summaryText), // Summary as SystemMessage
                 new UserMessage("Recent user message"),
                 new AssistantMessage("Recent assistant response")
         );
         when(chatMemory.get(threadKey)).thenReturn(historyWithSummary);
         
-        // Настраиваем ChatModel для возврата ответа
+        // Setup ChatModel to return response
         ChatResponse mockResponse = ChatResponse.builder()
                 .generations(List.of(new Generation(new AssistantMessage("Test response"))))
                 .build();
         
-        // Используем ArgumentCaptor для перехвата Prompt
+        // Use ArgumentCaptor to capture Prompt
         ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
         when(ollamaChatModel.call(promptCaptor.capture())).thenReturn(mockResponse);
         
-        // Создаем команду с threadKey
+        // Create command with threadKey
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, threadKey);
         ChatAICommand command = new ChatAICommand(
@@ -365,21 +365,21 @@ class SpringAIGatewayMemoryAdvisorTest {
         springAIGateway.generateResponse(command);
         
         // Assert
-        // Проверяем, что ChatMemory.get() был вызван
+        // Verify ChatMemory.get() was called
         verify(chatMemory, times(1)).get(threadKey);
         
-        // Проверяем, что Prompt был перехвачен
+        // Verify Prompt was captured
         Prompt capturedPrompt = promptCaptor.getValue();
         assertNotNull(capturedPrompt, "Prompt должен быть перехвачен");
         
-        // Получаем список сообщений из Prompt
+        // Get message list from Prompt
         List<Message> messages = capturedPrompt.getInstructions();
         assertNotNull(messages, "Список сообщений не должен быть null");
         
-        // Проверяем правильный порядок: System (текущий) -> summary(System) -> История -> User
-        // MessageOrderingAdvisor должен переупорядочить все System сообщения первыми
+        // Verify correct order: System (current) -> summary(System) -> History -> User
+        // MessageOrderingAdvisor must reorder all System messages first
         
-        // Находим индексы всех сообщений для проверки порядка
+        // Find indices of all messages to verify order
         int systemRoleIndex = -1;
         int summaryIndex = -1;
         int historyUserIndex = -1;
@@ -411,14 +411,14 @@ class SpringAIGatewayMemoryAdvisorTest {
             }
         }
         
-        // Проверяем, что все сообщения найдены
+        // Verify all messages were found
         assertTrue(systemRoleIndex >= 0, "System сообщение (systemRole) должно быть найдено");
         assertTrue(summaryIndex >= 0, "Summary System сообщение должно быть найдено");
         assertTrue(historyUserIndex >= 0, "История User сообщение должно быть найдено");
         assertTrue(historyAssistantIndex >= 0, "История Assistant сообщение должно быть найдено");
         assertTrue(currentUserIndex >= 0, "Текущее User сообщение должно быть найдено");
         
-        // Проверяем правильный порядок: System (текущий) -> summary(System) -> История -> User
+        // Verify correct order: System (current) -> summary(System) -> History -> User
         assertEquals(0, systemRoleIndex, 
                 "System сообщение (systemRole) должно быть первым (index 0), но было на index: " + systemRoleIndex +
                 ". Текущий порядок: " + getMessagesOrderString(messages));
@@ -435,7 +435,7 @@ class SpringAIGatewayMemoryAdvisorTest {
                 "Текущее User сообщение должно быть последним (index 4), но было на index: " + currentUserIndex +
                 ". Текущий порядок: " + getMessagesOrderString(messages));
         
-        // Итоговая проверка: порядок должен быть System -> summary(System) -> History (User -> Assistant) -> User
+        // Final check: order must be System -> summary(System) -> History (User -> Assistant) -> User
         assertEquals(5, messages.size(), 
                 "Должно быть 5 сообщений: System, Summary, History User, History Assistant, Current User");
     }
@@ -447,8 +447,8 @@ class SpringAIGatewayMemoryAdvisorTest {
         String systemRole = "You are a helpful assistant";
         String userRole = "Hello, how are you?";
         
-        // Симулируем ситуацию, когда ChatMemory возвращает много сообщений
-        // (что должно триггерить суммаризацию в SummarizingChatMemory)
+        // Simulate ChatMemory returning many messages
+        // (which should trigger summarization in SummarizingChatMemory)
         List<Message> manyHistoryMessages = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
             manyHistoryMessages.add(new UserMessage("User message " + i));
@@ -456,7 +456,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         }
         when(chatMemory.get(threadKey)).thenReturn(manyHistoryMessages);
         
-        // Настраиваем ChatModel для возврата ответа
+        // Setup ChatModel to return response
         ChatResponse mockResponse = ChatResponse.builder()
                 .generations(List.of(new Generation(new AssistantMessage("Test response"))))
                 .build();
@@ -464,7 +464,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
         when(ollamaChatModel.call(promptCaptor.capture())).thenReturn(mockResponse);
         
-        // Создаем команду с threadKey
+        // Create command with threadKey
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, threadKey);
         ChatAICommand command = new ChatAICommand(
@@ -482,19 +482,19 @@ class SpringAIGatewayMemoryAdvisorTest {
         springAIGateway.generateResponse(command);
         
         // Assert
-        // Проверяем, что ChatMemory.get() был вызван
+        // Verify ChatMemory.get() was called
         verify(chatMemory, atLeastOnce()).get(threadKey);
         
-        // Проверяем, что Prompt был перехвачен
+        // Verify Prompt was captured
         Prompt capturedPrompt = promptCaptor.getValue();
         assertNotNull(capturedPrompt, "Prompt должен быть перехвачен");
         
-        // Проверяем, что сообщения были переданы в ChatModel
+        // Verify messages were passed to ChatModel
         List<Message> messages = capturedPrompt.getInstructions();
         assertNotNull(messages, "Список сообщений не должен быть null");
         assertFalse(messages.isEmpty(), "Список сообщений не должен быть пустым");
         
-        // Проверяем порядок: System должен быть в начале, User - последним
+        // Verify order: System must be at start, User last
         boolean hasSystemMessage = messages.stream()
                 .anyMatch(m -> m instanceof SystemMessage);
         assertTrue(hasSystemMessage, 

@@ -53,10 +53,10 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 
 /**
- * Интеграционный тест SpringAIGateway на стриминг сообщений.
- * Проверяет, что чанки приходят по мере готовности (в разное время), а не все сразу.
- * Запускается с профилем local, чтобы воспроизводить окружение, в котором стриминг ломался
- * (WebClientLogCustomizer для dev/local). Тест с MockWebServer явно использует проблемный класс.
+ * Integration test for SpringAIGateway streaming.
+ * Verifies that chunks arrive progressively (at different times), not all at once.
+ * Runs with local profile to reproduce the environment where streaming was broken
+ * (WebClientLogCustomizer for dev/local). Test with MockWebServer explicitly uses the problematic class.
  */
 @Slf4j
 @SpringBootTest(
@@ -70,16 +70,16 @@ class SpringAIGatewayIT {
 
     private static final int CHUNK_DELAY_MS = 50;
     private static final int NUM_CHUNKS = 4;
-    /** Минимальная разница между первым и последним чанком (мс): при прогрессивной доставке должно быть >= (N-1)*delay. */
+    /** Minimum span between first and last chunk (ms): with progressive delivery must be >= (N-1)*delay. */
     private static final long MIN_SPAN_MS = (NUM_CHUNKS - 1) * (CHUNK_DELAY_MS - 15);
 
     @Autowired
     private SpringAIGateway springAIGateway;
 
     /**
-     * Создаёт Flux, имитирующий стриминговый ответ: {@code numChunks} чанков с задержкой
-     * {@code delayMs} между ними. Используется в моке SpringAIPromptFactory для проверки
-     * прогрессивной доставки (без реального Ollama/OpenRouter).
+     * Creates Flux simulating streaming response: {@code numChunks} chunks with {@code delayMs}
+     * delay between them. Used in SpringAIPromptFactory mock to verify progressive delivery
+     * (without real Ollama/OpenRouter).
      */
     static Flux<ChatResponse> createSimulatedStreamFlux(int numChunks, int delayMs) {
         AtomicInteger index = new AtomicInteger(0);
@@ -94,8 +94,8 @@ class SpringAIGatewayIT {
     }
 
     /**
-     * Создаёт Flux с чанками-абзацами: каждый чанк — строка длиной не менее minParagraphLength,
-     * заканчивающаяся на \n\n, чтобы processStreamingResponseByParagraphs отдавал блоки по одному.
+     * Creates Flux with paragraph chunks: each chunk is a string of at least minParagraphLength
+     * ending with \n\n, so processStreamingResponseByParagraphs delivers blocks one by one.
      */
     static Flux<ChatResponse> createSimulatedStreamFluxWithParagraphs(int numChunks, int delayMs, int minParagraphLength) {
         AtomicInteger index = new AtomicInteger(0);
@@ -112,10 +112,10 @@ class SpringAIGatewayIT {
     }
 
     /**
-     * Воспроизведение проблемы: проверяет, что чанки от Spring AI Flux приходят прогрессивно
-     * (как в логах — все одновременно в doOnNext на уровне SpringAIStreamResponse.chatResponse()).
-     * При буферизации все чанки приходят одновременно → тест падает.
-     * Этот тест должен падать, если Spring AI или WebClient буферизует стрим до того, как он попадает в наш код.
+     * Reproduces issue: verifies that chunks from Spring AI Flux arrive progressively
+     * (in logs they appear all at once in doOnNext at SpringAIStreamResponse.chatResponse()).
+     * When buffered, all chunks arrive at once → test fails.
+     * This test should fail if Spring AI or WebClient buffers the stream before it reaches our code.
      */
     @Test
     void whenSpringAIStreamResponse_thenChunksArriveProgressivelyNotAllAtOnce() {
@@ -138,7 +138,7 @@ class SpringAIGatewayIT {
         SpringAIStreamResponse streamResponse = (SpringAIStreamResponse) response;
         assertNotNull(streamResponse.chatResponse(), "Stream response must expose Flux of ChatResponse");
 
-        // Записываем время получения каждого чанка напрямую из Spring AI Flux (как в логах "Received chunk")
+        // Record receive time of each chunk directly from Spring AI Flux (as in "Received chunk" logs)
         List<Long> receiveTimeNanos = new CopyOnWriteArrayList<>();
         streamResponse.chatResponse()
                 .doOnNext(cr -> {
@@ -158,17 +158,17 @@ class SpringAIGatewayIT {
         log.info("Spring AI stream chunks: {}, spanMs: {} (progressive requires >= {} ms)",
                 receiveTimeNanos.size(), spanMs, MIN_SPAN_MS);
 
-        // При буферизации все чанки приходят одновременно → span маленький → тест падает
+        // When buffered, all chunks arrive at once → span is small → test fails
         assertTrue(spanMs >= MIN_SPAN_MS,
                 "Chunks from Spring AI Flux must arrive progressively (span >= " + MIN_SPAN_MS + " ms), but span was " + spanMs + " ms. " +
                         "If all arrive at once (span ≈ 0), Spring AI or WebClient is buffering the stream before it reaches our code.");
     }
 
     /**
-     * Воспроизведение проблемы: реальный SSE (MockWebServer) + WebClient с проблемным классом WebClientLogCustomizer.
-     * Тест запускается с профилем local; явно создаём WebClientLogCustomizer (тот же класс, что раньше был в dev/local).
-     * Если customizer синхронно читает DataBuffer (sniff), стрим буферизуется и все чанки приходят сразу (span ≈ 0) — тест падает.
-     * После исправления (local без customizer / неблокирующий sniff) тест проходит.
+     * Reproduces issue: real SSE (MockWebServer) + WebClient with problematic WebClientLogCustomizer.
+     * Test runs with local profile; we explicitly create WebClientLogCustomizer (same class as in dev/local).
+     * If customizer reads DataBuffer synchronously (sniff), stream is buffered and all chunks arrive at once (span ≈ 0) — test fails.
+     * After fix (local without customizer / non-blocking sniff) test passes.
      */
     @Test
     void whenSseStreamViaWebClientWithLogCustomizer_thenDataBuffersArriveProgressivelyNotAllAtOnce() throws IOException {
@@ -193,7 +193,7 @@ class SpringAIGatewayIT {
                     .setBody(sseBody.toString())
                     .throttleBody(64, chunkDelayMs, TimeUnit.MILLISECONDS));
 
-            // Проблемный класс: при синхронном sniff в handle() стрим буферизуется; в тесте проверяем прогрессивную доставку
+            // Problematic class: with synchronous sniff in handle() stream is buffered; test verifies progressive delivery
             WebClientLogCustomizer customizer = new WebClientLogCustomizer(new ObjectMapper());
             WebClient.Builder builder = WebClient.builder();
             customizer.customize(builder);
@@ -230,10 +230,10 @@ class SpringAIGatewayIT {
     }
 
     /**
-     * Воспроизведение текущей проблемы: WebClient с фильтром, который буферизует body (collectList),
-     * как при блокирующем sniff в WebClientLogCustomizer. Та же проверка, что в тесте на прогрессивную доставку
-     * (span >= minSpan). При буферизации чанки приходят разом → span маленький → тест должен падать.
-     * Пока баг не пофикшен (стрим не буферизуется), этот тест остаётся падающим.
+     * Reproduces current issue: WebClient with filter that buffers body (collectList),
+     * as with blocking sniff in WebClientLogCustomizer. Same check as in progressive-delivery test
+     * (span >= minSpan). When buffered, chunks arrive at once → span is small → test should fail.
+     * Until the bug is fixed (stream not buffered), this test remains failing.
      */
     @Test
     void whenSseStreamViaWebClientWithBlockingSniff_thenDataBuffersArriveAllAtOnce_reproducingBug() throws IOException {
@@ -258,7 +258,7 @@ class SpringAIGatewayIT {
                     .setBody(sseBody.toString())
                     .throttleBody(64, chunkDelayMs, TimeUnit.MILLISECONDS));
 
-            // Фильтр воспроизводит баг: буферизация body (как при синхронном sniff) → все чанки приходят сразу
+            // Filter reproduces bug: body buffering (as with synchronous sniff) → all chunks arrive at once
             ExchangeFilterFunction bufferingFilter = (request, next) -> next.exchange(request)
                     .flatMap(response -> {
                         if (response.statusCode().isError()) {
@@ -297,7 +297,7 @@ class SpringAIGatewayIT {
             log.info("SSE with BUFFERING (bug): {} DataBuffers, spanMs: {} (progressive requires >= {} ms)",
                     receiveTimeNanos.size(), spanMs, minSpanMs);
 
-            // Та же проверка, что в whenSseStreamViaWebClientWithLogCustomizer_... — при буферизации падает; ожидаем AssertionError.
+            // Same check as in whenSseStreamViaWebClientWithLogCustomizer_... — with buffering it fails; expect AssertionError.
             AssertionError failure = assertThrows(AssertionError.class,
                     () -> assertTrue(spanMs >= minSpanMs,
                             "DataBuffers must arrive progressively (span >= " + minSpanMs + " ms), but with buffering span was " + spanMs + " ms."));
@@ -342,21 +342,21 @@ class SpringAIGatewayIT {
     }
 
     /**
-     * Воспроизведение проблемы: проверяет реальный путь обработки стрима через processStreamingResponseByParagraphs
-     * (как в Telegram handler). При буферизации все блоки приходят одновременно → тест падает.
-     * Этот тест должен падать, если стрим буферизуется где-то в цепочке (Spring AI, WebClient, или в processStreamingResponseByParagraphs).
+     * Reproduces issue: verifies real stream processing path via processStreamingResponseByParagraphs
+     * (as in Telegram handler). When buffered, all blocks arrive at once → test fails.
+     * This test should fail if stream is buffered somewhere in the chain (Spring AI, WebClient, or processStreamingResponseByParagraphs).
      */
     @Test
     void whenProcessStreamingResponseByParagraphs_thenBlocksArriveProgressivelyNotAllAtOnce() {
-        // Чанки — полные абзацы (>= 300 символов, \n\n), чтобы каждый дал один блок в listener
+        // Chunks are full paragraphs (>= 300 chars, \n\n) so each yields one block in listener
         int numChunks = 5;
         int chunkDelayMs = 80;
         long minSpanMs = (numChunks - 1) * (chunkDelayMs - 20);
-        int minParagraphLength = 300; // как в AIUtils.processStreamingResponseByParagraphs
+        int minParagraphLength = 300; // as in AIUtils.processStreamingResponseByParagraphs
 
         Flux<ChatResponse> progressiveFlux = createSimulatedStreamFluxWithParagraphs(numChunks, chunkDelayMs, minParagraphLength);
 
-        // Записываем время получения каждого блока в listener (как в Telegram)
+        // Record receive time of each block in listener (as in Telegram)
         List<Long> blockReceiveTimeNanos = new CopyOnWriteArrayList<>();
 
         try {
@@ -385,7 +385,7 @@ class SpringAIGatewayIT {
         log.info("processStreamingResponseByParagraphs: {} blocks, spanMs: {} (progressive requires >= {} ms)",
                 blockReceiveTimeNanos.size(), spanMs, minSpanMs);
 
-        // При буферизации все блоки приходят одновременно → span маленький → тест падает
+        // When buffered, all blocks arrive at once → span is small → test fails
         assertTrue(spanMs >= minSpanMs,
                 "Blocks must arrive progressively (span >= " + minSpanMs + " ms), but span was " + spanMs + " ms. " +
                         "If all arrive at once, streaming is buffered somewhere in the chain (Spring AI, WebClient, or processStreamingResponseByParagraphs).");
@@ -408,8 +408,8 @@ class SpringAIGatewayIT {
         }
 
         /**
-         * Возвращает прогрессивный Flux с задержками между чанками.
-         * После исправления WebClientLogCustomizer (парсинг в отдельном потоке) стриминг не блокируется.
+         * Returns progressive Flux with delays between chunks.
+         * After WebClientLogCustomizer fix (parsing in separate thread) streaming is not blocked.
          */
         private static ChatClient.ChatClientRequestSpec createSpecWithDelayedFlux() {
             Flux<ChatResponse> progressiveFlux = SpringAIGatewayIT.createSimulatedStreamFlux(NUM_CHUNKS, CHUNK_DELAY_MS);

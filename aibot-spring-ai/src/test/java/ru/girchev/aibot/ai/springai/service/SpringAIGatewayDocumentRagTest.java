@@ -32,9 +32,9 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Тест прохождения PDF-вложения от команды до вызова DocumentProcessingService.processPdf.
- * Проверяет, что при ChatAICommand с PDF attachment и пустом body.messages
- * gateway вызывает processRagIfEnabled и processPdf с непустыми данными.
+ * Test for PDF attachment flow from command to DocumentProcessingService.processPdf call.
+ * Verifies that when ChatAICommand has PDF attachment and empty body.messages,
+ * gateway calls processRagIfEnabled and processPdf with non-empty data.
  */
 @ExtendWith(MockitoExtension.class)
 class SpringAIGatewayDocumentRagTest {
@@ -70,9 +70,7 @@ class SpringAIGatewayDocumentRagTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<ChatMemory> chatMemoryProvider = mock(ObjectProvider.class);
 
-        when(documentProcessingService.processPdf(any(byte[].class), anyString())).thenReturn("doc-id-1");
-        // RAG-сервисы в этих тестах напрямую не используются (фокус на PDF/vision),
-        // поэтому ослабляем строгую проверку Mockito через lenient-stubbing.
+        lenient().when(documentProcessingService.processPdf(any(byte[].class), anyString())).thenReturn("doc-id-1");
         lenient().when(fileRagService.findRelevantContext(anyString(), anyString())).thenReturn(List.of(new Document("chunk text")));
         lenient().when(fileRagService.createAugmentedPrompt(anyString(), anyList())).thenReturn("Augmented prompt with context from document.");
 
@@ -88,6 +86,11 @@ class SpringAIGatewayDocumentRagTest {
         ragProperties.setChunkOverlap(100);
         ragProperties.setTopK(5);
         ragProperties.setSimilarityThreshold(0.7);
+        RAGProperties.RAGPrompts prompts = new RAGProperties.RAGPrompts();
+        prompts.setDocumentExtractErrorPdf("Could not extract text from file \"%s\".");
+        prompts.setDocumentExtractErrorDocument("Could not extract text from file \"%s\" (type: %s).");
+        prompts.setAugmentedPromptTemplate("Context:\n%s\n\nQuestion: %s");
+        ragProperties.setPrompts(prompts);
 
         springAIGateway = new SpringAIGateway(
                 springAIProperties,
@@ -170,7 +173,7 @@ class SpringAIGatewayDocumentRagTest {
 
         verify(documentProcessingService, times(1)).processPdf(any(byte[].class), eq("scan.pdf"));
         
-        // Проверяем, что был вызван chatService с правильными сообщениями
+        // Verify chatService was called with correct messages
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
                 ArgumentCaptor.forClass(List.class);
@@ -185,7 +188,7 @@ class SpringAIGatewayDocumentRagTest {
         assertNotNull(messages);
         assertTrue(messages.size() >= 2, "Should have at least SystemMessage with attachment context and UserMessage");
         
-        // Проверяем наличие SystemMessage с контекстом о PDF
+        // Verify SystemMessage with PDF context is present
         boolean hasSystemMessageWithPdfContext = messages.stream()
                 .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
                 .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
@@ -193,7 +196,7 @@ class SpringAIGatewayDocumentRagTest {
         
         assertTrue(hasSystemMessageWithPdfContext, "Should have SystemMessage with PDF attachment context");
 
-        // В этом тесте ChatMemory не используется, так как нет threadKey в metadata
+        // In this test ChatMemory is not used because there is no threadKey in metadata
     }
 
     @Test
@@ -225,7 +228,7 @@ class SpringAIGatewayDocumentRagTest {
 
         springAIGateway.generateResponse(command);
 
-        // Проверяем, что был вызван chatService с правильными сообщениями
+        // Verify chatService was called with correct messages
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
                 ArgumentCaptor.forClass(List.class);
@@ -240,7 +243,7 @@ class SpringAIGatewayDocumentRagTest {
         assertNotNull(messages);
         assertTrue(messages.size() >= 2, "Should have at least SystemMessage with attachment context and UserMessage");
 
-        // Проверяем наличие SystemMessage с контекстом об изображении
+        // Verify SystemMessage with image context is present
         boolean hasSystemMessageWithImageContext = messages.stream()
                 .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
                 .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
@@ -248,7 +251,7 @@ class SpringAIGatewayDocumentRagTest {
 
         assertTrue(hasSystemMessageWithImageContext, "Should have SystemMessage with image attachment context");
 
-        // В этом тесте ChatMemory не используется, так как нет threadKey в metadata
+        // In this test ChatMemory is not used because there is no threadKey in metadata
     }
 
     @Test
@@ -293,7 +296,7 @@ class SpringAIGatewayDocumentRagTest {
 
         springAIGateway.generateResponse(command);
 
-        // Проверяем, что был вызван chatService с правильными сообщениями
+        // Verify chatService was called with correct messages
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
                 ArgumentCaptor.forClass(List.class);
@@ -307,7 +310,7 @@ class SpringAIGatewayDocumentRagTest {
         List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
         assertNotNull(messages);
 
-        // Проверяем наличие SystemMessage с контекстом и о PDF, и об изображении
+        // Verify SystemMessage with both PDF and image context is present
         boolean hasSystemMessageWithBothContexts = messages.stream()
                 .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
                 .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
@@ -316,6 +319,6 @@ class SpringAIGatewayDocumentRagTest {
 
         assertTrue(hasSystemMessageWithBothContexts, "Should have SystemMessage with both PDF and image contexts");
 
-        // В этом тесте ChatMemory не используется, так как нет threadKey в metadata
+        // In this test ChatMemory is not used because there is no threadKey in metadata
     }
 }

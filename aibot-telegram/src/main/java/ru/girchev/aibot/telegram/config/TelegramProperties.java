@@ -24,112 +24,112 @@ import java.util.stream.Collectors;
 @ConfigurationProperties(prefix = "ai-bot.telegram")
 public class TelegramProperties {
     
-    @NotBlank(message = "Токен бота не может быть пустым")
+    @NotBlank(message = "Bot token cannot be blank")
     private String token;
     
-    @NotBlank(message = "Имя пользователя бота не может быть пустым")
+    @NotBlank(message = "Bot username cannot be blank")
     private String username;
     
     /**
-     * Строка с Telegram ID пользователей через запятую (например: "350001752,123456789")
-     * Парсится в Set<Long> при инициализации
+     * Comma-separated Telegram user IDs (e.g. "350001752,123456789").
+     * Parsed into Set<Long> on initialization.
      */
     private String whitelistExceptions;
     
     /**
-     * Множество Telegram ID пользователей, которые должны быть автоматически добавлены в whitelist при старте приложения
-     * Парсится из whitelistExceptions строки
+     * Set of Telegram user IDs to be automatically added to whitelist at application startup.
+     * Parsed from whitelistExceptions string.
      */
     private Set<Long> whitelistExceptionsSet = new HashSet<>();
     
     /**
-     * Строка с ID групп/каналов Telegram через запятую (например: "-1000000000000,@mygroup")
-     * Участники этих групп/каналов получают доступ к боту.
-     * Если пользователь не в whitelist, но является участником одной из этих групп/каналов,
-     * он автоматически добавляется в whitelist.
-     * Может быть как числовым ID (например: -1000000000000), так и username (например: @mygroup)
-     * Парсится в Set<String> при инициализации
+     * Comma-separated Telegram group/channel IDs (e.g. "-1000000000000,@mygroup").
+     * Members of these groups/channels get access to the bot.
+     * If a user is not in whitelist but is a member of one of these groups/channels,
+     * they are automatically added to whitelist.
+     * Can be numeric ID (e.g. -1000000000000) or username (e.g. @mygroup).
+     * Parsed into Set<String> on initialization.
      */
     private String whitelistChannelIdExceptions;
     
     /**
-     * Список ID групп/каналов Telegram, участники которых получают доступ к боту.
-     * Парсится из whitelistChannelIdExceptions строки
+     * Set of Telegram group/channel IDs whose members get access to the bot.
+     * Parsed from whitelistChannelIdExceptions string.
      */
     private Set<String> whitelistChannelIdExceptionsSet = new HashSet<>();
     
     /**
-     * Приветственное сообщение, отправляемое при команде /start
+     * Welcome message sent on /start command.
      */
-    @NotBlank(message = "Приветственное сообщение не может быть пустым")
+    @NotBlank(message = "Start welcome message cannot be blank")
     private String startMessage;
     
     /**
-     * Настройки включения/выключения обработчиков команд
+     * Enable/disable settings for command handlers.
      */
     private Commands commands = new Commands();
 
     /**
-     * Таймаут чтения HTTP при long polling (секунды). Должен быть строго больше get-updates-timeout-seconds.
-     * Опционально; при отсутствии используются дефолты библиотеки telegrambots.
+     * HTTP read timeout for long polling (seconds). Must be strictly greater than get-updates-timeout-seconds.
+     * Optional; when absent, telegrambots library defaults are used.
      */
-    @Min(value = 1, message = "longPollingSocketTimeoutSeconds должен быть >= 1")
-    @Max(value = 100, message = "longPollingSocketTimeoutSeconds должен быть <= 100")
+    @Min(value = 1, message = "longPollingSocketTimeoutSeconds must be >= 1")
+    @Max(value = 100, message = "longPollingSocketTimeoutSeconds must be <= 100")
     private Integer longPollingSocketTimeoutSeconds;
 
     /**
-     * Параметр timeout для getUpdates (секунды). Максимум 50 по документации Telegram API.
-     * Опционально; при отсутствии используются дефолты библиотеки telegrambots.
+     * getUpdates timeout parameter (seconds). Maximum 50 per Telegram API docs.
+     * Optional; when absent, telegrambots library defaults are used.
      */
-    @Min(value = 1, message = "getUpdatesTimeoutSeconds должен быть >= 1")
-    @Max(value = 50, message = "getUpdatesTimeoutSeconds должен быть <= 50")
+    @Min(value = 1, message = "getUpdatesTimeoutSeconds must be >= 1")
+    @Max(value = 50, message = "getUpdatesTimeoutSeconds must be <= 50")
     private Integer getUpdatesTimeoutSeconds;
 
     /**
-     * Максимальная длина сообщения для отправки в Telegram (символов).
-     * По умолчанию 4096 (лимит Telegram Bot API).
-     * При превышении лимита сообщение будет разбито на части по границам абзацев.
+     * Maximum message length for sending to Telegram (characters).
+     * Default 4096 (Telegram Bot API limit).
+     * When exceeded, message is split at paragraph boundaries.
      */
-    @NotNull(message = "maxMessageLength обязателен")
-    @Min(value = 100, message = "maxMessageLength должен быть >= 100")
-    @Max(value = 10000, message = "maxMessageLength должен быть <= 10000")
+    @NotNull(message = "maxMessageLength is required")
+    @Min(value = 100, message = "maxMessageLength must be >= 100")
+    @Max(value = 10000, message = "maxMessageLength must be <= 10000")
     private Integer maxMessageLength;
 
     @Getter
     @Setter
     public static class Commands {
         /**
-         * Включить/выключить обработчик команды /start
+         * Enable/disable /start command handler
          */
         private boolean startEnabled;
         
         /**
-         * Включить/выключить обработчик команды /role
+         * Enable/disable /role command handler
          */
         private boolean roleEnabled;
         
         /**
-         * Включить/выключить обработчик обычных сообщений
+         * Enable/disable regular message handler
          */
         private boolean messageEnabled;
 
         /**
-         * Включить/выключить обработчик команды /bugreport
+         * Enable/disable /bugreport command handler
          */
         private boolean bugreportEnabled;
 
         /**
-         * Включить/выключить обработчик команды /newthread
+         * Enable/disable /newthread command handler
          */
         private boolean newthreadEnabled;
 
         /**
-         * Включить/выключить обработчик команды /history
+         * Enable/disable /history command handler
          */
         private boolean historyEnabled;
 
         /**
-         * Включить/выключить обработчик команды /threads
+         * Enable/disable /threads command handler
          */
         private boolean threadsEnabled;
     }
@@ -138,7 +138,7 @@ public class TelegramProperties {
     public void parseWhitelistExceptions() {
         if (whitelistExceptions == null || whitelistExceptions.trim().isEmpty()) {
             whitelistExceptionsSet = new HashSet<>();
-            log.info("whitelist-exceptions пуст или null, список исключений будет пустым");
+            log.info("whitelist-exceptions is empty or null, exception list will be empty");
         } else {
             try {
                 whitelistExceptionsSet = Arrays.stream(whitelistExceptions.split(","))
@@ -146,9 +146,9 @@ public class TelegramProperties {
                         .filter(s -> !s.isEmpty())
                         .map(Long::parseLong)
                         .collect(Collectors.toSet());
-                log.info("Распарсен whitelist-exceptions: '{}' -> {}", whitelistExceptions, whitelistExceptionsSet);
+                log.info("Parsed whitelist-exceptions: '{}' -> {}", whitelistExceptions, whitelistExceptionsSet);
             } catch (NumberFormatException e) {
-                log.warn("Ошибка парсинга whitelist-exceptions '{}': {}. Список исключений будет пустым", 
+                log.warn("Failed to parse whitelist-exceptions '{}': {}. Exception list will be empty", 
                         whitelistExceptions, e.getMessage());
                 whitelistExceptionsSet = new HashSet<>();
             }
@@ -156,13 +156,13 @@ public class TelegramProperties {
         
         if (whitelistChannelIdExceptions == null || whitelistChannelIdExceptions.trim().isEmpty()) {
             whitelistChannelIdExceptionsSet = new HashSet<>();
-            log.info("whitelist-channel-id-exceptions пуст или null, список каналов будет пустым");
+            log.info("whitelist-channel-id-exceptions is empty or null, channel list will be empty");
         } else {
             whitelistChannelIdExceptionsSet = Arrays.stream(whitelistChannelIdExceptions.split(","))
                     .map(String::trim)
                     .filter(s -> !s.isEmpty())
                     .collect(Collectors.toSet());
-            log.info("Распарсен whitelist-channel-id-exceptions: '{}' -> {}", 
+            log.info("Parsed whitelist-channel-id-exceptions: '{}' -> {}", 
                     whitelistChannelIdExceptions, whitelistChannelIdExceptionsSet);
         }
     }

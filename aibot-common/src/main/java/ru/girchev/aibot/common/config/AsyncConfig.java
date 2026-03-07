@@ -8,16 +8,16 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import java.util.concurrent.Executor;
 
 /**
- * Конфигурация для асинхронной работы (например, summarization).
- * Используется для выполнения долгих операций в фоновом режиме.
+ * Configuration for async execution (e.g. summarization).
+ * Used to run long operations in the background.
  */
 @Configuration
 @EnableAsync
 public class AsyncConfig {
     
     /**
-     * Executor для summarization операций.
-     * Используется через @Async("summarizationTaskExecutor") в SummarizationService.
+     * Executor for summarization operations.
+     * Used via @Async("summarizationTaskExecutor") in SummarizationService.
      */
     @Bean(name = "summarizationTaskExecutor")
     public Executor summarizationTaskExecutor() {

@@ -1,7 +1,7 @@
 package ru.girchev.aibot.common.model;
 
 /**
- * Перечисление типов багрепортов
+ * Enumeration of bug report types.
  */
 public enum BugreportType {
     BUG,

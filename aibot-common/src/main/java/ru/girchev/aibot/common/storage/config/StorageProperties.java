@@ -10,10 +10,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Конфигурация файлового хранилища.
- * 
- * Все значения обязательны и должны быть указаны в application.yml.
- * По правилам проекта дефолтные значения НЕ задаются в коде.
+ * File storage configuration.
+ *
+ * All values are required and must be specified in application.yml.
+ * Per project rules, default values are NOT set in code.
  */
 @ConfigurationProperties(prefix = "ai-bot.common.storage")
 @Validated
@@ -22,15 +22,15 @@ import org.springframework.validation.annotation.Validated;
 public class StorageProperties {
 
     /**
-     * Включить файловое хранилище (feature flag).
+     * Enable file storage (feature flag).
      */
-    @NotNull(message = "enabled обязателен")
+    @NotNull(message = "enabled is required")
     private Boolean enabled;
 
     /**
-     * Настройки MinIO хранилища.
+     * MinIO storage settings.
      */
-    @NotNull(message = "minio конфигурация обязательна")
+    @NotNull(message = "minio configuration is required")
     @Valid
     private MinioProperties minio;
 
@@ -39,34 +39,34 @@ public class StorageProperties {
     public static class MinioProperties {
 
         /**
-         * URL endpoint MinIO сервера (например, http://localhost:9000).
+         * MinIO server endpoint URL (e.g. http://localhost:9000).
          */
-        @NotBlank(message = "endpoint обязателен")
+        @NotBlank(message = "endpoint is required")
         private String endpoint;
 
         /**
-         * Access key для аутентификации в MinIO.
+         * Access key for MinIO authentication.
          */
-        @NotBlank(message = "accessKey обязателен")
+        @NotBlank(message = "accessKey is required")
         private String accessKey;
 
         /**
-         * Secret key для аутентификации в MinIO.
+         * Secret key for MinIO authentication.
          */
-        @NotBlank(message = "secretKey обязателен")
+        @NotBlank(message = "secretKey is required")
         private String secretKey;
 
         /**
-         * Имя bucket для хранения файлов.
+         * Bucket name for file storage.
          */
-        @NotBlank(message = "bucket обязателен")
+        @NotBlank(message = "bucket is required")
         private String bucket;
 
         /**
-         * Время жизни файлов в часах (TTL).
+         * Time-to-live for files in hours (TTL).
          */
-        @NotNull(message = "ttlHours обязателен")
-        @Min(value = 1, message = "ttlHours должен быть >= 1")
+        @NotNull(message = "ttlHours is required")
+        @Min(value = 1, message = "ttlHours must be >= 1")
         private Integer ttlHours;
     }
 }

@@ -13,7 +13,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 
 /**
- * Реализация FileStorageService для MinIO хранилища.
+ * FileStorageService implementation for MinIO storage.
  */
 @Slf4j
 public class MinioFileStorageService implements FileStorageService {
@@ -32,7 +32,7 @@ public class MinioFileStorageService implements FileStorageService {
     }
 
     /**
-     * Инициализирует bucket если он не существует.
+     * Initializes bucket if it does not exist.
      */
     private void initializeBucket() {
         try {

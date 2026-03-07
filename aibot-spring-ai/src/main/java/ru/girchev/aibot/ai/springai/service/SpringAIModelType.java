@@ -19,24 +19,12 @@ public class SpringAIModelType {
     }
 
     /**
-     * Находит модель по набору типов моделей.
-     * Возвращает модель, которая поддерживает ВСЕ запрошенные типы.
-     * 
-     * Алгоритм выбора:
-     * 1. Для каждой модели находим максимальный индекс среди всех запрошенных типов в её capabilities
-     * 2. Выбираем модель с минимальным значением этого максимального индекса
-     * 3. Если несколько моделей имеют одинаковый maxIndex, выбираем модель с минимальным приоритетом
-     *    (меньшее число = выше приоритет, бесплатные модели имеют приоритет 1, платные - 2)
-     * 
-     * Пример:
-     * Запрошены типы: {CHAT, EMBEDDING}
-     * - Модель A: [CHAT(0), EMBEDDING(1)], priority=1 → maxIndex = 1
-     * - Модель B: [CHAT(0), EMBEDDING(1)], priority=2 → maxIndex = 1
-     * - Модель C: [CHAT(0), TOOL_CALLING(1), EMBEDDING(2)], priority=1 → maxIndex = 2
-     * Выбирается Модель A, так как у неё maxIndex (1) минимальный и приоритет (1) выше, чем у Модели B
-     * 
-     * @param modelCapabilities набор типов моделей для поиска
-     * @return Optional с найденной моделью или пустой Optional, если подходящая модель не найдена
+     * Finds model by set of model types. Returns model that supports ALL requested types.
+     * Selection: 1) For each model, max index among requested types in its capabilities.
+     * 2) Choose model with smallest max index. 3) Tie-break by priority (lower = higher priority; free=1, paid=2).
+     *
+     * @param modelCapabilities set of model types to search for
+     * @return Optional with found model or empty if none matches
      */
     public Optional<SpringAIModelConfig> getByCapabilities(Set<ModelCapabilities> modelCapabilities) {
         if (modelCapabilities == null || modelCapabilities.isEmpty()) {
@@ -51,16 +39,14 @@ public class SpringAIModelType {
                 continue;
             }
             
-            // Для каждой модели находим максимальный индекс среди всех запрошенных типов
-            // Например, если запрошены {CHAT, EMBEDDING} и модель имеет [CHAT(0), EMBEDDING(1)],
-            // то maxIndex = 1 (максимальный индекс среди найденных типов)
+            // For each model find max index among requested types in its capabilities
             Integer maxIndex = findMaxIndexForAllTypes(capabilities, modelCapabilities);
             if (maxIndex == null) {
-                // Модель не содержит все запрошенные типы - пропускаем
+                // Model does not support all requested types — skip
                 continue;
             }
             
-            // Сохраняем модель с её максимальным индексом для последующего сравнения
+            // Store model with its max index for comparison
             rangedModels.put(model, maxIndex);
         }
         
@@ -68,13 +54,12 @@ public class SpringAIModelType {
             return Optional.empty();
         }
         
-        // Находим минимальный maxIndex среди всех моделей
+        // Find minimum maxIndex among all models
         Integer minMaxIndex = rangedModels.values().stream()
                 .min(Integer::compareTo)
                 .orElse(Integer.MAX_VALUE);
         
-        // Фильтруем модели с минимальным maxIndex и выбираем модель с минимальным приоритетом
-        // (меньшее число = выше приоритет)
+        // Filter by min maxIndex, then choose by min priority (lower number = higher priority)
         return rangedModels.entrySet().stream()
                 .filter(entry -> entry.getValue().equals(minMaxIndex))
                 .min(Comparator.comparing((Map.Entry<SpringAIModelConfig, Integer> entry) -> entry.getKey().getPriority())
@@ -83,24 +68,16 @@ public class SpringAIModelType {
     }
 
     /**
-     * Проверяет, содержит ли список capabilities все запрошенные типы,
-     * и возвращает максимальный индекс среди всех найденных типов.
-     * 
-     * Пример:
-     * capabilities = [CHAT, EMBEDDING, TOOL_CALLING]
-     * requestedTypes = {CHAT, EMBEDDING}
-     * Результат: 1 (максимальный индекс среди найденных: CHAT на 0, EMBEDDING на 1)
-     * 
-     * Если не все типы найдены, возвращает null.
-     * 
-     * @param capabilities список capabilities модели
-     * @param requestedTypes запрошенные типы моделей
-     * @return максимальный индекс среди всех найденных типов или null, если не все типы найдены
+     * Checks that capabilities list contains all requested types and returns max index among found types. Returns null if not all found.
+     *
+     * @param capabilities model capabilities list
+     * @param requestedTypes requested model types
+     * @return max index among found types or null if not all types found
      */
     private Integer findMaxIndexForAllTypes(List<ModelCapabilities> capabilities, Set<ModelCapabilities> requestedTypes) {
         Map<ModelCapabilities, Integer> typeIndices = new HashMap<>();
         
-        // Находим индексы всех запрошенных типов в capabilities
+        // Find indices of requested types in capabilities
         for (int i = 0; i < capabilities.size(); i++) {
             ModelCapabilities capability = capabilities.get(i);
             if (requestedTypes.contains(capability)) {
@@ -108,23 +85,22 @@ public class SpringAIModelType {
             }
         }
         
-        // Проверяем, что все запрошенные типы найдены
+        // Ensure all requested types are present
         if (typeIndices.size() != requestedTypes.size()) {
             return null;
         }
         
-        // Возвращаем максимальный индекс
+        // Return max index
         return typeIndices.values().stream()
                 .max(Integer::compareTo)
                 .orElse(null);
     }
 
     /**
-     * Находит модель по одному типу модели.
-     * Удобный метод для обратной совместимости.
-     * 
-     * @param modelCapabilities тип модели для поиска
-     * @return Optional с найденной моделью или пустой Optional, если подходящая модель не найдена
+     * Finds model by single capability. Convenience for backward compatibility.
+     *
+     * @param modelCapabilities model type to search for
+     * @return Optional with found model or empty if none matches
      */
     public Optional<SpringAIModelConfig> getByCapability(ModelCapabilities modelCapabilities) {
         if (modelCapabilities == null) {

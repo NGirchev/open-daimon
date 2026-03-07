@@ -25,18 +25,18 @@ public class RestAuthorizationService {
      */
     public RestUser authorize(String email) {
         if (email == null || email.isBlank()) {
-            log.warn("Попытка доступа без email");
+            log.warn("Access attempt without email");
             throw new ru.girchev.aibot.rest.exception.UnauthorizedException("Email обязателен для доступа");
         }
         
         Optional<RestUser> userOpt = restUserRepository.findByEmail(email);
         if (userOpt.isEmpty()) {
-            log.warn("Попытка доступа с неверным email: {}", email);
+            log.warn("Access attempt with invalid email: {}", email);
             throw new ru.girchev.aibot.rest.exception.UnauthorizedException("Пользователь с указанным email не найден");
         }
         
         RestUser user = userOpt.get();
-        log.debug("Пользователь {} успешно авторизован", user.getEmail());
+        log.debug("User {} successfully authorized", user.getEmail());
         return user;
     }
 }

@@ -13,8 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Entity для хранения conversation threads (бесед с AI).
- * Группирует запросы пользователя в логическую беседу с историей сообщений.
+ * Entity for conversation threads (AI conversations).
+ * Groups user requests into a logical conversation with message history.
  */
 @Entity
 @Table(name = "conversation_thread", indexes = {
@@ -35,77 +35,77 @@ public class ConversationThread extends AbstractEntity<Long> {
     private Long id;
     
     /**
-     * Пользователь, которому принадлежит этот thread
+     * User who owns this thread.
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
     
     /**
-     * Уникальный ключ thread (UUID)
+     * Unique thread key (UUID).
      */
     @Column(name = "thread_key", nullable = false, unique = true)
     private String threadKey;
     
     /**
-     * Опциональное название темы беседы
+     * Optional conversation topic title.
      */
     @Column(name = "title", length = 500)
     private String title;
     
     /**
-     * Краткая сводка диалога (1-2 абзаца)
+     * Brief dialog summary (1-2 paragraphs).
      */
     @Column(name = "summary", columnDefinition = "TEXT")
     private String summary;
     
     /**
-     * Список ключевых фактов из диалога (memory bullets)
+     * List of key facts from dialog (memory bullets).
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "memory_bullets", columnDefinition = "jsonb")
     private List<String> memoryBullets = new ArrayList<>();
     
     /**
-     * Общее количество сообщений в thread
+     * Total message count in thread.
      */
     @Column(name = "total_messages")
     private Integer totalMessages = 0;
     
     /**
-     * Количество сообщений на момент последней суммаризации.
-     * Используется для отслеживания новых сообщений после суммаризации.
-     * NULL означает, что суммаризация еще не выполнялась.
+     * Message count at last summarization.
+     * Used to track new messages after summarization.
+     * NULL means summarization has not run yet.
      */
     @Column(name = "messages_at_last_summarization")
     private Integer messagesAtLastSummarization;
     
     /**
-     * Общее количество токенов (приблизительная оценка)
+     * Total token count (approximate).
      */
     @Column(name = "total_tokens")
     private Long totalTokens = 0L;
     
     /**
-     * Признак активного thread
+     * Whether thread is active.
      */
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
     
     /**
-     * Дата последней активности в thread
+     * Last activity date in thread.
      */
     @Column(name = "last_activity_at", nullable = false)
     private OffsetDateTime lastActivityAt;
     
     /**
-     * Дата создания thread
+     * Thread creation date.
      */
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
     
     /**
-     * Дата закрытия thread
+     * Thread close date.
      */
     @Column(name = "closed_at")
     private OffsetDateTime closedAt;

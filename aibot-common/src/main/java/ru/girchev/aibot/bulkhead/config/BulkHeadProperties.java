@@ -19,8 +19,8 @@ public class BulkHeadProperties {
     private Map<UserPriority, BulkheadInstance> instances = new EnumMap<>(UserPriority.class);
 
     /**
-     * Размер внутреннего пула потоков в {@code PriorityRequestExecutor}, в котором реально выполняются задачи.
-     * Если 0 или меньше — будет рассчитан автоматически как сумма maxConcurrentCalls по всем приоритетам.
+     * Size of internal thread pool in {@code PriorityRequestExecutor} where tasks actually run.
+     * If 0 or less, computed automatically as sum of maxConcurrentCalls over all priorities.
      */
     private int executorThreads;
     

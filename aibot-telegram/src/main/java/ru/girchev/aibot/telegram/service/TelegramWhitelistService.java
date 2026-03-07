@@ -47,7 +47,7 @@ public class TelegramWhitelistService implements IWhitelistService {
         List<Long> allTelegramIds = whitelistRepository.findAllTelegramUsers().stream()
                 .map(TelegramUser::getTelegramId)
                 .toList();
-        log.info("Загружен белый список пользователей: {}", allTelegramIds);
+        log.info("Loaded user whitelist: {}", allTelegramIds);
     }
 
     @Override
@@ -67,14 +67,14 @@ public class TelegramWhitelistService implements IWhitelistService {
             whitelist.setUser(user);
             whitelistRepository.save(whitelist);
             allowedUsers.add(user.getId());
-            log.info("Пользователь {} добавлен в белый список", user.getTelegramId());
+            log.info("User {} added to whitelist", user.getTelegramId());
         }
     }
 
     @Override
     public boolean checkUserInChannel(Long userId) {
         if (whitelistChannelIdExceptions == null || whitelistChannelIdExceptions.isEmpty()) {
-            log.debug("Список каналов/групп не настроен, пропускаем проверку членства");
+            log.debug("Channel/group list not configured, skipping membership check");
             return false;
         }
 
@@ -92,17 +92,17 @@ public class TelegramWhitelistService implements IWhitelistService {
                 ChatMember chatMember = telegramBot.execute(getChatMember);
                 boolean isMember = ChatMemberStatus.fromTelegramStatus(chatMember.getStatus()).isMember();
                 if (isMember) {
-                    log.debug("Пользователь {} найден в канале/группе {}", user.getTelegramId(), channelId);
+                    log.debug("User {} found in channel/group {}", user.getTelegramId(), channelId);
                     return true;
                 }
             } catch (TelegramApiException e) {
-                log.debug("Пользователь {} не является участником канала/группы {}: {}",
+                log.debug("User {} is not a member of channel/group {}: {}",
                         user.getTelegramId(), channelId, e.getMessage());
                 // Продолжаем проверку следующего канала
             }
         }
         
-        log.debug("Пользователь {} не найден ни в одном из каналов/групп: {}", user.getTelegramId(), whitelistChannelIdExceptions);
+        log.debug("User {} not found in any channel/group: {}", user.getTelegramId(), whitelistChannelIdExceptions);
         return false;
     }
 

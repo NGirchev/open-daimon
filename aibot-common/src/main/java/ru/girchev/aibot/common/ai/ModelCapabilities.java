@@ -2,77 +2,77 @@ package ru.girchev.aibot.common.ai;
 
 public enum ModelCapabilities {
     /**
-     * Автоматически определяются тулы, включает всё что возможно.
+     * Tools determined automatically, includes all possible.
      */
     AUTO,
     /**
-     * Передаёт имя как есть, применимо например для openrouter.
+     * Passes name as-is, e.g. for openrouter.
      */
     RAW_TYPE,
     /**
-     * Генерация текста/диалог: ответ, переписывание, код, reasoning.
-     * 	•	вход: messages/system+user, tools?, response_format?
-     * 	•	выход: text + tool_calls
+     * Text generation/dialog: response, rewriting, code, reasoning.
+     * Input: messages/system+user, tools?, response_format?
+     * Output: text + tool_calls
      */
     CHAT,
 
     /**
-     * Векторизация текста для поиска/кластеризации.
-     * 	•	вход: list
-     * 	•	выход: list
+     * Text vectorization for search/clustering.
+     * Input: list
+     * Output: list
      */
     EMBEDDING,
 
     /**
-     * Переранжирование кандидатов (после vector search). Очень полезно для качества RAG (не поддерживается нашим spring ai)
-     * 	•	вход: query + candidates[]
-     * 	•	выход: candidates with scores (sorted)
+     * Reranking candidates (after vector search). Very useful for RAG quality (not supported by our spring ai).
+     * Input: query + candidates[]
+     * Output: candidates with scores (sorted)
      */
     RERANK,
 
     /**
-     * Проверка контента/политик/PII для внешних провайдеров или перед логированием. (у нас используется openrouter
-     * и этот фильтр так же не вызывается)
-     * 	•	вход: text/images
-     * 	•	выход: flags/categories
+     * Content/policy/PII check for external providers or before logging. (we use openrouter
+     * and this filter is not invoked either)
+     * Input: text/images
+     * Output: flags/categories
      */
     MODERATION,
 
     SUMMARIZATION,
 
     /**
-     * Когда тебе нужен JSON строго по схеме.
-     * 	•	в OpenAI это “response_format/json_schema”, у других — аналоги/хаки.
-     * 	•	контракт: schema + prompt → валидный JSON
+     * When you need JSON strictly by schema.
+     * In OpenAI this is "response_format/json_schema"; others have equivalents/workarounds.
+     * Contract: schema + prompt → valid JSON
      */
     STRUCTURED_OUTPUT,
 
     /**
-     * Вызов функций (function calling / tools).
-     * В capabilities модели — модель умеет возвращать tool_calls и обрабатывать tools в запросе.
-     * Используется для выбора модели с поддержкой function calling.
-     * Для передачи конкретных tools в запрос используйте специализированные типы (например, WEB для веб-поиска).
+     * Function calling / tools.
+     * In model capabilities — model can return tool_calls and handle tools in request.
+     * Used to select model with function calling support.
+     * For passing specific tools use specialized types (e.g. WEB for web search).
      */
     TOOL_CALLING,
 
     /**
-     * Веб-поиск и работа с URL (web search, fetch URL).
+     * Web search and URL handling (web search, fetch URL).
      * <ul>
-     *   <li>В capabilities модели — модель поддерживает веб-поиск.</li>
-     *   <li>В command.modelTypes() — в этот запрос нужно передать WebTools (веб-поиск и fetch URL).</li>
+     *   <li>In model capabilities — model supports web search.</li>
+     *   <li>In command.modelTypes() — this request should pass WebTools (web search and fetch URL).</li>
      * </ul>
      */
     WEB,
 
     /**
-     * Модели с поддержкой изображений (Vision).
-     * Например: GPT-4o, Claude 3, Gemini Pro Vision.
+     * Models with image support (Vision).
+     * E.g. GPT-4o, Claude 3, Gemini Pro Vision.
      */
     VISION,
 
     /**
-     * Модели бесплатного тира (OpenRouter free и т.п.).
-     * Используется для ранжирования и retry; в yml добавлять только для реально бесплатных моделей.
+     * Free-tier models (OpenRouter free, etc.).
+     * Used for ranking and retry; add in yml only for actually free models.
      */
     FREE
 }

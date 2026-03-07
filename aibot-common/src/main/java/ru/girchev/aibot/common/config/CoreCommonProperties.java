@@ -19,64 +19,60 @@ import org.springframework.validation.annotation.Validated;
 public class CoreCommonProperties {
     
     /**
-     * Максимум токенов ответа в одном запросе к AI провайдеру (max_tokens в OpenRouter/OpenAI).
-     * Передаётся в запросе и ограничивает длину ответа модели.
-     * Для теста «токены закончились на ризонинге, контент пустой» временно задайте малое значение (например 50).
+     * Max tokens for a single response from the AI provider (max_tokens in OpenRouter/OpenAI).
+     * Sent in the request and limits the model response length.
      */
-    @NotNull(message = "maxOutputTokens обязателен")
-    @Min(value = 1, message = "maxOutputTokens должен быть >= 1")
+    @NotNull(message = "maxOutputTokens is required")
+    @Min(value = 1, message = "maxOutputTokens must be >= 1")
     private Integer maxOutputTokens;
 
     /**
-     * Лимит токенов на рассуждение (reasoning/thinking) для моделей OpenRouter с поддержкой reasoning.
-     * Передаётся как reasoning.max_tokens в extra_body. Опционально — если не задано, блок не отправляется.
-     * Отдельно от max-output-tokens: тот лимитирует ответ, этот — «думание» (Anthropic, Gemini thinking и т.д.).
+     * Token budget for reasoning/thinking (OpenRouter models with reasoning support).
+     * Sent as reasoning.max_tokens in extra_body. Optional; if not set, the block is not sent.
      */
-    @Min(value = 1, message = "maxReasoningTokens должен быть >= 1")
+    @Min(value = 1, message = "maxReasoningTokens must be >= 1")
     private Integer maxReasoningTokens;
 
     /**
-     * Максимум токенов одного сообщения пользователя (текущий запрос).
-     * При превышении можно отклонить запрос с подсказкой сократить сообщение.
+     * Max tokens for a single user message (current request).
      */
-    @NotNull(message = "maxUserMessageTokens обязателен")
-    @Min(value = 1, message = "maxUserMessageTokens должен быть >= 1")
+    @NotNull(message = "maxUserMessageTokens is required")
+    @Min(value = 1, message = "maxUserMessageTokens must be >= 1")
     private Integer maxUserMessageTokens;
 
     /**
-     * Максимум токенов всего промпта к API: system + история + текущее сообщение.
-     * Не должен превышать лимит контекста модели провайдера (например 32k, 128k).
+     * Max total prompt tokens to the API: system + history + current message.
      */
-    @NotNull(message = "maxTotalPromptTokens обязателен")
-    @Min(value = 1000, message = "maxTotalPromptTokens должен быть >= 1000")
+    @NotNull(message = "maxTotalPromptTokens is required")
+    @Min(value = 1000, message = "maxTotalPromptTokens must be >= 1000")
     private Integer maxTotalPromptTokens;
 
-    @AssertTrue(message = "maxReasoningTokens должен быть < maxOutputTokens (общий лимит)")
+    @AssertTrue(message = "maxReasoningTokens must be < maxOutputTokens")
     public boolean isMaxReasoningTokensValid() {
         return maxReasoningTokens == null || maxReasoningTokens < maxOutputTokens;
     }
 
-    @NotBlank(message = "Описание роли ассистента не может быть пустым")
+    @NotBlank(message = "assistantRole must not be blank")
     private String assistantRole = "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language.";
     
     /**
-     * Параметры суммаризации длинных диалогов (триггер по токенам, порог, сколько последних сообщений не суммаризировать).
+     * Summarization of long conversations (token trigger, threshold, how many recent messages to keep).
      */
     @Valid
     @NestedConfigurationProperty
     private SummarizationProperties summarization = new SummarizationProperties();
 
     /**
-     * История диалога, управляемая common-модулем (ручной контекст).
-     * Если enabled=true — используется ConversationHistoryAICommandFactory и ConversationContextBuilderService.
-     * Если enabled=false — используется Spring AI ChatMemory.
+     * Conversation history managed by common module (manual context).
+     * enabled=true: ConversationHistoryAICommandFactory and ConversationContextBuilderService.
+     * enabled=false: Spring AI ChatMemory.
      */
     @Valid
     @NestedConfigurationProperty
     private ManualConversationHistoryProperties manualConversationHistory = new ManualConversationHistoryProperties();
 
     /**
-     * Конфигурация для инициализации администратора при старте приложения.
+     * Admin initialization at application startup.
      */
     @Valid
     @NestedConfigurationProperty
@@ -88,26 +84,32 @@ public class CoreCommonProperties {
     public static class SummarizationProperties {
 
         /**
-         * Порог по токенам: при totalTokens в треде >= maxContextTokens * summaryTriggerThreshold запускается саммаризация.
+         * When totalTokens in thread >= maxContextTokens * summaryTriggerThreshold, summarization runs.
          */
-        @NotNull(message = "maxContextTokens обязателен")
-        @Min(value = 1000, message = "maxContextTokens должен быть >= 1000")
+        @NotNull(message = "maxContextTokens is required")
+        @Min(value = 1000, message = "maxContextTokens must be >= 1000")
         private Integer maxContextTokens;
 
         /**
-         * Доля заполнения контекста для триггера саммаризации (0.0–1.0), например 0.7 = 70%.
+         * Context fill ratio to trigger summarization (0.0–1.0), e.g. 0.7 = 70%.
          */
-        @NotNull(message = "summaryTriggerThreshold обязателен")
-        @Min(value = 0, message = "summaryTriggerThreshold должен быть >= 0.0")
-        @Max(value = 1, message = "summaryTriggerThreshold должен быть <= 1.0")
+        @NotNull(message = "summaryTriggerThreshold is required")
+        @Min(value = 0, message = "summaryTriggerThreshold must be >= 0.0")
+        @Max(value = 1, message = "summaryTriggerThreshold must be <= 1.0")
         private Double summaryTriggerThreshold;
 
         /**
-         * Сколько последних сообщений оставлять нетронутыми при фильтрации перед суммаризацией (async-путь).
+         * How many recent messages to leave untouched when filtering before summarization (async path).
          */
-        @NotNull(message = "keepRecentMessages обязателен")
-        @Min(value = 1, message = "keepRecentMessages должен быть >= 1")
+        @NotNull(message = "keepRecentMessages is required")
+        @Min(value = 1, message = "keepRecentMessages must be >= 1")
         private Integer keepRecentMessages;
+
+        /**
+         * Prompt for the AI to produce summary and memory_bullets (JSON). Conversation is sent as separate user message.
+         */
+        @NotBlank(message = "prompt is required")
+        private String prompt;
     }
 
     @Getter
@@ -116,61 +118,61 @@ public class CoreCommonProperties {
     public static class ManualConversationHistoryProperties {
 
         /**
-         * Включен ли режим ручного управления историей (common).
-         * true — ConversationHistoryAICommandFactory и ConversationContextBuilderService.
-         * false — Spring AI ChatMemory.
+         * Whether manual conversation history (common) is enabled.
+         * true: ConversationHistoryAICommandFactory and ConversationContextBuilderService.
+         * false: Spring AI ChatMemory.
          */
-        @NotNull(message = "enabled обязателен")
+        @NotNull(message = "enabled is required")
         private Boolean enabled;
 
         /**
-         * Резерв под ответ модели при расчёте бюджета промпта.
+         * Reserve for model response when calculating prompt budget.
          */
-        @NotNull(message = "maxResponseTokens обязателен")
-        @Min(value = 500, message = "maxResponseTokens должен быть >= 500")
+        @NotNull(message = "maxResponseTokens is required")
+        @Min(value = 500, message = "maxResponseTokens must be >= 500")
         private Integer maxResponseTokens;
 
         /**
-         * Количество последних сообщений для включения в контекст по умолчанию (ручной режим).
+         * Default number of recent messages to include in context (manual mode).
          */
-        @NotNull(message = "defaultWindowSize обязателен")
-        @Min(value = 1, message = "defaultWindowSize должен быть >= 1")
+        @NotNull(message = "defaultWindowSize is required")
+        @Min(value = 1, message = "defaultWindowSize must be >= 1")
         private Integer defaultWindowSize;
 
         /**
-         * Включать ли system prompt в каждый запрос (ручной режим).
+         * Whether to include system prompt in every request (manual mode).
          */
-        @NotNull(message = "includeSystemPrompt обязателен")
+        @NotNull(message = "includeSystemPrompt is required")
         private Boolean includeSystemPrompt;
 
         /**
-         * Грубая оценка: 1 токен ≈ N символов (для русского языка обычно 4).
+         * Rough estimate: 1 token ≈ N characters.
          */
-        @NotNull(message = "tokenEstimationCharsPerToken обязателен")
-        @Min(value = 1, message = "tokenEstimationCharsPerToken должен быть >= 1")
+        @NotNull(message = "tokenEstimationCharsPerToken is required")
+        @Min(value = 1, message = "tokenEstimationCharsPerToken must be >= 1")
         private Integer tokenEstimationCharsPerToken;
     }
     
     /**
-     * Свойства для конфигурации администратора
+     * Admin configuration properties.
      */
     @Getter
     @Setter
     @Validated
     public static class AdminProperties {
-        
+
         /**
-         * Включена ли инициализация администратора
+         * Whether to run admin initialization.
          */
         private Boolean enabled = false;
-        
+
         /**
-         * Telegram ID администратора (опционально)
+         * Admin Telegram ID (optional).
          */
         private Long telegramId;
-        
+
         /**
-         * Email REST администратора (опционально)
+         * Admin REST email (optional).
          */
         private String restEmail;
     }

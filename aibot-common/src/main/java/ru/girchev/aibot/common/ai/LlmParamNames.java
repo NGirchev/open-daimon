@@ -16,7 +16,7 @@ public final class LlmParamNames {
     public static final String FREQUENCY_PENALTY = "frequency_penalty";
     public static final String PRESENCE_PENALTY = "presence_penalty";
 
-    // Реже используемые
+    // Less commonly used
     public static final String STOP = "stop";
     public static final String SEED = "seed";
     public static final String LOGPROBS = "logprobs";
@@ -55,12 +55,12 @@ public final class LlmParamNames {
     public static final String MAX_PRICE = "max_price";
 
     /**
-     * Безопасно извлекает Double значение из Map.
-     * Поддерживает конвертацию из Integer, Long, Float, String.
+     * Safely extracts Double from Map.
+     * Supports conversion from Integer, Long, Float, String.
      *
-     * @param requestBody Map с параметрами запроса
-     * @param key ключ для извлечения значения
-     * @return Double значение или null, если ключ отсутствует или значение не может быть конвертировано
+     * @param requestBody request params map
+     * @param key key to extract
+     * @return Double or null if key missing or value not convertible
      */
     public static Double getDouble(Map<String, Object> requestBody, String key) {
         Object value = requestBody.get(key);
@@ -97,12 +97,12 @@ public final class LlmParamNames {
     }
 
     /**
-     * Безопасно извлекает Integer значение из Map.
-     * Поддерживает конвертацию из Long, Double, Float, String.
+     * Safely extracts Integer from Map.
+     * Supports conversion from Long, Double, Float, String.
      *
-     * @param requestBody Map с параметрами запроса
-     * @param key ключ для извлечения значения
-     * @return Integer значение или null, если ключ отсутствует или значение не может быть конвертировано
+     * @param requestBody request params map
+     * @param key key to extract
+     * @return Integer or null if key missing or value not convertible
      */
     public static Integer getInteger(Map<String, Object> requestBody, String key) {
         Object value = requestBody.get(key);

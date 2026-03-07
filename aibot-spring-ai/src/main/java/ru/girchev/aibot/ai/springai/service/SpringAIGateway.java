@@ -46,7 +46,7 @@ import static ru.girchev.aibot.common.ai.LlmParamNames.*;
 @Slf4j
 public class SpringAIGateway implements AIGateway {
 
-    /** Ключи формата content parts (OpenAI/OpenRouter): content как массив с type "text" / "image_url". */
+    /** Content part keys (OpenAI/OpenRouter): content as array with type "text" / "image_url". */
     private static final String CONTENT_PART_TYPE = "type";
     private static final String CONTENT_PART_TEXT = "text";
     private static final String CONTENT_PART_IMAGE_URL = "image_url";
@@ -103,15 +103,15 @@ public class SpringAIGateway implements AIGateway {
                 List<Message> messages = createMessages(chatOptions.body());
                 log.info("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole());
                 
-                // ВАЖНО: body с ключом MESSAGES может содержать историю из ConversationHistoryAICommandFactory,
-                // но ТОЛЬКО если ai-bot.common.manual-conversation-history.enabled=true.
-                // Для local профиля (enabled=false) ConversationHistoryAICommandFactory отключена,
-                // поэтому body.messages будет пустым и используется DefaultAICommandFactory.
-                // Когда enabled=true, ConversationHistoryAICommandFactory добавляет историю + текущий User запрос в body.messages.
-                // Поэтому нужно проверять дубликаты перед добавлением system/user сообщений.
+                // IMPORTANT: body MESSAGES may contain history from ConversationHistoryAICommandFactory
+                // only when ai-bot.common.manual-conversation-history.enabled=true.
+                // For local profile (enabled=false) ConversationHistoryAICommandFactory is off,
+                // so body.messages is empty and DefaultAICommandFactory is used.
+                // When enabled=true, ConversationHistoryAICommandFactory adds history + current User request to body.messages.
+                // So we must check for duplicates before adding system/user messages.
                 
-                // Важно: текущие system/user должны быть добавлены всегда (как было раньше),
-                // но без дублей, если ConversationHistoryAICommandFactory уже положила их в messages.
+                // Current system/user must always be added (as before), but without duplicates
+                // if ConversationHistoryAICommandFactory already put them in messages.
                 if (StringUtils.hasText(chatOptions.systemRole())) {
                     String systemRole = chatOptions.systemRole();
                     boolean alreadyPresent = messages.stream()
@@ -125,7 +125,7 @@ public class SpringAIGateway implements AIGateway {
                 }
                 if (StringUtils.hasText(chatOptions.userRole())) {
                     String userRole = chatOptions.userRole();
-                    // Проверяем, есть ли уже User сообщение с таким же текстом в списке
+                    // Check if User message with same text already exists in list
                     boolean alreadyPresent = messages.stream()
                             .filter(UserMessage.class::isInstance)
                             .map(UserMessage.class::cast)
@@ -136,27 +136,26 @@ public class SpringAIGateway implements AIGateway {
                     log.info("Gateway: addingUserMessage={}, attachmentsCount={}, commandIsChatAICommand={}",
                             !alreadyPresent, attachments != null ? attachments.size() : 0, command instanceof ChatAICommand);
                     if (!alreadyPresent) {
-                        // Создаём мутабельный список для возможного добавления image-attachment'ов из PDF fallback
+                        // Mutable list for possible image-attachments from PDF fallback
                         List<Attachment> mutableAttachments = new ArrayList<>(attachments);
                         
-                        // Считаем оригинальные IMAGE-вложения до обработки RAG
+                        // Count original IMAGE attachments before RAG processing
                         long originalImageCount = attachments.stream()
                                 .filter(att -> att.type() == AttachmentType.IMAGE)
                                 .count();
                         
-                        // RAG: обработка PDF attachments
+                        // RAG: process PDF attachments
                         List<String> pdfAsImageFilenames = new ArrayList<>();
                         String finalUserRole = processRagIfEnabled(userRole, mutableAttachments, pdfAsImageFilenames);
                         
-                        // Дополнительный системный промпт с контекстом вложений
+                            // Extra system prompt with attachment context
                         String attachmentContext = buildAttachmentContextMessage((int) originalImageCount, pdfAsImageFilenames);
                         if (attachmentContext != null) {
                             SystemMessage attachmentSystemMessage = new SystemMessage(attachmentContext);
                             messages.add(attachmentSystemMessage);
                             
-                            // Явно сохраняем системное сообщение о вложениях в ChatMemory,
-                            // чтобы в режиме Spring AI ChatMemory (manual-conversation-history.enabled=false)
-                            // контекст вложений поднимался на последующих шагах диалога.
+                            // Persist attachment system message to ChatMemory so that with Spring AI ChatMemory
+                            // (manual-conversation-history.enabled=false) attachment context is available in later turns.
                             ChatMemory chatMemory = chatMemoryProvider != null ? chatMemoryProvider.getIfAvailable() : null;
                             if (chatMemory != null && command != null && command.metadata() != null) {
                                 Object threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
@@ -272,8 +271,8 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Строит Spring AI Message из элемента messages (OpenAI/OpenRouter).
-     * Поддерживает content как строку и как массив content parts (type "text", "image_url").
+     * Builds Spring AI Message from messages element (OpenAI/OpenRouter).
+     * Supports content as string and as array of content parts (type "text", "image_url").
      */
     private Message messageFromMap(Map<String, Object> msg) {
         String role = (String) msg.get(ROLE);
@@ -304,7 +303,7 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Парсит массив content parts (OpenAI/OpenRouter): type "text" и type "image_url".
+     * Parses content parts array (OpenAI/OpenRouter): type "text" and type "image_url".
      */
     private ContentParts parseContentParts(List<?> parts) {
         StringBuilder text = new StringBuilder();
@@ -340,7 +339,7 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Создаёт Media из URL: data:image/...;base64,... или https://...
+     * Creates Media from URL: data:image/...;base64,... or https://...
      */
     private Media mediaFromImageUrl(String url) {
         if (url.startsWith("data:")) {
@@ -376,24 +375,24 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Извлекает имя модели из body.
-     * Модель может быть указана в ключе MODEL или в OPTIONS.MODEL.
+     * Extracts model name from body.
+     * Model may be in key MODEL or in OPTIONS.MODEL.
      *
-     * @param body body из команды
-     * @return имя модели или null, если не указана
+     * @param body command body
+     * @return model name or null if not set
      */
     private String extractModelFromMap(Map<String, Object> body) {
         if (body == null || body.isEmpty()) {
             return null;
         }
 
-        // Проверяем прямой ключ MODEL
+        // Check direct MODEL key
         Object model = body.get(MODEL);
         if (model instanceof String) {
             return (String) model;
         }
 
-        // Проверяем вложенный OPTIONS.MODEL
+        // Check nested OPTIONS.MODEL
         @SuppressWarnings("unchecked")
         Map<String, Object> options = (Map<String, Object>) body.get(OPTIONS);
         if (options != null) {
@@ -407,24 +406,21 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Обрабатывает документы (PDF, DOCX и др.) через RAG если feature flag включен.
-     * 
-     * <p>Процесс:
+     * Processes documents (PDF, DOCX, etc.) via RAG when feature flag is on.
+     *
+     * <p>Process:
      * <ol>
-     *   <li>Фильтрует документы (PDF, DOCX и др.)</li>
-     *   <li>Обрабатывает каждый документ через DocumentProcessingService (создает embeddings)</li>
-     *   <li>Ищет релевантный контекст через RAGService</li>
-     *   <li>Создает augmented prompt с контекстом из документов</li>
+     *   <li>Filter documents (PDF, DOCX, etc.)</li>
+     *   <li>Process each via DocumentProcessingService (embeddings)</li>
+     *   <li>Find relevant context via RAGService</li>
+     *   <li>Build augmented prompt with document context</li>
      * </ol>
+     * <p><b>Vision fallback for image-only PDF:</b> If PDF has no text layer (DocumentContentNotExtractableException), render pages as images and add to attachments for vision model.
      *
-     * <p><b>Vision Fallback для image-only PDF:</b>
-     * Если PDF не содержит текстового слоя (DocumentContentNotExtractableException),
-     * рендерим страницы как изображения и добавляем их в attachments для vision-модели.
-     *
-     * @param userQuery оригинальный запрос пользователя
-     * @param attachments мутабельный список вложений (может быть дополнен image-attachment'ами из PDF fallback)
-     * @param pdfAsImageFilenames мутабельный список для сбора имён PDF, сконвертированных в изображения
-     * @return augmented prompt с контекстом из документов (или оригинальный запрос если RAG выключен)
+     * @param userQuery original user query
+     * @param attachments mutable list of attachments (may get image-attachments from PDF fallback)
+     * @param pdfAsImageFilenames mutable list to collect PDF filenames converted to images
+     * @return augmented prompt with document context (or original query if RAG disabled)
      */
     private String processRagIfEnabled(String userQuery, List<Attachment> attachments, List<String> pdfAsImageFilenames) {
         int totalAttachments = attachments != null ? attachments.size() : 0;
@@ -436,7 +432,7 @@ public class SpringAIGateway implements AIGateway {
         log.info("processRagIfEnabled: userQuery='{}', totalAttachments={}, documentAttachments={}, ragPropertiesNull={}, docServiceNull={}, ragServiceNull={}",
                 userQuery, totalAttachments, documentAttachments.size(), ragProperties == null, documentProcessingService == null, fileRagService == null);
 
-        // Проверяем feature flag
+        // Check feature flag
         if (ragProperties == null || !isRagEnabled()) {
             return userQuery;
         }
@@ -453,7 +449,7 @@ public class SpringAIGateway implements AIGateway {
 
         log.info("Processing {} document attachment(s) for RAG", documentAttachments.size());
         
-        // Обрабатываем документы и собираем контекст
+        // Process documents and collect context
         List<Document> allRelevantChunks = new ArrayList<>();
         
         for (Attachment documentAttachment : documentAttachments) {
@@ -461,7 +457,7 @@ public class SpringAIGateway implements AIGateway {
                 String mimeType = documentAttachment.mimeType() != null 
                         ? documentAttachment.mimeType().toLowerCase() 
                         : "";
-                // 1. Обрабатываем документ через ETL Pipeline
+                // 1. Process document via ETL pipeline
                 String documentType = extractDocumentType(mimeType, documentAttachment.filename());
                 int dataLength = documentAttachment.data() != null ? documentAttachment.data().length : 0;
                 log.info("processRagIfEnabled: processing document filename={}, mimeType={}, dataLength={}, documentType={}",
@@ -472,7 +468,7 @@ public class SpringAIGateway implements AIGateway {
                 }
 
                 String documentId;
-                // PDF обрабатывается через PagePdfDocumentReader (PDFBox) - специализированный ридер для лучшего качества
+                // PDF is processed via PagePdfDocumentReader (PDFBox) for better quality
                 if ("pdf".equalsIgnoreCase(documentType)) {
                     try {
                         documentId = documentProcessingService.processPdf(
@@ -480,7 +476,7 @@ public class SpringAIGateway implements AIGateway {
                                 documentAttachment.filename()
                         );
                     } catch (DocumentContentNotExtractableException e) {
-                        // PDF не содержит текстового слоя (скан/сертификат) - используем vision fallback
+                        // PDF has no text layer (scan/certificate) - use vision fallback
                         log.info("PDF '{}' has no text layer, rendering pages as images for vision model", documentAttachment.filename());
                         List<Attachment> imageAttachments = renderPdfToImageAttachments(
                                 documentAttachment.data(), 
@@ -490,11 +486,11 @@ public class SpringAIGateway implements AIGateway {
                         pdfAsImageFilenames.add(documentAttachment.filename());
                         log.info("Added {} image attachment(s) from PDF '{}' for vision model", 
                                 imageAttachments.size(), documentAttachment.filename());
-                        // Пропускаем RAG-обработку для этого документа, продолжаем со следующим
+                        // Skip RAG for this document, continue with next
                         continue;
                     }
                 } else {
-                    // Все остальные форматы через TikaDocumentReader (DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT и др.)
+                    // All other formats via TikaDocumentReader (DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT, etc.)
                     documentId = documentProcessingService.processWithTika(
                             documentAttachment.data(), 
                             documentAttachment.filename(),
@@ -502,18 +498,18 @@ public class SpringAIGateway implements AIGateway {
                     );
                 }
                 
-                // 2. Ищем релевантный контекст
+                // 2. Find relevant context
                 List<Document> relevantChunks = fileRagService.findRelevantContext(userQuery, documentId);
                 allRelevantChunks.addAll(relevantChunks);
                 log.info("processRagIfEnabled: documentId={}, relevantChunks={}", documentId, relevantChunks.size());
                 log.debug("Found {} relevant chunks from '{}'", relevantChunks.size(), documentAttachment.filename());
             } catch (Exception e) {
-                // Документ не содержит извлекаемого текста — пробрасываем дальше и не вызываем модель
+                // Document has no extractable text - rethrow and do not call model
                 if (e instanceof DocumentContentNotExtractableException docEx) {
                     throw docEx;
                 }
                 log.error("Failed to process document '{}': {}", documentAttachment.filename(), e.getMessage(), e);
-                // Продолжаем с остальными документами
+                // Continue with remaining documents
             }
         }
         
@@ -522,7 +518,7 @@ public class SpringAIGateway implements AIGateway {
             return userQuery;
         }
         
-        // 3. Создаем augmented prompt
+        // 3. Build augmented prompt
         String augmentedPrompt = fileRagService.createAugmentedPrompt(userQuery, allRelevantChunks);
         log.info("Created augmented prompt with {} relevant chunks from {} document(s)", 
                 allRelevantChunks.size(), documentAttachments.size());
@@ -531,35 +527,35 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Проверяет, включен ли RAG feature flag.
+     * Checks if RAG feature flag is enabled.
      */
     private boolean isRagEnabled() {
-        // RAGProperties создается только когда rag.enabled=true (через @ConditionalOnProperty)
-        // Но для безопасности проверяем дополнительно
+        // RAGProperties is created only when rag.enabled=true (@ConditionalOnProperty)
+        // But we check again for safety
         return ragProperties != null;
     }
 
     /**
-     * Маппинг паттернов MIME типов и расширений файлов к типам документов.
-     * PDF проверяется первым, так как обрабатывается через PDFBox, а не через Tika.
+     * Maps MIME type and file extension patterns to document types.
+     * PDF is checked first as it is processed via PDFBox, not Tika.
      */
     private static final List<DocumentTypeMapping> DOCUMENT_TYPE_MAPPINGS = List.of(
-            // PDF - проверяется первым, обрабатывается через PDFBox (PagePdfDocumentReader), не через Tika
+            // PDF - checked first, processed via PDFBox (PagePdfDocumentReader), not Tika
             new DocumentTypeMapping("pdf", List.of("pdf"), List.of(".pdf")),
-            // Word документы
+            // Word documents
             new DocumentTypeMapping("docx", List.of("wordprocessingml"), List.of(".docx")),
             new DocumentTypeMapping("doc", List.of("msword"), List.of(".doc")),
-            // Excel документы
+            // Excel documents
             new DocumentTypeMapping("xlsx", List.of("spreadsheetml"), List.of(".xlsx")),
             new DocumentTypeMapping("xls", List.of("ms-excel"), List.of(".xls")),
-            // PowerPoint документы
+            // PowerPoint documents
             new DocumentTypeMapping("pptx", List.of("presentationml"), List.of(".pptx")),
             new DocumentTypeMapping("ppt", List.of("ms-powerpoint"), List.of(".ppt")),
-            // Текстовые файлы
+            // Text files
             new DocumentTypeMapping("txt", List.of("text/plain"), List.of(".txt")),
             // Rich Text Format
             new DocumentTypeMapping("rtf", List.of("rtf"), List.of(".rtf")),
-            // OpenDocument Format (альтернатива MS Office)
+            // OpenDocument Format (MS Office alternative)
             new DocumentTypeMapping("odt", List.of("opendocument.text"), List.of(".odt")),
             new DocumentTypeMapping("ods", List.of("opendocument.spreadsheet"), List.of(".ods")),
             new DocumentTypeMapping("odp", List.of("opendocument.presentation"), List.of(".odp")),
@@ -573,19 +569,18 @@ public class SpringAIGateway implements AIGateway {
             new DocumentTypeMapping("json", List.of("json"), List.of(".json")),
             // XML
             new DocumentTypeMapping("xml", List.of("xml"), List.of(".xml")),
-            // EPUB (электронные книги)
+            // EPUB (e-books)
             new DocumentTypeMapping("epub", List.of("epub"), List.of(".epub"))
     );
 
     /**
-     * Извлекает тип документа из MIME типа или имени файла.
-     * 
-     * <p><b>Важно:</b> PDF определяется первым и обрабатывается через PagePdfDocumentReader (PDFBox),
-     * а не через TikaDocumentReader, для лучшего качества извлечения текста.
-     * 
-     * @param mimeType MIME тип файла
-     * @param filename имя файла
-     * @return тип документа (pdf, docx, doc, xls, xlsx, ppt, pptx, txt, rtf, odt, ods, odp, csv, html, md, json, xml, epub) или null если не поддерживается
+     * Gets document type from MIME type or filename.
+     *
+     * <p><b>Note:</b> PDF is detected first and processed via PagePdfDocumentReader (PDFBox), not TikaDocumentReader, for better text extraction.
+     *
+     * @param mimeType file MIME type
+     * @param filename file name
+     * @return document type (pdf, docx, doc, xls, xlsx, ppt, pptx, txt, rtf, odt, ods, odp, csv, html, md, json, xml, epub) or null if unsupported
      */
     private String extractDocumentType(String mimeType, String filename) {
         if (mimeType == null && filename == null) {
@@ -603,7 +598,7 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Вспомогательный класс для маппинга паттернов к типам документов.
+     * Helper to map patterns to document types.
      */
     private record DocumentTypeMapping(
             String documentType,
@@ -611,7 +606,7 @@ public class SpringAIGateway implements AIGateway {
             List<String> fileExtensions
     ) {
         /**
-         * Проверяет, соответствует ли MIME тип или имя файла данному маппингу.
+         * Checks if MIME type or filename matches this mapping.
          */
         boolean matches(String mimeType, String filename) {
             boolean mimeMatches = mimeTypePatterns.stream()
@@ -623,11 +618,11 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Формирует системное сообщение с контекстом о вложениях.
+     * Builds system message with attachment context.
      *
-     * @param originalImageCount количество оригинальных IMAGE-вложений (до PDF fallback)
-     * @param pdfAsImageFilenames список имён PDF, сконвертированных в изображения
-     * @return текст системного сообщения или null если нет вложений
+     * @param originalImageCount count of original IMAGE attachments (before PDF fallback)
+     * @param pdfAsImageFilenames list of PDF filenames converted to images
+     * @return system message text or null if no attachments
      */
     private String buildAttachmentContextMessage(int originalImageCount, List<String> pdfAsImageFilenames) {
         boolean hasImages = originalImageCount > 0;
@@ -639,7 +634,7 @@ public class SpringAIGateway implements AIGateway {
         
         StringBuilder context = new StringBuilder();
         
-        // PDF-документы, представленные в виде изображений
+        // PDF documents represented as images
         if (hasPdfAsImages) {
             if (pdfAsImageFilenames.size() == 1) {
                 context.append("Пользователь приложил PDF-документ \"")
@@ -657,7 +652,7 @@ public class SpringAIGateway implements AIGateway {
             }
         }
         
-        // Обычные изображения
+        // Regular images
         if (hasImages) {
             if (hasPdfAsImages) {
                 context.append("\n");
@@ -675,19 +670,19 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Создает UserMessage с поддержкой multimodal (изображения).
-     * Если нет изображений, возвращает обычный текстовый UserMessage.
+     * Creates UserMessage with multimodal support (images).
+     * If no images, returns plain text UserMessage.
      *
-     * @param content текст сообщения
-     * @param attachments список вложений
-     * @return UserMessage (с Media или без)
+     * @param content message text
+     * @param attachments list of attachments
+     * @return UserMessage (with or without Media)
      */
     private Message createUserMessage(String content, List<Attachment> attachments) {
         if (attachments == null || attachments.isEmpty()) {
             return new UserMessage(content);
         }
         
-        // Фильтруем только изображения
+        // Filter images only
         List<Media> mediaList = attachments.stream()
                 .filter(att -> att.type() == AttachmentType.IMAGE)
                 .map(this::toMedia)
@@ -705,10 +700,10 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Конвертирует Attachment в Spring AI Media.
+     * Converts Attachment to Spring AI Media.
      *
-     * @param attachment вложение
-     * @return Media объект для Spring AI
+     * @param attachment attachment
+     * @return Media for Spring AI
      */
     private Media toMedia(Attachment attachment) {
         var mimeType = MimeTypeUtils.parseMimeType(attachment.mimeType());
@@ -717,13 +712,13 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Рендерит страницы PDF в изображения для обработки vision-моделью.
-     * 
-     * <p>Используется как fallback когда PDF не содержит текстового слоя (скан/сертификат).
-     * 
-     * @param pdfData байты PDF документа
-     * @param filename оригинальное имя файла
-     * @return список Attachment с type=IMAGE для каждой страницы
+     * Renders PDF pages to images for vision model.
+     *
+     * <p>Used as fallback when PDF has no text layer (scan/certificate).
+     *
+     * @param pdfData PDF bytes
+     * @param filename original file name
+     * @return list of Attachment with type=IMAGE per page
      */
     private List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
         try {

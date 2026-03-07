@@ -7,13 +7,12 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Контракт для аспекта ротации моделей OpenRouter: получение кандидатов и запись статистики.
- * Позволяет в тестах мокать реестр без загрузки тяжёлых зависимостей.
+ * Contract for OpenRouter model rotation aspect: get candidates and record stats. Allows tests to mock registry without heavy deps.
  */
 public interface OpenRouterRotationRegistry extends OpenRouterModelStatsRecorder {
 
     /**
-     * Кандидаты по capabilities, с опциональным предпочитаемым именем (первым в списке).
+     * Candidates by capabilities, with optional preferred name (first in list).
      */
     List<SpringAIModelConfig> getCandidatesByCapabilities(Set<ModelCapabilities> required, String preferredModelId);
 }

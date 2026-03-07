@@ -23,8 +23,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
- * Сервис для выполнения запросов с учетом приоритета пользователя.
- * Реализует паттерн Bulkhead для разделения ресурсов между пользователями разных приоритетов.
+ * Executes requests according to user priority.
+ * Implements Bulkhead pattern to partition resources by user priority.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -40,7 +40,7 @@ public class PriorityRequestExecutor implements AutoCloseable {
     private ExecutorService taskExecutor;
 
     /**
-     * Инициализация пулов потоков (bulkhead) при запуске приложения.
+     * Initializes thread pools (bulkhead) at application startup.
      */
     @PostConstruct
     public void init() {
@@ -74,17 +74,17 @@ public class PriorityRequestExecutor implements AutoCloseable {
                 .maxWaitDuration(adminInstance.maxWaitDuration())
                 .build();
 
-        // Создаем реестр bulkhead
+        // Create bulkhead registry
         BulkheadRegistry registry = BulkheadRegistry.of(BulkheadConfig.ofDefaults());
 
-        // Регистрируем bulkhead для разных типов пользователей
+        // Register bulkheads per user type
         this.vipBulkhead = registry.bulkhead("vipUserBulkhead", vipConfig);
         this.regularBulkhead = registry.bulkhead("regularUserBulkhead", regularConfig);
         this.adminBulkhead = registry.bulkhead("adminUserBulkhead", adminConfig);
 
         initTaskExecutor(vipConfig, regularConfig, adminConfig);
 
-        log.info("Инициализированы пулы потоков: Admin ({} потоков), VIP ({} потоков), Regular ({} потоков)",
+        log.info("Thread pools initialized: Admin ({} threads), VIP ({} threads), Regular ({} threads)",
                 adminConfig.getMaxConcurrentCalls(),
                 vipConfig.getMaxConcurrentCalls(),
                 regularConfig.getMaxConcurrentCalls());
@@ -116,7 +116,7 @@ public class PriorityRequestExecutor implements AutoCloseable {
         };
 
         this.taskExecutor = Executors.newFixedThreadPool(threads, threadFactory);
-        log.info("Инициализирован внутренний пул PriorityRequestExecutor ({} потоков)", threads);
+        log.info("PriorityRequestExecutor internal pool initialized ({} threads)", threads);
     }
 
     @PreDestroy
@@ -140,20 +140,20 @@ public class PriorityRequestExecutor implements AutoCloseable {
     }
 
     /**
-     * Выполняет запрос с учетом приоритета пользователя.
+     * Executes request according to user priority.
      *
-     * @param userId идентификатор пользователя
-     * @param task задача, которую нужно выполнить
-     * @param <T> тип результата задачи
-     * @return результат выполнения задачи
-     * @throws AccessDeniedException если пользователь заблокирован или исчерпан пул потоков
+     * @param userId user identifier
+     * @param task task to run
+     * @param <T> task result type
+     * @return task result
+     * @throws AccessDeniedException if user is blocked or pool exhausted
      */
     public <T> T executeRequest(Long userId, Callable<T> task) throws Exception {
         UserPriority priority = userPriorityService.getUserPriority(userId);
-        log.info("Выполнение запроса для пользователя {} с приоритетом {}", userId, priority);
+        log.info("Executing request for user {} with priority {}", userId, priority);
 
         if (priority == null) {
-            log.error("Неизвестный приоритет пользователя: null");
+            log.error("Unknown user priority: null");
             throw new IllegalStateException("Неизвестный приоритет пользователя: null");
         }
 
@@ -165,28 +165,28 @@ public class PriorityRequestExecutor implements AutoCloseable {
             case REGULAR:
                 return executeInRegularBulkhead(task);
             case BLOCKED:
-                log.error("Доступ запрещен для заблокированного пользователя {}", userId);
+                log.error("Access denied for blocked user {}", userId);
                 throw new AccessDeniedException("Пользователь заблокирован. Доступ запрещен.");
             default:
-                log.error("Неизвестный приоритет пользователя: {}", priority);
+                log.error("Unknown user priority: {}", priority);
                 throw new IllegalStateException("Неизвестный приоритет пользователя: " + priority);
         }
     }
 
     /**
-     * Асинхронно выполняет запрос с учетом приоритета пользователя.
+     * Executes request asynchronously according to user priority.
      *
-     * @param userId идентификатор пользователя
-     * @param task задача, которую нужно выполнить
-     * @param <T> тип результата задачи
-     * @return CompletionStage с результатом выполнения задачи
+     * @param userId user identifier
+     * @param task task to run
+     * @param <T> task result type
+     * @return CompletionStage with task result
      */
     public <T> CompletionStage<T> executeRequestAsync(Long userId, Supplier<T> task) {
         UserPriority priority = userPriorityService.getUserPriority(userId);
-        log.info("Асинхронное выполнение запроса для пользователя {} с приоритетом {}", userId, priority);
+        log.info("Executing request asynchronously for user {} with priority {}", userId, priority);
 
         if (priority == null) {
-            log.error("Неизвестный приоритет пользователя: null");
+            log.error("Unknown user priority: null");
             CompletableFuture<T> nullFuture = new CompletableFuture<>();
             nullFuture.completeExceptionally(new IllegalStateException("Неизвестный приоритет пользователя: null"));
             return nullFuture;
@@ -200,12 +200,12 @@ public class PriorityRequestExecutor implements AutoCloseable {
             case REGULAR:
                 return executeInRegularBulkheadAsync(task);
             case BLOCKED:
-                log.error("Доступ запрещен для заблокированного пользователя {}", userId);
+                log.error("Access denied for blocked user {}", userId);
                 CompletableFuture<T> blockedFuture = new CompletableFuture<>();
                 blockedFuture.completeExceptionally(new AccessDeniedException("Пользователь заблокирован. Доступ запрещен."));
                 return blockedFuture;
             default:
-                log.error("Неизвестный приоритет пользователя: {}", priority);
+                log.error("Unknown user priority: {}", priority);
                 CompletableFuture<T> unknownFuture = new CompletableFuture<>();
                 unknownFuture.completeExceptionally(new IllegalStateException("Неизвестный приоритет пользователя: " + priority));
                 return unknownFuture;
@@ -213,84 +213,84 @@ public class PriorityRequestExecutor implements AutoCloseable {
     }
 
     /**
-     * Выполняет задачу в пуле потоков для VIP пользователей.
+     * Runs task in VIP user thread pool.
      *
-     * @param task задача, которую нужно выполнить
-     * @param <T> тип результата задачи
-     * @return результат выполнения задачи
-     * @throws Exception если произошла ошибка при выполнении задачи или исчерпан пул потоков
+     * @param task task to run
+     * @param <T> task result type
+     * @return task result
+     * @throws Exception if task fails or pool exhausted
      */
     private <T> T executeInVipBulkhead(Callable<T> task) throws Exception {
         try {
             return executeInExecutor(vipBulkhead, task);
         } catch (Exception e) {
-            log.error("Ошибка при выполнении запроса в VIP пуле: {} {}", e.getClass().getSimpleName(), e.getMessage());
+            log.error("Error executing request in VIP pool: {} {}", e.getClass().getSimpleName(), e.getMessage());
             throw e;
         }
     }
 
     /**
-     * Выполняет задачу в пуле потоков для обычных пользователей.
+     * Runs task in regular user thread pool.
      *
-     * @param task задача, которую нужно выполнить
-     * @param <T> тип результата задачи
-     * @return результат выполнения задачи
-     * @throws Exception если произошла ошибка при выполнении задачи или исчерпан пул потоков
+     * @param task task to run
+     * @param <T> task result type
+     * @return task result
+     * @throws Exception if task fails or pool exhausted
      */
     private <T> T executeInRegularBulkhead(Callable<T> task) throws Exception {
         try {
             return executeInExecutor(regularBulkhead, task);
         } catch (Exception e) {
-            log.error("Ошибка при выполнении запроса в обычном пуле: {} {}", e.getClass().getSimpleName(), e.getMessage());
+            log.error("Error executing request in regular pool: {} {}", e.getClass().getSimpleName(), e.getMessage());
             throw e;
         }
     }
 
     /**
-     * Асинхронно выполняет задачу в пуле потоков для VIP пользователей.
+     * Runs task asynchronously in VIP user thread pool.
      *
-     * @param task задача, которую нужно выполнить
-     * @param <T> тип результата задачи
-     * @return CompletionStage с результатом выполнения задачи
+     * @param task task to run
+     * @param <T> task result type
+     * @return CompletionStage with task result
      */
     private <T> CompletionStage<T> executeInVipBulkheadAsync(Supplier<T> task) {
         return executeInExecutorAsync(vipBulkhead, task);
     }
 
     /**
-     * Выполняет задачу в пуле потоков для администраторов.
+     * Runs task in admin thread pool.
      *
-     * @param task задача, которую нужно выполнить
-     * @param <T> тип результата задачи
-     * @return результат выполнения задачи
-     * @throws Exception если произошла ошибка при выполнении задачи или исчерпан пул потоков
+     * @param task task to run
+     * @param <T> task result type
+     * @return task result
+     * @throws Exception if task fails or pool exhausted
      */
     private <T> T executeInAdminBulkhead(Callable<T> task) throws Exception {
         try {
             return executeInExecutor(adminBulkhead, task);
         } catch (Exception e) {
-            log.error("Ошибка при выполнении запроса в Admin пуле: {} {}", e.getClass().getSimpleName(), e.getMessage());
+            log.error("Error executing request in Admin pool: {} {}", e.getClass().getSimpleName(), e.getMessage());
             throw e;
         }
     }
 
     /**
-     * Асинхронно выполняет задачу в пуле потоков для администраторов.
+     * Runs task asynchronously in admin thread pool.
      *
-     * @param task задача, которую нужно выполнить
-     * @param <T> тип результата задачи
-     * @return CompletionStage с результатом выполнения задачи
+     * @param task task to run
+     * @param <T> task result type
+     * @return CompletionStage with task result
      */
     private <T> CompletionStage<T> executeInAdminBulkheadAsync(Supplier<T> task) {
         return executeInExecutorAsync(adminBulkhead, task);
     }
 
     /**
-     * Асинхронно выполняет задачу в пуле потоков для обычных пользователей.
+     * Runs task asynchronously in regular user thread pool.
      *
-     * @param task задача, которую нужно выполнить
-     * @param <T> тип результата задачи
-     * @return CompletionStage с результатом выполнения задачи
+     * @param task task to run
+     * @param <T> task result type
+     * @return CompletionStage with task result
      */
     private <T> CompletionStage<T> executeInRegularBulkheadAsync(Supplier<T> task) {
         return executeInExecutorAsync(regularBulkhead, task);

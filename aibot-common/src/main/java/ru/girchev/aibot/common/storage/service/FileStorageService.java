@@ -3,43 +3,43 @@ package ru.girchev.aibot.common.storage.service;
 import ru.girchev.aibot.common.storage.model.FileMetadata;
 
 /**
- * Интерфейс для работы с файловым хранилищем.
- * Предоставляет базовые операции CRUD для файлов.
+ * Interface for file storage operations.
+ * Provides basic CRUD operations for files.
  */
 public interface FileStorageService {
 
     /**
-     * Сохраняет файл в хранилище.
+     * Saves file to storage.
      *
-     * @param key уникальный ключ файла
-     * @param data содержимое файла
-     * @param contentType MIME тип файла
-     * @param originalName оригинальное имя файла
-     * @return метаданные сохраненного файла
+     * @param key unique file key
+     * @param data file content
+     * @param contentType file MIME type
+     * @param originalName original file name
+     * @return metadata of saved file
      */
     FileMetadata save(String key, byte[] data, String contentType, String originalName);
 
     /**
-     * Получает содержимое файла по ключу.
+     * Gets file content by key.
      *
-     * @param key ключ файла
-     * @return содержимое файла в виде массива байт
-     * @throws RuntimeException если файл не найден
+     * @param key file key
+     * @return file content as byte array
+     * @throws RuntimeException if file not found
      */
     byte[] get(String key);
 
     /**
-     * Удаляет файл из хранилища.
+     * Deletes file from storage.
      *
-     * @param key ключ файла
+     * @param key file key
      */
     void delete(String key);
 
     /**
-     * Проверяет существование файла в хранилище.
+     * Checks if file exists in storage.
      *
-     * @param key ключ файла
-     * @return true если файл существует
+     * @param key file key
+     * @return true if file exists
      */
     boolean exists(String key);
 }

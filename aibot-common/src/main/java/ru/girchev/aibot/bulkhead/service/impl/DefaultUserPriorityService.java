@@ -10,8 +10,8 @@ import ru.girchev.aibot.bulkhead.service.IWhitelistService;
 
 
 /**
- * Реализация сервиса для определения приоритета пользователя.
- * Определяет приоритет на основе данных пользователя Telegram.
+ * Implementation of user priority service.
+ * Determines priority from Telegram user data.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -21,14 +21,14 @@ public class DefaultUserPriorityService implements IUserPriorityService {
     private final IWhitelistService whitelistService;
 
     /**
-     * Определяет приоритет пользователя по его идентификатору.
-     * Администраторы всегда получают ADMIN приоритет независимо от других условий.
-     * Если пользователь заблокирован в Telegram - возвращает BLOCKED.
-     * Если пользователь имеет премиум статус - возвращает VIP.
-     * В остальных случаях - возвращает REGULAR.
+     * Determines user priority by user id.
+     * Admins always get ADMIN priority regardless of other conditions.
+     * If user is blocked in Telegram - returns BLOCKED.
+     * If user has premium status - returns VIP.
+     * Otherwise - returns REGULAR.
      *
-     * @param userId идентификатор пользователя
-     * @return приоритет пользователя (ADMIN, VIP, REGULAR или BLOCKED)
+     * @param userId user identifier
+     * @return user priority (ADMIN, VIP, REGULAR or BLOCKED)
      */
     @Override
     public UserPriority getUserPriority(Long userId) {
@@ -38,16 +38,16 @@ public class DefaultUserPriorityService implements IUserPriorityService {
 
         var user = userService.findById(userId);
         
-        // Администраторы всегда получают ADMIN приоритет независимо от других условий
+        // Admins always get ADMIN priority regardless of other conditions
         if (user.map(IUserObject::getIsAdmin).map(Boolean.TRUE::equals).orElse(false)) {
             return UserPriority.ADMIN;
         }
 
-        // Проверяем, есть ли пользователь в белом списке
+        // Check if user is in whitelist
         if (!whitelistService.isUserAllowed(userId)) {
-            // Если нет в белом списке, проверяем членство в канале
+            // If not in whitelist, check channel membership
             if (whitelistService.checkUserInChannel(userId)) {
-                // Если пользователь в канале, добавляем в белый список
+                // If user is in channel, add to whitelist
                 whitelistService.addToWhitelist(userId);
             } else {
                 return UserPriority.BLOCKED;

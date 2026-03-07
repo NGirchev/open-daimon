@@ -22,7 +22,7 @@ public class RestExceptionHandler {
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<Object> handleUnauthorizedException(UnauthorizedException e, HttpServletRequest request) {
-        log.warn("Ошибка авторизации: {} для запроса {}", e.getMessage(), request.getRequestURI());
+        log.warn("Authorization error: {} for request {}", e.getMessage(), request.getRequestURI());
         
         // Проверяем, является ли запрос AJAX запросом (от UI) или запросом к UI endpoints
         String acceptHeader = request.getHeader("Accept");
@@ -53,7 +53,7 @@ public class RestExceptionHandler {
 
     @ExceptionHandler(UserMessageTooLongException.class)
     public ResponseEntity<Object> handleUserMessageTooLongException(UserMessageTooLongException e, HttpServletRequest request) {
-        log.warn("Сообщение превышает лимит токенов: {}", e.getMessage());
+        log.warn("Message exceeds token limit: {}", e.getMessage());
         String acceptHeader = request.getHeader("Accept");
         boolean isJson = acceptHeader != null && acceptHeader.contains("application/json");
         if (isJson) {
@@ -70,7 +70,7 @@ public class RestExceptionHandler {
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Object> handleAccessDeniedException(AccessDeniedException e, HttpServletRequest request) {
-        log.warn("Доступ запрещен: {}", e.getMessage());
+        log.warn("Access denied: {}", e.getMessage());
         
         // Проверяем, является ли запрос AJAX запросом (от UI)
         String acceptHeader = request.getHeader("Accept");

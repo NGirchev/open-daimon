@@ -9,8 +9,8 @@ public interface IChatCommand<T extends ICommandType> extends ICommand<T> {
     boolean stream();
     
     /**
-     * Возвращает список вложений (изображения, PDF документы).
-     * По умолчанию возвращает пустой список для обратной совместимости.
+     * Returns list of attachments (images, PDF documents).
+     * Default returns empty list for backward compatibility.
      */
     default List<Attachment> attachments() {
         return List.of();

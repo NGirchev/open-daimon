@@ -25,8 +25,8 @@ public abstract class AbstractTelegramCommandHandlerWithResponseSend implements
 
     @PostConstruct
     public void init() {
-        log.info("Инициализирован обработчик: {} (приоритет: {})", 
-            this.getClass().getSimpleName(), 
+        log.info("Handler initialized: {} (priority: {})",
+            this.getClass().getSimpleName(),
             this.priority());
     }
 

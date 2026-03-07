@@ -12,16 +12,15 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Сервис для RAG (Retrieval-Augmented Generation).
- * 
- * <p>Отвечает за:
+ * Service for RAG (Retrieval-Augmented Generation).
+ *
+ * <p>Responsibilities:
  * <ul>
- *   <li>Поиск релевантных чанков в VectorStore по запросу</li>
- *   <li>Создание augmented prompt с контекстом из документа</li>
+ *   <li>Find relevant chunks in VectorStore by query</li>
+ *   <li>Build augmented prompt with document context</li>
  * </ul>
- * 
- * <p>Используется для обогащения запросов пользователя контекстом
- * из загруженных PDF документов.
+ *
+ * <p>Used to enrich user queries with context from uploaded PDF/document chunks.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -31,11 +30,11 @@ public class FileRAGService {
     private final RAGProperties ragProperties;
 
     /**
-     * Находит релевантные чанки для запроса из конкретного документа.
-     * 
-     * @param query текст запроса пользователя
-     * @param documentId идентификатор документа (полученный при processPdf)
-     * @return список релевантных документов, отсортированных по similarity
+     * Finds relevant chunks for the query from a specific document.
+     *
+     * @param query user query text
+     * @param documentId document id (from processPdf)
+     * @return list of relevant documents sorted by similarity
      */
     public List<Document> findRelevantContext(String query, String documentId) {
         log.debug("Searching for relevant context: query='{}', documentId={}", 
@@ -58,10 +57,10 @@ public class FileRAGService {
     }
 
     /**
-     * Находит релевантные чанки для запроса из всех документов.
-     * 
-     * @param query текст запроса пользователя
-     * @return список релевантных документов, отсортированных по similarity
+     * Finds relevant chunks for the query across all documents.
+     *
+     * @param query user query text
+     * @return list of relevant documents sorted by similarity
      */
     public List<Document> findRelevantContext(String query) {
         log.debug("Searching for relevant context across all documents: query='{}'", 
@@ -81,13 +80,13 @@ public class FileRAGService {
     }
 
     /**
-     * Создает augmented prompt с контекстом из документа.
-     * 
-     * <p>Если контекст пустой, возвращает оригинальный запрос без изменений.
-     * 
-     * @param userQuery запрос пользователя
-     * @param context список релевантных документов
-     * @return обогащённый промпт с контекстом
+     * Creates augmented prompt with document context.
+     *
+     * <p>If context is empty, returns the original query unchanged.
+     *
+     * @param userQuery user query
+     * @param context list of relevant documents
+     * @return augmented prompt with context
      */
     public String createAugmentedPrompt(String userQuery, List<Document> context) {
         if (context == null || context.isEmpty()) {
@@ -98,18 +97,10 @@ public class FileRAGService {
         String contextText = context.stream()
                 .map(Document::getText)
                 .collect(Collectors.joining("\n\n---\n\n"));
-        
-        String augmentedPrompt = String.format("""
-                Based on the following context from the document, answer the user's question.
-                If the context doesn't contain relevant information to answer the question,
-                say that you couldn't find the answer in the provided documents.
-                
-                Context:
-                %s
-                
-                Question: %s
-                """, contextText, userQuery);
-        
+
+        String template = ragProperties.getPrompts().getAugmentedPromptTemplate();
+        String augmentedPrompt = String.format(template, contextText, userQuery);
+
         log.debug("Created augmented prompt with {} characters of context", contextText.length());
         
         return augmentedPrompt;

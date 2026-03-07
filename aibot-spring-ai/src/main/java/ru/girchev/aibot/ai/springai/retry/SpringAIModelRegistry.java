@@ -10,9 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * Единый реестр моделей в памяти: из yml + free-модели OpenRouter.
- * Выбор модели — только из этого списка (по capabilities и опционально по имени).
- * Потокобезопасен.
+ * In-memory model registry: yml + OpenRouter free models. Model selection is from this list only (by capabilities and optionally by name). Thread-safe.
  */
 @Slf4j
 public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
@@ -24,9 +22,9 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
     private final OpenRouterModelsApiClient openRouterClient;
     private final OpenRouterModelsProperties openRouterProperties;
 
-    /** Единый список: имя -> конфиг. Модели из yml + дополнение из OpenRouter. */
+    /** Name -> config. Models from yml + OpenRouter additions. */
     private final Map<String, SpringAIModelConfig> modelsByName = new ConcurrentHashMap<>();
-    /** Статистика для ранжирования FREE-моделей. */
+    /** Stats for ranking FREE models. */
     private final Map<String, ModelStats> statsByModelId = new ConcurrentHashMap<>();
 
     public SpringAIModelRegistry(
@@ -54,8 +52,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
     }
 
     /**
-     * Обновляет единый список по данным OpenRouter: удаляет yml OPENAI модели, которых нет в ответе;
-     * добавляет новые free-модели из ответа.
+     * Refreshes registry from OpenRouter: removes yml OPENAI models not in response; adds new free models from response.
      */
     public void refreshOpenRouterModels() {
         if (openRouterClient == null || openRouterProperties == null
@@ -78,7 +75,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         }
         Set<String> openRouterIds = fetched.stream().map(OpenRouterModelEntry::id).filter(StringUtils::hasText).collect(Collectors.toSet());
 
-        // Удалить из реестра yml-модели с provider OPENAI, которых нет в ответе OpenRouter
+        // Remove yml OPENAI models not present in OpenRouter response
         for (String name : new ArrayList<>(modelsByName.keySet())) {
             if (!ymlModelNames.contains(name)) {
                 continue;
@@ -91,12 +88,12 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
             }
         }
 
-        // Список free-моделей из API и после применения фильтров
+        // Free models from API and after filters
         List<String> freeFromApi = fetched.stream().filter(OpenRouterModelEntry::free).map(OpenRouterModelEntry::id).toList();
         List<String> freeFiltered = applyPropertyFilters(freeFromApi);
         Set<String> keysBeforeAdd = new HashSet<>(modelsByName.keySet());
 
-        // Добавить free-модели из ответа, которых ещё нет
+        // Add free models from response that are not yet in registry
         for (OpenRouterModelEntry entry : fetched) {
             if (!entry.free() || !freeFiltered.contains(entry.id())) {
                 continue;
@@ -119,8 +116,8 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
     }
 
     /**
-     * Логирует: 1) free-модели из API, не попавшие в итоговый реестр (исключены фильтрами) и причину;
-     * 2) free-модели, которые уже были в реестре (yml или предыдущая синхронизация) и не добавлялись повторно.
+     * Logs: 1) free models from API excluded from final registry (by filters) and reason;
+     * 2) free models already in registry (yml or previous sync) and not re-added.
      */
     private void logExcludedAndAlreadyPresent(List<String> freeFromApi, List<String> freeFiltered, Set<String> keysBeforeAdd) {
         if (!log.isInfoEnabled()) {
@@ -129,7 +126,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         Set<String> filteredSet = new HashSet<>(freeFiltered);
         Set<String> fromApiSet = new HashSet<>(freeFromApi);
 
-        // Не попали в реестр из-за фильтров (были в API free, но отфильтрованы)
+        // Excluded by filters (were in API free but filtered out)
         List<String> excludedByFilters = fromApiSet.stream().filter(id -> !filteredSet.contains(id)).sorted().toList();
         if (!excludedByFilters.isEmpty()) {
             StringBuilder sb = new StringBuilder();
@@ -141,7 +138,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
             log.info(sb.toString());
         }
 
-        // Попали в freeFiltered, но уже были в реестре (не добавлялись повторно)
+        // In freeFiltered but already in registry (not added again)
         List<String> alreadyPresent = freeFiltered.stream().filter(keysBeforeAdd::contains).sorted().toList();
         if (!alreadyPresent.isEmpty()) {
             StringBuilder sb = new StringBuilder();
@@ -154,7 +151,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
     }
 
     /**
-     * Объясняет, почему модель не прошла фильтры (какой фильтр её исключил).
+     * Explains why model was excluded by filters (which filter excluded it).
      */
     private String explainExcludedByFilter(String modelId) {
         OpenRouterModelsProperties.Filters f = openRouterProperties.getFilters();
@@ -183,7 +180,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
     }
 
     /**
-     * Логирует полный список реестра: каждая модель с новой строки, имя и capabilities.
+     * Logs full registry: each model on new line with name and capabilities.
      */
     private void logRegistrySnapshot(String stage) {
         if (!log.isInfoEnabled()) {
@@ -238,7 +235,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
     }
 
     /**
-     * Кандидаты по capabilities, с опциональным предпочитаемым именем (первым в списке).
+     * Candidates by capabilities, with optional preferred name (first in list).
      */
     public List<SpringAIModelConfig> getCandidatesByCapabilities(Set<ModelCapabilities> required, String preferredModelId) {
         if (required == null || required.isEmpty()) {

@@ -167,9 +167,8 @@ spring:
 
   ai:
     ollama:
-      # ВАЖНО: Если возникают DNS ошибки (NXDOMAIN) для .local доменов,
-      # используйте IP адрес вместо домена, например: http://192.168.1.x:11434
-      # Или добавьте запись в /etc/hosts: echo "192.168.1.x your-ollama-host.local" | sudo tee -a /etc/hosts
+      # If you get DNS errors (NXDOMAIN) for .local domains, use IP or add /etc/hosts entry.
+      # Example: echo "192.168.1.x your-ollama-host.local" | sudo tee -a /etc/hosts
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     openai:
       base-url: https://openrouter.ai/api

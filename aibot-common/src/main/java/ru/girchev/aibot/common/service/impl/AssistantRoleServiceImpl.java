@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Реализация сервиса для управления ролями ассистента
+ * Implementation of assistant role management service.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -33,10 +33,10 @@ public class AssistantRoleServiceImpl implements AssistantRoleService {
     public AssistantRole createOrGetRole(User user, String content) {
         log.debug("Creating or getting role for user: {}", user.getId());
         
-        // Вычисляем хэш содержания
+        // Compute content hash
         String contentHash = String.valueOf(content.hashCode());
         
-        // Проверяем, существует ли роль с таким содержанием
+        // Check if role with this content already exists
         Optional<AssistantRole> existingRole = assistantRoleRepository.findByUserAndContentHash(user, contentHash);
         
         if (existingRole.isPresent()) {
@@ -44,13 +44,13 @@ public class AssistantRoleServiceImpl implements AssistantRoleService {
             return existingRole.get();
         }
         
-        // Создаем новую роль
+        // Create new role
         AssistantRole role = new AssistantRole();
         role.setUser(user);
         role.setContent(content);
         role.setContentHash(contentHash);
         
-        // Получаем следующую версию
+        // Get next version
         Integer nextVersion = assistantRoleRepository.findMaxVersionByUser(user) + 1;
         role.setVersion(nextVersion);
         role.setIsActive(false);
@@ -64,14 +64,14 @@ public class AssistantRoleServiceImpl implements AssistantRoleService {
     public void setActiveRole(AssistantRole role) {
         log.debug("Setting active role {}", role.getId());
         
-        // Перезагружаем объект из БД, чтобы избежать LazyInitializationException
+        // Reload from DB to avoid LazyInitializationException
         AssistantRole managedRole = assistantRoleRepository.findById(role.getId())
                 .orElseThrow(() -> new IllegalArgumentException("Role not found with id: " + role.getId()));
         
-        // Деактивируем все роли пользователя
+        // Deactivate all user roles
         assistantRoleRepository.deactivateAllByUser(managedRole.getUser());
         
-        // Активируем указанную роль
+        // Activate the specified role
         managedRole.setIsActive(true);
         assistantRoleRepository.save(managedRole);
         
@@ -83,19 +83,19 @@ public class AssistantRoleServiceImpl implements AssistantRoleService {
     public AssistantRole updateActiveRole(User user, String content) {
         log.debug("Updating active role for user: {}", user.getId());
         
-        // Получаем текущую активную роль
+        // Get current active role
         Optional<AssistantRole> currentActiveRole = getActiveRole(user);
         
-        // Если содержание не изменилось, возвращаем текущую роль
+        // If content unchanged, return current role
         if (currentActiveRole.isPresent() && currentActiveRole.get().getContent().equals(content)) {
             log.debug("Role content unchanged for user: {}", user.getId());
             return currentActiveRole.get();
         }
         
-        // Создаем или получаем роль с новым содержанием
+        // Create or get role with new content
         AssistantRole role = createOrGetRole(user, content);
         
-        // Активируем новую роль
+        // Activate new role
         setActiveRole(role);
         
         return role;
@@ -105,8 +105,8 @@ public class AssistantRoleServiceImpl implements AssistantRoleService {
     @Transactional
     public void incrementUsage(AssistantRole role) {
         log.debug("Incrementing usage count for role: {}", role.getId());
-        // Перезагружаем объект из БД, чтобы избежать LazyInitializationException
-        // если role был загружен в другой транзакции или является lazy-прокси
+        // Reload from DB to avoid LazyInitializationException
+        // if role was loaded in another transaction or is a lazy proxy
         AssistantRole managedRole = assistantRoleRepository.findById(role.getId())
                 .orElseThrow(() -> new IllegalArgumentException("Role not found with id: " + role.getId()));
         managedRole.incrementUsageCount();
@@ -154,14 +154,14 @@ public class AssistantRoleServiceImpl implements AssistantRoleService {
     public AssistantRole getOrCreateDefaultRole(User user, String defaultContent) {
         log.debug("Getting or creating default role for user: {}", user.getId());
         
-        // Проверяем, есть ли активная роль
+        // Check if there is an active role
         Optional<AssistantRole> activeRole = getActiveRole(user);
         
         if (activeRole.isPresent()) {
             return activeRole.get();
         }
         
-        // Создаем роль с дефолтным содержанием
+        // Create role with default content
         AssistantRole role = createOrGetRole(user, defaultContent);
         setActiveRole(role);
         

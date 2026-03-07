@@ -17,21 +17,21 @@ import ru.girchev.aibot.ai.springai.service.SpringAIModelType;
 import ru.girchev.aibot.common.ai.ModelCapabilities;
 
 /**
- * Авто-конфигурация для RAG (Retrieval-Augmented Generation).
- * 
- * <p>Активируется при {@code ai-bot.ai.spring-ai.rag.enabled=true}
- * 
- * <p>Использует SimpleVectorStore (in-memory), что имеет следующие особенности:
+ * Auto-configuration for RAG (Retrieval-Augmented Generation).
+ *
+ * <p>Enabled when {@code ai-bot.ai.spring-ai.rag.enabled=true}
+ *
+ * <p>Uses SimpleVectorStore (in-memory):
  * <ul>
- *   <li><b>Преимущества:</b> Не требует внешних зависимостей (PostgreSQL pgvector, Elasticsearch)</li>
- *   <li><b>Ограничения:</b> Данные не персистентны - теряются при перезапуске</li>
- *   <li><b>Рекомендация:</b> Для production используйте PGVector или Elasticsearch</li>
+ *   <li><b>Pros:</b> No external deps (PostgreSQL pgvector, Elasticsearch)</li>
+ *   <li><b>Cons:</b> Data not persistent — lost on restart</li>
+ *   <li><b>Recommendation:</b> For production use PGVector or Elasticsearch</li>
  * </ul>
- * 
- * <p>Для работы требуется EmbeddingModel (например, от Ollama или OpenAI).
- * 
- * @see DocumentProcessingService для обработки PDF документов
- * @see FileRAGService для поиска релевантных чанков
+ *
+ * <p>Requires EmbeddingModel (e.g. Ollama or OpenAI).
+ *
+ * @see DocumentProcessingService for PDF processing
+ * @see FileRAGService for relevant chunk search
  */
 @Slf4j
 @AutoConfiguration
@@ -40,22 +40,21 @@ import ru.girchev.aibot.common.ai.ModelCapabilities;
 public class RAGAutoConfig {
 
     /**
-     * Создает SimpleVectorStore для хранения embeddings.
-     * 
-     * <p>SimpleVectorStore работает in-memory, что означает:
+     * Creates SimpleVectorStore for embeddings.
+     *
+     * <p>SimpleVectorStore is in-memory:
      * <ul>
-     *   <li>Быстрый старт без внешних зависимостей</li>
-     *   <li>Данные теряются при перезапуске приложения</li>
-     *   <li>Подходит для тестирования и небольших объемов данных</li>
+     *   <li>Fast startup, no external deps</li>
+     *   <li>Data lost on app restart</li>
+     *   <li>Suited for testing and small data</li>
      * </ul>
-     * 
-     * <p>EmbeddingModel выбирается динамически через SpringAIModelType по capability EMBEDDING.
-     * Модель настраивается в ai-bot.ai.spring-ai.models.list с capability EMBEDDING.
-     * 
-     * @param springAIModelType сервис для выбора модели по capabilities
-     * @param ollamaEmbeddingModelProvider провайдер Ollama EmbeddingModel
-     * @param openAiEmbeddingModelProvider провайдер OpenAI EmbeddingModel
-     * @return VectorStore инстанс
+     *
+     * <p>EmbeddingModel is chosen by SpringAIModelType via capability EMBEDDING (ai-bot.ai.spring-ai.models.list).
+     *
+     * @param springAIModelType service to select model by capabilities
+     * @param ollamaEmbeddingModelProvider Ollama EmbeddingModel provider
+     * @param openAiEmbeddingModelProvider OpenAI EmbeddingModel provider
+     * @return VectorStore instance
      */
     @Bean
     @ConditionalOnMissingBean
@@ -64,7 +63,7 @@ public class RAGAutoConfig {
             @Qualifier("ollamaEmbeddingModel") ObjectProvider<EmbeddingModel> ollamaEmbeddingModelProvider,
             @Qualifier("openAiEmbeddingModel") ObjectProvider<EmbeddingModel> openAiEmbeddingModelProvider) {
         
-        // Динамически выбираем модель по capability EMBEDDING
+        // Select model by capability EMBEDDING
         SpringAIModelConfig modelConfig = springAIModelType.getByCapability(ModelCapabilities.EMBEDDING)
                 .orElseThrow(() -> new IllegalStateException(
                         "No model with EMBEDDING capability found in ai-bot.ai.spring-ai.models.list"));
@@ -94,11 +93,11 @@ public class RAGAutoConfig {
     }
 
     /**
-     * Создает сервис для обработки PDF документов.
-     * 
-     * @param vectorStore хранилище для embeddings
-     * @param ragProperties конфигурация RAG
-     * @return DocumentProcessingService инстанс
+     * Creates PDF document processing service.
+     *
+     * @param vectorStore store for embeddings
+     * @param ragProperties RAG config
+     * @return DocumentProcessingService instance
      */
     @Bean
     @ConditionalOnMissingBean
@@ -111,11 +110,11 @@ public class RAGAutoConfig {
     }
 
     /**
-     * Создает сервис для RAG поиска.
-     * 
-     * @param vectorStore хранилище для embeddings
-     * @param ragProperties конфигурация RAG
-     * @return RAGService инстанс
+     * Creates RAG search service.
+     *
+     * @param vectorStore store for embeddings
+     * @param ragProperties RAG config
+     * @return RAGService instance
      */
     @Bean
     @ConditionalOnMissingBean

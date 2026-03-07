@@ -36,11 +36,20 @@ ai-bot:
     max-output-tokens: 4000
     # Бюджет на reasoning (часть от общего; должен быть < max-output-tokens). Опционально.
     max-reasoning-tokens: 1500
-    # Параметры суммаризации длинных диалогов (общие для ручного режима и Spring AI).
+    # Summarization of long conversations (manual and Spring AI modes).
     summarization:
       max-context-tokens: 8000
       summary-trigger-threshold: 0.7
       keep-recent-messages: 20
+      # Prompt for AI to produce summary + memory_bullets (JSON). Placeholder not used; conversation is sent as separate user message.
+      prompt: |
+        You are an assistant that creates brief summaries of conversations.
+        Analyze the following conversation and produce:
+        1. A short summary (2-3 paragraphs) of main topics and decisions
+        2. A list of 5-10 key facts/decisions (bullet points)
+        Reply in strict JSON only (no ```json or markdown):
+        {"summary": "short summary of the conversation", "memory_bullets": ["fact 1", "fact 2", ...]}
+        Conversation:
     # История, управляемая common (ручной контекст). false = используем Spring AI ChatMemory.
     manual-conversation-history:
       enabled: false
@@ -151,11 +160,27 @@ ai-bot:
 #            provider-type: OLLAMA
 #            priority: 1
       rag:
-        enabled: true  # FEATURE FLAG - по умолчанию выключено
-        chunk-size: 800       # Размер чанка в токенах
-        chunk-overlap: 100    # Перекрытие между чанками
-        top-k: 5              # Количество возвращаемых релевантных чанков
-        similarity-threshold: 0.7  # Минимальный порог similarity (0.0-1.0)
+        enabled: true
+        chunk-size: 800
+        chunk-overlap: 100
+        top-k: 5
+        similarity-threshold: 0.7
+        # Prompts for document/file processing (RAG and extraction errors).
+        prompts:
+          # Message when PDF text cannot be extracted (e.g. scan/image). %s = file name.
+          document-extract-error-pdf: "Could not extract text from file \"%s\". The file may be a scan or image. Please upload a PDF with a text layer or paste the text in your message."
+          # Message when document text cannot be extracted. %s = file name, %s = document type.
+          document-extract-error-document: "Could not extract text from file \"%s\" (type: %s). The file may be a scan or image. Please upload a document with a text layer or paste the text in your message."
+          # RAG augmented prompt template. First %s = context text, second %s = user question.
+          augmented-prompt-template: |
+            Based on the following context from the document, answer the user's question.
+            If the context doesn't contain relevant information to answer the question,
+            say that you couldn't find the answer in the provided documents.
+
+            Context:
+            %s
+
+            Question: %s
     gateway-mock:
       enabled: false  # По умолчанию выключен
 

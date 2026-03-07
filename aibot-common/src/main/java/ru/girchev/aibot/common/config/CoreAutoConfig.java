@@ -123,12 +123,12 @@ public class CoreAutoConfig {
         return new ObjectMapper();
     }
 
-    // ==================== NoOp реализации (когда bulkhead выключен) ====================
+    // ==================== NoOp implementations (when bulkhead is disabled) ====================
 
     /**
-     * NoOp реализация IUserPriorityService.
-     * Создается когда bulkhead выключен или не настроен.
-     * Всегда возвращает приоритет REGULAR.
+     * NoOp implementation of IUserPriorityService.
+     * Created when bulkhead is disabled or not configured.
+     * Always returns REGULAR priority.
      */
     @Bean
     @ConditionalOnMissingBean(IUserPriorityService.class)
@@ -138,9 +138,9 @@ public class CoreAutoConfig {
     }
 
     /**
-     * NoOp реализация PriorityRequestExecutor.
-     * Создается когда bulkhead выключен или не настроен.
-     * Просто выполняет задачи напрямую без ограничений.
+     * NoOp implementation of PriorityRequestExecutor.
+     * Created when bulkhead is disabled or not configured.
+     * Executes tasks directly without limits.
      */
     @Bean
     @ConditionalOnMissingBean(PriorityRequestExecutor.class)
@@ -149,7 +149,7 @@ public class CoreAutoConfig {
         return new NoOpPriorityRequestExecutor();
     }
 
-    // ==================== Основные бины ====================
+    // ==================== Core beans ====================
 
     @Bean
     @ConditionalOnMissingBean(DefaultAICommandFactory.class)

@@ -42,14 +42,14 @@ public class UIAuthController {
             session.setAttribute(SESSION_EMAIL_KEY, email);
             session.setAttribute(SESSION_USER_ID_KEY, user.getId());
             
-            log.info("Пользователь {} успешно авторизован через UI", email);
-            
+            log.info("User {} successfully authorized via UI", email);
+
             return ResponseEntity.ok(Map.of(
                     "message", "Успешная авторизация",
                     "email", email
             ));
         } catch (Exception e) {
-            log.error("Ошибка при авторизации пользователя {}", email, e);
+            log.error("Error authorizing user {}", email, e);
             return ResponseEntity.status(500)
                     .body(Map.of("message", "Ошибка при авторизации: " + e.getMessage()));
         }
@@ -59,7 +59,7 @@ public class UIAuthController {
     public ResponseEntity<Map<String, String>> logout(HttpSession session) {
         String email = (String) session.getAttribute(SESSION_EMAIL_KEY);
         session.invalidate();
-        log.info("Пользователь {} вышел из системы", email);
+        log.info("User {} logged out", email);
         return ResponseEntity.ok(Map.of("message", "Успешный выход"));
     }
 

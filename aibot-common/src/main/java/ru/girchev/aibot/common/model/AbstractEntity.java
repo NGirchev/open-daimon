@@ -8,8 +8,8 @@ import java.io.Serializable;
 import java.util.Objects;
 
 /**
- * Базовый класс для всех Entity с общей логикой equals и hashCode
- * @param <ID> тип идентификатора сущности
+ * Base class for all entities with common equals and hashCode logic.
+ * @param <ID> entity identifier type
  */
 @MappedSuperclass
 @Getter
@@ -17,8 +17,8 @@ import java.util.Objects;
 public abstract class AbstractEntity<ID extends Serializable> implements Serializable {
     
     /**
-     * Получение идентификатора сущности
-     * @return идентификатор сущности
+     * Gets entity identifier.
+     * @return entity identifier
      */
     public abstract ID getId();
     

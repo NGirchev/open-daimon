@@ -8,103 +8,101 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Сервис для управления ролями ассистента с версионированием
+ * Service for managing assistant roles with versioning.
  */
 public interface AssistantRoleService {
     
     /**
-     * Получает активную роль для пользователя
-     * 
-     * @param user пользователь
-     * @return активная роль или Optional.empty()
+     * Gets active role for user.
+     *
+     * @param user user
+     * @return active role or Optional.empty()
      */
     Optional<AssistantRole> getActiveRole(User user);
     
     /**
-     * Создает или возвращает существующую роль с таким же содержанием
-     * Если роль с таким содержанием уже существует, возвращает её
-     * Если нет - создает новую версию
-     * 
-     * @param user пользователь
-     * @param content содержание роли
-     * @return роль
+     * Creates or returns existing role with same content.
+     * If role with this content exists, returns it; otherwise creates new version.
+     *
+     * @param user user
+     * @param content role content
+     * @return role
      */
     AssistantRole createOrGetRole(User user, String content);
     
     /**
-     * Устанавливает роль как активную для пользователя
-     * Деактивирует все остальные роли пользователя
-     * 
-     * @param role роль для активации
+     * Sets role as active for user.
+     * Deactivates all other user roles.
+     *
+     * @param role role to activate
      */
     void setActiveRole(AssistantRole role);
     
     /**
-     * Обновляет активную роль пользователя
-     * Если содержание не изменилось - возвращает текущую роль
-     * Если изменилось - создает новую версию или активирует существующую
-     * 
-     * @param user пользователь
-     * @param content новое содержание роли
-     * @return активная роль
+     * Updates user's active role.
+     * If content unchanged returns current role; if changed creates new version or activates existing.
+     *
+     * @param user user
+     * @param content new role content
+     * @return active role
      */
     AssistantRole updateActiveRole(User user, String content);
     
     /**
-     * Увеличивает счетчик использования роли
-     * 
-     * @param role роль
+     * Increments role usage counter.
+     *
+     * @param role role
      */
     void incrementUsage(AssistantRole role);
     
     /**
-     * Получает все роли пользователя
-     * 
-     * @param user пользователь
-     * @return список ролей отсортированный по версии (от новых к старым)
+     * Gets all user roles.
+     *
+     * @param user user
+     * @return list of roles sorted by version (newest first)
      */
     List<AssistantRole> getAllUserRoles(User user);
     
     /**
-     * Получает роль по версии
-     * 
-     * @param user пользователь
-     * @param version версия роли
-     * @return роль или Optional.empty()
+     * Gets role by version.
+     *
+     * @param user user
+     * @param version role version
+     * @return role or Optional.empty()
      */
     Optional<AssistantRole> getRoleByVersion(User user, Integer version);
     
     /**
-     * Удаляет неиспользуемые роли (не активные, без запросов, старше указанного периода)
-     * 
-     * @param thresholdDate дата, роли старше которой будут удалены
-     * @return количество удаленных ролей
+     * Removes unused roles (inactive, no requests, older than threshold).
+     *
+     * @param thresholdDate roles older than this will be deleted
+     * @return number of deleted roles
      */
     int cleanupUnusedRoles(OffsetDateTime thresholdDate);
     
     /**
-     * Получает список неиспользуемых ролей
-     * 
-     * @param thresholdDate дата, роли старше которой считаются неиспользуемыми
-     * @return список неиспользуемых ролей
+     * Gets list of unused roles.
+     *
+     * @param thresholdDate roles older than this are considered unused
+     * @return list of unused roles
      */
     List<AssistantRole> findUnusedRoles(OffsetDateTime thresholdDate);
     
     /**
-     * Получает роль по умолчанию для пользователя
-     * Если у пользователя нет активной роли, создает новую с дефолтным содержанием
-     * 
-     * @param user пользователь
-     * @param defaultContent содержание роли по умолчанию
-     * @return активная роль
+     * Gets default role for user.
+     * If user has no active role, creates one with default content.
+     *
+     * @param user user
+     * @param defaultContent default role content
+     * @return active role
      */
     AssistantRole getOrCreateDefaultRole(User user, String defaultContent);
     
     /**
-     * Получает роль по ID
-     * 
-     * @param roleId ID роли
-     * @return роль или Optional.empty()
+     * Gets role by ID.
+     *
+     * @param roleId role ID
+     * @return role or Optional.empty()
      */
     Optional<AssistantRole> findById(Long roleId);
 }

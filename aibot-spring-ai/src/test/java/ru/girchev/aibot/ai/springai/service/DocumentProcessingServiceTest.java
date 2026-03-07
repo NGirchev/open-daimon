@@ -18,7 +18,7 @@ import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.lenient;
 
 /**
- * Unit тесты для DocumentProcessingService.
+ * Unit tests for DocumentProcessingService.
  */
 @ExtendWith(MockitoExtension.class)
 class DocumentProcessingServiceTest {
@@ -36,9 +36,15 @@ class DocumentProcessingServiceTest {
 
     @BeforeEach
     void setUp() {
+        RAGProperties.RAGPrompts prompts = new RAGProperties.RAGPrompts();
+        prompts.setDocumentExtractErrorPdf("Could not extract text from file \"%s\".");
+        prompts.setDocumentExtractErrorDocument("Could not extract text from file \"%s\" (type: %s).");
+        prompts.setAugmentedPromptTemplate("Context:\n%s\n\nQuestion: %s");
+
         lenient().when(ragProperties.getChunkSize()).thenReturn(800);
         lenient().when(ragProperties.getChunkOverlap()).thenReturn(100);
-        
+        lenient().when(ragProperties.getPrompts()).thenReturn(prompts);
+
         documentProcessingService = new DocumentProcessingService(vectorStore, ragProperties);
     }
 
@@ -104,7 +110,7 @@ class DocumentProcessingServiceTest {
         verify(vectorStore, times(1)).delete(List.of(documentId));
     }
 
-    // ========== Тесты для processWithTika (все форматы кроме PDF) ==========
+    // ========== Tests for processWithTika (all formats except PDF) ==========
 
     @Test
     void processWithTika_txt_returnsDocumentId() {
@@ -228,7 +234,7 @@ class DocumentProcessingServiceTest {
     @Test
     void processWithTika_rtf_returnsDocumentId() {
         // Arrange
-        // Простой RTF документ
+        // Simple RTF document
         byte[] rtfData = """
                 {\\rtf1\\ansi\\deff0
                 {\\fonttbl{\\f0 Times New Roman;}}
@@ -267,11 +273,11 @@ class DocumentProcessingServiceTest {
     }
 
     /**
-     * Создает минимальный валидный PDF для тестирования.
-     * Это самый простой PDF, который может быть прочитан.
+     * Creates minimal valid PDF for testing.
+     * Simplest PDF that can be read.
      */
     private byte[] createSimplePdfBytes() {
-        // Минимальный PDF документ
+        // Minimal PDF document
         String simplePdf = """
                 %PDF-1.4
                 1 0 obj

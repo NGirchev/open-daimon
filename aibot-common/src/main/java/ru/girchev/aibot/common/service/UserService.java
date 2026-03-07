@@ -9,9 +9,9 @@ import ru.girchev.aibot.common.repository.UserRepository;
 import java.util.Optional;
 
 /**
- * Универсальный сервис для работы с пользователями.
- * Ищет пользователей по id из базовой таблицы user.
- * Поддерживает как TelegramUser, так и RestUser через полиморфные запросы JPA.
+ * Generic service for user operations.
+ * Finds users by id from base user table.
+ * Supports both TelegramUser and RestUser via JPA polymorphic queries.
  */
 @Slf4j
 @RequiredArgsConstructor

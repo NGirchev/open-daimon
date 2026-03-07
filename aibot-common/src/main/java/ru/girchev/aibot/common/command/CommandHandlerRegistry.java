@@ -17,20 +17,19 @@ public class CommandHandlerRegistry {
     public <T extends ICommandType, C extends ICommand<T>> Optional<ICommandHandler<?, ?, ?>> findHandler(C command) {
         return strategies.stream()
                 .filter(s -> {
-                    // Проверяем совместимость класса команды с типом, который ожидает handler
+                    // Check command class compatibility with handler's expected type
                     if (!isCommandCompatible(s, command)) {
                         return false;
                     }
-                    // Используем raw type для безопасного вызова canHandle
-                    // canHandle принимает ICommand<T>, а command имеет тип C extends ICommand<T>
+                    // Use raw type for safe canHandle call (canHandle takes ICommand<T>, command is C extends ICommand<T>)
                     return ((ICommandHandler) s).canHandle(command);
                 })
                 .min(Comparator.comparingInt(ICommandHandler::priority));
     }
 
     /**
-     * Проверяет, совместим ли класс команды с типом команды, который ожидает handler.
-     * Использует рефлексию для получения второго generic параметра из интерфейса ICommandHandler (тип команды C).
+     * Checks if command class is compatible with the type the handler expects.
+     * Uses reflection to get second generic from ICommandHandler (command type C).
      */
     private boolean isCommandCompatible(ICommandHandler<?, ?, ?> handler, ICommand<?> command) {
         Class<?> commandClass = command.getClass();
@@ -40,16 +39,16 @@ public class CommandHandlerRegistry {
             return handlerCommandClass.isAssignableFrom(commandClass);
         }
         
-        // Если не удалось определить тип, разрешаем вызов canHandle (fallback)
+        // If type could not be determined, allow canHandle (fallback)
         return true;
     }
 
     /**
-     * Получает класс команды из generic параметров handler'а через рефлексию.
-     * Возвращает второй generic параметр из интерфейса ICommandHandler (тип команды C).
+     * Gets command class from handler's generic parameters via reflection.
+     * Returns second generic from ICommandHandler (command type C).
      */
     private Class<?> getHandlerCommandClass(ICommandHandler<?, ?, ?> handler) {
-        // Получаем generic типы из интерфейса ICommandHandler
+        // Get generic types from ICommandHandler interface
         Type[] interfaces = handler.getClass().getGenericInterfaces();
         for (Type iface : interfaces) {
             if (iface instanceof ParameterizedType paramType 
@@ -61,7 +60,7 @@ public class CommandHandlerRegistry {
             }
         }
         
-        // Если не удалось определить тип через интерфейсы, проверяем через суперкласс
+        // If not found via interfaces, try superclass
         Type superclass = handler.getClass().getGenericSuperclass();
         if (superclass instanceof ParameterizedType paramType) {
             Type[] typeArgs = paramType.getActualTypeArguments();
@@ -74,10 +73,10 @@ public class CommandHandlerRegistry {
     }
 
     /**
-     * Получить список всех зарегистрированных обработчиков.
-     * Используется для тестирования и отладки.
+     * Returns list of all registered handlers.
+     * Used for testing and debugging.
      *
-     * @return список обработчиков
+     * @return list of handlers
      */
     public List<ICommandHandler<?, ?, ?>> getHandlers() {
         return strategies;

@@ -1,26 +1,26 @@
 package ru.girchev.aibot.bulkhead.model;
 
 /**
- * Перечисление, представляющее приоритеты пользователей.
+ * Enumeration of user priorities.
  */
 public enum UserPriority {
     /**
-     * Администраторы - отдельный приоритет с максимальным доступом.
+     * Admins — separate priority with maximum access.
      */
     ADMIN,
 
     /**
-     * VIP пользователи (оплатившие) - имеют доступ к приоритетным ресурсам.
+     * VIP users (paid) — have access to priority resources.
      */
     VIP,
     
     /**
-     * Обычные пользователи (бесплатные) - имеют доступ к ограниченным ресурсам.
+     * Regular users (free) — have access to limited resources.
      */
     REGULAR,
     
     /**
-     * Заблокированные пользователи (не оплатили) - доступ запрещен.
+     * Blocked users (not paid) — access denied.
      */
     BLOCKED
 }

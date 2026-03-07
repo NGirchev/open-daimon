@@ -22,7 +22,7 @@ import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.lenient;
 
 /**
- * Unit тесты для RAGService.
+ * Unit tests for RAGService.
  */
 @ExtendWith(MockitoExtension.class)
 class FileRAGServiceTest {
@@ -40,9 +40,15 @@ class FileRAGServiceTest {
 
     @BeforeEach
     void setUp() {
+        RAGProperties.RAGPrompts prompts = new RAGProperties.RAGPrompts();
+        prompts.setAugmentedPromptTemplate("Context:\n%s\n\nQuestion: %s");
+        prompts.setDocumentExtractErrorPdf("Error PDF %s");
+        prompts.setDocumentExtractErrorDocument("Error doc %s %s");
+
         lenient().when(ragProperties.getTopK()).thenReturn(5);
         lenient().when(ragProperties.getSimilarityThreshold()).thenReturn(0.7);
-        
+        lenient().when(ragProperties.getPrompts()).thenReturn(prompts);
+
         fileRagService = new FileRAGService(vectorStore, ragProperties);
     }
 
@@ -165,7 +171,7 @@ class FileRAGServiceTest {
         String augmentedPrompt = fileRagService.createAugmentedPrompt(userQuery, context);
 
         // Assert
-        // Проверяем, что чанки разделены
+        // Verify that chunks are separated
         assertTrue(augmentedPrompt.contains("---"));
         assertTrue(augmentedPrompt.contains("First chunk"));
         assertTrue(augmentedPrompt.contains("Second chunk"));

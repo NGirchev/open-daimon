@@ -13,34 +13,34 @@ import java.util.Optional;
 public interface ConversationThreadRepository extends JpaRepository<ConversationThread, Long> {
     
     /**
-     * Находит thread по уникальному ключу
+     * Finds thread by unique key.
      */
     Optional<ConversationThread> findByThreadKey(String threadKey);
     
     /**
-     * Находит все активные threads пользователя, отсортированные по дате последней активности (новые первыми)
+     * Finds all active threads of user, sorted by last activity date (newest first).
      */
     List<ConversationThread> findByUserAndIsActiveTrueOrderByLastActivityAtDesc(User user);
     
     /**
-     * Находит все threads пользователя (активные и неактивные), отсортированные по дате последней активности (новые первыми)
+     * Finds all user threads (active and inactive), sorted by last activity date (newest first).
      */
     List<ConversationThread> findByUserOrderByLastActivityAtDesc(User user);
     
     /**
-     * Находит активные threads пользователя, которые неактивны дольше указанного времени
+     * Finds user's active threads that have been inactive longer than specified time.
      */
     List<ConversationThread> findByUserAndIsActiveTrueAndLastActivityAtBefore(
             User user, OffsetDateTime before);
     
     /**
-     * Находит самый свежий активный thread пользователя
-     * Используем Spring Data JPA naming convention для автоматической генерации запроса
+     * Finds user's most recent active thread.
+     * Uses Spring Data JPA naming convention for query generation.
      */
     Optional<ConversationThread> findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc(User user);
     
     /**
-     * Находит самый свежий активный thread пользователя (удобный метод-алиас)
+     * Finds user's most recent active thread (convenience alias).
      */
     default Optional<ConversationThread> findMostRecentActiveThread(User user) {
         return findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc(user);

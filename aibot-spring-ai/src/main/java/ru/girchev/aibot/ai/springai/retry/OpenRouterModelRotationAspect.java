@@ -76,7 +76,7 @@ public class OpenRouterModelRotationAspect {
             List<SpringAIModelConfig> candidates,
             int index
     ) {
-        // TODO потестировать подход без defer
+        // TODO test approach without defer
 //        try {
 //            if (index >= candidates.size()) {
 //                return new SpringAIStreamResponse(Flux.error(new RuntimeException("No models available for retry")));
@@ -88,7 +88,7 @@ public class OpenRouterModelRotationAspect {
 //            result.chatResponse().doOnNext()
 //            return result;
 //        } catch (Throwable e) {
-//            // тут надо обработку ретраев
+//            // retry handling needed here
 //            throw new RuntimeException(e);
 //        }
         if (index >= candidates.size()) {
@@ -157,7 +157,7 @@ public class OpenRouterModelRotationAspect {
         if (candidates.isEmpty() && modelConfig != null) {
             candidates = List.of(modelConfig);
         }
-        // При единственном кандидате AUTO (openrouter/auto) добавляем fallback по CHAT для ретрая при пустом стриме
+        // For single AUTO candidate (openrouter/auto) add CHAT fallback for retry on empty stream
         if (shouldAddChatFallback(capabilities, candidates)) {
             candidates = mergeWithChatCandidates(candidates, preferred);
             log.info("OpenRouter model rotation: added CHAT fallback candidates for retry (total={})", candidates.size());
@@ -208,8 +208,7 @@ public class OpenRouterModelRotationAspect {
     }
 
     private boolean isRetryable(Throwable error) {
-        // Проверяем всю цепочку причин — OpenRouterEmptyStreamException может быть обёрнут
-        // в WebClientResponseException (status 200) или IllegalStateException
+        // Check full cause chain — OpenRouterEmptyStreamException may be wrapped in WebClientResponseException (200) or IllegalStateException
         for (Throwable t = error; t != null; t = t.getCause()) {
             if (t instanceof OpenRouterEmptyStreamException) {
                 return true;
@@ -218,16 +217,15 @@ public class OpenRouterModelRotationAspect {
         WebClientResponseException w = findWebClientResponseException(error);
         if (w != null) {
             int status = w.getStatusCode().value();
-            // 429 rate limit; 402 Payment Required (кредиты/квота); 5xx — ротация на следующую модель.
+            // 429 rate limit; 402 Payment Required (credits/quota); 5xx — rotate to next model.
             if (status == 429 || status == 402 || (status >= 500 && status <= 599)) {
                 return true;
             }
-            // 404 от OpenRouter (в т.ч. "No endpoints matching your data policy") — всегда ротация на следующую модель.
-            // Тело ответа не проверяем: в стриме оно может быть уже прочитано и недоступно.
+            // 404 from OpenRouter (e.g. "No endpoints matching your data policy") — always rotate to next model. Response body not checked (may be consumed in stream).
             if (status == 404) {
                 return true;
             }
-            // Некоторые free-провайдеры в OpenRouter имеют более строгую валидацию формата messages.
+            // Some free providers on OpenRouter have stricter messages format validation.
             if (status == 400) {
                 String body = w.getResponseBodyAsString();
                 if (body != null && body.contains("Conversation roles must alternate")) {
@@ -241,7 +239,7 @@ public class OpenRouterModelRotationAspect {
     }
 
     /**
-     * Ищет WebClientResponseException в цепочке cause (например под NonTransientAiException от Spring AI).
+     * Finds WebClientResponseException in cause chain (e.g. under Spring AI NonTransientAiException).
      */
     private static WebClientResponseException findWebClientResponseException(Throwable error) {
         for (Throwable t = error; t != null; t = t.getCause()) {

@@ -5,8 +5,8 @@ import org.springframework.stereotype.Repository;
 import ru.girchev.aibot.common.model.User;
 
 /**
- * Репозиторий для работы с базовой таблицей user
- * Поддерживает полиморфные запросы для TelegramUser и RestUser
+ * Repository for base user table.
+ * Supports polymorphic queries for TelegramUser and RestUser.
  */
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {

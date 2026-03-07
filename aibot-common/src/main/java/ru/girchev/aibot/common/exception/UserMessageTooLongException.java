@@ -1,9 +1,9 @@
 package ru.girchev.aibot.common.exception;
 
 /**
- * Исключение при превышении лимита токенов одного сообщения пользователя
+ * Thrown when user message exceeds token limit
  * (ai-bot.common.max-user-message-tokens).
- * Сообщение исключения предназначено для показа пользователю.
+ * Exception message is intended for display to the user.
  */
 public class UserMessageTooLongException extends RuntimeException {
 
