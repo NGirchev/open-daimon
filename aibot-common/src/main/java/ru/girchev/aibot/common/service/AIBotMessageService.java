@@ -82,8 +82,7 @@ public class AIBotMessageService {
         int estimatedTokens = tokenCounter.estimateTokens(content);
         int maxAllowed = coreCommonProperties.getMaxUserMessageTokens();
         if (estimatedTokens > maxAllowed) {
-            throw new UserMessageTooLongException(
-                    "Сообщение слишком длинное: примерно " + estimatedTokens + " токенов. Лимит: " + maxAllowed + ". Сократите сообщение.");
+            throw new UserMessageTooLongException(estimatedTokens, maxAllowed);
         }
 
         // Increment role usage counter

@@ -66,8 +66,8 @@ import static ru.girchev.aibot.common.ai.LlmParamNames.CHOICES;
         SummarizationServiceIT.TestConfig.class
 })
 @TestPropertySource(properties = {
-        // ВАЖНО: отключаем автозагрузку TelegramAutoConfig (иначе TelegramBotRegistrar зарегистрирует бота на ApplicationReadyEvent)
-        // Отключаем CoreAutoConfig для этого теста, так как создаем бины вручную в TestConfig
+        // Disable TelegramAutoConfig autoload (otherwise TelegramBotRegistrar registers bot on ApplicationReadyEvent)
+        // Disable CoreAutoConfig for this test, we create beans manually in TestConfig
         "spring.autoconfigure.exclude=" +
                 "ru.girchev.aibot.telegram.config.TelegramAutoConfig," +
                 "ru.girchev.aibot.common.config.CoreAutoConfig"
@@ -116,18 +116,18 @@ class SummarizationServiceIT {
         public AIGateway mockAiGateway() {
             AIGateway gateway = mock(AIGateway.class);
             
-            // Мокируем supports, чтобы gateway поддерживал все модели
+            // Mock supports so gateway supports all models
             when(gateway.supports(any(AICommand.class)))
                     .thenReturn(true);
             
-            // Мокируем generateResponse, который возвращает AIResponse в формате, ожидаемом retrieveMessage
+            // Mock generateResponse returning AIResponse in format expected by retrieveMessage
             String summaryJson = """
                     {
-                      "summary": "Краткая сводка диалога о тестировании системы",
+                      "summary": "Short summary of the system test dialogue",
                       "memory_bullets": [
-                        "Пользователь задавал вопросы о системе",
-                        "Были обсуждены различные темы",
-                        "Система работала корректно"
+                        "User asked questions about the system",
+                        "Various topics were discussed",
+                        "System worked correctly"
                       ]
                     }
                     """;
@@ -204,20 +204,20 @@ class SummarizationServiceIT {
 
     @BeforeEach
     void setUp() {
-        // Очищаем БД перед каждым тестом
+        // Clear DB before each test
         messageRepository.deleteAll();
         threadRepository.deleteAll();
         telegramUserRepository.deleteAll();
 
-        // Создаем тестового пользователя
+        // Create test user
         testUser = createTestUser();
         telegramUserRepository.save(testUser);
 
-        // Создаем тестовую сессию
+        // Create test session
         testSession = createSession(testUser);
         telegramUserSessionRepository.save(testSession);
 
-        // Создаем тестовый thread
+        // Create test thread
         testThread = threadService.createNewThread((ru.girchev.aibot.common.model.User) testUser);
         assertNotNull(testThread);
     }
@@ -225,7 +225,7 @@ class SummarizationServiceIT {
     @Test
     void whenThreadTokensBelowThreshold_thenShouldNotTrigger() {
         // Arrange
-        testThread.setTotalTokens(1000L); // 12.5% от 8000
+        testThread.setTotalTokens(1000L); // 12.5% of 8000
         threadRepository.save(testThread);
 
         // Act
@@ -238,7 +238,7 @@ class SummarizationServiceIT {
     @Test
     void whenThreadTokensAtThreshold_thenShouldTrigger() {
         // Arrange
-        testThread.setTotalTokens(5600L); // 70% от 8000
+        testThread.setTotalTokens(5600L); // 70% of 8000
         threadRepository.save(testThread);
 
         // Act
@@ -251,7 +251,7 @@ class SummarizationServiceIT {
     @Test
     void whenThreadTokensAboveThreshold_thenShouldTrigger() {
         // Arrange
-        testThread.setTotalTokens(8000L); // 100% от 8000
+        testThread.setTotalTokens(8000L); // 100% of 8000
         threadRepository.save(testThread);
 
         // Act
@@ -263,7 +263,7 @@ class SummarizationServiceIT {
 
     @Test
     void whenNoRequests_thenSummarizeThreadAsyncCompletesWithoutError() {
-        // Arrange - thread без запросов
+        // Arrange - thread with no requests
 
         // Act
         CompletableFuture<Void> future = summarizationService.summarizeThreadAsync(testThread);
@@ -271,14 +271,14 @@ class SummarizationServiceIT {
         // Assert
         assertDoesNotThrow(future::join);
         
-        // Проверяем, что summary не обновлен
+        // Verify summary was not updated
         ConversationThread updatedThread = threadRepository.findById(testThread.getId() != null ? testThread.getId() : 0L).orElseThrow();
         assertNull(updatedThread.getSummary());
     }
 
     @Test
     void whenNotEnoughRequests_thenSummarizeThreadAsyncCompletesWithoutError() {
-        // Arrange - создаем меньше запросов, чем defaultWindowSize (5)
+        // Arrange - create fewer requests than defaultWindowSize (5)
         createUserRequestAndResponse(testThread, 1, "Message 1", "Response 1");
         createUserRequestAndResponse(testThread, 3, "Message 2", "Response 2");
 
@@ -288,15 +288,15 @@ class SummarizationServiceIT {
         // Assert
         assertDoesNotThrow(future::join);
         
-        // Проверяем, что summary не обновлен (недостаточно запросов для summarization)
+        // Verify summary was not updated (not enough requests for summarization)
         ConversationThread updatedThread = threadRepository.findById(testThread.getId() != null ? testThread.getId() : 0L).orElseThrow();
         assertNull(updatedThread.getSummary());
     }
 
     @Test
     void whenEnoughRequests_thenSummarizeThreadAsyncProcessesRequests() {
-        // Arrange - создаем больше запросов, чем defaultWindowSize (5)
-        // Создаем 7 запросов: при defaultWindowSize=5 суммаризируется 2 первых (7-5=2)
+        // Arrange - create more requests than defaultWindowSize (5)
+        // Create 7 requests: with defaultWindowSize=5 the first 2 are summarized (7-5=2)
         createUserRequestAndResponse(testThread, 1, "Message 1", "Response 1");
         createUserRequestAndResponse(testThread, 3, "Message 2", "Response 2");
         createUserRequestAndResponse(testThread, 5, "Message 3", "Response 3");
@@ -311,10 +311,10 @@ class SummarizationServiceIT {
         // Assert
         assertDoesNotThrow(future::join);
         
-        // Проверяем, что summary обновлен
+        // Verify summary was updated
         ConversationThread updatedThread = threadRepository.findById(testThread.getId() != null ? testThread.getId() : 0L).orElseThrow();
         assertNotNull(updatedThread.getSummary());
-        assertTrue(updatedThread.getSummary().contains("Краткая сводка"));
+        assertTrue(updatedThread.getSummary().contains("Short summary"));
         assertNotNull(updatedThread.getMemoryBullets());
         assertFalse(updatedThread.getMemoryBullets().isEmpty());
     }
@@ -322,11 +322,11 @@ class SummarizationServiceIT {
     @Test
     void whenSummarizeThreadAsync_thenCombinesWithExistingSummary() {
         // Arrange
-        testThread.setSummary("Существующая сводка");
-        testThread.setMemoryBullets(List.of("Старый факт 1", "Старый факт 2"));
+        testThread.setSummary("Existing summary");
+        testThread.setMemoryBullets(List.of("Old fact 1", "Old fact 2"));
         threadRepository.save(testThread);
 
-        // Создаем достаточно запросов для summarization
+        // Create enough requests for summarization
         createUserRequestAndResponse(testThread, 1, "Message 1", "Response 1");
         createUserRequestAndResponse(testThread, 3, "Message 2", "Response 2");
         createUserRequestAndResponse(testThread, 5, "Message 3", "Response 3");
@@ -340,20 +340,20 @@ class SummarizationServiceIT {
         // Assert
         assertDoesNotThrow(future::join);
         
-        // Проверяем, что summary объединен с существующим
+        // Verify summary was merged with existing
         ConversationThread updatedThread = threadRepository.findById(testThread.getId() != null ? testThread.getId() : 0L).orElseThrow();
         assertNotNull(updatedThread.getSummary());
-        assertTrue(updatedThread.getSummary().contains("Существующая сводка"));
-        assertTrue(updatedThread.getSummary().contains("Продолжение:"));
+        assertTrue(updatedThread.getSummary().contains("Existing summary"));
+        assertTrue(updatedThread.getSummary().contains("Continuation:"));
         
-        // Проверяем, что memory bullets объединены
-        assertTrue(updatedThread.getMemoryBullets().contains("Старый факт 1"));
+        // Verify memory bullets were merged
+        assertTrue(updatedThread.getMemoryBullets().contains("Old fact 1"));
         assertTrue(updatedThread.getMemoryBullets().size() > 2);
     }
 
     @Test
     void whenSummarizeThreadAsync_thenOnlyOldRequestsAreSummarized() {
-        // Arrange - создаем 7 запросов, при defaultWindowSize=5 должны суммаризироваться только первые 2
+        // Arrange - create 7 requests, with defaultWindowSize=5 only first 2 are summarized
         createUserRequestAndResponse(testThread, 1, "Old Message 1", "Old Response 1");
         createUserRequestAndResponse(testThread, 3, "Old Message 2", "Old Response 2");
         createUserRequestAndResponse(testThread, 5, "Recent Message 1", "Recent Response 1");
@@ -368,17 +368,17 @@ class SummarizationServiceIT {
         // Assert
         assertDoesNotThrow(future::join);
         
-        // Проверяем, что summary содержит информацию о старых сообщениях
+        // Verify summary contains info about old messages
         ConversationThread updatedThread = threadRepository.findById(testThread.getId() != null ? testThread.getId() : 0L).orElseThrow();
         assertNotNull(updatedThread.getSummary());
         
-        // Проверяем, что все сообщения все еще существуют (не удалены)
+        // Verify all messages still exist (not deleted)
         List<AIBotMessage> allMessages =
                 messageRepository.findByThreadOrderBySequenceNumberAsc(testThread);
         assertEquals(14, allMessages.size()); // 7 user + 7 assistant
     }
 
-    // Вспомогательные методы
+    // Helper methods
     private TelegramUser createTestUser() {
         TelegramUser user = new TelegramUser();
         user.setTelegramId(12345L);
@@ -398,7 +398,7 @@ class SummarizationServiceIT {
             String responseText) {
         assertNotNull(thread);
         
-        // Создаем USER сообщение
+        // Create USER message
         AIBotMessage userMessage = new AIBotMessage();
         userMessage.setUser(testUser);
         userMessage.setRole(MessageRole.USER);
@@ -407,13 +407,13 @@ class SummarizationServiceIT {
         userMessage.setThread(thread);
         userMessage.setSequenceNumber(sequenceNumber);
         userMessage.setTokenCount(estimateTokens(requestText));
-        // Сохраняем session_id в metadata
+        // Save session_id in metadata
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("session_id", testSession.getId());
         userMessage.setMetadata(metadata);
         messageRepository.save(userMessage);
 
-        // Создаем ASSISTANT сообщение
+        // Create ASSISTANT message
         AIBotMessage assistantMessage = new AIBotMessage();
         assistantMessage.setUser(testUser);
         assistantMessage.setRole(MessageRole.ASSISTANT);
@@ -424,13 +424,13 @@ class SummarizationServiceIT {
         assistantMessage.setThread(thread);
         assistantMessage.setSequenceNumber(sequenceNumber + 1);
         assistantMessage.setTokenCount(estimateTokens(responseText));
-        // Сохраняем session_id в metadata
+        // Save session_id in metadata
         Map<String, Object> assistantMetadata = new HashMap<>();
         assistantMetadata.put("session_id", testSession.getId());
         assistantMessage.setMetadata(assistantMetadata);
         messageRepository.save(assistantMessage);
 
-        // Обновляем счетчики thread
+        // Update thread counters
         threadService.updateThreadCounters(thread);
     }
 
@@ -444,7 +444,7 @@ class SummarizationServiceIT {
     }
 
     private int estimateTokens(String text) {
-        // Простая оценка: 1 токен ≈ 4 символа
+        // Simple estimate: 1 token ≈ 4 chars
         return (int) Math.ceil((double) text.length() / 4);
     }
 }

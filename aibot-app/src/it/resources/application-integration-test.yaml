@@ -1,5 +1,5 @@
-# Общая конфигурация для интеграционных тестов
-# Используется с @ActiveProfiles("integration-test")
+# Shared configuration for integration tests
+# Use with @ActiveProfiles("integration-test")
 
 spring:
   ai:
@@ -8,14 +8,14 @@ spring:
       base-url: https://openrouter.ai/api
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-  # Отключаем ненужные автоконфигурации для тестов (SpringAIAutoConfig не исключаем — нужна авторотация в IT)
+  # Disable unneeded autoconfig for tests (do not exclude SpringAIAutoConfig — needed for authorotation in IT)
   autoconfigure:
     exclude:
       - org.springframework.ai.model.ollama.autoconfigure.OllamaAutoConfiguration
       - org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration
       - org.springframework.ai.model.chat.memory.repository.jdbc.autoconfigure.JdbcChatMemoryRepositoryAutoConfiguration
 
-# aibot настройки для интеграционных тестов
+# ai-bot settings for integration tests
 ai-bot:
   telegram:
     token: test-token
@@ -39,6 +39,7 @@ ai-bot:
       max-context-tokens: 1000
       summary-trigger-threshold: 0.7
       keep-recent-messages: 1
+      prompt: "You are an assistant. Create a summary in JSON. Conversation:"
     manual-conversation-history:
       enabled: false
       max-response-tokens: 500
@@ -50,7 +51,7 @@ ai-bot:
       enabled: true
       openrouter-auto-rotation:
         models:
-          enabled: true  # для интеграционных тестов — проверяем полный путь с ротацией
+          enabled: true  # for integration tests — verify full path with rotation
           api:
             key: ${OPENROUTER_KEY:}
             url: https://openrouter.ai/api
@@ -85,7 +86,7 @@ ai-bot:
           document-extract-error-pdf: "Could not extract text from file \"%s\". The file may be a scan or image."
           document-extract-error-document: "Could not extract text from file \"%s\" (type: %s)."
           augmented-prompt-template: "Context:\n%s\n\nQuestion: %s"
-      # Модели для теста - используем openrouter/auto с бесплатным max_price
+      # Models for test - use openrouter/auto with free max_price
       models:
         list:
           - name: openrouter/auto

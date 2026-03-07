@@ -21,9 +21,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Сервис для работы с Telegram сообщениями.
- * Использует базовый Message Entity, сохраняя Telegram-специфичные данные в metadata.
- * Заменяет TelegramUserRequestService.
+ * Service for Telegram messages.
+ * Uses base Message entity, storing Telegram-specific data in metadata.
+ * Replaces TelegramUserRequestService.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -35,11 +35,11 @@ public class TelegramMessageService {
     private final ObjectProvider<StorageProperties> storagePropertiesProvider;
     
     /**
-     * Сохраняет USER сообщение от Telegram пользователя с сессией и conversation thread.
-     * При наличии вложений сохраняет ссылки и время истечения (TTL) в message.attachments.
+     * Saves USER message from Telegram user with session and conversation thread.
+     * If attachments present, saves refs and expiry (TTL) in message.attachments.
      *
-     * @param assistantRoleContent опциональное содержание роли ассистента (если null, используется дефолтная)
-     * @param attachments опциональный список вложений (фото/документы) — для сохранения ref в БД
+     * @param assistantRoleContent optional assistant role content (if null, default is used)
+     * @param attachments optional list of attachments (photos/documents) for saving refs to DB
      */
     @Transactional
     public AIBotMessage saveUserMessage(
@@ -50,13 +50,13 @@ public class TelegramMessageService {
             String assistantRoleContent,
             List<Attachment> attachments) {
         
-        // Получаем или создаем роль ассистента для пользователя через TelegramUserService
+        // Get or create assistant role for user via TelegramUserService
         String roleContent = assistantRoleContent != null 
                 ? assistantRoleContent 
                 : coreCommonProperties.getAssistantRole();
         AssistantRole assistantRole = telegramUserService.getOrCreateAssistantRole(telegramUser, roleContent);
         
-        // Подготавливаем Telegram-специфичные метаданные
+        // Prepare Telegram-specific metadata
         Map<String, Object> metadata = null;
         if (session != null) {
             metadata = new HashMap<>();
@@ -75,7 +75,7 @@ public class TelegramMessageService {
     }
     
     /**
-     * Строит список ссылок на вложения для сохранения в БД (storageKey, expiresAt, mimeType, filename).
+     * Builds list of attachment refs for DB (storageKey, expiresAt, mimeType, filename).
      */
     private List<Map<String, Object>> buildAttachmentRefs(List<Attachment> attachments) {
         if (attachments == null || attachments.isEmpty()) {
@@ -102,11 +102,11 @@ public class TelegramMessageService {
     }
     
     /**
-     * Сохраняет ASSISTANT сообщение (ответ от AI) для Telegram пользователя
-     * Автоматически получает или создает активный thread и роль для пользователя
-     * 
-     * @param assistantRoleContent опциональное содержание роли ассистента (если null, используется дефолтная)
-     * @param responseDataMap полезные данные из ответа AI провайдера (usage tokens, finish_reason и т.д.)
+     * Saves ASSISTANT message (AI response) for Telegram user.
+     * Automatically gets or creates active thread and role for user.
+     *
+     * @param assistantRoleContent optional assistant role content (if null, default is used)
+     * @param responseDataMap useful data from AI provider response (usage tokens, finish_reason, etc.)
      */
     @Transactional
     public AIBotMessage saveAssistantMessage(
@@ -131,8 +131,8 @@ public class TelegramMessageService {
     }
     
     /**
-     * Сохраняет ASSISTANT сообщение (ответ от AI) для Telegram пользователя
-     * Перегрузка для обратной совместимости без responseDataMap
+     * Saves ASSISTANT message (AI response) for Telegram user.
+     * Overload for backward compatibility without responseDataMap.
      */
     @Transactional
     public AIBotMessage saveAssistantMessage(
@@ -145,10 +145,10 @@ public class TelegramMessageService {
     }
     
     /**
-     * Сохраняет ASSISTANT сообщение с ошибкой для Telegram пользователя
-     * Автоматически получает или создает активный thread и роль для пользователя
-     * 
-     * @param assistantRoleContent опциональное содержание роли ассистента (если null, используется дефолтная)
+     * Saves ASSISTANT error message for Telegram user.
+     * Automatically gets or creates active thread and role for user.
+     *
+     * @param assistantRoleContent optional assistant role content (if null, default is used)
      */
     @Transactional
     public AIBotMessage saveAssistantErrorMessage(
@@ -158,13 +158,13 @@ public class TelegramMessageService {
             String assistantRoleContent,
             String errorData) {
         
-        // Получаем или создаем роль ассистента для пользователя через TelegramUserService
+        // Get or create assistant role for user via TelegramUserService
         String roleContent = assistantRoleContent != null 
                 ? assistantRoleContent 
                 : coreCommonProperties.getAssistantRole();
         AssistantRole assistantRole = telegramUserService.getOrCreateAssistantRole(telegramUser, roleContent);
         
-        // Используем базовый MessageService для сохранения сообщения
+        // Use base MessageService to save message
         return messageService.saveAssistantErrorMessage(
                 telegramUser, 
                 errorMessage, 

@@ -13,6 +13,7 @@ import ru.girchev.aibot.common.command.ICommand;
 import ru.girchev.aibot.common.model.ConversationThread;
 import ru.girchev.aibot.common.repository.ConversationThreadRepository;
 import ru.girchev.aibot.common.service.ConversationThreadService;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
@@ -27,13 +28,13 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Обработчик команды /threads для просмотра списка всех бесед
+ * Handler for /threads command to list all conversations.
  */
 @Slf4j
 public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
     
     private static final String CALLBACK_PREFIX = "THREADS_";
-    private static final String THREAD_PREFIX = "Беседа ";
+    private static final String THREAD_PREFIX = "Conversation ";
     
     private final ConversationThreadRepository threadRepository;
     private final ConversationThreadService threadService;
@@ -42,10 +43,11 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
     public ThreadsTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
             ConversationThreadRepository threadRepository,
             ConversationThreadService threadService,
             TelegramUserService userService) {
-        super(telegramBotProvider, typingIndicatorService);
+        super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.threadRepository = threadRepository;
         this.threadService = threadService;
         this.userService = userService;
@@ -61,12 +63,12 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
             return false;
         }
         
-        // Обрабатываем обычную команду /threads
+        // Handle plain /threads command
         if (commandType.command().equals(TelegramCommand.THREADS) && !telegramCommand.update().hasCallbackQuery()) {
             return true;
         }
         
-        // Обрабатываем callback query для выбора беседы
+        // Handle callback query for conversation selection
         if (telegramCommand.update().hasCallbackQuery()) {
             CallbackQuery cq = telegramCommand.update().getCallbackQuery();
             return cq.getData() != null && cq.getData().startsWith(CALLBACK_PREFIX);
@@ -77,13 +79,13 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
     
     @Override
     public String handleInner(TelegramCommand command) throws TelegramCommandHandlerException {
-        // Обрабатываем callback query для выбора беседы
+        // Handle callback query for conversation selection
         if (command.update().hasCallbackQuery()) {
             handleCallbackQuery(command);
-            return null; // Возвращаем null, чтобы базовый класс не отправлял сообщение
+            return null; // Return null so base class does not send a message
         }
         
-        // Обрабатываем обычную команду /threads
+        // Handle plain /threads command
         Message message = command.update().getMessage();
         if (message == null) {
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for threads command");
@@ -91,25 +93,25 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
         
         TelegramUser user = userService.getOrCreateUser(message.getFrom());
         
-        // Получаем все threads (активные и неактивные)
+        // Get all threads (active and inactive)
         List<ConversationThread> allThreads = threadRepository.findByUserOrderByLastActivityAtDesc(user);
         
         if (allThreads.isEmpty()) {
-            return "📝 У вас нет бесед. Начните новую беседу, отправив сообщение.";
+            return "📝 You have no conversations. Start a new one by sending a message.";
         }
-        
-        // Формируем сообщение со списком threads
+
+        // Build message with thread list
         StringBuilder threadsList = new StringBuilder();
-        threadsList.append("📋 Выберите активную беседу:\n\n");
-        
-        // Ограничиваем количество threads для меню (первые 20)
+        threadsList.append("📋 Select a conversation:\n\n");
+
+        // Limit threads for menu (first 20)
         int threadsToShow = Math.min(allThreads.size(), 20);
         
         for (int i = 0; i < threadsToShow; i++) {
             ConversationThread thread = allThreads.get(i);
             threadsList.append((i + 1)).append(". ");
             
-            // Показываем статус активности
+            // Show active status
             if (Boolean.TRUE.equals(thread.getIsActive())) {
                 threadsList.append("✅ ");
             } else {
@@ -126,12 +128,12 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
         }
         
         if (allThreads.size() > 20) {
-            threadsList.append("\n... и еще ").append(allThreads.size() - 20).append(" бесед.");
+            threadsList.append("\n... and ").append(allThreads.size() - 20).append(" more.");
         }
         
-        // Отправляем сообщение с меню
+        // Send message with menu
         sendMessageWithMenu(command.telegramId(), threadsList.toString(), command);
-        return null; // Возвращаем null, так как сообщение уже отправлено
+        return null; // Return null as message already sent
     }
     
     private void handleCallbackQuery(TelegramCommand command) throws TelegramCommandHandlerException {
@@ -142,45 +144,45 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
             throw new TelegramCommandHandlerException(command.telegramId(), "Invalid callback data");
         }
         
-        // Извлекаем threadKey из callback data
+        // Extract threadKey from callback data
         String threadKey = callbackData.substring(CALLBACK_PREFIX.length());
         
         TelegramUser user = userService.getOrCreateUser(cq.getFrom());
         
-        // Находим thread по ключу
+        // Find thread by key
         Optional<ConversationThread> threadOpt = threadService.findByThreadKey(threadKey);
         if (threadOpt.isEmpty()) {
-            ackCallback(cq.getId(), "❌ Беседа не найдена");
-            sendErrorMessage(command.telegramId(), "Беседа не найдена");
+            ackCallback(cq.getId(), "❌ Conversation not found");
+            sendErrorMessage(command.telegramId(), "Conversation not found");
             return;
         }
         
         ConversationThread thread = threadOpt.get();
         
-        // Проверяем, что thread принадлежит пользователю
+        // Verify thread belongs to user
         if (!thread.getUser().getId().equals(user.getId())) {
-            ackCallback(cq.getId(), "❌ Доступ запрещен");
-            sendErrorMessage(command.telegramId(), "Эта беседа не принадлежит вам");
+            ackCallback(cq.getId(), "❌ Access denied");
+            sendErrorMessage(command.telegramId(), "This conversation is not yours");
             return;
         }
         
-        // Активируем thread
+        // Activate thread
         threadService.activateThread(user, thread);
         
-        // Формируем сообщение об успешной активации
+        // Build success message
         String threadTitle = thread.getTitle() != null && !thread.getTitle().isEmpty() 
             ? thread.getTitle() 
             : THREAD_PREFIX + thread.getThreadKey().substring(0, 8);
         
-        String responseMessage = "✅ Активная беседа изменена:\n\n" +
+        String responseMessage = "✅ Active conversation changed:\n\n" +
             "📝 " + threadTitle + "\n" +
             "ID: `" + thread.getThreadKey().substring(0, 8) + "...`";
         
         if (thread.getTotalMessages() != null && thread.getTotalMessages() > 0) {
-            responseMessage += "\nСообщений: " + thread.getTotalMessages();
+            responseMessage += "\nMessages: " + thread.getTotalMessages();
         }
         
-        ackCallback(cq.getId(), "✅ Беседа активирована");
+        ackCallback(cq.getId(), "✅ Conversation activated");
         sendMessage(command.telegramId(), responseMessage);
     }
     
@@ -194,16 +196,16 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
                 return;
             }
             
-            // Создаем меню с кнопками для каждой беседы
+            // Build menu with button per conversation
             List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
             
-            // Ограничиваем количество кнопок (первые 20)
+            // Limit buttons (first 20)
             int threadsToShow = Math.min(allThreads.size(), 20);
             
             for (int i = 0; i < threadsToShow; i++) {
                 ConversationThread thread = allThreads.get(i);
                 
-                // Формируем текст кнопки
+                // Build button text
                 String buttonText = (i + 1) + ". ";
                 if (Boolean.TRUE.equals(thread.getIsActive())) {
                     buttonText += "✅ ";
@@ -215,7 +217,7 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
                     ? thread.getTitle()
                     : THREAD_PREFIX + thread.getThreadKey().substring(0, 8);
                 
-                // Ограничиваем длину текста кнопки (Telegram ограничивает до 64 символов)
+                // Limit button text length (Telegram max 64 chars)
                 if (buttonText.length() + threadTitle.length() > 60) {
                     threadTitle = threadTitle.substring(0, 60 - buttonText.length() - 3) + "...";
                 }
@@ -235,7 +237,7 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
             
             telegramBotProvider.getObject().execute(msg);
         } catch (TelegramApiException e) {
-            throw new TelegramCommandHandlerException("Ошибка отправки сообщения в Telegram", e);
+            throw new TelegramCommandHandlerException("Failed to send message to Telegram", e);
         }
     }
     
@@ -252,7 +254,7 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
     }
     
     @Override
-    public String getSupportedCommandText() {
-        return TelegramCommand.THREADS + " - 🗂 список всех бесед";
+    public String getSupportedCommandText(String languageCode) {
+        return messageLocalizationService.getMessage("telegram.command.threads.desc", languageCode);
     }
 }

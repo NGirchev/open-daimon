@@ -13,7 +13,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Тесты для {@link BulkHeadProperties}.
+ * Tests for {@link BulkHeadProperties}.
  */
 @SpringBootTest(classes = BulkHeadPropertiesTest.TestConfiguration.class)
 @TestPropertySource(properties = {
@@ -40,13 +40,13 @@ class BulkHeadPropertiesTest {
         // Assert
         Map<UserPriority, BulkHeadProperties.BulkheadInstance> instances = properties.getInstances();
         
-        assertNotNull(instances, "Instances не должны быть null");
-        assertEquals(4, instances.size(), "Должно быть 4 экземпляра (ADMIN, VIP, REGULAR, BLOCKED)");
+        assertNotNull(instances, "Instances must not be null");
+        assertEquals(4, instances.size(), "Must have 4 instances (ADMIN, VIP, REGULAR, BLOCKED)");
         
-        assertTrue(instances.containsKey(UserPriority.ADMIN), "Должен содержать экземпляр для ADMIN");
-        assertTrue(instances.containsKey(UserPriority.VIP), "Должен содержать экземпляр для VIP");
-        assertTrue(instances.containsKey(UserPriority.REGULAR), "Должен содержать экземпляр для REGULAR");
-        assertTrue(instances.containsKey(UserPriority.BLOCKED), "Должен содержать экземпляр для BLOCKED");
+        assertTrue(instances.containsKey(UserPriority.ADMIN), "Must contain instance for ADMIN");
+        assertTrue(instances.containsKey(UserPriority.VIP), "Must contain instance for VIP");
+        assertTrue(instances.containsKey(UserPriority.REGULAR), "Must contain instance for REGULAR");
+        assertTrue(instances.containsKey(UserPriority.BLOCKED), "Must contain instance for BLOCKED");
     }
 
     @Test
@@ -55,9 +55,9 @@ class BulkHeadPropertiesTest {
         BulkHeadProperties.BulkheadInstance adminInstance = properties.getInstances().get(UserPriority.ADMIN);
 
         // Assert
-        assertNotNull(adminInstance, "ADMIN экземпляр не должен быть null");
-        assertEquals(20, adminInstance.maxConcurrentCalls(), "ADMIN должен иметь 20 максимальных одновременных вызовов");
-        assertEquals(Duration.ofSeconds(1), adminInstance.maxWaitDuration(), "ADMIN должен иметь максимальное время ожидания 1 секунду");
+        assertNotNull(adminInstance, "ADMIN instance must not be null");
+        assertEquals(20, adminInstance.maxConcurrentCalls(), "ADMIN must have 20 max concurrent calls");
+        assertEquals(Duration.ofSeconds(1), adminInstance.maxWaitDuration(), "ADMIN must have max wait duration 1 second");
     }
 
     @Test
@@ -66,9 +66,9 @@ class BulkHeadPropertiesTest {
         BulkHeadProperties.BulkheadInstance vipInstance = properties.getInstances().get(UserPriority.VIP);
         
         // Assert
-        assertNotNull(vipInstance, "VIP экземпляр не должен быть null");
-        assertEquals(10, vipInstance.maxConcurrentCalls(), "VIP должен иметь 10 максимальных одновременных вызовов");
-        assertEquals(Duration.ofSeconds(1), vipInstance.maxWaitDuration(), "VIP должен иметь максимальное время ожидания 1 секунду");
+        assertNotNull(vipInstance, "VIP instance must not be null");
+        assertEquals(10, vipInstance.maxConcurrentCalls(), "VIP must have 10 max concurrent calls");
+        assertEquals(Duration.ofSeconds(1), vipInstance.maxWaitDuration(), "VIP must have max wait duration 1 second");
     }
 
     @Test
@@ -77,9 +77,9 @@ class BulkHeadPropertiesTest {
         BulkHeadProperties.BulkheadInstance regularInstance = properties.getInstances().get(UserPriority.REGULAR);
         
         // Assert
-        assertNotNull(regularInstance, "REGULAR экземпляр не должен быть null");
-        assertEquals(5, regularInstance.maxConcurrentCalls(), "REGULAR должен иметь 5 максимальных одновременных вызовов");
-        assertEquals(Duration.ofMillis(500), regularInstance.maxWaitDuration(), "REGULAR должен иметь максимальное время ожидания 500 миллисекунд");
+        assertNotNull(regularInstance, "REGULAR instance must not be null");
+        assertEquals(5, regularInstance.maxConcurrentCalls(), "REGULAR must have 5 max concurrent calls");
+        assertEquals(Duration.ofMillis(500), regularInstance.maxWaitDuration(), "REGULAR must have max wait duration 500 ms");
     }
 
     @Test
@@ -88,8 +88,8 @@ class BulkHeadPropertiesTest {
         BulkHeadProperties.BulkheadInstance blockedInstance = properties.getInstances().get(UserPriority.BLOCKED);
         
         // Assert
-        assertNotNull(blockedInstance, "BLOCKED экземпляр не должен быть null");
-        assertEquals(0, blockedInstance.maxConcurrentCalls(), "BLOCKED должен иметь 0 максимальных одновременных вызовов");
-        assertEquals(Duration.ZERO, blockedInstance.maxWaitDuration(), "BLOCKED должен иметь максимальное время ожидания 0 миллисекунд");
+        assertNotNull(blockedInstance, "BLOCKED instance must not be null");
+        assertEquals(0, blockedInstance.maxConcurrentCalls(), "BLOCKED must have 0 max concurrent calls");
+        assertEquals(Duration.ZERO, blockedInstance.maxWaitDuration(), "BLOCKED must have max wait duration 0 ms");
     }
 } 

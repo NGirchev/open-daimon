@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
         "ai-bot.telegram.enabled=true",
         "ai-bot.telegram.token=test-token",
         "ai-bot.telegram.username=test-bot",
-        "ai-bot.telegram.start-message=Тестовое приветственное сообщение",
+        "ai-bot.telegram.start-message=Test welcome message",
         "ai-bot.telegram.max-message-length=4096",
         "spring.autoconfigure.exclude=" +
                 "ru.girchev.aibot.telegram.config.TelegramAutoConfig," +

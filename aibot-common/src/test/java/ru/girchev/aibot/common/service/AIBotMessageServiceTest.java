@@ -51,7 +51,7 @@ class AIBotMessageServiceTest {
     private TokenCounter tokenCounter;
     private AIBotMessageService messageService;
 
-    /** Лимит токенов пользовательского сообщения для тестов (должен быть больше любого тестового сообщения). */
+    /** Max user message tokens for tests (must be greater than any test message). */
     private static final int TEST_MAX_USER_MESSAGE_TOKENS = 10000;
 
     @BeforeEach
@@ -68,7 +68,7 @@ class AIBotMessageServiceTest {
                 tokenCounter
         );
 
-        // Настройка моков для общих случаев
+        // Setup mocks for common cases
         when(assistantRole.getId()).thenReturn(1L);
         when(assistantRole.getContent()).thenReturn("You are a helpful assistant.");
         when(assistantRole.getVersion()).thenReturn(1);
@@ -89,7 +89,7 @@ class AIBotMessageServiceTest {
     @Test
     void whenSaveUserMessage_thenTokenCountIsSet() {
         // Arrange
-        String content = "Привет, как дела?";
+        String content = "Hello, how are you?";
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("test", "value");
 
@@ -104,21 +104,20 @@ class AIBotMessageServiceTest {
 
         // Assert
         assertNotNull(savedMessage);
-        assertNotNull(savedMessage.getTokenCount(), "tokenCount должен быть заполнен для USER сообщения");
+        assertNotNull(savedMessage.getTokenCount(), "tokenCount must be set for USER message");
         assertTrue(savedMessage.getTokenCount() > 0, 
-                "tokenCount должен быть больше 0 для непустого сообщения");
-        // Проверяем, что tokenCount соответствует ожидаемому значению
-        // "Привет, как дела?" = 17 символов, при 4 символах на токен = 5 токенов (округление вверх)
+                "tokenCount must be > 0 for non-empty message");
+        // Verify tokenCount matches expected
         int expectedTokens = tokenCounter.estimateTokens(content);
         assertEquals(expectedTokens, savedMessage.getTokenCount(),
-                "tokenCount должен соответствовать оценке TokenCounter");
+                "tokenCount must match TokenCounter estimate");
         
         verify(messageRepository).save(any(AIBotMessage.class));
     }
 
     @Test
     void whenSaveUserMessageWithAttachmentRefs_thenAttachmentsAreStored() {
-        String content = "Смотри фото";
+        String content = "Look at the photo";
         Map<String, Object> metadata = new HashMap<>();
         Map<String, Object> ref = new HashMap<>();
         ref.put("storageKey", "photo/uuid.jpg");
@@ -147,7 +146,7 @@ class AIBotMessageServiceTest {
     @Test
     void whenSaveAssistantMessage_thenTokenCountIsSet() {
         // Arrange
-        String content = "Тестовый ответ от AI";
+        String content = "Test response from AI";
 
         // Act
         AIBotMessage savedMessage = messageService.saveAssistantMessage(
@@ -161,13 +160,13 @@ class AIBotMessageServiceTest {
 
         // Assert
         assertNotNull(savedMessage);
-        assertNotNull(savedMessage.getTokenCount(), "tokenCount должен быть заполнен для ASSISTANT сообщения");
+        assertNotNull(savedMessage.getTokenCount(), "tokenCount must be set for ASSISTANT message");
         assertTrue(savedMessage.getTokenCount() > 0, 
-                "tokenCount должен быть больше 0 для непустого сообщения");
-        // Проверяем, что tokenCount соответствует ожидаемому значению
+                "tokenCount must be > 0 for non-empty message");
+        // Verify tokenCount matches expected
         int expectedTokens = tokenCounter.estimateTokens(content);
         assertEquals(expectedTokens, savedMessage.getTokenCount(),
-                "tokenCount должен соответствовать оценке TokenCounter");
+                "tokenCount must match TokenCounter estimate");
         
         verify(messageRepository).save(any(AIBotMessage.class));
     }
@@ -175,7 +174,7 @@ class AIBotMessageServiceTest {
     @Test
     void whenSaveAssistantErrorMessage_thenTokenCountIsZero() {
         // Arrange
-        String errorMessage = "Произошла ошибка";
+        String errorMessage = "An error occurred";
 
         // Act
         AIBotMessage savedMessage = messageService.saveAssistantErrorMessage(
@@ -188,9 +187,9 @@ class AIBotMessageServiceTest {
 
         // Assert
         assertNotNull(savedMessage);
-        assertNotNull(savedMessage.getTokenCount(), "tokenCount должен быть заполнен для ASSISTANT сообщения с ошибкой");
+        assertNotNull(savedMessage.getTokenCount(), "tokenCount must be set for ASSISTANT error message");
         assertEquals(0, savedMessage.getTokenCount(), 
-                "tokenCount должен быть 0 для сообщений с ошибкой (пустое содержимое)");
+                "tokenCount must be 0 for error messages (empty content)");
         
         verify(messageRepository).save(any(AIBotMessage.class));
     }
@@ -205,13 +204,13 @@ class AIBotMessageServiceTest {
 
         // Assert
         assertNotNull(savedMessage);
-        assertNotNull(savedMessage.getTokenCount(), "tokenCount должен быть заполнен для SYSTEM сообщения");
+        assertNotNull(savedMessage.getTokenCount(), "tokenCount must be set for SYSTEM message");
         assertTrue(savedMessage.getTokenCount() > 0, 
-                "tokenCount должен быть больше 0 для непустого сообщения");
-        // Проверяем, что tokenCount соответствует ожидаемому значению
+                "tokenCount must be > 0 for non-empty message");
+        // Verify tokenCount matches expected
         int expectedTokens = tokenCounter.estimateTokens(content);
         assertEquals(expectedTokens, savedMessage.getTokenCount(),
-                "tokenCount должен соответствовать оценке TokenCounter");
+                "tokenCount must match TokenCounter estimate");
         
         verify(messageRepository).save(any(AIBotMessage.class));
     }
@@ -232,9 +231,9 @@ class AIBotMessageServiceTest {
 
         // Assert
         assertNotNull(savedMessage);
-        assertNotNull(savedMessage.getTokenCount(), "tokenCount должен быть заполнен даже для пустого сообщения");
+        assertNotNull(savedMessage.getTokenCount(), "tokenCount must be set even for empty message");
         assertEquals(0, savedMessage.getTokenCount(), 
-                "tokenCount должен быть 0 для пустого сообщения");
+                "tokenCount must be 0 for empty message");
         
         verify(messageRepository).save(any(AIBotMessage.class));
     }
@@ -242,10 +241,10 @@ class AIBotMessageServiceTest {
     @Test
     void whenSaveUserMessageWithLongContent_thenTokenCountIsCalculatedCorrectly() {
         // Arrange
-        // Создаем длинное сообщение для проверки расчета токенов
+        // Create long message to verify token calculation
         StringBuilder longContent = new StringBuilder();
         for (int i = 0; i < 100; i++) {
-            longContent.append("Тест ");
+            longContent.append("Test ");
         }
         String content = longContent.toString();
 
@@ -261,12 +260,12 @@ class AIBotMessageServiceTest {
         // Assert
         assertNotNull(savedMessage);
         assertNotNull(savedMessage.getTokenCount());
-        // Проверяем, что tokenCount соответствует ожидаемому значению
+        // Verify tokenCount matches expected
         int expectedTokens = tokenCounter.estimateTokens(content);
         assertEquals(expectedTokens, savedMessage.getTokenCount(),
-                "tokenCount должен соответствовать оценке TokenCounter для длинного сообщения");
+                "tokenCount must match TokenCounter estimate for long message");
         assertTrue(savedMessage.getTokenCount() > 0, 
-                "tokenCount должен быть больше 0 для длинного сообщения");
+                "tokenCount must be > 0 for long message");
         
         verify(messageRepository).save(any(AIBotMessage.class));
     }

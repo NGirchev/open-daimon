@@ -6,7 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import ru.girchev.aibot.ai.springai.retry.SpringAIModelRegistry;
 
 /**
- * Периодически обновляет список моделей OpenRouter в реестре.
+ * Periodically refreshes OpenRouter models list in the registry.
  */
 @Slf4j
 @RequiredArgsConstructor

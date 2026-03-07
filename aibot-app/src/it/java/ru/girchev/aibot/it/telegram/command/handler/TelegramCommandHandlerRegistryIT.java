@@ -36,11 +36,11 @@ import static org.junit.jupiter.api.Assertions.*;
         TelegramJpaConfig.class,
         TelegramFlywayConfig.class,
         TelegramServiceConfig.class,
-        // TelegramAutoConfig не импортируем, так как он регистрирует бота на ApplicationReadyEvent
+        // TelegramAutoConfig not imported — it registers the bot on ApplicationReadyEvent
         TelegramCommandHandlerConfig.class
 })
 @TestPropertySource(properties = {
-        // Отключаем автоконфигурацию Spring AI (OpenAI, Ollama и т.д.)
+        // Disable Spring AI autoconfiguration (OpenAI, Ollama, etc.)
         "spring.autoconfigure.exclude=" +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration," +
@@ -51,13 +51,14 @@ import static org.junit.jupiter.api.Assertions.*;
         "ai-bot.telegram.enabled=true",
         "ai-bot.telegram.token=test-token",
         "ai-bot.telegram.username=test-bot",
-        "ai-bot.telegram.start-message=Тестовое приветственное сообщение",
+        "ai-bot.telegram.start-message=Test welcome message",
         "ai-bot.telegram.max-message-length=4096",
         "ai-bot.common.bulkhead.enabled=true",
-        "ai-bot.common.assistant-role=Ты полезный ассистент",
+        "ai-bot.common.assistant-role=You are a helpful assistant",
         "ai-bot.common.summarization.max-context-tokens=8000",
         "ai-bot.common.summarization.summary-trigger-threshold=0.7",
         "ai-bot.common.summarization.keep-recent-messages=20",
+        "ai-bot.common.summarization.prompt=You are an assistant. Create a summary in JSON. Conversation:",
         "ai-bot.common.manual-conversation-history.enabled=false",
         "ai-bot.common.manual-conversation-history.max-response-tokens=4000",
         "ai-bot.common.manual-conversation-history.default-window-size=20",
@@ -78,7 +79,7 @@ import static org.junit.jupiter.api.Assertions.*;
         "ai-bot.ai.openrouter.enabled=false",
         "ai-bot.ai.deepseek.enabled=false",
         "ai-bot.ai.spring-ai.enabled=false",
-        // Моковые значения для Spring AI, чтобы автоконфигурация не падала
+        // Mock values for Spring AI so autoconfiguration does not fail
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"
 })
@@ -99,30 +100,30 @@ class TelegramCommandHandlerRegistryIT {
         List<ICommandHandler<?, ?, ?>> handlers = registry.getHandlers();
         
         // Act & Assert
-        assertNotNull(handlers, "Список обработчиков не должен быть null");
-        assertFalse(handlers.isEmpty(), "Должен быть зарегистрирован хотя бы один обработчик");
+        assertNotNull(handlers, "Handler list must not be null");
+        assertFalse(handlers.isEmpty(), "At least one handler must be registered");
 
         Set<String> handlerClassNames = handlers.stream()
                 .map(handler -> handler.getClass().getSimpleName())
                 .collect(Collectors.toSet());
 
-        // Проверяем наличие всех ожидаемых обработчиков
+        // Verify all expected handlers are present
         assertTrue(handlerClassNames.contains("StartTelegramCommandHandler"),
-                "Должен быть зарегистрирован StartTelegramCommandHandler");
+                "StartTelegramCommandHandler must be registered");
         assertTrue(handlerClassNames.contains("MessageTelegramCommandHandler"),
-                "Должен быть зарегистрирован MessageTelegramCommandHandler");
+                "MessageTelegramCommandHandler must be registered");
         assertTrue(handlerClassNames.contains("RoleTelegramCommandHandler"),
-                "Должен быть зарегистрирован RoleTelegramCommandHandler");
+                "RoleTelegramCommandHandler must be registered");
         assertTrue(handlerClassNames.contains("BugreportTelegramCommandHandler"),
-                "Должен быть зарегистрирован BugreportTelegramCommandHandler");
+                "BugreportTelegramCommandHandler must be registered");
         assertTrue(handlerClassNames.contains("NewThreadTelegramCommandHandler"),
-                "Должен быть зарегистрирован NewThreadTelegramCommandHandler");
+                "NewThreadTelegramCommandHandler must be registered");
         assertTrue(handlerClassNames.contains("HistoryTelegramCommandHandler"),
-                "Должен быть зарегистрирован HistoryTelegramCommandHandler");
+                "HistoryTelegramCommandHandler must be registered");
         assertTrue(handlerClassNames.contains("ThreadsTelegramCommandHandler"),
-                "Должен быть зарегистрирован ThreadsTelegramCommandHandler");
+                "ThreadsTelegramCommandHandler must be registered");
         assertTrue(handlerClassNames.contains("BackoffCommandHandler"),
-                "Должен быть зарегистрирован BackoffCommandHandler");
+                "BackoffCommandHandler must be registered");
     }
 
     @Test
@@ -134,7 +135,7 @@ class TelegramCommandHandlerRegistryIT {
         handlers.forEach(handler -> {
             int priority = handler.priority();
             assertTrue(priority >= 0, 
-                    String.format("Обработчик %s должен иметь приоритет >= 0, но имеет %d", 
+                    String.format("Handler %s must have priority >= 0, but has %d", 
                             handler.getClass().getSimpleName(), priority));
         });
     }
@@ -151,9 +152,9 @@ class TelegramCommandHandlerRegistryIT {
 
         // Assert
         assertEquals(handlers.size(), handlerClassNames.size(),
-                "Не должно быть дублирующихся обработчиков. " +
-                "Ожидалось " + handlers.size() + " уникальных обработчиков, " +
-                "но найдено " + handlerClassNames.size());
+                "There must be no duplicate handlers. " +
+                "Expected " + handlers.size() + " unique handlers, " +
+                "found " + handlerClassNames.size());
     }
 
     @Test
@@ -164,10 +165,9 @@ class TelegramCommandHandlerRegistryIT {
         // Act
         int handlersCount = handlers.size();
 
-        // Assert
-        // Ожидаем минимум 8 обработчиков (Start, Message, Role, Bugreport, NewThread, History, Threads, Backoff)
+        // Assert - expect at least 8 handlers (Start, Message, Role, Bugreport, NewThread, History, Threads, Backoff)
         assertTrue(handlersCount >= 8,
-                String.format("Ожидалось минимум 8 обработчиков, но найдено %d", handlersCount));
+                String.format("Expected at least 8 handlers, but found %d", handlersCount));
     }
 }
 

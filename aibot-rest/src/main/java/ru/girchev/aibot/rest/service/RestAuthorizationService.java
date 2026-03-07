@@ -2,39 +2,50 @@ package ru.girchev.aibot.rest.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
+import ru.girchev.aibot.rest.exception.UnauthorizedException;
 import ru.girchev.aibot.rest.model.RestUser;
 import ru.girchev.aibot.rest.repository.RestUserRepository;
 
 import java.util.Optional;
 
 /**
- * Сервис для авторизации REST API пользователей по email
+ * Service for authorizing REST API users by email.
  */
 @Slf4j
 @RequiredArgsConstructor
 public class RestAuthorizationService {
-    
+
     private final RestUserRepository restUserRepository;
-    
+    private final MessageLocalizationService messageLocalizationService;
+
     /**
-     * Авторизует пользователя по email
-     * 
-     * @param email Email пользователя
-     * @return найденный пользователь
-     * @throws ru.girchev.aibot.rest.exception.UnauthorizedException если email не указан или пользователь не найден
+     * Authorizes user by email using default locale (ru).
      */
     public RestUser authorize(String email) {
+        return authorize(email, null);
+    }
+
+    /**
+     * Authorizes user by email. Messages are localized by languageCode (e.g. from Accept-Language).
+     *
+     * @param email        user email
+     * @param languageCode optional locale (ru, en); null = default ru
+     * @return found user
+     * @throws UnauthorizedException if email is missing or user not found
+     */
+    public RestUser authorize(String email, String languageCode) {
         if (email == null || email.isBlank()) {
             log.warn("Access attempt without email");
-            throw new ru.girchev.aibot.rest.exception.UnauthorizedException("Email обязателен для доступа");
+            throw new UnauthorizedException(messageLocalizationService.getMessage("rest.auth.email.required", languageCode));
         }
-        
+
         Optional<RestUser> userOpt = restUserRepository.findByEmail(email);
         if (userOpt.isEmpty()) {
             log.warn("Access attempt with invalid email: {}", email);
-            throw new ru.girchev.aibot.rest.exception.UnauthorizedException("Пользователь с указанным email не найден");
+            throw new UnauthorizedException(messageLocalizationService.getMessage("rest.auth.user.not.found", languageCode));
         }
-        
+
         RestUser user = userOpt.get();
         log.debug("User {} successfully authorized", user.getEmail());
         return user;

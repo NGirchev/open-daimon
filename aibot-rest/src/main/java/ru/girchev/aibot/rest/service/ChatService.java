@@ -24,8 +24,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Сервис для работы с чатом через UI
- * Управляет сессиями (conversation threads) и сообщениями
+ * Service for chat via UI.
+ * Manages sessions (conversation threads) and messages.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -37,18 +37,18 @@ public class ChatService {
     private final CommandSyncService commandSyncService;
 
     /**
-     * Отправляет сообщение в новый чат (создает новую сессию)
+     * Sends message to new chat (creates new session)
      */
     @Transactional
     public <T> ChatResponseDto<T> sendMessageToNewChat(String message, RestUser user, HttpServletRequest request, boolean isStream) {
-        // Закрываем текущий активный thread (если есть)
+        // Close current active thread (if any)
         threadRepository.findMostRecentActiveThread(user)
                 .ifPresent(conversationThreadService::closeThread);
 
-        // Создаем новый thread
+        // Create new thread
         ConversationThread thread = conversationThreadService.createNewThread(user);
 
-        // Отправляем сообщение
+        // Send message
         return new ChatResponseDto<>(
                 sendMessageInternal(thread.getThreadKey(), message, user, request, isStream),
                 thread.getThreadKey()
@@ -56,23 +56,23 @@ public class ChatService {
     }
 
     /**
-     * Отправляет сообщение в существующую сессию
+     * Sends message to existing session
      */
     @Transactional
     public <T> ChatResponseDto<T> sendMessage(String sessionId, String message, RestUser user, HttpServletRequest request, boolean isStream) {
-        // Находим thread по sessionId
+        // Find thread by sessionId
         ConversationThread thread = threadRepository.findByThreadKey(sessionId)
                 .orElseThrow(() -> new UnauthorizedException("Session not found: " + sessionId));
 
-        // Проверяем, что thread принадлежит пользователю
+        // Verify thread belongs to user
         if (!thread.getUser().getId().equals(user.getId())) {
             throw new UnauthorizedException("Session does not belong to user");
         }
 
-        // Активируем thread (закрывает текущий активный и активирует выбранный)
+        // Activate thread (closes current active and activates selected)
         conversationThreadService.activateThread(user, thread);
 
-        // Отправляем сообщение
+        // Send message
         return new ChatResponseDto<>(
                 sendMessageInternal(thread.getThreadKey(), message, user, request, isStream),
                 thread.getThreadKey()
@@ -80,10 +80,10 @@ public class ChatService {
     }
 
     /**
-     * Внутренний метод для отправки сообщения
+     * Internal method to send message
      */
     private <T> T sendMessageInternal(String sessionId, String message, RestUser user, HttpServletRequest request, boolean isStream) {
-        // Создаем ChatRequest и отправляем через существующий handler
+        // Create ChatRequest and send via existing handler
         ChatRequestDto chatRequestDto = new ChatRequestDto(message, null, null, user.getEmail());
         RestChatCommand command = new RestChatCommand(
                 chatRequestDto,
@@ -96,7 +96,7 @@ public class ChatService {
     }
 
     /**
-     * Получает список всех сессий пользователя
+     * Gets list of all user sessions
      */
     @Transactional(readOnly = true)
     public List<ChatSessionDto> getSessions(RestUser user) {
@@ -112,14 +112,14 @@ public class ChatService {
     }
 
     /**
-     * Получает историю сообщений для сессии
+     * Gets message history for session
      */
     @Transactional(readOnly = true)
     public List<ChatMessageDto> getChatHistory(String sessionId, RestUser user) {
         ConversationThread thread = threadRepository.findByThreadKey(sessionId)
                 .orElseThrow(() -> new UnauthorizedException("Session not found: " + sessionId));
 
-        // Проверяем, что thread принадлежит пользователю
+        // Verify thread belongs to user
         if (!thread.getUser().getId().equals(user.getId())) {
             throw new UnauthorizedException("Session does not belong to user");
         }
@@ -127,7 +127,7 @@ public class ChatService {
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
 
         return messages.stream()
-                .filter(msg -> msg.getRole() != MessageRole.SYSTEM) // Исключаем системные сообщения
+                .filter(msg -> msg.getRole() != MessageRole.SYSTEM) // Exclude system messages
                 .map(msg -> new ChatMessageDto(
                         msg.getRole().name(),
                         msg.getContent()
@@ -136,23 +136,23 @@ public class ChatService {
     }
 
     /**
-     * Удаляет сессию
+     * Deletes session
      */
     @Transactional
     public void deleteSession(String sessionId, RestUser user) {
         ConversationThread thread = threadRepository.findByThreadKey(sessionId)
                 .orElseThrow(() -> new UnauthorizedException("Session not found: " + sessionId));
 
-        // Проверяем, что thread принадлежит пользователю
+        // Verify thread belongs to user
         if (!thread.getUser().getId().equals(user.getId())) {
             throw new UnauthorizedException("Session does not belong to user");
         }
 
-        // Удаляем все сообщения
+        // Delete all messages
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
         messageRepository.deleteAll(messages);
 
-        // Удаляем thread
+        // Delete thread
         threadRepository.delete(thread);
 
         log.info("Deleted session {} for user {}", sessionId, user.getEmail());

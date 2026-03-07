@@ -14,12 +14,15 @@ import ru.girchev.aibot.common.ai.factory.AICommandFactoryRegistry;
 import ru.girchev.aibot.common.config.CoreCommonProperties;
 import ru.girchev.aibot.common.repository.ConversationThreadRepository;
 import ru.girchev.aibot.common.repository.AIBotMessageRepository;
+import org.springframework.context.MessageSource;
+import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import ru.girchev.aibot.common.service.AIGatewayRegistry;
 import ru.girchev.aibot.common.service.AssistantRoleService;
 import ru.girchev.aibot.common.service.BugreportService;
 import ru.girchev.aibot.common.service.ConversationContextBuilderService;
 import ru.girchev.aibot.common.service.ConversationThreadService;
 import ru.girchev.aibot.common.service.AIBotMessageService;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.common.service.SummarizationService;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.handler.impl.RoleTelegramCommandHandler;
@@ -40,8 +43,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
 /**
- * Тест для воспроизведения проблемы с ObjectProvider&lt;TelegramSupportedCommandProvider&gt;
- * Проверяет, что провайдер возвращает все бины обработчиков команд
+ * Test for ObjectProvider&lt;TelegramSupportedCommandProvider&gt; behaviour.
+ * Verifies that the provider returns all command handler beans.
  */
 @SpringBootTest(classes = {
         TelegramCommandHandlerConfig.class
@@ -56,8 +59,7 @@ import static org.mockito.Mockito.mock;
         "ai-bot.telegram.commands.history-enabled=true",
         "ai-bot.telegram.commands.threads-enabled=true",
         "ai-bot.telegram.token=test-token",
-        "ai-bot.telegram.username=test-bot",
-        "ai-bot.telegram.start-message=Test start message\n"
+        "ai-bot.telegram.username=test-bot"
 })
 class StartTelegramTextCommandHandlerProviderTest {
 
@@ -74,15 +76,15 @@ class StartTelegramTextCommandHandlerProviderTest {
                 .toList();
 
         // Assert
-        assertNotNull(handlers, "Провайдер не должен быть null");
-        assertFalse(handlers.isEmpty(), "Провайдер должен содержать хотя бы один обработчик");
+        assertNotNull(handlers, "Provider must not be null");
+        assertFalse(handlers.isEmpty(), "Provider must contain at least one handler");
 
-        // Проверяем, что есть RoleTelegramCommandHandlerImpl (он реализует getSupportedCommand)
+        // Verify RoleTelegramCommandHandler is present (implements getSupportedCommand)
         boolean hasRoleHandler = handlers.stream()
                 .anyMatch(RoleTelegramCommandHandler.class::isInstance);
-        assertTrue(hasRoleHandler, "Провайдер должен содержать RoleTelegramCommandHandlerImpl");
+        assertTrue(hasRoleHandler, "Provider must contain RoleTelegramCommandHandler");
 
-        System.out.println("Найдено обработчиков через ObjectProvider: " + handlers.size());
+        System.out.println("Handlers found via ObjectProvider: " + handlers.size());
         handlers.forEach(h -> System.out.println("  - " + h.getClass().getSimpleName()));
     }
 
@@ -92,28 +94,27 @@ class StartTelegramTextCommandHandlerProviderTest {
         List<TelegramSupportedCommandProvider> handlersFromProvider = handlersProvider.orderedStream()
                 .toList();
 
-        // Act - проверяем, что StartTelegramCommandHandlerImpl использует провайдер
-        // и получает все обработчики (кроме себя)
+        // Act - verify StartTelegramCommandHandler uses provider and gets all handlers (except itself)
         List<TelegramSupportedCommandProvider> handlersInStart = handlersProvider.orderedStream()
                 .filter(h -> h != startTelegramCommandHandler)
                 .toList();
 
         // Assert
-        assertNotNull(handlersInStart, "Список обработчиков в StartTelegramCommandHandlerImpl не должен быть null");
+        assertNotNull(handlersInStart, "Handler list in StartTelegramCommandHandler must not be null");
         assertEquals(handlersFromProvider.size() - 1, handlersInStart.size(),
-                "StartTelegramCommandHandlerImpl должен видеть все обработчики кроме себя");
+                "StartTelegramCommandHandler must see all handlers except itself");
 
-        // Проверяем, что RoleTelegramCommandHandlerImpl присутствует
+        // Verify RoleTelegramCommandHandler is present
         boolean hasRoleHandler = handlersInStart.stream()
                 .anyMatch(RoleTelegramCommandHandler.class::isInstance);
         assertTrue(hasRoleHandler,
-                "StartTelegramCommandHandlerImpl должен видеть RoleTelegramCommandHandlerImpl через провайдер");
+                "StartTelegramCommandHandler must see RoleTelegramCommandHandler via provider");
 
-        System.out.println("Обработчики, видимые StartTelegramCommandHandlerImpl: " + handlersInStart.size());
+        System.out.println("Handlers visible to StartTelegramCommandHandler: " + handlersInStart.size());
         handlersInStart.forEach(h -> {
-            String command = h.getSupportedCommandText();
+            String command = h.getSupportedCommandText("ru");
             System.out.println("  - " + h.getClass().getSimpleName() + 
-                    (command != null ? " (команда: " + command + ")" : " (без команды)"));
+                    (command != null ? " (command: " + command + ")" : " (no command)"));
         });
     }
 
@@ -122,15 +123,15 @@ class StartTelegramTextCommandHandlerProviderTest {
         // Act
         String commands = handlersProvider.orderedStream()
                 .filter(h -> h != startTelegramCommandHandler)
-                .map(TelegramSupportedCommandProvider::getSupportedCommandText)
+                .map(h -> h.getSupportedCommandText("ru"))
                 .filter(cmd -> cmd != null && !cmd.isEmpty())
                 .collect(Collectors.joining("\n"));
 
         // Assert
-        assertNotNull(commands, "Список команд не должен быть null");
-        assertFalse(commands.isEmpty(), "Список команд не должен быть пустым");
+        assertNotNull(commands, "Command list must not be null");
+        assertFalse(commands.isEmpty(), "Command list must not be empty");
         
-        System.out.println("Доступные команды:\n" + commands);
+        System.out.println("Available commands:\n" + commands);
     }
 
     @TestConfiguration
@@ -147,11 +148,24 @@ class StartTelegramTextCommandHandlerProviderTest {
         }
 
         @Bean
+        public MessageSource messageSource() {
+            ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
+            source.setBasenames("classpath:messages/common", "classpath:messages/telegram");
+            source.setDefaultEncoding("UTF-8");
+            source.setFallbackToSystemLocale(false);
+            return source;
+        }
+
+        @Bean
+        public MessageLocalizationService messageLocalizationService(MessageSource messageSource) {
+            return new MessageLocalizationService(messageSource);
+        }
+
+        @Bean
         public TelegramProperties telegramProperties() {
             TelegramProperties props = new TelegramProperties();
             props.setToken("test-token");
             props.setUsername("test-bot");
-            props.setStartMessage("Test start message\n");
             return props;
         }
 

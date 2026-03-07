@@ -4,7 +4,7 @@ server:
 ai-bot:
   common:
     storage:
-      enabled: true  # FEATURE FLAG - по умолчанию выключено
+      enabled: true  # FEATURE FLAG - disabled by default
       minio:
         endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
         access-key: ${MINIO_USER:minioadmin}
@@ -28,13 +28,13 @@ ai-bot:
       telegram-id: ${ADMIN_TELEGRAM_ID:}
       rest-email: ${ADMIN_REST_EMAIL:}
     assistant-role: "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language."
-    # Жёсткий лимит всего промпта к API (system + история + текущее). При превышении — резать/отклонить и писать ошибку.
+    # Hard limit for entire prompt to API (system + history + current). When exceeded — trim/reject and return error.
     max-total-prompt-tokens: 32000
-    # Лимит токенов одного сообщения пользователя; при превышении можно отклонить с подсказкой сократить.
+    # Max tokens per user message; when exceeded can reject with hint to shorten.
     max-user-message-tokens: 4000
-    # Общий лимит токенов вывода (max_tokens): reasoning + ответ укладываются в этот лимит.
+    # Total output token limit (max_tokens): reasoning + reply must fit.
     max-output-tokens: 4000
-    # Бюджет на reasoning (часть от общего; должен быть < max-output-tokens). Опционально.
+    # Budget for reasoning (part of total; must be < max-output-tokens). Optional.
     max-reasoning-tokens: 1500
     # Summarization of long conversations (manual and Spring AI modes).
     summarization:
@@ -50,7 +50,7 @@ ai-bot:
         Reply in strict JSON only (no ```json or markdown):
         {"summary": "short summary of the conversation", "memory_bullets": ["fact 1", "fact 2", ...]}
         Conversation:
-    # История, управляемая common (ручной контекст). false = используем Spring AI ChatMemory.
+    # Common-managed history (manual context). false = use Spring AI ChatMemory.
     manual-conversation-history:
       enabled: false
       max-response-tokens: 4000
@@ -63,24 +63,22 @@ ai-bot:
     token: ${TELEGRAM_TOKEN}
     whitelist-exceptions: ${WHITELIST_EXCEPTIONS:}
     whitelist-channel-id-exceptions: ${WHITELIST_CHANNEL_ID_EXCEPTIONS:}
-    start-message: "Привет! Я бот с интеграцией DeepSeek и OpenRouter. Задай мне любой вопрос, и я постараюсь на него ответить.\nДоступные команды:\n"
     file-upload:
-      enabled: true  # FEATURE FLAG - по умолчанию выключено
-      max-file-size-mb: 20  # Лимит Telegram API
-      # Поддерживаемые форматы изображений для multimodal AI
+      enabled: true  # FEATURE FLAG - disabled by default
+      max-file-size-mb: 20  # Telegram API limit
+      # Supported image formats for multimodal AI
       supported-image-types: jpeg,png,gif,webp,svg,bmp,tiff
-      # Поддерживаемые форматы документов для RAG (обработка через Tika/PDFBox)
+      # Supported document formats for RAG (via Tika/PDFBox)
       # Microsoft Office: docx,doc,xls,xlsx,ppt,pptx
       # OpenDocument: odt,ods,odp
-      # Текстовые: txt,rtf,html,md,csv
-      # Структурированные: json,xml
-      # Электронные книги: epub
+      # Text: txt,rtf,html,md,csv
+      # Structured: json,xml
+      # E-books: epub
       supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub
-    # Long polling: socket timeout должен быть больше get-updates-timeout (избегает Read timed out)
+    # Long polling: socket timeout must be greater than get-updates-timeout (avoids Read timed out)
     long-polling-socket-timeout-seconds: 90
     get-updates-timeout-seconds: 50
-    # Максимальная длина сообщения для отправки в Telegram (символов).
-    # По умолчанию 4096 (лимит Telegram Bot API). При превышении сообщение будет разбито на части по границам абзацев.
+    # Max message length for Telegram (chars). Default 4096 (Telegram Bot API limit). When exceeded, message is split at paragraph boundaries.
     max-message-length: 4096
     commands:
       start-enabled: true
@@ -90,6 +88,7 @@ ai-bot:
       newthread-enabled: true
       history-enabled: true
       threads-enabled: true
+      language-enabled: true
   rest:
     enabled: true
   ui:
@@ -97,10 +96,10 @@ ai-bot:
   ai:
     spring-ai:
       enabled: true
-      # Атрибуция приложения в дашборде OpenRouter (столбец App). Опционально.
+      # App attribution in OpenRouter dashboard (App column). Optional.
       openrouter-app:
-        site-url: ${OPENROUTER_APP_SITE_URL:}   # например https://github.com/NGirchev/ai-bot
-        title: ${OPENROUTER_APP_TITLE:}         # например AI Bot
+        site-url: ${OPENROUTER_APP_SITE_URL:}   # e.g. https://github.com/your-username/ai-bot
+        title: ${OPENROUTER_APP_TITLE:}         # e.g. AI Bot
       openrouter-auto-rotation:
         models:
           enabled: true
@@ -133,9 +132,9 @@ ai-bot:
       mock: false
       history-window-size: 20
       timeouts:
-        response-timeout-seconds: 600  # 10 минут для HTTP запросов к AI провайдерам
-        stream-timeout-seconds: 600    # 10 минут для обработки стриминга
-      # Единый список моделей = yml + дополнение из OpenRouter (free). FREE в capabilities — только для реально бесплатных моделей; для openrouter/auto не добавлять.
+        response-timeout-seconds: 600  # 10 minutes for HTTP requests to AI providers
+        stream-timeout-seconds: 600   # 10 minutes for streaming
+      # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
       models:
         list:
           - name: "openrouter/auto"
@@ -182,7 +181,7 @@ ai-bot:
 
             Question: %s
     gateway-mock:
-      enabled: false  # По умолчанию выключен
+      enabled: false  # Disabled by default
 
 management:
   endpoints:

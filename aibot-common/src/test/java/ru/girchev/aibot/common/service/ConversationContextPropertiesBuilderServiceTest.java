@@ -82,7 +82,7 @@ class ConversationContextPropertiesBuilderServiceTest {
         List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert: текущее сообщение пользователя не в контексте — его добавляет gateway с вложениями
+        // Assert: current user message is not in context — gateway adds it with attachments
         assertNotNull(result);
         assertEquals(1, result.size());
         assertEquals("system", result.get(0).get("role"));
@@ -106,7 +106,7 @@ class ConversationContextPropertiesBuilderServiceTest {
         List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert: без истории и без добавления текущего сообщения контекст пустой
+        // Assert: no history and no current message added, context is empty
         assertNotNull(result);
         assertEquals(0, result.size());
     }
@@ -125,7 +125,7 @@ class ConversationContextPropertiesBuilderServiceTest {
         when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(any())).thenReturn(new ArrayList<>());
         when(tokenCounter.estimateTokens("You are a helpful assistant.")).thenReturn(10);
-        when(tokenCounter.estimateTokens(anyString())).thenReturn(20); // для summary
+        when(tokenCounter.estimateTokens(anyString())).thenReturn(20); // for summary
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(2);
 
         // Act
@@ -135,10 +135,10 @@ class ConversationContextPropertiesBuilderServiceTest {
         // Assert
         assertNotNull(result);
         assertTrue(result.size() >= 2);
-        // Проверяем, что есть summary message
+        // Verify summary message is present
         boolean hasSummary = result.stream()
             .anyMatch(m -> "system".equals(m.get("role")) &&
-                         m.get("content") instanceof String s && s.contains("Краткое содержание"));
+                         m.get("content") instanceof String s && s.contains("Summary of previous conversation"));
         assertTrue(hasSummary);
     }
 
@@ -170,7 +170,7 @@ class ConversationContextPropertiesBuilderServiceTest {
         List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert: system + история (текущее сообщение добавляет gateway)
+        // Assert: system + history (gateway adds current message)
         assertNotNull(result);
         assertEquals(5, result.size());
         assertEquals("system", result.get(0).get("role"));
@@ -196,11 +196,11 @@ class ConversationContextPropertiesBuilderServiceTest {
 
         when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
         when(historyConfig.getMaxResponseTokens()).thenReturn(50);
-        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(120); // Бюджет промпта = 120 - 50 = 70, после system (20) история не влезает
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(120); // Prompt budget = 120 - 50 = 70, after system (20) history does not fit
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
             .thenReturn(List.of(userMsg1, userMsg2));
         when(tokenCounter.estimateTokens("You are a helpful assistant.")).thenReturn(20);
-        when(tokenCounter.estimateTokens("First message")).thenReturn(50); // Превышает лимит
+        when(tokenCounter.estimateTokens("First message")).thenReturn(50); // Exceeds limit
         when(tokenCounter.estimateTokens("Second message")).thenReturn(50);
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(10);
 
@@ -208,7 +208,7 @@ class ConversationContextPropertiesBuilderServiceTest {
         List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert: только system, история не влезла, текущее сообщение добавляет gateway
+        // Assert: only system, history did not fit, gateway adds current message
         assertNotNull(result);
         assertEquals(1, result.size());
         assertEquals("system", result.get(0).get("role"));
@@ -233,11 +233,11 @@ class ConversationContextPropertiesBuilderServiceTest {
         List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert: только system (текущее сообщение добавляет gateway)
+        // Assert: only system (gateway adds current message)
         assertNotNull(result);
         assertEquals(1, result.size());
         boolean hasSummary = result.stream()
-            .anyMatch(m -> m.get("content") instanceof String s && s.contains("Краткое содержание"));
+            .anyMatch(m -> m.get("content") instanceof String s && s.contains("Summary of previous conversation"));
         assertFalse(hasSummary);
     }
 
@@ -260,25 +260,24 @@ class ConversationContextPropertiesBuilderServiceTest {
         when(tokenCounter.estimateTokens("First message")).thenReturn(3);
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(3);
 
-        // Act
-        // Не должно быть NullPointerException - ответ с null должен быть пропущен
+        // Act — no NPE; null response should be skipped
         List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert: system + user из истории (текущее добавляет gateway; ответ с null пропущен)
+        // Assert: system + user from history (gateway adds current; null response skipped)
         assertNotNull(result);
         assertEquals(2, result.size());
         assertEquals("system", result.get(0).get("role"));
         assertEquals("user", result.get(1).get("role"));
         assertEquals("First message", result.get(1).get("content"));
-        // Проверяем, что нет assistant сообщения с null
+        // Verify no assistant message with null
         boolean hasNullAssistantMessage = result.stream()
             .anyMatch(m -> "assistant".equals(m.get("role")) &&
                          (m.get("content") == null || (m.get("content") instanceof String s && s.isEmpty())));
         assertFalse(hasNullAssistantMessage, "Should not have assistant message with null or empty content");
     }
 
-    // Вспомогательные методы для создания тестовых объектов
+    // Helper methods for creating test objects
     private ConversationThread createEmptyThread() {
         ConversationThread thread = new ConversationThread();
         thread.setId(1L);
@@ -319,7 +318,7 @@ class ConversationContextPropertiesBuilderServiceTest {
         AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
         String currentMessage = "Next";
 
-        AIBotMessage userMsgWithAttachment = createUserMessage("Смотри фото");
+        AIBotMessage userMsgWithAttachment = createUserMessage("Look at the photo");
         Map<String, Object> ref = new HashMap<>();
         ref.put("storageKey", "photo/test-key.jpg");
         ref.put("expiresAt", OffsetDateTime.now().plusHours(1).toString());
@@ -343,13 +342,13 @@ class ConversationContextPropertiesBuilderServiceTest {
         List<Map<String, Object>> userMessages = result.stream()
                 .filter(m -> "user".equals(m.get("role")))
                 .toList();
-        assertEquals(1, userMessages.size()); // только история (текущее добавляет gateway)
+        assertEquals(1, userMessages.size()); // only history (gateway adds current)
         Object historyContent = userMessages.get(0).get("content");
         assertInstanceOf(List.class, historyContent);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> parts = (List<Map<String, Object>>) historyContent;
         assertEquals(2, parts.size());
-        assertTrue(parts.stream().anyMatch(p -> "text".equals(p.get("type")) && "Смотри фото".equals(p.get("text"))));
+        assertTrue(parts.stream().anyMatch(p -> "text".equals(p.get("type")) && "Look at the photo".equals(p.get("text"))));
         assertTrue(parts.stream().anyMatch(p -> "image_url".equals(p.get("type")) && p.get("image_url") != null));
     }
 
@@ -359,7 +358,7 @@ class ConversationContextPropertiesBuilderServiceTest {
         AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
         String currentMessage = "Next";
 
-        AIBotMessage userMsgWithAttachment = createUserMessage("Старое фото");
+        AIBotMessage userMsgWithAttachment = createUserMessage("Old photo");
         Map<String, Object> ref = new HashMap<>();
         ref.put("storageKey", "photo/old.jpg");
         ref.put("expiresAt", OffsetDateTime.now().minusHours(1).toString());
@@ -381,7 +380,7 @@ class ConversationContextPropertiesBuilderServiceTest {
                 .filter(m -> "user".equals(m.get("role")))
                 .toList();
         Object historyContent = userMessages.get(0).get("content");
-        assertEquals("Старое фото", historyContent);
+        assertEquals("Old photo", historyContent);
     }
 }
 

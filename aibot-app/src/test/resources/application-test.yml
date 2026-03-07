@@ -17,7 +17,7 @@ ai-bot:
   telegram:
     enabled: true
   common:
-    assistant-role: Ты полезный ассистент
+    assistant-role: You are a helpful assistant
     max-output-tokens: 1000
     max-reasoning-tokens: 500
     max-user-message-tokens: 4000

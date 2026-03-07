@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.telegram.telegrambots.bots.DefaultBotOptions;
 import ru.girchev.aibot.bulkhead.config.BulkHeadAutoConfig;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.service.TelegramBotMenuService;
 import ru.girchev.aibot.telegram.service.TelegramBotRegistrar;
@@ -19,9 +20,9 @@ import ru.girchev.aibot.telegram.service.TelegramFileService;
 import ru.girchev.aibot.telegram.service.TelegramUserService;
 
 /**
- * Автоконфигурация для Telegram модуля
- * Создает бины для работы Telegram бота
- * Активируется только если включен Telegram модуль (ai-bot.telegram.enabled=true)
+ * Auto-configuration for Telegram module.
+ * Creates beans for Telegram bot.
+ * Active only when Telegram module is enabled (ai-bot.telegram.enabled=true).
  */
 @AutoConfiguration
 @AutoConfigureAfter(BulkHeadAutoConfig.class)
@@ -40,6 +41,7 @@ public class TelegramAutoConfig {
     public TelegramBot telegramBot(TelegramProperties properties,
                                    TelegramCommandSyncService commandSyncService,
                                    TelegramUserService userService,
+                                   MessageLocalizationService messageLocalizationService,
                                    ObjectProvider<TelegramFileService> fileServiceProvider,
                                    ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
         Integer socketTimeoutSec = properties.getLongPollingSocketTimeoutSeconds();
@@ -56,7 +58,7 @@ public class TelegramAutoConfig {
             options.setRequestConfig(requestConfig);
         }
         return new TelegramBot(properties, options, commandSyncService, userService,
-                fileServiceProvider, fileUploadPropertiesProvider);
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider);
     }
 
     @Bean

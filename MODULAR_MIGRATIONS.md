@@ -1,55 +1,55 @@
-# Модульные миграции Flyway
+# Modular Flyway Migrations
 
-## Обзор
+## Overview
 
-Проект теперь использует модульную систему миграций Flyway, где каждый модуль отвечает за свои таблицы базы данных. Это позволяет включать только те модули, которые действительно нужны в вашем проекте.
+The project uses a modular Flyway migration system where each module is responsible for its own database tables. This allows enabling only the modules you actually need.
 
-## Структура миграций
+## Migration structure
 
-### Core модуль (aibot-common)
-**Всегда выполняется** - содержит базовые таблицы:
-- `V1__Create_base_user_table.sql` - таблица пользователей
-- `V2__Create_base_user_request_table.sql` - таблица запросов
-- `V3__Create_service_response_table.sql` - таблица ответов AI
-- `V4__Create_base_indexes.sql` - базовые индексы
+### Core module (aibot-common)
+**Always runs** — contains base tables:
+- `V1__Create_base_user_table.sql` — user table
+- `V2__Create_base_user_request_table.sql` — request table
+- `V3__Create_service_response_table.sql` — AI response table
+- `V4__Create_base_indexes.sql` — base indexes
 
-### Telegram модуль (aibot-telegram)
-**Выполняется только если `ai-bot.telegram.enabled=true`**:
-- `V1__Create_telegram_user_table.sql` - таблица Telegram пользователей
-- `V2__Create_telegram_session_table.sql` - таблица сессий
-- `V3__Create_telegram_request_table.sql` - таблица Telegram запросов
-- `V4__Create_telegram_whitelist_table.sql` - таблица whitelist
-- `V5__Create_telegram_indexes.sql` - индексы для Telegram
+### Telegram module (aibot-telegram)
+**Runs only when `ai-bot.telegram.enabled=true`**:
+- `V1__Create_telegram_user_table.sql` — Telegram user table
+- `V2__Create_telegram_session_table.sql` — session table
+- `V3__Create_telegram_request_table.sql` — Telegram request table
+- `V4__Create_telegram_whitelist_table.sql` — whitelist table
+- `V5__Create_telegram_indexes.sql` — Telegram indexes
 
-### REST модуль (aibot-rest)
-**Выполняется только если `ai-bot.rest.enabled=true`**:
-- `V1__Create_rest_user_table.sql` - таблица REST пользователей
-- `V2__Create_rest_request_table.sql` - таблица REST запросов
-- `V3__Create_rest_indexes.sql` - индексы для REST
+### REST module (aibot-rest)
+**Runs only when `ai-bot.rest.enabled=true`**:
+- `V1__Create_rest_user_table.sql` — REST user table
+- `V2__Create_rest_request_table.sql` — REST request table
+- `V3__Create_rest_indexes.sql` — REST indexes
 
-## Конфигурация
+## Configuration
 
-### Включение модулей
+### Enabling modules
 
 ```yaml
 ai-bot:
   telegram:
-    enabled: true   # Включить Telegram модуль
+    enabled: true   # Enable Telegram module
   rest:
-    enabled: false  # Отключить REST модуль
+    enabled: false  # Disable REST module
 ```
 
-### Отключение стандартного Flyway
+### Disabling default Flyway
 
 ```yaml
 spring:
   flyway:
-    enabled: false  # Отключить стандартный Flyway
+    enabled: false  # Disable default Flyway
 ```
 
-## Примеры использования
+## Usage examples
 
-### Только Telegram бот
+### Telegram bot only
 ```yaml
 ai-bot:
   telegram:
@@ -59,9 +59,9 @@ ai-bot:
     enabled: false
 ```
 
-**Результат**: Создаются только базовые таблицы + Telegram таблицы
+**Result**: Only base tables + Telegram tables are created
 
-### Только REST API
+### REST API only
 ```yaml
 ai-bot:
   telegram:
@@ -70,9 +70,9 @@ ai-bot:
     enabled: true
 ```
 
-**Результат**: Создаются только базовые таблицы + REST таблицы
+**Result**: Only base tables + REST tables are created
 
-### Полная функциональность
+### Full stack
 ```yaml
 ai-bot:
   telegram:
@@ -81,41 +81,39 @@ ai-bot:
     enabled: true
 ```
 
-**Результат**: Создаются все таблицы
+**Result**: All tables are created
 
-## Порядок выполнения миграций
+## Migration execution order
 
-1. **Core миграции** - всегда выполняются первыми
-2. **Telegram миграции** - выполняются если модуль включен
-3. **REST миграции** - выполняются если модуль включен
+1. **Core migrations** — always run first
+2. **Telegram migrations** — run when module is enabled
+3. **REST migrations** — run when module is enabled
 
-## Преимущества
+## Benefits
 
-- ✅ **Модульность** - создаются только нужные таблицы
-- ✅ **Гибкость** - легко включать/выключать модули
-- ✅ **Производительность** - меньше таблиц = быстрее работа
-- ✅ **Простота** - понятно, какие таблицы к какому модулю относятся
-- ✅ **Масштабируемость** - легко добавлять новые модули
+- **Modularity** — only required tables are created
+- **Flexibility** — easy to enable/disable modules
+- **Performance** — fewer tables means faster operation
+- **Clarity** — clear mapping of tables to modules
+- **Scalability** — easy to add new modules
 
-## Миграция с старой системы
+## Migrating from the old system
 
-Если у вас уже есть база данных со старой структурой:
+If you already have a database with the previous structure:
 
-1. Сделайте бэкап базы данных
-2. Обновите конфигурацию на модульную
-3. Перезапустите приложение
-4. Проверьте, что все таблицы созданы корректно
+1. Back up the database
+2. Update configuration to the modular setup
+3. Restart the application
+4. Verify that all tables were created correctly
 
 ## Troubleshooting
 
-### Проблема: Миграции не выполняются
-- Проверьте, что `spring.flyway.enabled=false`
-- Проверьте, что модули включены в конфигурации
-- Проверьте логи на наличие ошибок
+### Migrations not running
+- Ensure `spring.flyway.enabled=false`
+- Ensure modules are enabled in configuration
+- Check logs for errors
 
-### Проблема: Таблицы не создаются
-- Проверьте, что соответствующие модули включены
-- Проверьте, что миграции находятся в правильных папках
-- Проверьте права доступа к базе данных
-
-
+### Tables not created
+- Ensure the corresponding modules are enabled
+- Ensure migrations are in the correct folders
+- Check database access rights

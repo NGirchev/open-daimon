@@ -1,24 +1,24 @@
-- [ ] добавить модуль для аутентификации для веба
-- [x] добавить модуль с web приложением
-- [ ] мобильное приложение из вебверсии
-- [ ] пример wizard c fsm
-- [ ] выбор моделей по кнопкам
-- [x] выбор роли по кнопкам
-- [x] история разговора
-- [ ] алертинг
-- [x] исправить логи
-- [x] сделать пульсацию для разговора
-- [ ] Добавить RAG (поиск по старым диалогам через OpenSearch/Elasticsearch/https://qdrant.tech/)
-- [ ] Добавить автоматическое определение завершения темы (semantic similarity)
-- [ ] Интегрировать tiktoken для точного подсчета токенов
-- [x] MCP интернет
-- [x] Поставить больше 3х сообщений в истории
-- [x] Добавить иконки к кнопкам
-- [ ] Добавить возможность указать свой API токен
-- [x] Улучшить группировку сообщений
-- [x] Улучшить преобразование форматов для Spring AI чтобы передавать температуру
-- [ ] Добавить цену запросов и расчёт бюджета
-- [ ] ConversationHistoryAICommandFactory добавить логику как в Default для админа и vip
+- [ ] add web authentication module
+- [x] add web application module
+- [ ] mobile app from web version
+- [ ] example wizard with FSM
+- [ ] model selection via buttons
+- [x] role selection via buttons
+- [x] conversation history
+- [ ] alerting
+- [x] fix logs
+- [x] add pulse for conversation
+- [ ] Add RAG (search over old dialogs via OpenSearch/Elasticsearch/https://qdrant.tech/)
+- [ ] Add automatic topic completion detection (semantic similarity)
+- [ ] Integrate tiktoken for accurate token counting
+- [x] MCP internet
+- [x] Put more than 3 messages in history
+- [x] Add icons to buttons
+- [ ] Add ability to specify custom API token
+- [x] Improve message grouping
+- [x] Improve format conversion for Spring AI to pass temperature
+- [ ] Add request pricing and budget calculation
+- [ ] ConversationHistoryAICommandFactory: add logic like Default for admin and VIP
 - [ ] Rest whitelist
-- [ ] Бесплатный роутер для REGULAR
-- [ ] Варианты ответов как кнопки
+- [ ] Free router for REGULAR
+- [ ] Reply options as buttons

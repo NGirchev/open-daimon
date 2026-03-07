@@ -6,9 +6,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 /**
- * JPA конфигурация для Telegram модуля
- * Сканирует Entity и репозитории Telegram модуля
- * Активируется только если включен Telegram модуль (ai-bot.telegram.enabled=true)
+ * JPA configuration for Telegram module.
+ * Scans Telegram Entity and repositories.
+ * Active only when Telegram module is enabled (ai-bot.telegram.enabled=true).
  */
 @Configuration
 @EntityScan(basePackages = {
@@ -19,6 +19,6 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 })
 @ConditionalOnProperty(name = "ai-bot.telegram.enabled", havingValue = "true", matchIfMissing = true)
 public class TelegramJpaConfig {
-    // JPA конфигурация для Telegram Entity и репозиториев
+    // JPA config for Telegram Entity and repositories
 }
 

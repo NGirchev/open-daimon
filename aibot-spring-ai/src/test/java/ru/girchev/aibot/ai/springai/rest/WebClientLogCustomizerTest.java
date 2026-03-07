@@ -17,13 +17,13 @@ import java.io.IOException;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Тест для проверки логирования HTTP ошибок, включая 429 (Too Many Requests).
- * 
- * Проверяет:
- * 1. Логирование успешных запросов (2xx)
- * 2. Логирование ошибок 429 с телом ответа
- * 3. Логирование других ошибок (4xx, 5xx)
- * 4. Транкейт длинных тел ответов
+ * Test for HTTP error logging, including 429 (Too Many Requests).
+ *
+ * Verifies:
+ * 1. Logging of successful requests (2xx)
+ * 2. Logging of 429 errors with response body
+ * 3. Logging of other errors (4xx, 5xx)
+ * 4. Truncation of long response bodies
  */
 @ExtendWith(MockitoExtension.class)
 class WebClientLogCustomizerTest {
@@ -36,7 +36,7 @@ class WebClientLogCustomizerTest {
         mockWebServer = new MockWebServer();
         mockWebServer.start();
 
-        // Создаем WebClient с кастомайзером
+        // Create WebClient with customizer
         WebClientLogCustomizer customizer = new WebClientLogCustomizer(new ObjectMapper());
         WebClient.Builder builder = WebClient.builder();
         customizer.customize(builder);
@@ -71,25 +71,22 @@ class WebClientLogCustomizerTest {
                     .block();
         });
 
-        // Проверяем, что исключение содержит правильный статус 429
+        // Verify exception has status 429
         assertEquals(HttpStatus.TOO_MANY_REQUESTS.value(), exception.getStatusCode().value());
         
-        // Проверяем, что тело ответа доступно в исключении
-        // WebClientLogCustomizer автоматически логирует ошибку 429 через log.error() 
-        // с телом ответа в методе logAndBufferErrorsIfNeeded()
+        // Verify response body is available in exception
+        // WebClientLogCustomizer logs 429 via log.error() with response body in logAndBufferErrorsIfNeeded()
         String responseBody = exception.getResponseBodyAsString();
         assertNotNull(responseBody);
         assertTrue(responseBody.contains("Rate limit exceeded") || responseBody.contains("rate_limit_error"));
         
-        // Примечание: Логирование происходит автоматически в WebClientLogCustomizer.logAndBufferErrorsIfNeeded()
-        // и будет видно в логах приложения при реальном использовании.
-        // Для проверки логирования в интеграционных тестах можно использовать OutputCaptureExtension
-        // с правильной настройкой logback в test/resources.
+        // Note: Logging happens in WebClientLogCustomizer.logAndBufferErrorsIfNeeded() and appears in app logs.
+        // For verifying logging in integration tests use OutputCaptureExtension with logback in test/resources.
     }
 
     @Test
     void when429ErrorWithLongBody_thenBodyTruncated() {
-        // Arrange - создаем длинное тело ответа (> 4000 символов)
+        // Arrange - long response body (> 4000 chars)
         StringBuilder longBody = new StringBuilder("{\"error\":\"");
         for (int i = 0; i < 500; i++) {
             longBody.append("This is a very long error message that should be truncated. ");
@@ -114,10 +111,10 @@ class WebClientLogCustomizerTest {
 
         assertEquals(HttpStatus.TOO_MANY_REQUESTS.value(), exception.getStatusCode().value());
         
-        // Проверяем, что тело ответа доступно (WebClientLogCustomizer должен его логировать)
+        // Verify response body is available (WebClientLogCustomizer should log it)
         String responseBody = exception.getResponseBodyAsString();
         assertNotNull(responseBody);
-        // Проверяем, что тело не пустое (логирование должно работать)
+        // Body must not be empty (logging should work)
         assertFalse(responseBody.isEmpty());
     }
 
@@ -167,7 +164,7 @@ class WebClientLogCustomizerTest {
 
     @Test
     void whenRequestToLocalhost_thenRequestProcessed() {
-        // Arrange - MockWebServer использует localhost, который должен логироваться
+        // Arrange - MockWebServer uses localhost, which should be logged
         mockWebServer.enqueue(new MockResponse()
                 .setResponseCode(200)
                 .setBody("{\"result\":\"success\"}"));
@@ -181,7 +178,7 @@ class WebClientLogCustomizerTest {
                 .bodyToMono(String.class)
                 .block();
 
-        // Assert - запрос должен быть обработан
+        // Assert - request must be processed
         assertNotNull(response);
         assertEquals("{\"result\":\"success\"}", response);
     }

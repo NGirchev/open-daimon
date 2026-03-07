@@ -28,6 +28,7 @@ import org.telegram.telegrambots.meta.api.objects.webapp.WebAppInfo;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.girchev.aibot.common.model.Attachment;
 import ru.girchev.aibot.common.service.CommandSyncService;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
 import ru.girchev.aibot.telegram.config.FileUploadProperties;
@@ -47,28 +48,31 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final TelegramProperties config;
     private final CommandSyncService commandSyncService;
     private final TelegramUserService userService;
+    private final MessageLocalizationService messageLocalizationService;
     private final ObjectProvider<TelegramFileService> fileServiceProvider;
     private final ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider;
 
     public TelegramBot(TelegramProperties config,
                        CommandSyncService commandSyncService,
                        TelegramUserService userService) {
-        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null);
+        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null, null);
     }
 
     /**
-     * Конструктор с DefaultBotOptions для настройки таймаутов long polling (socket timeout, getUpdates timeout).
+     * Constructor with DefaultBotOptions for long polling timeouts (socket timeout, getUpdates timeout).
      */
     public TelegramBot(TelegramProperties config,
                        DefaultBotOptions botOptions,
                        CommandSyncService commandSyncService,
                        TelegramUserService userService,
+                       MessageLocalizationService messageLocalizationService,
                        ObjectProvider<TelegramFileService> fileServiceProvider,
                        ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
         super(botOptions, config.getToken());
         this.config = config;
         this.commandSyncService = commandSyncService;
         this.userService = userService;
+        this.messageLocalizationService = messageLocalizationService;
         this.fileServiceProvider = fileServiceProvider;
         this.fileUploadPropertiesProvider = fileUploadPropertiesProvider;
     }
@@ -85,7 +89,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void clearWebhook() {
-        // Пустая реализация, так как используем Long Polling
+        // No-op: we use long polling
     }
 
     @Override
@@ -120,7 +124,10 @@ public class TelegramBot extends TelegramLongPollingBot {
                             replyToMessageId = message.getMessageId();
                         }
                     }
-                    sendErrorMessage(internalTelegramCommandWrap.telegramId(), "Произошла непредвиденная ошибка", replyToMessageId);
+                    String errMsg = messageLocalizationService != null
+                            ? messageLocalizationService.getMessage("common.error.unexpected", internalTelegramCommandWrap.languageCode())
+                            : "An unexpected error occurred";
+                    sendErrorMessage(internalTelegramCommandWrap.telegramId(), errMsg, replyToMessageId);
                 }
             } catch (TelegramApiException ex) {
                 log.error("Exception on sending response to telegram", ex);
@@ -130,7 +137,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     /**
-     * Проверяет, включена ли загрузка файлов.
+     * Returns whether file upload is enabled.
      */
     private boolean isFileUploadEnabled() {
         if (fileUploadPropertiesProvider == null) {
@@ -147,28 +154,25 @@ public class TelegramBot extends TelegramLongPollingBot {
         Long userId = telegramUser.getId();
 
         TelegramCommandType telegramCommandType = null;
-        
-        // Определяем команду по callback data
         String callbackData = cq.getData();
         if (callbackData != null) {
             if (callbackData.startsWith("THREADS_")) {
-                // Обрабатываем callback query для /threads
                 telegramCommandType = new TelegramCommandType(TelegramCommand.THREADS);
+            } else if (callbackData.startsWith("LANG_")) {
+                telegramCommandType = new TelegramCommandType(TelegramCommand.LANGUAGE);
             } else if ("ERROR".equals(callbackData) || "IMPROVEMENT".equals(callbackData)) {
-                // Обрабатываем callback query для /bugreport
                 telegramCommandType = new TelegramCommandType(TelegramCommand.BUGREPORT);
             }
         }
-        
-        // Если команда не определена по callback data, используем botStatus из сессии
         if (telegramCommandType == null) {
             TelegramUserSession session = userService.getOrCreateSession(cq.getFrom());
             if (session.getBotStatus() != null) {
                 telegramCommandType = new TelegramCommandType(session.getBotStatus());
             }
         }
-        
-        return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, true);
+
+        TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, true);
+        return cmd.languageCode(telegramUser.getLanguageCode());
     }
 
     protected TelegramCommand mapToTelegramTextCommand(Update update) {
@@ -195,19 +199,18 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
             userText = stripped;
         }
-        return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true);
+        TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true);
+        return cmd.languageCode(telegramUser.getLanguageCode());
     }
 
     /**
-     * Обрабатывает сообщение с фотографией.
-     * Скачивает фото и сохраняет в MinIO.
+     * Handles a message with a photo. Downloads the photo and saves it to MinIO.
      */
     public TelegramCommand mapToTelegramPhotoCommand(Update update) {
         var message = update.getMessage();
         TelegramUser telegramUser = userService.getOrCreateUser(message.getFrom());
         Long userId = telegramUser.getId();
 
-        // Caption используется как userText
         String userText = message.getCaption() != null ? message.getCaption() : "";
         TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
 
@@ -220,25 +223,26 @@ public class TelegramBot extends TelegramLongPollingBot {
             log.info("Photo processed for user {}: key={}", userId, attachment.key());
         } catch (Exception e) {
             log.error("Error processing photo for user {}", userId, e);
-            // Создаем команду без attachment, но с сообщением об ошибке
-            return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
-                    userText + " [Ошибка загрузки фото: " + e.getMessage() + "]", true, new ArrayList<>());
+            String errSuffix = messageLocalizationService != null
+                    ? messageLocalizationService.getMessage("telegram.error.photo.load", telegramUser.getLanguageCode(), e.getMessage())
+                    : " [Photo upload error: " + e.getMessage() + "]";
+            TelegramCommand errCmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update,
+                    userText + errSuffix, true, new ArrayList<>());
+            return errCmd.languageCode(telegramUser.getLanguageCode());
         }
 
-        return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
-                userText, true, attachments);
+        TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true, attachments);
+        return cmd.languageCode(telegramUser.getLanguageCode());
     }
 
     /**
-     * Обрабатывает сообщение с документом (PDF).
-     * Скачивает документ и сохраняет в MinIO.
+     * Handles a message with a document (e.g. PDF). Downloads the document and saves it to MinIO.
      */
     public TelegramCommand mapToTelegramDocumentCommand(Update update) {
         var message = update.getMessage();
         TelegramUser telegramUser = userService.getOrCreateUser(message.getFrom());
         Long userId = telegramUser.getId();
 
-        // Caption используется как userText
         String userText = message.getCaption() != null ? message.getCaption() : "";
         TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
 
@@ -255,21 +259,26 @@ public class TelegramBot extends TelegramLongPollingBot {
             } else {
                 log.warn("Unsupported document type for user {}: {}", 
                         userId, message.getDocument().getMimeType());
-                return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
-                        userText + " [Неподдерживаемый тип файла: " + message.getDocument().getMimeType() + "]", 
-                        true, new ArrayList<>());
+                String errSuffix = messageLocalizationService != null
+                        ? messageLocalizationService.getMessage("telegram.error.unsupported.file", telegramUser.getLanguageCode(), message.getDocument().getMimeType())
+                        : " [Unsupported file type: " + message.getDocument().getMimeType() + "]";
+                TelegramCommand errCmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText + errSuffix, true, new ArrayList<>());
+                return errCmd.languageCode(telegramUser.getLanguageCode());
             }
         } catch (Exception e) {
             log.error("Error processing document for user {}", userId, e);
-            return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
-                    userText + " [Ошибка загрузки документа: " + e.getMessage() + "]", true, new ArrayList<>());
+            String errSuffix = messageLocalizationService != null
+                    ? messageLocalizationService.getMessage("telegram.error.document.load", telegramUser.getLanguageCode(), e.getMessage())
+                    : " [Document upload error: " + e.getMessage() + "]";
+            TelegramCommand errCmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText + errSuffix, true, new ArrayList<>());
+            return errCmd.languageCode(telegramUser.getLanguageCode());
         }
 
         Attachment first = attachments.getFirst();
         log.info("Document command created: attachmentsCount={}, userText='{}', firstAttachmentType={}, dataLength={}",
                 attachments.size(), userText, first != null ? first.type() : null, first != null && first.data() != null ? first.data().length : 0);
-        return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
-                userText, true, attachments);
+        TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true, attachments);
+        return cmd.languageCode(telegramUser.getLanguageCode());
     }
 
     public void sendMessage(Long chatId, String text) throws TelegramApiException {
@@ -292,7 +301,6 @@ public class TelegramBot extends TelegramLongPollingBot {
             Message sentMessage = execute(message);
             return sentMessage != null ? sentMessage.getMessageId() : null;
         } catch (TelegramApiException e) {
-            // Если ошибка парсинга HTML, пробуем отправить без форматирования
             if (e.getMessage() != null && e.getMessage().contains("parse")) {
                 log.warn("HTML parsing error, sending message without formatting: {}", e.getMessage());
                 try {
@@ -302,7 +310,6 @@ public class TelegramBot extends TelegramLongPollingBot {
                     if (replyToMessageId != null) {
                         fallbackMessage.setReplyToMessageId(replyToMessageId);
                     }
-                    // Не устанавливаем parseMode для fallback
                     Message sentMessage = execute(fallbackMessage);
                     return sentMessage != null ? sentMessage.getMessageId() : null;
                 } catch (TelegramApiException fallbackException) {
@@ -330,7 +337,6 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
             execute(message);
         } catch (TelegramApiException e) {
-            // Если ошибка парсинга HTML, пробуем отправить без форматирования
             if (e.getMessage() != null && e.getMessage().contains("parse")) {
                 log.warn("HTML parsing error, sending error message without formatting: {}", e.getMessage());
                 try {
@@ -340,7 +346,6 @@ public class TelegramBot extends TelegramLongPollingBot {
                     if (replyToMessageId != null) {
                         fallbackMessage.setReplyToMessageId(replyToMessageId);
                     }
-                    // Не устанавливаем parseMode для fallback
                     execute(fallbackMessage);
                     return;
                 } catch (TelegramApiException fallbackException) {
@@ -396,13 +401,13 @@ public class TelegramBot extends TelegramLongPollingBot {
         webApp.setUrl("https://example.com/app");
 
         InlineKeyboardButton btn = new InlineKeyboardButton();
-        btn.setText("Открыть приложение");
+        btn.setText("Open app");
         btn.setWebApp(webApp);
 
         InlineKeyboardMarkup markup =
                 new InlineKeyboardMarkup(List.of(List.of(btn)));
 
-        SendMessage msg = new SendMessage(chatId, "Открываем Web App");
+        SendMessage msg = new SendMessage(chatId, "Opening Web App");
         msg.setReplyMarkup(markup);
 
         execute(msg);
@@ -416,9 +421,9 @@ public class TelegramBot extends TelegramLongPollingBot {
             InlineQueryResultArticle result =
                     new InlineQueryResultArticle();
             result.setId("1");
-            result.setTitle("Ответ");
+            result.setTitle("Reply");
             result.setInputMessageContent(
-                    new InputTextMessageContent("Текст ответа")
+                    new InputTextMessageContent("Reply text")
             );
 
             AnswerInlineQuery answer = new AnswerInlineQuery();
@@ -440,16 +445,27 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     /**
-     * Устанавливает меню команд для бота
-     * @param commands список команд с описаниями
-     * @throws TelegramApiException если не удалось установить команды
+     * Sets bot command menu (default scope, no language).
      */
     public void setMyCommands(List<BotCommand> commands) throws TelegramApiException {
+        setMyCommands(commands, null);
+    }
+
+    /**
+     * Sets bot command menu for the given language. If languageCode is null, commands apply as default.
+     *
+     * @param commands     list of commands with descriptions
+     * @param languageCode optional two-letter ISO 639-1 language code (e.g. ru, en)
+     */
+    public void setMyCommands(List<BotCommand> commands, String languageCode) throws TelegramApiException {
         try {
             SetMyCommands setMyCommands = new SetMyCommands();
             setMyCommands.setCommands(commands);
+            if (languageCode != null && !languageCode.isBlank()) {
+                setMyCommands.setLanguageCode(languageCode);
+            }
             execute(setMyCommands);
-            log.info("Successfully set {} commands for bot menu", commands.size());
+            log.info("Successfully set {} commands for bot menu (language: {})", commands.size(), languageCode != null ? languageCode : "default");
         } catch (TelegramApiException e) {
             log.error("Error setting bot commands menu", e);
             throw e;

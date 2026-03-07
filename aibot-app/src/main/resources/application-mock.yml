@@ -39,7 +39,6 @@ ai-bot:
     token: ${TELEGRAM_TOKEN}
     whitelist-exceptions: ${WHITELIST_EXCEPTIONS:}
     whitelist-channel-id-exceptions: ${WHITELIST_CHANNEL_ID_EXCEPTIONS:}
-    start-message: "Привет! Я бот с интеграцией DeepSeek и OpenRouter. Задай мне любой вопрос, и я постараюсь на него ответить.\nДоступные команды:\n"
     commands:
       start-enabled: true
       role-enabled: true
@@ -73,9 +72,9 @@ management:
 spring:
   ai:
     openai:
-      api-key: "mock-key"  # Фиктивный ключ для отключения Spring AI в mock профиле
+      api-key: "mock-key"  # Dummy key to disable Spring AI in mock profile
     ollama:
-      base-url: "http://localhost:9999"  # Фиктивный URL для отключения Ollama в mock профиле
+      base-url: "http://localhost:9999"  # Dummy URL to disable Ollama in mock profile
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/ai_bot}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}

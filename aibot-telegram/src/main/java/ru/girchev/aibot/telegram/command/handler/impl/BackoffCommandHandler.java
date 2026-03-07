@@ -6,9 +6,9 @@ import ru.girchev.aibot.common.command.ICommand;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import ru.girchev.aibot.telegram.command.handler.TelegramSupportedCommandProvider;
-import ru.girchev.aibot.telegram.config.TelegramProperties;
 import ru.girchev.aibot.telegram.service.TypingIndicatorService;
 
 import java.util.Objects;
@@ -17,15 +17,13 @@ import java.util.stream.Collectors;
 public class BackoffCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
 
     private final ObjectProvider<TelegramSupportedCommandProvider> handlersProvider;
-    private final TelegramProperties telegramProperties;
 
     public BackoffCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                  TypingIndicatorService typingIndicatorService,
-                                 ObjectProvider<TelegramSupportedCommandProvider> handlersProvider,
-                                 TelegramProperties telegramProperties) {
-        super(telegramBotProvider, typingIndicatorService);
+                                 MessageLocalizationService messageLocalizationService,
+                                 ObjectProvider<TelegramSupportedCommandProvider> handlersProvider) {
+        super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.handlersProvider = handlersProvider;
-        this.telegramProperties = telegramProperties;
     }
 
     @Override
@@ -41,16 +39,16 @@ public class BackoffCommandHandler extends AbstractTelegramCommandHandlerWithRes
     @Override
     public String handleInner(TelegramCommand command) {
         telegramBotProvider.getObject().clearStatus(command.userId());
-        return telegramProperties.getStartMessage()
+        return messageLocalizationService.getMessage("telegram.start.message", command.languageCode())
                 + handlersProvider.orderedStream()
                 .filter(h -> h != this)
-                .map(TelegramSupportedCommandProvider::getSupportedCommandText)
+                .map(h -> h.getSupportedCommandText(command.languageCode()))
                 .filter(Objects::nonNull)
                 .collect(Collectors.joining("\n"));
     }
 
     @Override
-    public String getSupportedCommandText() {
+    public String getSupportedCommandText(String languageCode) {
         return null;
     }
 }

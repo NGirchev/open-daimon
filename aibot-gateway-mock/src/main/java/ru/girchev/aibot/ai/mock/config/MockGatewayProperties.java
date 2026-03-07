@@ -12,8 +12,8 @@ import org.springframework.validation.annotation.Validated;
 public class MockGatewayProperties {
     
     /**
-     * Включает/выключает Mock Gateway.
-     * По умолчанию выключен (false).
+     * Enables/disables Mock Gateway.
+     * Default is false (disabled).
      */
     private Boolean enabled = false;
 }

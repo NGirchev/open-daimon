@@ -14,21 +14,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Advisor для переупорядочивания сообщений в промпте.
- * 
- * Исправляет известную проблему Spring AI (issue #4170), когда MessageChatMemoryAdvisor
- * добавляет историю перед System сообщениями.
- * 
- * Этот advisor выполняется после MessageChatMemoryAdvisor и переупорядочивает сообщения:
- * 1. System сообщения (первыми) - включая текущий System и summary из истории
- * 2. Остальные сообщения в исходном порядке (история + новое user сообщение)
- * 
- * Правильный порядок: System -> summary(System) -> История -> User
+ * Advisor to reorder messages in the prompt.
+ *
+ * Fixes known Spring AI issue (#4170) where MessageChatMemoryAdvisor
+ * adds history before System messages.
+ *
+ * This advisor runs after MessageChatMemoryAdvisor and reorders messages:
+ * 1. System messages first — including current System and summary from history
+ * 2. Other messages in original order (history + new user message)
+ *
+ * Correct order: System -> summary(System) -> History -> User
  */
 @Slf4j
 public class MessageOrderingAdvisor implements BaseAdvisor {
     
-    private static final int ORDER = Ordered.LOWEST_PRECEDENCE - 100; // Выполняется после MessageChatMemoryAdvisor
+    private static final int ORDER = Ordered.LOWEST_PRECEDENCE - 100; // Runs after MessageChatMemoryAdvisor
     
     @Override
     public String getName() {
@@ -47,12 +47,12 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
     
     @Override
     public ChatClientResponse after(ChatClientResponse response, AdvisorChain chain) {
-        // Не изменяем ответ, просто возвращаем как есть
+        // Do not change response, return as is
         return response;
     }
     
     /**
-     * Переупорядочивает сообщения в запросе: System сообщения первыми, затем остальные.
+     * Reorders messages in request: System messages first, then the rest.
      */
     private ChatClientRequest reorderMessages(ChatClientRequest request) {
         Prompt prompt = request.prompt();
@@ -63,12 +63,12 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
             return request;
         }
         
-        // Разделяем сообщения по типам и находим границу между историей и текущими сообщениями
-        List<Message> systemMessagesFromHistory = new ArrayList<>(); // System из истории (summary)
-        List<Message> systemMessagesCurrent = new ArrayList<>(); // Текущие System сообщения
+        // Split messages by type and find boundary between history and current messages
+        List<Message> systemMessagesFromHistory = new ArrayList<>(); // System from history (summary)
+        List<Message> systemMessagesCurrent = new ArrayList<>(); // Current System messages
         List<Message> nonSystemMessages = new ArrayList<>();
         
-        // Находим первое не-System сообщение - это граница между историей и текущими сообщениями
+        // Find first non-System message — boundary between history and current messages
         int firstNonSystemIndex = -1;
         for (int i = 0; i < messages.size(); i++) {
             if (!(messages.get(i) instanceof SystemMessage)) {
@@ -77,15 +77,15 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
             }
         }
         
-        // Разделяем System сообщения: те, что до первого не-System - из истории, остальные - текущие
+        // Split System messages: those before first non-System are from history, rest are current
         for (int i = 0; i < messages.size(); i++) {
             Message message = messages.get(i);
             if (message instanceof SystemMessage) {
                 if (firstNonSystemIndex == -1 || i < firstNonSystemIndex) {
-                    // System сообщения до первого не-System - это из истории (summary)
+                    // System messages before first non-System are from history (summary)
                     systemMessagesFromHistory.add(message);
                 } else {
-                    // System сообщения после первого не-System - это текущие
+                    // System messages after first non-System are current
                     systemMessagesCurrent.add(message);
                 }
             } else {
@@ -93,31 +93,31 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
             }
         }
         
-        // Если нет System сообщений или нет не-System сообщений, возвращаем как есть
+        // If no System or no non-System messages, return as is
         if ((systemMessagesFromHistory.isEmpty() && systemMessagesCurrent.isEmpty()) || nonSystemMessages.isEmpty()) {
             log.debug("No reordering needed: systemMessagesFromHistory={}, systemMessagesCurrent={}, nonSystemMessages={}", 
                     systemMessagesFromHistory.size(), systemMessagesCurrent.size(), nonSystemMessages.size());
             return request;
         }
         
-        // Формируем правильный порядок:
-        // 1. Текущие System сообщения (первыми) - они были добавлены через promptBuilder.system()
-        // 2. System сообщения из истории (summary) - они были добавлены через MessageChatMemoryAdvisor
-        // 3. Остальные сообщения в исходном порядке (история + новое user сообщение)
+        // Build correct order:
+        // 1. Current System messages first — added via promptBuilder.system()
+        // 2. System messages from history (summary) — added via MessageChatMemoryAdvisor
+        // 3. Other messages in original order (history + new user message)
         List<Message> reorderedMessages = new ArrayList<>();
-        reorderedMessages.addAll(systemMessagesCurrent); // Текущие System первыми
-        reorderedMessages.addAll(systemMessagesFromHistory); // Summary из истории вторыми
-        reorderedMessages.addAll(nonSystemMessages); // Остальные сообщения
+        reorderedMessages.addAll(systemMessagesCurrent); // Current System first
+        reorderedMessages.addAll(systemMessagesFromHistory); // Summary from history second
+        reorderedMessages.addAll(nonSystemMessages); // Rest of messages
         
         log.debug("Reordered messages: {} current system messages, {} system from history, then {} non-system messages",
                 systemMessagesCurrent.size(), systemMessagesFromHistory.size(), nonSystemMessages.size());
         
-        // Создаем новый prompt с переупорядоченными сообщениями
+        // Create new prompt with reordered messages
         Prompt newPrompt = prompt.mutate()
                 .messages(reorderedMessages)
                 .build();
         
-        // Создаем новый request с новым prompt
+        // Create new request with new prompt
         return request.mutate()
                 .prompt(newPrompt)
                 .build();

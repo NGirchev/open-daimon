@@ -12,6 +12,7 @@ import ru.girchev.aibot.common.model.AssistantRole;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import ru.girchev.aibot.telegram.command.handler.TelegramCommandHandlerException;
 import ru.girchev.aibot.telegram.model.TelegramUser;
@@ -33,16 +34,17 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
 
     public RoleTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                       TypingIndicatorService typingIndicatorService,
+                                      MessageLocalizationService messageLocalizationService,
                                       TelegramUserService telegramUserService,
                                       CoreCommonProperties coreCommonProperties) {
-        super(telegramBotProvider, typingIndicatorService);
+        super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.coreCommonProperties = coreCommonProperties;
     }
 
     @Override
-    public String getSupportedCommandText() {
-        return TelegramCommand.ROLE + " - 🎭 установить роль ассистента";
+    public String getSupportedCommandText(String languageCode) {
+        return messageLocalizationService.getMessage("telegram.command.role.desc", languageCode);
     }
 
     @Override
@@ -74,39 +76,39 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
         String userText = command.userText() != null ? command.userText().trim() : null;
         
         if (userText == null || userText.isEmpty()) {
-            // Показываем текущую роль
+            // Show current role
             AssistantRole currentRole = telegramUserService.getOrCreateAssistantRole(
                     user, 
                     coreCommonProperties.getAssistantRole()
             );
             
-            // Извлекаем данные из роли внутри транзакции, чтобы избежать LazyInitializationException
+            // Load role data inside transaction to avoid LazyInitializationException
             Integer roleVersion = currentRole.getVersion();
             String roleContent = currentRole.getContent();
             
-            // Отправляем первое сообщение с заголовком
+            // Send first message with header
             String roleHeader = String.format(
-                    "📋 Текущая роль ассистента (версия %d):", 
+                    "📋 Current assistant role (version %d):", 
                     roleVersion
             );
             sendMessage(command.telegramId(), roleHeader);
             
-            // Отправляем второе сообщение с содержимым роли
+            // Send second message with role content
             sendMessage(command.telegramId(), roleContent);
             
-            // Отправляем третье сообщение с меню выбора роли
+            // Send third message with role selection menu
             sendRoleMenu(command.telegramId());
             
-            // Возвращаем null, так как сообщения уже отправлены
+            // Return null as messages already sent
             return null;
         } else {
-            // Обновляем роль
+            // Update role
             telegramUserService.updateAssistantRole(message.getFrom(), userText);
             telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
             
-            // Отправляем подтверждение с ответом на исходное сообщение пользователя
+            // Send confirmation replying to user message
             Integer replyToMessageId = message != null ? message.getMessageId() : null;
-            sendMessage(command.telegramId(), "✅ Роль ассистента успешно обновлена!", replyToMessageId);
+            sendMessage(command.telegramId(), "✅ Assistant role updated successfully!", replyToMessageId);
             return null;
         }
     }
@@ -122,8 +124,8 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
         if ("CUSTOM".equals(roleKey)) {
             TelegramUser user = telegramUserService.getOrCreateUser(cq.getFrom());
             telegramUserService.updateUserSession(user, TelegramCommand.ROLE);
-            ackCallback(cq.getId(), "✏️ Введите новую роль");
-            sendMessage(command.telegramId(), "✏️ Введите новую роль текстом.");
+            ackCallback(cq.getId(), "✏️ Enter new role");
+            sendMessage(command.telegramId(), "✏️ Enter the new role as text.");
             return;
         }
 
@@ -131,16 +133,16 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
                 .filter(role -> role.key().equals(roleKey))
                 .findFirst();
         if (preset.isEmpty()) {
-            ackCallback(cq.getId(), "❌ Роль не найдена");
-            sendErrorMessage(command.telegramId(), "Неизвестная роль");
+            ackCallback(cq.getId(), "❌ Role not found");
+            sendErrorMessage(command.telegramId(), "Unknown role");
             return;
         }
 
-        // Обновляем роль (TelegramUserService сам добавит требование учитывать локаль)
+        // Update role (TelegramUserService will add locale requirement)
         telegramUserService.updateAssistantRole(cq.getFrom(), preset.get().content());
         telegramBotProvider.getObject().clearStatus(cq.getFrom().getId());
-        ackCallback(cq.getId(), "✅ Роль обновлена");
-        sendMessage(command.telegramId(), "✅ Роль изменена: " + preset.get().title());
+        ackCallback(cq.getId(), "✅ Role updated");
+        sendMessage(command.telegramId(), "✅ Role changed: " + preset.get().title());
     }
 
     private void sendRoleMenu(Long chatId) {
@@ -153,18 +155,18 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
                     })
                     .toList();
 
-            InlineKeyboardButton customButton = new InlineKeyboardButton("✏️ Написать свою роль");
+            InlineKeyboardButton customButton = new InlineKeyboardButton("✏️ Write custom role");
             customButton.setCallbackData(CALLBACK_CUSTOM);
 
             keyboard = new java.util.ArrayList<>(keyboard);
             keyboard.add(List.of(customButton));
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup(keyboard);
-            SendMessage msg = new SendMessage(chatId.toString(), "🎭 Выберите роль из списка или задайте свою:");
+            SendMessage msg = new SendMessage(chatId.toString(), "🎭 Choose a role from the list or set your own:");
             msg.setReplyMarkup(markup);
             telegramBotProvider.getObject().execute(msg);
         } catch (Exception e) {
-            throw new TelegramCommandHandlerException("Ошибка отправки меню ролей", e);
+            throw new TelegramCommandHandlerException("Failed to send role menu", e);
         }
     }
 
@@ -176,19 +178,19 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             ack.setShowAlert(false);
             telegramBotProvider.getObject().execute(ack);
         } catch (Exception e) {
-            throw new TelegramCommandHandlerException("Ошибка подтверждения callback", e);
+            throw new TelegramCommandHandlerException("Failed to ack callback", e);
         }
     }
 
     private List<RolePreset> getRolePresets() {
         return List.of(
-                new RolePreset("DEFAULT", "🌟 Стандартная", coreCommonProperties.getAssistantRole()),
-                new RolePreset("COACH", "🧭 Коуч", "Ты - коуч по развитию и целям. Помогаешь уточнить запрос, "
-                        + "задаешь вопросы, предлагаешь шаги и поддерживаешь мотивацию. Ответы краткие и структурированные."),
-                new RolePreset("EDITOR", "✍️ Редактор", "Ты - редактор русского текста. Исправляешь ошибки, "
-                        + "улучшаешь стиль, предлагаешь более удачные формулировки, сохраняя смысл."),
-                new RolePreset("DEV", "💻 Разработчик", "Ты - старший Java-разработчик и архитект. "
-                        + "Предлагаешь решения, код и пояснения, учитывая Spring Boot, чистую архитектуру и best practices.")
+                new RolePreset("DEFAULT", "🌟 Default", coreCommonProperties.getAssistantRole()),
+                new RolePreset("COACH", "🧭 Coach", "You are a development and goals coach. You help clarify requests, "
+                        + "ask questions, suggest steps and support motivation. Keep answers short and structured."),
+                new RolePreset("EDITOR", "✍️ Editor", "You are a text editor. You fix errors, "
+                        + "improve style and suggest better wording while preserving meaning."),
+                new RolePreset("DEV", "💻 Developer", "You are a senior Java developer and architect. "
+                        + "You suggest solutions, code and explanations, considering Spring Boot, clean architecture and best practices.")
         );
     }
 

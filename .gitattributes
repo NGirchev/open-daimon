@@ -1,7 +1,8 @@
-# Установить поведение по умолчанию для всех файлов
+# Line endings: always LF in the repo for cross-platform (Linux, Mac, Windows).
+# Ensures no spurious "modified" files when switching machines.
 * text=auto
 
-# Явно указать текстовые файлы и нормализовать их в LF
+# Text files, normalize to LF
 *.java text eol=lf
 *.kt text eol=lf
 *.xml text eol=lf
@@ -26,7 +27,7 @@
 *.tsx text eol=lf
 *.jsx text eol=lf
 
-# Бинарные файлы
+# Binary files
 *.jar binary
 *.war binary
 *.ear binary

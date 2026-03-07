@@ -39,7 +39,6 @@ ai-bot:
     token: ${TELEGRAM_TOKEN}
     whitelist-exceptions: ${WHITELIST_EXCEPTIONS:}
     whitelist-channel-id-exceptions: ${WHITELIST_CHANNEL_ID_EXCEPTIONS:}
-    start-message: "Привет! Я бот с интеграцией DeepSeek и OpenRouter. Задай мне любой вопрос, и я постараюсь на него ответить.\nДоступные команды:\n"
     commands:
       start-enabled: true
       role-enabled: true
@@ -88,8 +87,8 @@ ai-bot:
       mock: false
       history-window-size: 20
       timeouts:
-        response-timeout-seconds: 600  # 10 минут для HTTP запросов к AI провайдерам
-        stream-timeout-seconds: 600    # 10 минут для обработки стриминга
+        response-timeout-seconds: 600  # 10 min for HTTP requests to AI providers
+        stream-timeout-seconds: 600    # 10 min for streaming
       models:
         list:
           - name: "openrouter/auto"
@@ -168,7 +167,7 @@ spring:
   ai:
     ollama:
       # If you get DNS errors (NXDOMAIN) for .local domains, use IP or add /etc/hosts entry.
-      # Example: echo "192.168.1.x your-ollama-host.local" | sudo tee -a /etc/hosts
+      # e.g. echo "192.168.1.x your-ollama-host.local" | sudo tee -a /etc/hosts
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     openai:
       base-url: https://openrouter.ai/api

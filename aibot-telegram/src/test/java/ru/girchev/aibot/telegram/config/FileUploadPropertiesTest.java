@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit тесты для FileUploadProperties.
- * Проверяет определение поддерживаемых типов документов для всех форматов.
+ * Unit tests for FileUploadProperties.
+ * Verifies supported document type detection for all formats.
  */
 class FileUploadPropertiesTest {
 
@@ -35,11 +35,11 @@ class FileUploadPropertiesTest {
 
     @Test
     void isSupportedDocumentType_doc_returnsTrue() {
-        // isSupportedDocumentType проверяет содержит ли MIME тип строку из списка
-        // "application/msword" содержит "doc" только если в списке есть "doc"
-        // Но "msword" не содержит "doc", поэтому проверяем что "doc" есть в списке
+        // isSupportedDocumentType checks if MIME type contains a string from the list
+        // "application/msword" contains "doc" only if "doc" is in the list
+        // "msword" does not contain "doc", so we verify "doc" is in the list
         assertTrue(properties.getSupportedDocumentTypesSet().contains("doc"));
-        // Для реального MIME типа нужна проверка через содержимое
+        // For actual MIME type we need a content-based check
         assertTrue(properties.isSupportedDocumentType("application/doc"));
     }
 
@@ -50,9 +50,9 @@ class FileUploadPropertiesTest {
 
     @Test
     void isSupportedDocumentType_xls_returnsTrue() {
-        // "application/vnd.ms-excel" не содержит "xls", но "xls" есть в списке
+        // "application/vnd.ms-excel" does not contain "xls", but "xls" is in the list
         assertTrue(properties.getSupportedDocumentTypesSet().contains("xls"));
-        // Проверяем что метод работает для MIME типов, содержащих "xls"
+        // Verify the method works for MIME types containing "xls"
         assertTrue(properties.isSupportedDocumentType("application/xls"));
     }
 
@@ -63,17 +63,17 @@ class FileUploadPropertiesTest {
 
     @Test
     void isSupportedDocumentType_ppt_returnsTrue() {
-        // "application/vnd.ms-powerpoint" не содержит "ppt", но "ppt" есть в списке
+        // "application/vnd.ms-powerpoint" does not contain "ppt", but "ppt" is in the list
         assertTrue(properties.getSupportedDocumentTypesSet().contains("ppt"));
-        // Проверяем что метод работает для MIME типов, содержащих "ppt"
+        // Verify the method works for MIME types containing "ppt"
         assertTrue(properties.isSupportedDocumentType("application/ppt"));
     }
 
     @Test
     void isSupportedDocumentType_txt_returnsTrue() {
-        // "text/plain" не содержит "txt", но "txt" есть в списке поддерживаемых
+        // "text/plain" does not contain "txt", but "txt" is in the supported list
         assertTrue(properties.getSupportedDocumentTypesSet().contains("txt"));
-        // Проверяем что метод работает для MIME типов, содержащих "txt"
+        // Verify the method works for MIME types containing "txt"
         assertTrue(properties.isSupportedDocumentType("text/txt"));
     }
 
@@ -109,10 +109,10 @@ class FileUploadPropertiesTest {
 
     @Test
     void isSupportedDocumentType_md_returnsTrue() {
-        // FileUploadProperties проверяет содержит ли MIME тип строку из списка поддерживаемых
-        // "text/markdown" не содержит "md", но "md" есть в списке
+        // FileUploadProperties checks if MIME type contains a string from the supported list
+        // "text/markdown" does not contain "md", but "md" is in the list
         assertTrue(properties.getSupportedDocumentTypesSet().contains("md"));
-        // Проверяем что метод работает для MIME типов, содержащих "md"
+        // Verify the method works for MIME types containing "md"
         assertTrue(properties.isSupportedDocumentType("text/md"));
     }
 

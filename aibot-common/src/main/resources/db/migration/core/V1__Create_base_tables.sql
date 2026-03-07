@@ -1,5 +1,5 @@
 -- =====================================================
--- Создание базовой таблицы пользователей
+-- Create base user table
 -- =====================================================
 CREATE TABLE IF NOT EXISTS "user" (
     id BIGSERIAL PRIMARY KEY,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS "user" (
 );
 
 -- =====================================================
--- Создание таблицы для багрепортов и предложений по улучшению
+-- Create bugreport and feedback table
 -- =====================================================
 CREATE TABLE IF NOT EXISTS bugreport (
     id BIGSERIAL PRIMARY KEY,
@@ -29,13 +29,13 @@ CREATE TABLE IF NOT EXISTS bugreport (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Индексы для bugreport
+-- Indexes for bugreport
 CREATE INDEX IF NOT EXISTS idx_bugreport_user_id ON bugreport(user_id);
 CREATE INDEX IF NOT EXISTS idx_bugreport_type ON bugreport(type);
 CREATE INDEX IF NOT EXISTS idx_bugreport_created_at ON bugreport(created_at DESC);
 
 -- =====================================================
--- Создание таблицы для хранения ролей ассистента с версионированием
+-- Create assistant role table with versioning
 -- =====================================================
 CREATE TABLE IF NOT EXISTS assistant_role (
     id BIGSERIAL PRIMARY KEY,
@@ -48,11 +48,11 @@ CREATE TABLE IF NOT EXISTS assistant_role (
     last_used_at TIMESTAMP WITH TIME ZONE,
     usage_count BIGINT NOT NULL DEFAULT 0,
     
-    -- Уникальность версии для каждого пользователя
+    -- Unique version per user
     CONSTRAINT uk_assistant_role_user_version UNIQUE (user_id, version)
 );
 
--- Индексы для assistant_role
+-- Indexes for assistant_role
 CREATE INDEX IF NOT EXISTS idx_assistant_role_user_id ON assistant_role(user_id);
 CREATE INDEX IF NOT EXISTS idx_assistant_role_user_active ON assistant_role(user_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_assistant_role_content_hash ON assistant_role(content_hash);
@@ -61,12 +61,12 @@ CREATE INDEX IF NOT EXISTS idx_assistant_role_last_used ON assistant_role(last_u
 CREATE INDEX IF NOT EXISTS idx_assistant_role_usage_count ON assistant_role(usage_count) 
     WHERE is_active = false;
 
--- Частичный уникальный индекс для активной роли пользователя (только одна активная роль на пользователя)
+-- Partial unique index for user active role (one active role per user)
 CREATE UNIQUE INDEX IF NOT EXISTS uk_assistant_role_user_active 
     ON assistant_role(user_id) 
     WHERE is_active = true;
 
--- Добавляем внешний ключ для current_assistant_role_id в таблице user
+-- Add foreign key for current_assistant_role_id on user
 ALTER TABLE "user" 
     ADD CONSTRAINT fk_user_current_assistant_role 
     FOREIGN KEY (current_assistant_role_id) 
@@ -76,13 +76,13 @@ ALTER TABLE "user"
 CREATE INDEX IF NOT EXISTS idx_user_current_assistant_role ON "user"(current_assistant_role_id);
 
 -- =====================================================
--- Добавление уникальных ограничений для username и phone
+-- Add unique constraints for username and phone
 -- =====================================================
 CREATE UNIQUE INDEX IF NOT EXISTS uk_user_username ON "user"(username) WHERE username IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uk_user_phone ON "user"(phone) WHERE phone IS NOT NULL;
 
 -- =====================================================
--- Создание таблицы conversation threads
+-- Create conversation_thread table
 -- =====================================================
 CREATE TABLE IF NOT EXISTS conversation_thread (
     id BIGSERIAL PRIMARY KEY,
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS conversation_thread (
     closed_at TIMESTAMP WITH TIME ZONE
 );
 
--- Индексы для conversation_thread
+-- Indexes for conversation_thread
 CREATE INDEX IF NOT EXISTS idx_conversation_thread_user_id ON conversation_thread(user_id);
 CREATE INDEX IF NOT EXISTS idx_conversation_thread_thread_key ON conversation_thread(thread_key);
 CREATE INDEX IF NOT EXISTS idx_conversation_thread_is_active ON conversation_thread(is_active);
@@ -107,8 +107,8 @@ CREATE INDEX IF NOT EXISTS idx_conversation_thread_last_activity ON conversation
 CREATE INDEX IF NOT EXISTS idx_conversation_thread_user_active ON conversation_thread(user_id, is_active, last_activity_at);
 
 -- =====================================================
--- Создание таблицы message для объединения user_request и service_response
--- Соответствует Spring AI Message концепции
+-- Create message table (replaces user_request and service_response)
+-- Aligns with Spring AI Message concept
 -- =====================================================
 CREATE TABLE IF NOT EXISTS message (
     id BIGSERIAL PRIMARY KEY,
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS message (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Индексы для message
+-- Indexes for message
 CREATE INDEX IF NOT EXISTS idx_message_user_id ON message(user_id);
 CREATE INDEX IF NOT EXISTS idx_message_thread_id ON message(thread_id);
 CREATE INDEX IF NOT EXISTS idx_message_role ON message(role);

@@ -199,16 +199,16 @@ class TelegramWhitelistServiceTest {
         TelegramWhitelistService serviceWithMultipleChannels = new TelegramWhitelistService(
                 whitelistRepository, telegramBot, telegramUserRepository, channels);
         
-        // Первый канал - пользователь не участник
+        // First channel - user is not a member
         ChatMember leftMember = mock(ChatMember.class);
         when(leftMember.getStatus()).thenReturn("left");
-        // Второй канал - пользователь участник
+        // Second channel - user is a member
         ChatMember member = mock(ChatMember.class);
         when(member.getStatus()).thenReturn("member");
         
         when(telegramBot.execute(any(GetChatMember.class)))
-                .thenReturn(leftMember)  // Первый вызов - не участник
-                .thenReturn(member);    // Второй вызов - участник
+                .thenReturn(leftMember)  // First call - not a member
+                .thenReturn(member);     // Second call - member
 
         // Act
         boolean result = serviceWithMultipleChannels.checkUserInChannel(userId);
@@ -250,14 +250,14 @@ class TelegramWhitelistServiceTest {
         TelegramWhitelistService serviceWithMultipleChannels = new TelegramWhitelistService(
                 whitelistRepository, telegramBot, telegramUserRepository, channels);
         
-        // Первый канал - исключение
-        // Второй канал - пользователь участник
+        // First channel - exception
+        // Second channel - user is a member
         ChatMember member = mock(ChatMember.class);
         when(member.getStatus()).thenReturn("member");
         
         when(telegramBot.execute(any(GetChatMember.class)))
-                .thenThrow(new TelegramApiException("Error"))  // Первый вызов - исключение
-                .thenReturn(member);                           // Второй вызов - участник
+                .thenThrow(new TelegramApiException("Error"))  // First call - exception
+                .thenReturn(member);                            // Second call - member
 
         // Act
         boolean result = serviceWithMultipleChannels.checkUserInChannel(userId);

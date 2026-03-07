@@ -34,13 +34,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Интеграционный тест для проверки DNS резолвинга в Spring AI Ollama при стриминге.
- * 
- * Этот тест проверяет, что при использовании Spring AI ChatClient.stream().chatResponse()
- * с .local доменом не возникает ошибок DNS (NXDOMAIN).
- * 
- * Тест создает минимальную конфигурацию с нашим WebClient.Builder и получает OllamaChatModel
- * из Spring контекста (как в реальном приложении).
+ * Integration test for DNS resolution in Spring AI Ollama when streaming.
+ *
+ * Verifies that Spring AI ChatClient.stream().chatResponse() with a .local domain
+ * does not produce DNS errors (NXDOMAIN).
+ *
+ * Test uses minimal config with our WebClient.Builder and obtains OllamaChatModel
+ * from Spring context (as in the real application).
  */
 @Slf4j
 @SpringBootTest(classes = SpringAIOllamaDnsIT.TestConfig.class)
@@ -55,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
     "spring.ai.ollama.base-url=http://localhost:11434",
     "spring.ai.ollama.chat.options.model=gemma3:1b",
     "ai-bot.ai.spring-ai.openrouter-auto-rotation.models.enabled=false",
-    // Исключаем автоконфигурации, которые не нужны для теста
+    // Exclude autoconfigurations not needed for this test
     "spring.autoconfigure.exclude=" +
             "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration," +
             "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration," +
@@ -73,17 +73,19 @@ import static org.junit.jupiter.api.Assertions.*;
 })
 class SpringAIOllamaDnsIT {
 
+    @Value("${spring.ai.ollama.base-url}")
+    private String ollamaBaseUrl;
+
     @Autowired
     private OllamaChatModel ollamaChatModel;
 
     @Test
     @Disabled
     void testStreamToConsole() {
-        // Примечание: размер чанков при стриминге не настраивается через параметры Ollama
-        // num_batch не влияет на размер чанков в стриме
-        // num_predict ограничивает количество токенов (не используем, чтобы не прерывать генерацию)
+        // Note: chunk size in streaming is not configurable via Ollama params;
+        // num_batch does not affect stream chunk size; num_predict limits tokens (we skip it to avoid cutting generation)
         var responseFlux = ChatClient.builder(ollamaChatModel).build().prompt()
-                .user("Напиши сказку")
+                .user("Write a short tale")
                 .stream()
                 .chatResponse();
         AIUtils.processStreamingResponse(responseFlux, text -> {
@@ -99,15 +101,13 @@ class SpringAIOllamaDnsIT {
     @Test
     @Disabled
     void testStreamParagraphToConsole() {
-        // Примечание: размер чанков при стриминге не настраивается через параметры Ollama
-        // num_batch не влияет на размер чанков в стриме
-        // num_predict ограничивает количество токенов (не используем, чтобы не прерывать генерацию)
+        // Note: chunk size in streaming is not configurable via Ollama params
 //        System.out.println("Sentence:\n" + ChatClient.builder(ollamaChatModel).build().prompt()
-//                .user("Напиши сказку").call().chatResponse().getResult().getOutput().getText());
+//                .user("Write a short tale").call().chatResponse().getResult().getOutput().getText());
 
 
         var responseFlux = ChatClient.builder(ollamaChatModel).build().prompt()
-                .user("Напиши сказку")
+                .user("Write a short tale")
                 .stream()
                 .chatResponse();
         ChatResponse chatResponse = AIUtils.processStreamingResponseByParagraphs(responseFlux, 4096, text -> {
@@ -122,15 +122,15 @@ class SpringAIOllamaDnsIT {
     }
 
     /**
-     * Тест проверяет, что Spring AI ChatClient.stream().chatResponse() не генерирует DNS ошибки.
-     * 
-     * Тест получает OllamaChatModel из Spring контекста (созданный Spring AI автоконфигурацией
-     * с нашим WebClient.Builder) и создает ChatClient для проверки стриминга.
+     * Verifies that Spring AI ChatClient.stream().chatResponse() does not produce DNS errors.
+     *
+     * Test obtains OllamaChatModel from Spring context (created by Spring AI autoconfiguration
+     * with our WebClient.Builder) and creates ChatClient to verify streaming.
      */
     @Test
     void testSpringAIStreamingWithDnsResolution() {
         log.info("=== Testing Spring AI Streaming with DNS Resolution ===");
-        log.info("Base URL: from spring.ai.ollama.base-url");
+        log.info("Base URL: {} (Ollama host from config)", ollamaBaseUrl);
         log.info("This test checks if Spring AI streaming generates DNS errors (NXDOMAIN)");
         log.info("NOTE: Check console logs for DNS errors");
 
@@ -139,18 +139,17 @@ class SpringAIOllamaDnsIT {
         AtomicReference<String> collectedResponse = new AtomicReference<>("");
 
         try {
-            // Получаем OllamaChatModel из Spring контекста
-            // Он создан Spring AI автоконфигурацией с нашим WebClient.Builder
-            // Создаем ChatClient для теста
+            // Get OllamaChatModel from Spring context (created by Spring AI autoconfig with our WebClient.Builder)
+            // Create ChatClient for the test
             ChatClient chatClient = ChatClient.builder(ollamaChatModel).build();
             
-            // Создаем промпт и запускаем стриминг (как в SpringAIGateway.processStreamingResponse)
+            // Build prompt and start streaming (as in SpringAIGateway.processStreamingResponse)
             Flux<ChatResponse> responseStream = chatClient.prompt()
                     .user("Hello, this is a DNS test message. Please respond briefly.")
                     .stream()
                     .chatResponse()
                     .doOnError(error -> {
-                        // Проверяем, является ли ошибка DNS ошибкой
+                        // Check if error is a DNS error
                         boolean isDnsError = checkIfDnsError(new Exception(error.getMessage(), error));
                         if (isDnsError) {
                             dnsErrorDetected.set(true);
@@ -159,7 +158,7 @@ class SpringAIOllamaDnsIT {
                         }
                     })
                     .onErrorContinue((error, obj) -> {
-                        // Продолжаем обработку даже при ошибках
+                        // Continue processing even on errors
                         boolean isDnsError = checkIfDnsError(new Exception(error.getMessage(), error));
                         if (isDnsError) {
                             dnsErrorDetected.set(true);
@@ -168,7 +167,7 @@ class SpringAIOllamaDnsIT {
                         }
                     });
 
-            // Собираем ответ из стрима
+            // Collect response from stream
             responseStream
                     .doOnNext(response -> {
                         try {
@@ -182,7 +181,7 @@ class SpringAIOllamaDnsIT {
                     })
                     .blockLast(Duration.ofMinutes(2));
 
-            // Проверяем результат
+            // Check result
             if (dnsErrorDetected.get()) {
                 log.error("FAIL: DNS errors detected during Spring AI streaming!");
                 log.error("DNS Error: {}", dnsErrorMessage.get());
@@ -206,7 +205,7 @@ class SpringAIOllamaDnsIT {
                 log.info("Cause: {} - {}", cause.getClass().getSimpleName(), cause.getMessage());
             }
 
-            // Проверяем, что ошибка НЕ связана с DNS резолвингом
+            // Verify error is NOT related to DNS resolution
             boolean isDnsError = checkIfDnsError(e);
 
             if (isDnsError) {
@@ -221,13 +220,13 @@ class SpringAIOllamaDnsIT {
     }
 
     /**
-     * Проверяет, является ли исключение DNS ошибкой.
+     * Checks whether the exception is a DNS error.
      */
     private boolean checkIfDnsError(Exception e) {
         String errorMessage = e.getMessage();
         Throwable cause = e.getCause();
         
-        // Проверяем сообщение об ошибке
+        // Check error message
         if (errorMessage != null) {
             if (errorMessage.contains("NXDOMAIN") || 
                 errorMessage.contains("Failed to resolve") ||
@@ -237,7 +236,7 @@ class SpringAIOllamaDnsIT {
             }
         }
         
-        // Проверяем причину исключения
+        // Check exception cause
         if (cause != null) {
             String causeClass = cause.getClass().getSimpleName();
             String causeMessage = cause.getMessage();
@@ -250,7 +249,7 @@ class SpringAIOllamaDnsIT {
                 return true;
             }
             
-            // Рекурсивно проверяем вложенные причины
+            // Recursively check nested causes
             Throwable nestedCause = cause.getCause();
             if (nestedCause != null) {
                 return checkIfDnsError(new Exception(nestedCause.getMessage(), nestedCause));
@@ -261,16 +260,16 @@ class SpringAIOllamaDnsIT {
     }
 
     /**
-     * Минимальная конфигурация для теста.
-     * Создает только WebClient.Builder с правильным DNS резолвером.
-     * Spring AI автоконфигурация создаст OllamaChatModel, используя наш bean.
+     * Minimal test configuration.
+     * Creates only WebClient.Builder with proper DNS resolver.
+     * Spring AI autoconfiguration will create OllamaChatModel using this bean.
      */
     @SpringBootApplication
     static class TestConfig {
         /**
-         * Создает WebClient.Builder для Ollama с правильным DNS резолвером.
-         * Spring AI OllamaAutoConfiguration ищет bean с именем "ollamaWebClientBuilder"
-         * и использует его для создания WebClient внутри OllamaApi.
+         * Creates WebClient.Builder for Ollama with proper DNS resolver.
+         * Spring AI OllamaAutoConfiguration looks for bean named "ollamaWebClientBuilder"
+         * and uses it to create WebClient inside OllamaApi.
          */
         @Bean("ollamaWebClientBuilder")
         @ConditionalOnMissingBean(name = "ollamaWebClientBuilder")
@@ -280,7 +279,7 @@ class SpringAIOllamaDnsIT {
             log.info("This WebClient.Builder will be used by Spring AI OllamaAutoConfiguration");
             
             HttpClient httpClient = HttpClient.create()
-                    .resolver(DefaultAddressResolverGroup.INSTANCE) // Использует системный DNS (включая /etc/hosts и mDNS)
+                    .resolver(DefaultAddressResolverGroup.INSTANCE) // Use system DNS (including /etc/hosts and mDNS)
                     .responseTimeout(Duration.ofMinutes(10));
             
             return WebClient.builder()
@@ -288,14 +287,14 @@ class SpringAIOllamaDnsIT {
                     .clientConnector(new ReactorClientHttpConnector(httpClient));
         }
         
-        // Создаем мок entityManagerFactory для автоконфигураций, которые его требуют
+        // Mock entityManagerFactory for autoconfigurations that require it
         @Bean("entityManagerFactory")
         public EntityManagerFactory entityManagerFactory() {
             return mock(EntityManagerFactory.class);
         }
         
-        // Spring AI автоконфигурация (OllamaAutoConfiguration) создаст OllamaChatModel
-        // и будет использовать наш ollamaWebClientBuilder bean для создания WebClient
+        // Spring AI autoconfiguration (OllamaAutoConfiguration) will create OllamaChatModel
+        // and use our ollamaWebClientBuilder bean to create WebClient
     }
 
 }

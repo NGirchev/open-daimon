@@ -76,10 +76,9 @@ import org.mockito.ArgumentCaptor;
 @TestPropertySource(properties = {
         "ai-bot.telegram.token=test-token",
         "ai-bot.telegram.username=test-bot",
-        "ai-bot.telegram.start-message=Тестовое приветственное сообщение",
         "ai-bot.telegram.max-message-length=4096",
-        // ВАЖНО: отключаем автозагрузку TelegramAutoConfig (иначе TelegramBotRegistrar зарегистрирует бота на ApplicationReadyEvent)
-        // Отключаем автоконфигурацию Spring AI (OpenAI, Ollama и т.д.)
+        // Disable TelegramAutoConfig auto-load (otherwise TelegramBotRegistrar registers bot on ApplicationReadyEvent)
+        // Disable Spring AI autoconfig (OpenAI, Ollama, etc.)
         "spring.autoconfigure.exclude=" +
                 "ru.girchev.aibot.telegram.config.TelegramAutoConfig," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
@@ -90,10 +89,11 @@ import org.mockito.ArgumentCaptor;
                 "ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig",
         "ai-bot.telegram.enabled=true",
         "ai-bot.common.bulkhead.enabled=true",
-        "ai-bot.common.assistant-role=Ты полезный ассистент",
+        "ai-bot.common.assistant-role=You are a helpful assistant",
         "ai-bot.common.summarization.max-context-tokens=8000",
         "ai-bot.common.summarization.summary-trigger-threshold=0.7",
         "ai-bot.common.summarization.keep-recent-messages=20",
+        "ai-bot.common.summarization.prompt=You are an assistant. Create a summary in JSON. Conversation:",
         "ai-bot.common.manual-conversation-history.enabled=false",
         "ai-bot.common.manual-conversation-history.max-response-tokens=4000",
         "ai-bot.common.manual-conversation-history.default-window-size=20",
@@ -102,7 +102,7 @@ import org.mockito.ArgumentCaptor;
         "ai-bot.ai.openrouter.enabled=false",
         "ai-bot.ai.deepseek.enabled=false",
         "ai-bot.ai.spring-ai.enabled=false",
-        // Моковые значения для Spring AI, чтобы автоконфигурация не падала
+        // Mock values for Spring AI so autoconfig does not fail
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"
 })
@@ -131,38 +131,29 @@ class MessageTelegramCommandHandlerIT {
         public AIGateway mockAiGateway() {
             AIGateway gateway = mock(AIGateway.class);
             
-            // Мокируем supports, чтобы gateway поддерживал все модели
+            // Mock supports so gateway accepts all models
             when(gateway.supports(any(AICommand.class)))
                     .thenReturn(true);
             
-            // Мокируем generateResponse, который возвращает AIResponse в формате, ожидаемом retrieveMessage
+            // Mock generateResponse returning AIResponse in format expected by retrieveMessage
             when(gateway.generateResponse(any(AICommand.class)))
                     .thenAnswer(invocation -> {
                         AICommand cmd = invocation.getArgument(0);
-                        // Простой мок: возвращаем ответ на основе запроса
-                        // Всегда возвращаем валидный непустой ответ
                         String userRole = ((AIBotChatOptions) cmd.options()).userRole();
-                        String responseText = "Тестовый ответ от AI";
+                        String responseText = "Test response from AI";
                         if (userRole != null && !userRole.trim().isEmpty()) {
-                            responseText = "Ответ на: " + userRole;
+                            responseText = "Reply to: " + userRole;
                         }
-                        
-                        // Убеждаемся, что responseText не пустой
                         if (responseText.trim().isEmpty()) {
-                            responseText = "Тестовый ответ от AI";
+                            responseText = "Test response from AI";
                         }
-                        
-                        // Создаем структуру ответа в точном формате, ожидаемом retrieveMessage
-                        // Используем изменяемые структуры для гарантии правильных типов
                         Map<String, Object> message = new HashMap<>();
-                        message.put("content", responseText); // Явно String
+                        message.put("content", responseText);
                         Map<String, Object> choice = new HashMap<>();
                         choice.put("message", message);
-                        choice.put("finish_reason", "stop"); // Добавляем finish_reason для тестирования извлечения данных
+                        choice.put("finish_reason", "stop");
                         List<Map<String, Object>> choicesList = new ArrayList<>();
                         choicesList.add(choice);
-                        
-                        // Добавляем usage данные для тестирования извлечения полезных данных
                         Map<String, Object> usage = new HashMap<>();
                         usage.put("prompt_tokens", 10);
                         usage.put("completion_tokens", 5);
@@ -171,7 +162,7 @@ class MessageTelegramCommandHandlerIT {
                         Map<String, Object> mockResponse = new HashMap<>();
                         mockResponse.put(CHOICES, choicesList);
                         mockResponse.put("usage", usage);
-                        mockResponse.put("model", "test-model"); // Добавляем модель для тестирования
+                        mockResponse.put("model", "test-model");
                         
                         return new MapResponse(AIGateways.OPENROUTER, mockResponse);
                     });
@@ -266,6 +257,7 @@ class MessageTelegramCommandHandlerIT {
         public MessageTelegramCommandHandler messageTelegramCommandHandler(
                 ObjectProvider<TelegramBot> telegramBotProvider,
                 TypingIndicatorService typingIndicatorService,
+                MessageLocalizationService messageLocalizationService,
                 TelegramUserService telegramUserService,
                 TelegramUserSessionService telegramUserSessionService,
                 TelegramMessageService telegramMessageService,
@@ -276,6 +268,7 @@ class MessageTelegramCommandHandlerIT {
             return new MessageTelegramCommandHandler(
                     telegramBotProvider,
                     typingIndicatorService,
+                    messageLocalizationService,
                     telegramUserService,
                     telegramUserSessionService,
                     telegramMessageService,
@@ -308,45 +301,38 @@ class MessageTelegramCommandHandlerIT {
 
     @BeforeEach
     void setUp() {
-        // Очищаем БД перед каждым тестом
         messageRepository.deleteAll();
         threadRepository.deleteAll();
         telegramUserRepository.deleteAll();
-
-        // Создаем тестового пользователя
         testUser = createTestUser();
         telegramUserRepository.save(testUser);
-
-        // Сбрасываем вызовы моков между тестами (JUnit порядок не гарантирует)
         reset(mockTelegramBot);
-
-        // Настраиваем моки для TelegramBot
         try {
             doAnswer(invocation -> null).when(mockTelegramBot).sendMessage(anyLong(), anyString(), any());
         } catch (TelegramApiException e) {
-            // Игнорируем исключение в моке
+            // ignore in mock
         }
     }
 
     @Test
     void whenHandleMessage_thenCreatesThreadAndSavesRequest() throws TelegramApiException {
         // Arrange
-        TelegramCommand command = createTelegramCommand("Привет, как дела?");
+        TelegramCommand command = createTelegramCommand("Hello, how are you?");
 
         // Act
         String result = messageHandler.handleInner(command);
 
         // Assert
-        assertNull(result); // Handler возвращает null
+        assertNull(result);
 
-        // Проверяем, что создан thread
+        // Verify thread created
         List<ConversationThread> threads = threadRepository.findByUserAndIsActiveTrueOrderByLastActivityAtDesc((ru.girchev.aibot.common.model.User) testUser);
         assertEquals(1, threads.size());
         ConversationThread thread = threads.getFirst();
         assertNotNull(thread.getThreadKey());
         assertTrue(thread.getIsActive());
 
-        // Проверяем, что сохранены сообщения
+        // Verify messages were saved
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
         assertEquals(2, messages.size()); // USER + ASSISTANT
         
@@ -354,12 +340,11 @@ class MessageTelegramCommandHandlerIT {
                 .filter(m -> m.getRole() == MessageRole.USER)
                 .findFirst()
                 .orElseThrow();
-        assertEquals("Привет, как дела?", userMessage.getContent());
+        assertEquals("Hello, how are you?", userMessage.getContent());
         assertEquals(thread.getId(), userMessage.getThread().getId());
         assertEquals(1, userMessage.getSequenceNumber());
-        // Проверяем, что tokenCount заполнен для USER сообщения
-        assertNotNull(userMessage.getTokenCount(), "tokenCount должен быть заполнен для USER сообщения");
-        assertTrue(userMessage.getTokenCount() > 0, "tokenCount должен быть больше 0 для непустого сообщения");
+        assertNotNull(userMessage.getTokenCount(), "tokenCount must be set for USER message");
+        assertTrue(userMessage.getTokenCount() > 0, "tokenCount must be > 0 for non-empty message");
 
         AIBotMessage assistantMessage = messages.stream()
                 .filter(m -> m.getRole() == MessageRole.ASSISTANT)
@@ -368,60 +353,46 @@ class MessageTelegramCommandHandlerIT {
         assertNotNull(assistantMessage.getContent());
         assertEquals(thread.getId(), assistantMessage.getThread().getId());
         assertEquals(2, assistantMessage.getSequenceNumber());
-        // Проверяем, что tokenCount заполнен для ASSISTANT сообщения
-        assertNotNull(assistantMessage.getTokenCount(), "tokenCount должен быть заполнен для ASSISTANT сообщения");
-        assertTrue(assistantMessage.getTokenCount() > 0, "tokenCount должен быть больше 0 для непустого сообщения");
-        
-        // Проверяем, что response_data содержит полезные данные из ответа AI провайдера
-        assertNotNull(assistantMessage.getResponseData(), "response_data должен быть заполнен полезными данными");
-        assertTrue(assistantMessage.getResponseData().containsKey("prompt_tokens"), 
-                "response_data должен содержать prompt_tokens");
-        assertTrue(assistantMessage.getResponseData().containsKey("completion_tokens"), 
-                "response_data должен содержать completion_tokens");
-        assertTrue(assistantMessage.getResponseData().containsKey("total_tokens"), 
-                "response_data должен содержать total_tokens");
-        assertTrue(assistantMessage.getResponseData().containsKey("finish_reason"), 
-                "response_data должен содержать finish_reason");
-        assertTrue(assistantMessage.getResponseData().containsKey("actual_model"), 
-                "response_data должен содержать actual_model");
+        assertNotNull(assistantMessage.getTokenCount(), "tokenCount must be set for ASSISTANT message");
+        assertTrue(assistantMessage.getTokenCount() > 0, "tokenCount must be > 0 for non-empty message");
+        assertNotNull(assistantMessage.getResponseData(), "response_data must contain provider data");
+        assertTrue(assistantMessage.getResponseData().containsKey("prompt_tokens"), "response_data must contain prompt_tokens");
+        assertTrue(assistantMessage.getResponseData().containsKey("completion_tokens"), "response_data must contain completion_tokens");
+        assertTrue(assistantMessage.getResponseData().containsKey("total_tokens"), "response_data must contain total_tokens");
+        assertTrue(assistantMessage.getResponseData().containsKey("finish_reason"), "response_data must contain finish_reason");
+        assertTrue(assistantMessage.getResponseData().containsKey("actual_model"), "response_data must contain actual_model");
         assertEquals("stop", assistantMessage.getResponseData().get("finish_reason"));
         assertEquals("test-model", assistantMessage.getResponseData().get("actual_model"));
 
-        // Проверяем, что отправлено сообщение
+        // Verify message was sent
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Integer> replyToMessageIdCaptor = ArgumentCaptor.forClass(Integer.class);
         verify(mockTelegramBot, times(1)).sendMessage(eq(command.telegramId()), messageCaptor.capture(), replyToMessageIdCaptor.capture());
-        assertNotNull(messageCaptor.getValue(), "Сообщение должно быть отправлено");
-        assertFalse(messageCaptor.getValue().isEmpty(), "Сообщение не должно быть пустым");
+        assertNotNull(messageCaptor.getValue(), "Message must be sent");
+        assertFalse(messageCaptor.getValue().isEmpty(), "Message must not be empty");
     }
 
     @Test
     void whenHandleMultipleMessages_thenUsesSameThread() {
-        // Arrange
-        TelegramCommand command1 = createTelegramCommand("Первое сообщение");
-        TelegramCommand command2 = createTelegramCommand("Второе сообщение");
-        TelegramCommand command3 = createTelegramCommand("Третье сообщение");
+        TelegramCommand command1 = createTelegramCommand("First message");
+        TelegramCommand command2 = createTelegramCommand("Second message");
+        TelegramCommand command3 = createTelegramCommand("Third message");
 
-        // Act
         messageHandler.handleInner(command1);
         messageHandler.handleInner(command2);
         messageHandler.handleInner(command3);
 
-        // Assert
-        // Проверяем, что создан только один активный thread
+        // Only one active thread
         List<ConversationThread> threads = threadRepository.findByUserAndIsActiveTrueOrderByLastActivityAtDesc(testUser);
         assertEquals(1, threads.size());
         ConversationThread thread = threads.getFirst();
 
-        // Проверяем, что все сообщения связаны с одним thread
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
-        assertEquals(6, messages.size()); // 3 USER + 3 ASSISTANT
-        
-        messages.forEach(message -> {
-            assertEquals(thread.getId(), message.getThread().getId());
-        });
+        assertEquals(6, messages.size());
 
-        // Проверяем sequence numbers для USER сообщений: 1, 3, 5
+        messages.forEach(message -> assertEquals(thread.getId(), message.getThread().getId()));
+
+        // USER sequence numbers: 1, 3, 5
         List<AIBotMessage> userMessages = messages.stream()
                 .filter(m -> m.getRole() == MessageRole.USER)
                 .toList();
@@ -430,7 +401,7 @@ class MessageTelegramCommandHandlerIT {
         assertEquals(3, userMessages.get(1).getSequenceNumber());
         assertEquals(5, userMessages.get(2).getSequenceNumber());
 
-        // Проверяем sequence numbers для ASSISTANT сообщений: 2, 4, 6
+        // ASSISTANT sequence numbers: 2, 4, 6
         List<AIBotMessage> assistantMessages = messages.stream()
                 .filter(m -> m.getRole() == MessageRole.ASSISTANT)
                 .toList();
@@ -442,9 +413,8 @@ class MessageTelegramCommandHandlerIT {
 
     @Test
     void whenHandleMessage_thenUpdatesThreadCounters() {
-        // Arrange
-        TelegramCommand command1 = createTelegramCommand("Первое сообщение");
-        TelegramCommand command2 = createTelegramCommand("Второе сообщение");
+        TelegramCommand command1 = createTelegramCommand("First message");
+        TelegramCommand command2 = createTelegramCommand("Second message");
 
         // Act
         messageHandler.handleInner(command1);
@@ -454,56 +424,40 @@ class MessageTelegramCommandHandlerIT {
         ConversationThread thread = threadRepository.findMostRecentActiveThread(testUser)
                 .orElseThrow();
 
-        // Проверяем, что счетчики обновлены
         assertTrue(thread.getTotalMessages() > 0);
         assertTrue(thread.getTotalTokens() >= 0);
         assertNotNull(thread.getLastActivityAt());
-        
-        // Проверяем, что все сообщения имеют заполненный tokenCount
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
         messages.forEach(message -> {
-            assertNotNull(message.getTokenCount(), 
-                "tokenCount должен быть заполнен для сообщения с ролью " + message.getRole());
+            assertNotNull(message.getTokenCount(), "tokenCount must be set for role " + message.getRole());
             if (message.getRole() == MessageRole.ASSISTANT && message.getErrorMessage() != null) {
-                // Для сообщений с ошибкой tokenCount может быть 0
-                assertEquals(0, message.getTokenCount(), 
-                    "tokenCount должен быть 0 для сообщений с ошибкой");
+                assertEquals(0, message.getTokenCount(), "tokenCount must be 0 for error messages");
             } else {
-                assertTrue(message.getTokenCount() >= 0, 
-                    "tokenCount должен быть >= 0 для сообщения с ролью " + message.getRole());
+                assertTrue(message.getTokenCount() >= 0, "tokenCount must be >= 0 for role " + message.getRole());
             }
         });
     }
 
     @Test
     void whenHandleMessage_thenSetsThreadTitle() {
-        // Arrange
-        TelegramCommand command = createTelegramCommand("Это первое сообщение в беседе");
+        TelegramCommand command = createTelegramCommand("This is the first message in the conversation");
 
-        // Act
         messageHandler.handleInner(command);
 
-        // Assert
         ConversationThread thread = threadRepository.findMostRecentActiveThread(testUser)
                 .orElseThrow();
-
-        // Проверяем, что title установлен на основе первого сообщения
         assertNotNull(thread.getTitle());
         assertTrue(thread.getTitle().length() <= 50);
-        assertTrue(thread.getTitle().contains("Это первое сообщение") || 
-                   thread.getTitle().contains("Это первое"));
+        assertTrue(thread.getTitle().contains("This is the first message") || thread.getTitle().contains("first message"));
     }
 
     @Test
     void whenHandleMessage_thenCreatesAssistantRole() {
-        // Arrange
-        TelegramCommand command = createTelegramCommand("Тест");
+        TelegramCommand command = createTelegramCommand("Test");
 
-        // Act
         messageHandler.handleInner(command);
 
-        // Assert
-        // Проверяем, что сообщение связано с AssistantRole
+        // Message is linked to AssistantRole
         List<AIBotMessage> messages = messageRepository.findAll();
         AIBotMessage userMessage = messages.stream()
                 .filter(m -> m.getRole() == MessageRole.USER)
@@ -513,7 +467,6 @@ class MessageTelegramCommandHandlerIT {
         assertNotNull(userMessage.getAssistantRole().getId());
     }
 
-    // Вспомогательные методы
     private TelegramUser createTestUser() {
         TelegramUser user = new TelegramUser();
         user.setTelegramId(12345L);

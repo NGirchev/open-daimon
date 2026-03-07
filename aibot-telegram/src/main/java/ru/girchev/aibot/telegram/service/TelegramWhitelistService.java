@@ -81,7 +81,7 @@ public class TelegramWhitelistService implements IWhitelistService {
         TelegramUser user = telegramUserRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         
-        // Проверяем пользователя во всех каналах из списка
+        // Check user in all channels from list
         for (String channelId : whitelistChannelIdExceptions) {
             try {
                 GetChatMember getChatMember = new GetChatMember();
@@ -98,7 +98,7 @@ public class TelegramWhitelistService implements IWhitelistService {
             } catch (TelegramApiException e) {
                 log.debug("User {} is not a member of channel/group {}: {}",
                         user.getTelegramId(), channelId, e.getMessage());
-                // Продолжаем проверку следующего канала
+                // Continue checking next channel
             }
         }
         

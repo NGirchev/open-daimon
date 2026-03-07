@@ -1,0 +1,13 @@
+---
+description: Use English for all code and in-repo documentation
+globs: 
+alwaysApply: true
+---
+
+# Language in codebase
+
+- **Code, comments, javadocs, commit messages, and in-repo documentation** (e.g. AGENTS.md, README in code packages) must be written in **English**.
+- **User-facing strings** (i18n message keys and values in `.properties`, UI copy, bot messages) may be in any language; they are not part of the "code" rule.
+- Exception messages and log messages that appear in code should be in English so that logs and stack traces are readable by any developer.
+
+Apply this rule consistently so the agent does not revert to another language for comments or docs.

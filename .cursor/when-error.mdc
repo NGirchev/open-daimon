@@ -3,4 +3,4 @@ description:
 globs: 
 alwaysApply: false
 ---
-Когда запускаешь приложение и видишь ошибки, не пытайся сразу исправить, напиши что ты собираешься делать и в каких классах и спроси подтверждения
+When you run the application and see errors, do not fix them immediately. Describe what you plan to do and in which classes, and ask for confirmation.

@@ -12,11 +12,11 @@ import ru.girchev.aibot.flyway.FlywayMigrationCheck;
 import ru.girchev.aibot.flyway.config.FlywayConfig;
 
 /**
- * Главное приложение AI Bot Router
- * JPA конфигурации вынесены в модульные конфигурации:
- * - CommonJpaConfig (aibot-common) - базовые Entity и репозитории
- * - TelegramJpaConfig (aibot-telegram) - Telegram Entity и репозитории (условный)
- * - RestJpaConfig (aibot-rest) - REST Entity и репозитории (условный)
+ * Main AI Bot Router application.
+ * JPA configs are in module configs:
+ * - CommonJpaConfig (aibot-common) - base Entity and repositories
+ * - TelegramJpaConfig (aibot-telegram) - Telegram Entity and repositories (conditional)
+ * - RestJpaConfig (aibot-rest) - REST Entity and repositories (conditional)
  */
 @Slf4j
 @SpringBootConfiguration
@@ -30,7 +30,7 @@ public class Application {
 
     public static void main(String[] args) {
         DotEnvLoader.loadDotEnv();
-        // Отключаем детальные стектрейсы Reactor для сокращения логов
+        // Disable Reactor detailed stacktraces to reduce log size
         System.setProperty("reactor.trace.operatorStacktrace", "false");
         SpringApplication.run(Application.class, args);
     }

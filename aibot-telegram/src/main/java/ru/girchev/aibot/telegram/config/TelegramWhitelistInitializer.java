@@ -10,9 +10,9 @@ import ru.girchev.aibot.telegram.service.TelegramWhitelistService;
 import java.util.Set;
 
 /**
- * Компонент для инициализации whitelist исключений из конфигурации.
- * Выполняется при старте приложения и добавляет пользователей из whitelist-exceptions в БД.
- * Вызывает методы TelegramWhitelistService через прокси для корректной работы транзакций.
+ * Component to initialize whitelist exceptions from configuration.
+ * Runs on startup and adds users from whitelist-exceptions to the DB.
+ * Calls TelegramWhitelistService via proxy for correct transaction behaviour.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -40,9 +40,9 @@ public class TelegramWhitelistInitializer {
         int skippedCount = 0;
         
         for (Long userId : whitelistExceptions) {
-            // Проверяем, есть ли уже пользователь в whitelist
+            // Check if user is already in whitelist
             if (!whitelistRepository.existsByUserId(userId)) {
-                // Вызываем через прокси, чтобы транзакция работала корректно
+                // Call via proxy so transaction works correctly
                 whitelistService.addToWhitelist(userId);
                 addedCount++;
                 log.info("User {} added to whitelist from config", userId);

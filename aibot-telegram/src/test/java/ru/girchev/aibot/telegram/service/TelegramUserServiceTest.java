@@ -39,12 +39,11 @@ class TelegramUserServiceTest {
 
     @Test
     void whenGetOrCreateUser_andUserExists_thenUpdateAndReturnExisting() {
-        // Arrange
+        // Arrange: language is not overwritten from API; it is preserved (set via /language)
         when(telegramUserApi.getId()).thenReturn(123L);
         when(telegramUserApi.getUserName()).thenReturn("testuser");
         when(telegramUserApi.getFirstName()).thenReturn("Test");
         when(telegramUserApi.getLastName()).thenReturn("User");
-        when(telegramUserApi.getLanguageCode()).thenReturn("ru");
         when(telegramUserApi.getIsPremium()).thenReturn(true);
 
         TelegramUser existingUser = new TelegramUser();
@@ -52,7 +51,7 @@ class TelegramUserServiceTest {
         existingUser.setUsername("oldusername");
         existingUser.setFirstName("OldName");
         existingUser.setLastName("OldLastName");
-        existingUser.setLanguageCode("en");
+        existingUser.setLanguageCode("en"); // user choice via /language — not overwritten from API
         existingUser.setIsPremium(false);
         OffsetDateTime oldLastActivity = OffsetDateTime.now().minusHours(1);
         existingUser.setLastActivityAt(oldLastActivity);
@@ -63,13 +62,13 @@ class TelegramUserServiceTest {
         // Act
         TelegramUser result = userService.getOrCreateUser(telegramUserApi);
 
-        // Assert
+        // Assert: name, premium, etc. are updated from API; language is preserved (changed only via /language)
         assertNotNull(result);
         assertEquals(123L, result.getTelegramId());
         assertEquals("testuser", result.getUsername());
         assertEquals("Test", result.getFirstName());
         assertEquals("User", result.getLastName());
-        assertEquals("ru", result.getLanguageCode());
+        assertEquals("en", result.getLanguageCode());
         assertTrue(result.getIsPremium());
         assertTrue(result.getLastActivityAt().isAfter(oldLastActivity));
 

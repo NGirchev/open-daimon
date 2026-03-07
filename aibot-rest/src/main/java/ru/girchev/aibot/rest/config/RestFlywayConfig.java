@@ -8,8 +8,8 @@ import org.springframework.context.annotation.Configuration;
 import javax.sql.DataSource;
 
 /**
- * Конфигурация Flyway для REST модуля
- * Миграции выполняются только если включен REST модуль
+ * Flyway configuration for REST module.
+ * Migrations run only when REST module is enabled.
  */
 @Configuration
 @DependsOn("coreFlyway")

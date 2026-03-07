@@ -1,82 +1,82 @@
-# Инструкция по деплою AI Bot на сервере
+# AI Bot Deployment Guide
 
-> **Для локальной разработки** см. [README.md](README.md)
+> **For local development** see [README.md](README.md)
 
-Эта инструкция описывает процесс деплоя приложения на production сервер через Docker Compose.
+This guide describes deploying the application to a production server via Docker Compose.
 
-## Краткая сводка: что происходит при деплое
+## Summary: what happens on deploy
 
-1. **Volumes создаются автоматически** при первом запуске `docker-compose up -d`:
-   - `postgres-data` - база данных (критично!)
-   - `grafana-storage` - дашборды Grafana
-   - `elasticsearch-data` - индексы Elasticsearch
-   - `prometheus-data` - метрики Prometheus
+1. **Volumes are created automatically** on first run of `docker-compose up -d`:
+   - `postgres-data` — database (critical!)
+   - `grafana-storage` — Grafana dashboards
+   - `elasticsearch-data` — Elasticsearch indices
+   - `prometheus-data` — Prometheus metrics
 
-2. **Данные сохраняются** между перезапусками и перезагрузками сервера
+2. **Data persists** across restarts and server reboots
 
-3. **Важно**: При удалении volumes (`docker-compose down -v`) все данные будут потеряны!
+3. **Important**: Removing volumes (`docker-compose down -v`) will delete all data!
 
-## Предварительные требования
+## Prerequisites
 
 1. **Java 21** (LTS)
 2. **Maven 3.11+**
-3. **Docker** и **Docker Compose**
-4. **Git** (для клонирования репозитория)
+3. **Docker** and **Docker Compose**
+4. **Git** (for cloning the repository)
 
-## Шаг 1: Подготовка сервера
+## Step 1: Server setup
 
-### Установка зависимостей
+### Installing dependencies
 
 ```bash
 # Ubuntu/Debian
 sudo apt update
 sudo apt install -y openjdk-21-jdk maven docker.io docker-compose git
 
-# Проверка версий
-java -version  # должна быть 21
+# Check versions
+java -version  # must be 21
 mvn -version
 docker --version
 docker-compose --version
 ```
 
-### Настройка Docker (если нужно)
+### Docker setup (if needed)
 
 ```bash
-# Добавить пользователя в группу docker
+# Add user to docker group
 sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-## Шаг 2: Клонирование и сборка проекта
+## Step 2: Clone and build
 
 ```bash
-# Клонировать репозиторий
+# Clone repository
 git clone <your-repo-url>
 cd ai-bot
 
-# Собрать проект
+# Build project
 mvn clean package -DskipTests
 
-# Проверить, что JAR создан
+# Verify JAR was created
 ls -lh aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
 ```
 
-## Шаг 3: Проверка конфигурационных файлов
+## Step 3: Check configuration files
 
-Убедитесь, что следующие файлы настроены правильно:
-- **[Dockerfile](Dockerfile)** - должен быть в корне проекта
-- **[docker-compose.yml](docker-compose.yml)** - должен содержать сервис `aibot-app` с правильными переменными окружения
+Ensure the following files are set up correctly:
+- **[Dockerfile](Dockerfile)** — must be in project root
+- **[docker-compose.yml](docker-compose.yml)** — must define service `aibot-app` with the correct environment variables
 
-## Шаг 4: Создание .env файла
+## Step 4: Create .env file
 
-Создайте файл `.env` в корне проекта с переменными окружения:
+Create a `.env` file in the project root with environment variables:
 
 ```bash
 # Telegram Bot
 TELEGRAM_USERNAME=your_bot_username
 TELEGRAM_TOKEN=your_telegram_bot_token
 
-# Whitelist (опционально, через запятую)
+# Whitelist (optional, comma-separated)
 WHITELIST_EXCEPTIONS=
 WHITELIST_CHANNEL_ID_EXCEPTIONS=
 
@@ -84,192 +84,192 @@ WHITELIST_CHANNEL_ID_EXCEPTIONS=
 DEEPSEEK_KEY=your_deepseek_api_key
 OPENROUTER_KEY=your_openrouter_api_key
 
-# Database (если нужно изменить)
+# Database (change if needed)
 POSTGRES_DB=ai_bot
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_secure_password
 ```
 
-> **Примечание**: `.env` уже добавлен в `.gitignore`, поэтому не будет закоммичен в репозиторий.
+> **Note**: `.env` is in `.gitignore` and will not be committed.
 
-## Шаг 5: Проверка конфигурации
+## Step 5: Verify configuration
 
-Убедитесь, что следующие файлы настроены правильно:
-- **[prometheus.yml](prometheus.yml)** - должен содержать target `aibot-app:8080`
-- **[aibot-app/src/main/resources/application.yml](aibot-app/src/main/resources/application.yml)** - должен использовать переменные окружения для подключения к БД
+Ensure the following are set correctly:
+- **[prometheus.yml](prometheus.yml)** — must include target `aibot-app:8080`
+- **[aibot-app/src/main/resources/application.yml](aibot-app/src/main/resources/application.yml)** — must use environment variables for DB connection
 
-## Шаг 6: Выбор docker-compose файла
+## Step 6: Choose docker-compose file
 
-Для Ubuntu Server рекомендуется использовать `docker-compose.ubuntu.yml`, который:
-- ✅ Использует дефолтную сеть Docker Compose (стандартный подход)
-- ✅ Включает healthchecks для всех сервисов
-- ✅ Оптимизирован для сервера (лимиты ресурсов)
-- ✅ Содержит оптимизированные настройки PostgreSQL
+For Ubuntu Server, use `docker-compose.ubuntu.yml`, which:
+- ✅ Uses default Docker Compose network (standard approach)
+- ✅ Enables healthchecks for all services
+- ✅ Is tuned for server use (resource limits)
+- ✅ Includes tuned PostgreSQL settings
 
-**Использование на Ubuntu Server:**
+**On Ubuntu Server:**
 
-**Вариант 1: Использовать скрипт (рекомендуется - автоматически исправляет iptables)**
+**Option 1: Use the script (recommended — fixes iptables automatically)**
 
 ```bash
-# Сделать скрипт исполняемым
+# Make script executable
 chmod +x docker-compose-up-ubuntu.sh
 
-# Запустить (скрипт автоматически исправит iptables, если нужно)
+# Run (script fixes iptables if needed)
 ./docker-compose-up-ubuntu.sh
 ```
 
-**Вариант 2: Вручную (если скрипт не подходит)**
+**Option 2: Manual (if script is not suitable)**
 
 ```bash
-# 1. Исправить iptables (если возникает ошибка)
+# 1. Fix iptables (if you see an error)
 sudo iptables -t filter -N DOCKER-ISOLATION-STAGE-2
 sudo systemctl restart docker
 
-# 2. Запустить docker-compose
+# 2. Start docker-compose
 docker-compose -f docker-compose.ubuntu.yml up -d
 
-# Проверка статуса
+# Check status
 docker-compose -f docker-compose.ubuntu.yml ps
 ```
 
-**Для локальной разработки (macOS/Windows):**
+**For local development (macOS/Windows):**
 
 ```bash
 docker-compose up -d
 ```
 
-> **Примечание**: Если возникают проблемы с iptables на Ubuntu Server, см. раздел "Проблема с iptables" ниже.
+> **Note**: If you have iptables issues on Ubuntu Server, see "iptables issue" below.
 
-## Шаг 7: Запуск приложения
+## Step 7: Run the application
 
-### Первый запуск
+### First run
 
 ```bash
-# Для Ubuntu Server
+# Ubuntu Server
 docker-compose -f docker-compose.ubuntu.yml up -d
 
-# Или для локальной разработки
+# Or local development
 docker-compose up -d
 
-# Проверить статус
+# Check status
 docker-compose ps
 
-# Просмотр логов приложения
+# Application logs
 docker-compose logs -f aibot-app
 
-# Просмотр логов всех сервисов
+# All services logs
 docker-compose logs -f
 ```
 
-### Volumes (хранение данных)
+### Volumes (data storage)
 
-**Важно**: При первом запуске Docker автоматически создаст volumes для хранения данных:
-- `postgres-data` - данные базы данных PostgreSQL
-- `grafana-storage` - дашборды и настройки Grafana
-- `elasticsearch-data` - индексы Elasticsearch
-- `prometheus-data` - метрики Prometheus
+**Important**: On first run Docker creates volumes for data:
+- `postgres-data` — PostgreSQL database
+- `grafana-storage` — Grafana dashboards and settings
+- `elasticsearch-data` — Elasticsearch indices
+- `prometheus-data` — Prometheus metrics
 
-**Проверка volumes:**
+**Inspect volumes:**
 ```bash
-# Список всех volumes
+# List volumes
 docker volume ls
 
-# Информация о конкретном volume
+# Inspect a volume
 docker volume inspect ai-bot_postgres-data
 
-# Где физически хранятся данные (обычно /var/lib/docker/volumes/)
+# Physical location (usually /var/lib/docker/volumes/)
 docker volume inspect ai-bot_postgres-data | grep Mountpoint
 ```
 
-**Важно для production:**
-- ✅ Volumes создаются автоматически при первом запуске `docker-compose up -d`
-- ✅ Данные сохраняются между перезапусками контейнеров
-- ✅ Данные сохраняются после перезагрузки сервера
-- ✅ Volumes не удаляются при `docker-compose down` (только при `docker-compose down -v`)
-- ⚠️ При удалении volume все данные будут потеряны!
+**Production notes:**
+- ✅ Volumes are created on first `docker-compose up -d`
+- ✅ Data persists across container restarts
+- ✅ Data persists across server reboots
+- ✅ Volumes are not removed by `docker-compose down` (only by `docker-compose down -v`)
+- ⚠️ Removing a volume deletes all its data!
 
-**Управление volumes:**
+**Volume management:**
 ```bash
-# Просмотр использования места
+# Disk usage
 docker system df -v
 
-# Backup volume (пример для postgres)
+# Backup volume (example for postgres)
 docker run --rm -v ai-bot_postgres-data:/data -v $(pwd):/backup alpine tar czf /backup/postgres-backup.tar.gz /data
 
-# Удаление volume (ОСТОРОЖНО! Удалит все данные!)
+# Remove volume (CAUTION! Deletes all data!)
 docker volume rm ai-bot_postgres-data
 ```
 
-### Автоматический перезапуск
+### Automatic restart
 
-Все сервисы в [docker-compose.yml](docker-compose.yml) настроены с `restart: unless-stopped`, что означает:
-- ✅ Контейнеры автоматически перезапустятся при падении
-- ✅ Контейнеры автоматически запустятся после перезагрузки сервера (если Docker daemon запускается автоматически)
+All services in [docker-compose.yml](docker-compose.yml) use `restart: unless-stopped`, so:
+- ✅ Containers restart on failure
+- ✅ Containers start after server reboot (if Docker daemon is enabled)
 
-**Убедитесь, что Docker запускается автоматически:**
+**Ensure Docker starts on boot:**
 ```bash
-# Проверить статус
+# Check status
 sudo systemctl status docker
 
-# Включить автозапуск Docker (если не включен)
+# Enable Docker (if not already)
 sudo systemctl enable docker
 ```
 
-> **Примечание**: Для production рекомендуется также настроить systemd сервис (см. Шаг 9) для большей надежности и контроля.
+> **Note**: For production, configuring a systemd service (Step 9) is also recommended for reliability and control.
 
-### Проверка работы
+### Verify it works
 
 ```bash
-# Проверить, что приложение запущено
+# Check application is up
 curl http://localhost:8080/actuator/health
 
-# Проверить метрики
+# Check metrics
 curl http://localhost:8080/actuator/prometheus
 
-# Проверить Swagger UI (если REST API включен)
-# Откройте в браузере: http://your-server-ip:8080/swagger-ui/index.html
+# Swagger UI (if REST API is enabled)
+# Open in browser: http://your-server-ip:8080/swagger-ui/index.html
 ```
 
-## Шаг 7: Настройка мониторинга
+## Step 7: Monitoring setup
 
 ### Prometheus
 - URL: `http://your-server-ip:9090`
-- Проверьте targets: `http://your-server-ip:9090/targets`
+- Check targets: `http://your-server-ip:9090/targets`
 
 ### Grafana
 - URL: `http://your-server-ip:3000`
-- Логин: `admin`
-- Пароль: `admin123456`
-- Добавьте Prometheus как data source: `http://prometheus:9090`
+- Login: `admin`
+- Password: `admin123456`
+- Add Prometheus as data source: `http://prometheus:9090`
 
 ### Kibana
 - URL: `http://your-server-ip:5601`
-- Настройте index pattern для логов
+- Configure index pattern for logs
 
-## Шаг 8: Обновление приложения
+## Step 8: Updating the application
 
 ```bash
-# Остановить приложение
+# Stop application
 docker-compose stop aibot-app
 
-# Пересобрать JAR (если были изменения)
+# Rebuild JAR (if changed)
 mvn clean package -DskipTests
 
-# Пересобрать Docker образ
+# Rebuild Docker image
 docker-compose build aibot-app
 
-# Запустить заново
+# Start again
 docker-compose up -d aibot-app
 
-# Проверить логи
+# Check logs
 docker-compose logs -f aibot-app
 ```
 
-## Шаг 9: Настройка автозапуска через systemd (опционально, но рекомендуется)
+## Step 9: systemd autostart (optional but recommended)
 
-> **Примечание**: С `restart: unless-stopped` в docker-compose.yml и включенным автозапуском Docker, контейнеры будут автоматически запускаться после перезагрузки. Systemd сервис добавляет дополнительный уровень контроля и мониторинга.
+> **Note**: With `restart: unless-stopped` in docker-compose.yml and Docker enabled at boot, containers will start after reboot. A systemd service adds an extra layer of control and monitoring.
 
-Создайте файл `/etc/systemd/system/ai-bot.service`:
+Create `/etc/systemd/system/ai-bot.service`:
 
 ```ini
 [Unit]
@@ -289,7 +289,7 @@ User=your-user
 WantedBy=multi-user.target
 ```
 
-Активируйте сервис:
+Enable the service:
 
 ```bash
 sudo systemctl daemon-reload
@@ -297,71 +297,71 @@ sudo systemctl enable ai-bot.service
 sudo systemctl start ai-bot.service
 ```
 
-## Полезные команды
+## Useful commands
 
 ```bash
-# Просмотр логов
+# View logs
 docker-compose logs -f aibot-app
 docker-compose logs -f postgres
 
-# Перезапуск конкретного сервиса
+# Restart a service
 docker-compose restart aibot-app
 
-# Остановка всех сервисов
+# Stop all services
 docker-compose down
 
-# Остановка с удалением volumes (ОСТОРОЖНО!)
+# Stop and remove volumes (CAUTION!)
 docker-compose down -v
 
-# Просмотр использования ресурсов
+# Resource usage
 docker stats
 
-# Вход в контейнер
+# Shell into container
 docker exec -it ai-bot-app sh
 docker exec -it ai-bot-postgres psql -U postgres -d ai_bot
 ```
 
 ## Troubleshooting
 
-### Приложение не запускается
+### Application does not start
 
 ```bash
-# Проверьте логи
+# Check logs
 docker-compose logs aibot-app
 
-# Проверьте, что БД доступна
+# Verify DB is reachable
 docker-compose exec postgres psql -U postgres -d ai_bot -c "SELECT 1;"
 
-# Проверьте переменные окружения
+# Check environment variables
 docker-compose exec aibot-app env | grep -E "TELEGRAM|DEEPSEEK|OPENROUTER"
 ```
 
-### Проблемы с подключением к БД
+### Database connection issues
 
 ```bash
-# Проверьте, что postgres запущен
+# Check postgres is running
 docker-compose ps postgres
 
-# Проверьте сеть
+# Check network
 docker network inspect ai-bot_ai-bot-network
 
-# Проверьте логи postgres
+# Check postgres logs
 docker-compose logs postgres
 ```
 
-### Проблемы с метриками в Prometheus
+### Prometheus metrics issues
 
 ```bash
-# Проверьте targets в Prometheus UI
-# Убедитесь, что aibot-app доступен по имени в сети
+# Check targets in Prometheus UI
+# Ensure aibot-app is reachable by name on the network
 
-# Проверьте конфигурацию prometheus.yml
+# Check prometheus.yml
 docker-compose exec prometheus cat /etc/prometheus/prometheus.yml
 ```
 
-### Проблема с iptables на Linux сервере (ошибка DOCKER-ISOLATION-STAGE-2)
+### iptables issue on Linux server (DOCKER-ISOLATION-STAGE-2 error)
 
-Если при запуске `docker-compose up -d` возникает ошибка:
+If you see this error when running `docker-compose up -d`:
 ```
 failed to create network ai-bot_ai-bot-network: Error response from daemon: 
 add inter-network communication rule: (iptables failed: iptables --wait -t filter 
@@ -369,198 +369,198 @@ add inter-network communication rule: (iptables failed: iptables --wait -t filte
 iptables v1.8.10 (nf_tables): Chain 'DOCKER-ISOLATION-STAGE-2' does not exist
 ```
 
-**Решение 1: Перезапустить Docker daemon (рекомендуется)**
+**Solution 1: Restart Docker daemon (recommended)**
 
 ```bash
-# Перезапустить Docker
+# Restart Docker
 sudo systemctl restart docker
 
-# Попробовать запустить снова
+# Try starting again
 docker-compose up -d
 ```
 
-**Решение 2: Настроить Docker для использования iptables (официальный подход Docker, рекомендуется)**
+**Solution 2: Configure Docker to use iptables (official approach, recommended)**
 
-Согласно [официальной документации Docker](https://docs.docker.com/engine/network/packet-filtering-firewalls/), можно явно указать Docker использовать `iptables` вместо `nftables` через параметр `firewall-backend`:
+Per [Docker docs](https://docs.docker.com/engine/network/packet-filtering-firewalls/), you can set Docker to use `iptables` instead of `nftables` via `firewall-backend`:
 
 ```bash
-# Создать или отредактировать /etc/docker/daemon.json
+# Create or edit /etc/docker/daemon.json
 sudo nano /etc/docker/daemon.json
 ```
 
-Добавьте или обновите конфигурацию:
+Add or update:
 ```json
 {
   "firewall-backend": "iptables"
 }
 ```
 
-Затем перезапустите Docker:
+Then restart Docker:
 ```bash
 sudo systemctl restart docker
 
-# Попробовать запустить снова
+# Try starting again
 docker-compose up -d
 ```
 
-> **Примечание**: Это официальный способ указать Docker использовать iptables. Docker поддерживает оба бэкенда (iptables и nftables), но iptables более стабилен на Ubuntu Server.
+> **Note**: This is the official way to make Docker use iptables. Docker supports both backends (iptables and nftables); iptables is more stable on Ubuntu Server.
 
-**Решение 3: Переключиться на iptables-legacy (альтернатива, если решение 2 не помогло)**
+**Solution 3: Switch to iptables-legacy (if solution 2 did not help)**
 
-Если настройка `firewall-backend` не помогла, можно переключиться на `iptables-legacy` на уровне системы:
+If `firewall-backend` did not help, switch to `iptables-legacy` at system level:
 
 ```bash
-# Переключиться на iptables-legacy
+# Switch to iptables-legacy
 sudo update-alternatives --set iptables /usr/sbin/iptables-legacy
 sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
 
-# Перезапустить Docker
+# Restart Docker
 sudo systemctl restart docker
 
-# Попробовать запустить снова
+# Try again
 docker-compose up -d
 ```
 
-**Решение 4: Исправить iptables вручную (если предыдущие решения не помогли)**
+**Solution 4: Fix iptables manually (if above did not help)**
 
 ```bash
-# Создать недостающую цепочку
+# Create missing chain
 sudo iptables -t filter -N DOCKER-ISOLATION-STAGE-2
 
-# Перезапустить Docker
+# Restart Docker
 sudo systemctl restart docker
 
-# Попробовать запустить снова
+# Try again
 docker-compose up -d
 ```
 
-**Решение 5: Использовать дефолтную сеть Docker Compose**
+**Solution 5: Use default Docker Compose network**
 
-Если предыдущие решения не помогли, можно закомментировать определение сети в `docker-compose.yml`:
+If the above did not help, comment out the custom network in `docker-compose.yml`:
 
-1. Откройте `docker-compose.yml`
-2. Закомментируйте секцию `networks:` в конце файла:
+1. Open `docker-compose.yml`
+2. Comment out the `networks:` section at the end:
    ```yaml
    # networks:
    #   ai-bot-network:
    #     driver: bridge
    ```
-3. Удалите все `networks: - ai-bot-network` из всех сервисов
-4. Docker Compose автоматически создаст сеть с именем проекта
+3. Remove all `networks: - ai-bot-network` from services
+4. Docker Compose will create a default network named after the project
 
-**Решение 6: Настроить Docker для использования iptables (официальный подход Docker)**
+**Solution 6: Configure Docker to use iptables (official approach)**
 
-Согласно [официальной документации Docker](https://docs.docker.com/engine/network/packet-filtering-firewalls/), можно явно указать Docker использовать `iptables` вместо `nftables`:
+Per [Docker docs](https://docs.docker.com/engine/network/packet-filtering-firewalls/), set Docker to use `iptables` instead of `nftables`:
 
 ```bash
-# Создать или отредактировать /etc/docker/daemon.json
+# Create or edit /etc/docker/daemon.json
 sudo nano /etc/docker/daemon.json
 ```
 
-Добавьте или обновите конфигурацию:
+Add or update:
 ```json
 {
   "firewall-backend": "iptables"
 }
 ```
 
-Затем перезапустите Docker:
+Then restart Docker:
 ```bash
 sudo systemctl restart docker
 ```
 
-> **Примечание**: Это официальный способ указать Docker использовать iptables. Docker поддерживает оба бэкенда (iptables и nftables), но iptables более стабилен на Ubuntu Server.
+> **Note**: This is the official way to use iptables. iptables is more stable on Ubuntu Server.
 
-**Решение 7: Отключить управление iptables в Docker (не рекомендуется)**
+**Solution 7: Disable iptables management in Docker (not recommended)**
 
-Если предыдущие решения не помогли, можно отключить управление iptables в Docker:
+If nothing else worked, you can disable iptables in Docker:
 
 ```bash
-# Создать или отредактировать /etc/docker/daemon.json
+# Create or edit /etc/docker/daemon.json
 sudo nano /etc/docker/daemon.json
 ```
 
-Добавьте:
+Add:
 ```json
 {
   "iptables": false
 }
 ```
 
-Затем перезапустите Docker:
+Then restart Docker:
 ```bash
 sudo systemctl restart docker
 ```
 
-> **Примечание**: Отключение iptables в Docker может потребовать ручной настройки firewall правил. Используйте только если другие решения не помогли.
+> **Note**: Disabling iptables may require manual firewall rules. Use only if other solutions failed.
 
-## Безопасность
+## Security
 
-1. **Измените пароли по умолчанию** в `.env` файле
-2. **Настройте firewall** на сервере (откройте только нужные порты)
-3. **Используйте HTTPS** для внешнего доступа (через nginx reverse proxy)
-4. **Регулярно обновляйте** Docker образы
+1. **Change default passwords** in `.env`
+2. **Configure firewall** on the server (open only required ports)
+3. **Use HTTPS** for external access (e.g. nginx reverse proxy)
+4. **Keep Docker images updated**
 
-## Масштабирование (несколько экземпляров приложения)
+## Scaling (multiple app instances)
 
-Для запуска нескольких экземпляров приложения:
+To run multiple instances:
 
-1. **Уберите `container_name`** из сервиса `aibot-app` в [docker-compose.yml](docker-compose.yml):
+1. **Remove `container_name`** from `aibot-app` in [docker-compose.yml](docker-compose.yml):
    ```yaml
    aibot-app:
-     # container_name: ai-bot-app  # Закомментируйте для масштабирования
+     # container_name: ai-bot-app  # Comment out for scaling
      ports:
-       - "8080:8080"  # Или используйте диапазон: "8080-8090:8080"
+       - "8080:8080"  # Or use range: "8080-8090:8080"
    ```
 
-2. **Запустите с масштабированием**:
+2. **Run with scaling**:
    ```bash
-   # Запустить 3 экземпляра приложения
+   # Run 3 instances
    docker-compose up -d --scale aibot-app=3
    
-   # Проверить статус
+   # Check status
    docker-compose ps
    
-   # Просмотр логов всех экземпляров
+   # Logs from all instances
    docker-compose logs -f aibot-app
    ```
 
-4. **Используйте load balancer** (nginx, traefik) для распределения нагрузки между экземплярами
+4. **Use a load balancer** (nginx, traefik) to distribute load across instances
 
-> **Примечание**: Для Telegram бота обычно достаточно одного экземпляра, так как Telegram сам управляет распределением сообщений. Масштабирование полезно для REST API или при высокой нагрузке.
+> **Note**: For a Telegram bot one instance is usually enough; scaling is useful for REST API or high load.
 
-## Production рекомендации
+## Production recommendations
 
-1. **Volumes для сохранения данных** - все сервисы с данными используют volumes:
-   - ✅ **postgres** - `postgres-data` volume (данные БД сохраняются)
-   - ✅ **grafana** - `grafana-storage` volume (дашборды и настройки сохраняются)
-   - ✅ **elasticsearch** - `elasticsearch-data` volume (индексы сохраняются)
-   - ✅ **prometheus** - `prometheus-data` volume (метрики сохраняются)
+1. **Volumes for data** — all data services use volumes:
+   - ✅ **postgres** — `postgres-data` (DB data persists)
+   - ✅ **grafana** — `grafana-storage` (dashboards and settings persist)
+   - ✅ **elasticsearch** — `elasticsearch-data` (indices persist)
+   - ✅ **prometheus** — `prometheus-data` (metrics persist)
    
-   > **Важно**: Все volumes создаются автоматически при первом запуске. Данные сохраняются между перезапусками контейнеров и перезагрузками сервера.
+   > **Important**: Volumes are created on first run. Data persists across restarts and reboots.
 
-2. **Настройте регулярный backup БД**:
+2. **Set up regular DB backups**:
    ```bash
-   # Backup БД (рекомендуется делать регулярно)
+   # DB backup (run regularly)
    docker-compose exec postgres pg_dump -U postgres ${POSTGRES_DB:-ai_bot} > backup-$(date +%Y%m%d-%H%M%S).sql
    
-   # Restore БД
+   # Restore DB
    docker-compose exec -T postgres psql -U postgres ${POSTGRES_DB:-ai_bot} < backup.sql
    
-   # Автоматический backup через cron (добавьте в crontab)
+   # Cron example (add to crontab)
    # 0 2 * * * cd /path/to/ai-bot && docker-compose exec -T postgres pg_dump -U postgres ai_bot > /backups/ai-bot-$(date +\%Y\%m\%d).sql
    ```
 
-3. **Backup volumes (опционально, для полного резервного копирования)**:
+3. **Backup volumes (optional, for full backup)**:
    ```bash
-   # Backup всех volumes
+   # Backup all volumes
    docker run --rm -v ai-bot_postgres-data:/data -v $(pwd):/backup alpine tar czf /backup/postgres-volume-$(date +%Y%m%d).tar.gz /data
    docker run --rm -v ai-bot_grafana-storage:/data -v $(pwd):/backup alpine tar czf /backup/grafana-volume-$(date +%Y%m%d).tar.gz /data
    ```
 
-4. **Используйте reverse proxy** (nginx) для HTTPS, rate limiting и load balancing при масштабировании
+4. **Use a reverse proxy** (nginx) for HTTPS, rate limiting and load balancing when scaling
 
-   Пример конфигурации nginx для балансировки между несколькими экземплярами:
+   Example nginx config for multiple instances:
    ```nginx
    upstream aibot {
        least_conn;
@@ -581,7 +581,7 @@ sudo systemctl restart docker
    }
    ```
 
-5. **Настройте мониторинг** и алерты в Grafana
+5. **Configure monitoring** and alerts in Grafana
 
-6. **Используйте secrets management** (Docker Secrets, HashiCorp Vault)
+6. **Use secrets management** (Docker Secrets, HashiCorp Vault)
 

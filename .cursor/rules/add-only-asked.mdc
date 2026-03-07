@@ -6,8 +6,8 @@ alwaysApply: true
 
 # Your rule content
 
-- It's telegram bot assistant on AI.
-- Не добавлять дополнительный функционал (например, меню, дополнительные опции) без предварительного согласования с вами.
-- Перед внесением любых изменений, которые выходят за рамки прямого запроса, сначала спрашивать разрешение.
-- Реализовывать только тот функционал, который был явно запрошен.
-- Если какой-то класс не найден не спеши его создавать, снача попытайся найти.
+- It's a Telegram bot assistant on AI.
+- Do not add extra features (e.g. menu, extra options) without prior agreement with you.
+- Before making any changes that go beyond the direct request, ask for permission first.
+- Implement only the functionality that was explicitly requested.
+- If a class is not found, do not rush to create it — try to find it first.

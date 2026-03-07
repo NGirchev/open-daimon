@@ -13,9 +13,9 @@ import ru.girchev.aibot.rest.service.RestAuthorizationService;
 import ru.girchev.aibot.rest.service.RestUserService;
 
 /**
- * Автоконфигурация для UI модуля
- * Зависит от RestAutoConfig для работы с REST API
- * Активируется только если включен UI модуль (ai-bot.ui.enabled=true)
+ * Auto-configuration for UI module.
+ * Depends on RestAutoConfig for REST API.
+ * Active only when UI module is enabled (ai-bot.ui.enabled=true).
  */
 @AutoConfiguration
 @AutoConfigureAfter(name = "ru.girchev.aibot.rest.config.RestAutoConfig")
@@ -31,7 +31,8 @@ public class UIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public UIAuthController uiAuthController(RestUserService restUserService) {
-        return new UIAuthController(restUserService);
+    public UIAuthController uiAuthController(RestUserService restUserService,
+                                            ru.girchev.aibot.common.service.MessageLocalizationService messageLocalizationService) {
+        return new UIAuthController(restUserService, messageLocalizationService);
     }
 }

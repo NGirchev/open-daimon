@@ -24,8 +24,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Резолвит "openrouter/auto" в конкретную бесплатную модель, используя OpenRouter Models API (/v1/models).
- * Логику выбора бесплатных моделей повторяет {@code OpenRouterMaxPriceExample}.
+ * Resolves "openrouter/auto" to a concrete free model using OpenRouter Models API (/v1/models).
+ * Free model selection logic follows {@code OpenRouterMaxPriceExample}.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -71,17 +71,17 @@ public class OpenRouterFreeModelResolver {
     }
 
     /**
-     * Список кандидатов для боевого запроса в порядке предпочтения.
-     * Если ранжирование выключено — вернёт один элемент (лучший по стабильной сортировке).
+     * List of candidates for production request in preference order.
+     * If ranking is disabled — returns one element (best by stable sort).
      */
     public List<String> candidatesForAutoRequest() {
         return candidatesForAutoRequest(Collections.emptySet());
     }
 
     /**
-     * Универсальный метод: если пришёл {@code openrouter/auto} — вернёт ранжированные free-кандидаты.
-     * Если пришла конкретная free-модель — вернёт список кандидатов, но с приоритетом на запрошенную модель (если она допустима).
-     * Иначе — вернёт исходную модель (как единственный кандидат).
+     * Generic method: if {@code openrouter/auto} — returns ranked free candidates.
+     * If a concrete free model — returns candidate list with requested model first (if allowed).
+     * Otherwise — returns requested model as single candidate.
      */
     public List<String> candidatesForModel(String requestedModelId, Set<ModelCapabilities> requiredModelCapabilities) {
         if (!StringUtils.hasText(requestedModelId)) {
@@ -111,13 +111,13 @@ public class OpenRouterFreeModelResolver {
     }
 
     /**
-     * Список кандидатов для боевого запроса с учетом требований к возможностям.
-     * Сейчас реально учитывается только {@link ModelCapabilities#TOOL_CALLING}.
+     * List of candidates for live request with capability requirements.
+     * Currently only {@link ModelCapabilities#TOOL_CALLING} is enforced.
      */
     public List<String> candidatesForAutoRequest(Set<ModelCapabilities> requiredModelCapabilities) {
         List<String> cached = getCachedFreeModelIds();
         if (cached.isEmpty()) {
-            // ленивый первый прогон
+            // lazy first run
             refresh();
             cached = getCachedFreeModelIds();
         }
@@ -288,7 +288,7 @@ public class OpenRouterFreeModelResolver {
                 filteredByProps = free;
             }
 
-            // Если ранжирование выключено - оставляем прежнее поведение (стабильный выбор).
+            // If ranking disabled — keep previous behaviour (stable choice).
             if (!rankingEnabled) {
                 return filteredByProps.getFirst();
             }
@@ -318,22 +318,22 @@ public class OpenRouterFreeModelResolver {
     private double score(String modelId, long nowEpochMs) {
         ModelStats stats = statsByModelId.get(modelId);
         if (stats == null) {
-            // Без метрик - нейтральный скор
+            // No metrics — neutral score
             return 50.0d;
         }
         if (stats.cooldownUntilEpochMs > nowEpochMs) {
-            // В cooldown - практически исключаем
+            // In cooldown — effectively exclude
             return -10_000.0d;
         }
         double base = 100.0d;
-        // Чем меньше latency - тем лучше
+        // Lower latency is better
         base -= (stats.ewmaLatencyMs / 200.0d);
-        // Штрафы за последние ошибки
+        // Penalties for recent errors
         if (stats.lastStatus == 429) {
             base -= 30.0d;
         } else if (stats.lastStatus >= 400 && stats.lastStatus <= 499) {
-            // 4xx обычно означает несовместимость входа/формата с конкретной моделью (в т.ч. строгая валидация roles),
-            // поэтому такие модели должны проигрывать "неизвестным" моделям.
+            // 4xx usually means input/format incompatibility with this model (e.g. strict roles validation),
+            // so such models should rank below "unknown" models.
             base -= 120.0d;
         } else if (stats.lastStatus >= 500 && stats.lastStatus <= 599) {
             base -= 50.0d;

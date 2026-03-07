@@ -1,8 +1,7 @@
 -- =====================================================
--- Создание таблицы для Spring AI Chat Memory (JDBC репозиторий)
+-- Create Spring AI Chat Memory table (JDBC repository)
 -- =====================================================
--- Эта таблица используется стандартным JdbcChatMemoryRepository из Spring AI
--- для хранения истории сообщений чата
+-- Used by Spring AI JdbcChatMemoryRepository for chat message history
 
 CREATE TABLE IF NOT EXISTS SPRING_AI_CHAT_MEMORY (
     conversation_id VARCHAR(36) NOT NULL,
@@ -11,7 +10,7 @@ CREATE TABLE IF NOT EXISTS SPRING_AI_CHAT_MEMORY (
     "timestamp" TIMESTAMP NOT NULL
 );
 
--- Индекс для быстрого поиска сообщений по conversation_id и timestamp
+-- Index for fast lookup by conversation_id and timestamp
 CREATE INDEX IF NOT EXISTS SPRING_AI_CHAT_MEMORY_CONVERSATION_ID_TIMESTAMP_IDX
 ON SPRING_AI_CHAT_MEMORY(conversation_id, "timestamp");
 

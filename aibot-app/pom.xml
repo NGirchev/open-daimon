@@ -116,7 +116,7 @@
             <artifactId>lombok</artifactId>
         </dependency>
         
-        <!-- MinIO (optional в aibot-common, нужно явно включить для runtime) -->
+        <!-- MinIO (optional in aibot-common, must be explicitly included for runtime) -->
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>

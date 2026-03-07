@@ -4,9 +4,9 @@ import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 /**
- * JPA конфигурация для REST модуля
- * Сканирует Entity и репозитории REST модуля
- * Активируется только если включен REST модуль (ai-bot.rest.enabled=true)
+ * JPA configuration for REST module.
+ * Scans REST Entity and repositories.
+ * Active only when REST module is enabled (ai-bot.rest.enabled=true).
  */
 @EntityScan(basePackages = {
         "ru.girchev.aibot.rest.model"
@@ -15,6 +15,6 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
         "ru.girchev.aibot.rest.repository"
 })
 public class RestJpaConfig {
-    // JPA конфигурация для REST Entity и репозиториев
+    // JPA config for REST Entity and repositories
 }
 

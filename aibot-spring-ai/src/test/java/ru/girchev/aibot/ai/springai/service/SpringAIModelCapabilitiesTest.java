@@ -98,9 +98,9 @@ class SpringAIModelCapabilitiesTest {
     @Test
     void whenGetByCapability_EMBEDDING_thenNOMIC_LOCAL_hasPriority() {
         // Arrange
-        // GEMMA_LOCAL имеет EMBEDDING на индексе 1 (второй в списке)
-        // NOMIC_LOCAL имеет EMBEDDING на индексе 0 (первый в списке)
-        // Ожидаем NOMIC_LOCAL, так как он имеет capability на индексе 0
+        // GEMMA_LOCAL has EMBEDDING at index 1 (second in list)
+        // NOMIC_LOCAL has EMBEDDING at index 0 (first in list)
+        // Expect NOMIC_LOCAL as it has the capability at index 0
         SpringAIModelType springAIModelType = createSpringAIModelType();
 
         // Act
@@ -108,16 +108,16 @@ class SpringAIModelCapabilitiesTest {
 
         // Assert
         assertTrue(result.isPresent());
-        // Проверяем, что это действительно модель с EMBEDDING на первом месте
+        // Verify it is the model with EMBEDDING in first position
         assertEquals("nomic-embed-text:v1.5", result.get().getName());
     }
 
     @Test
     void whenGetByCapability_CHAT_thenGEMMA_LOCAL_hasPriority() {
         // Arrange
-        // GEMMA_LOCAL имеет CHAT на индексе 0 (первый в списке)
-        // NOMIC_LOCAL имеет CHAT на индексе 1 (второй в списке)
-        // Ожидаем GEMMA_LOCAL, так как он имеет capability на индексе 0
+        // GEMMA_LOCAL has CHAT at index 0 (first in list)
+        // NOMIC_LOCAL has CHAT at index 1 (second in list)
+        // Expect GEMMA_LOCAL as it has the capability at index 0
         SpringAIModelType springAIModelType = createSpringAIModelType();
 
         // Act
@@ -125,14 +125,14 @@ class SpringAIModelCapabilitiesTest {
 
         // Assert
         assertTrue(result.isPresent());
-        // Проверяем, что это действительно модель с CHAT на первом месте
+        // Verify it is the model with CHAT in first position
         assertEquals("gemma3:1b", result.get().getName());
     }
 
     @Test
     void whenGetByCapability_unsupportedType_thenReturnEmpty() {
         // Arrange
-        // Используем тип, который не поддерживается ни одной моделью
+        // Use a type not supported by any model
         ModelCapabilities unsupportedType = ModelCapabilities.RERANK;
         SpringAIModelType springAIModelType = createSpringAIModelType();
 
@@ -208,7 +208,7 @@ class SpringAIModelCapabilitiesTest {
         assertTrue(result.isEmpty());
     }
 
-    // ========== Тесты для getByCapabilities ==========
+    // ========== Tests for getByCapabilities ==========
 
     @Test
     void whenGetByCapabilities_singleType_thenReturnModelWithThatType() {
@@ -226,7 +226,7 @@ class SpringAIModelCapabilitiesTest {
     @Test
     void whenGetByCapabilities_modelContainsAllTypes_thenReturnModel() {
         // Arrange
-        // nomic-embed-text:v1.5 содержит [EMBEDDING, CHAT]
+        // nomic-embed-text:v1.5 contains [EMBEDDING, CHAT]
         SpringAIModelType springAIModelType = createSpringAIModelType();
 
         // Act
@@ -240,14 +240,14 @@ class SpringAIModelCapabilitiesTest {
     @Test
     void whenGetByCapabilities_modelDoesNotContainAllTypes_thenReturnEmpty() {
         // Arrange
-        // gemma3:1b содержит только CHAT, не содержит EMBEDDING
+        // gemma3:1b has only CHAT, does not contain EMBEDDING
         SpringAIModelType springAIModelType = createSpringAIModelType();
 
         // Act
         Optional<SpringAIModelConfig> result = springAIModelType.getByCapabilities(Set.of(EMBEDDING, CHAT));
 
         // Assert
-        // Должна вернуться nomic-embed-text:v1.5, так как она содержит оба типа
+        // Should return nomic-embed-text:v1.5 as it contains both types
         assertTrue(result.isPresent());
         assertEquals("nomic-embed-text:v1.5", result.get().getName());
     }
@@ -291,10 +291,10 @@ class SpringAIModelCapabilitiesTest {
     @Test
     void whenGetByCapabilities_multipleModelsWithAllTypes_thenReturnModelWithMinMaxIndex() {
         // Arrange
-        // Создаем модели с разными индексами для проверки приоритета
+        // Create models with different indices to verify priority
         // model1: [CHAT, EMBEDDING] - maxIndex = 1
-        // model2: [EMBEDDING, CHAT, TOOL_CALLING] - maxIndex = 2 (если запросить CHAT и EMBEDDING)
-        // model3: [CHAT, TOOL_CALLING, EMBEDDING] - maxIndex = 2 (если запросить CHAT и EMBEDDING)
+        // model2: [EMBEDDING, CHAT, TOOL_CALLING] - maxIndex = 2 (when requesting CHAT and EMBEDDING)
+        // model3: [CHAT, TOOL_CALLING, EMBEDDING] - maxIndex = 2 (when requesting CHAT and EMBEDDING)
         List<SpringAIModelConfig> models = List.of(
                 createModel("model1", List.of(CHAT, EMBEDDING), SpringAIModelConfig.ProviderType.OLLAMA, 1),
                 createModel("model2", List.of(EMBEDDING, CHAT, TOOL_CALLING), SpringAIModelConfig.ProviderType.OLLAMA, 1),
@@ -306,10 +306,10 @@ class SpringAIModelCapabilitiesTest {
         Optional<SpringAIModelConfig> result = springAIModelType.getByCapabilities(Set.of(CHAT, EMBEDDING));
 
         // Assert
-        // model1 имеет maxIndex = 1 (CHAT на 0, EMBEDDING на 1)
-        // model2 имеет maxIndex = 1 (EMBEDDING на 0, CHAT на 1)
-        // model3 имеет maxIndex = 2 (CHAT на 0, EMBEDDING на 2)
-        // Ожидаем model1 или model2 (обе с maxIndex = 1)
+        // model1 has maxIndex = 1 (CHAT at 0, EMBEDDING at 1)
+        // model2 has maxIndex = 1 (EMBEDDING at 0, CHAT at 1)
+        // model3 has maxIndex = 2 (CHAT at 0, EMBEDDING at 2)
+        // Expect model1 or model2 (both with maxIndex = 1)
         assertTrue(result.isPresent());
         assertTrue(result.get().getName().equals("model1") || result.get().getName().equals("model2"));
     }
@@ -317,8 +317,8 @@ class SpringAIModelCapabilitiesTest {
     @Test
     void whenGetByCapabilities_allTypesOnFirstPosition_thenReturnImmediately() {
         // Arrange
-        // model1: [CHAT, EMBEDDING] - оба типа на первых двух позициях, maxIndex = 1
-        // model2: [CHAT, EMBEDDING, TOOL_CALLING] - оба типа на первых двух позициях, maxIndex = 1
+        // model1: [CHAT, EMBEDDING] - both types at first two positions, maxIndex = 1
+        // model2: [CHAT, EMBEDDING, TOOL_CALLING] - both types at first two positions, maxIndex = 1
         List<SpringAIModelConfig> models = List.of(
                 createModel("model1", List.of(CHAT, EMBEDDING), SpringAIModelConfig.ProviderType.OLLAMA, 1),
                 createModel("model2", List.of(CHAT, EMBEDDING, TOOL_CALLING), SpringAIModelConfig.ProviderType.OLLAMA, 1),
@@ -330,8 +330,8 @@ class SpringAIModelCapabilitiesTest {
         Optional<SpringAIModelConfig> result = springAIModelType.getByCapabilities(Set.of(CHAT, EMBEDDING));
 
         // Assert
-        // model1 и model2 имеют maxIndex = 1, model3 имеет maxIndex = 2
-        // Должна вернуться model1 или model2 (обе с maxIndex = 1)
+        // model1 and model2 have maxIndex = 1, model3 has maxIndex = 2
+        // Should return model1 or model2 (both with maxIndex = 1)
         assertTrue(result.isPresent());
         assertTrue(result.get().getName().equals("model1") || result.get().getName().equals("model2"));
     }
@@ -339,10 +339,10 @@ class SpringAIModelCapabilitiesTest {
     @Test
     void whenGetByCapabilities_modelWithAllTypesOnIndexZero_thenReturnImmediately() {
         // Arrange
-        // model1: [CHAT, EMBEDDING] - оба типа на позициях 0 и 1, maxIndex = 1
-        // model2: [CHAT, EMBEDDING] - оба типа на позициях 0 и 1, maxIndex = 1
-        // model3: [EMBEDDING, CHAT] - оба типа на позициях 0 и 1, maxIndex = 1
-        // Но если бы была модель с обоими типами на позиции 0, она бы вернулась сразу
+        // model1: [CHAT, EMBEDDING] - both types at positions 0 and 1, maxIndex = 1
+        // model2: [CHAT, EMBEDDING] - both types at positions 0 and 1, maxIndex = 1
+        // model3: [EMBEDDING, CHAT] - both types at positions 0 and 1, maxIndex = 1
+        // If there were a model with both types at position 0, it would be returned immediately
         List<SpringAIModelConfig> models = List.of(
                 createModel("model1", List.of(CHAT, EMBEDDING), SpringAIModelConfig.ProviderType.OLLAMA, 1),
                 createModel("model2", List.of(EMBEDDING, CHAT), SpringAIModelConfig.ProviderType.OLLAMA, 1)
@@ -353,8 +353,8 @@ class SpringAIModelCapabilitiesTest {
         Optional<SpringAIModelConfig> result = springAIModelType.getByCapabilities(Set.of(CHAT, EMBEDDING));
 
         // Assert
-        // Обе модели имеют maxIndex = 1, но ни одна не имеет maxIndex = 0
-        // Должна вернуться одна из моделей
+        // Both models have maxIndex = 1, neither has maxIndex = 0
+        // Should return one of the models
         assertTrue(result.isPresent());
         assertTrue(result.get().getName().equals("model1") || result.get().getName().equals("model2"));
     }
@@ -373,10 +373,10 @@ class SpringAIModelCapabilitiesTest {
         Optional<SpringAIModelConfig> result = springAIModelType.getByCapabilities(Set.of(CHAT, EMBEDDING, TOOL_CALLING));
 
         // Assert
-        // model1 не содержит TOOL_CALLING - не подходит
+        // model1 does not contain TOOL_CALLING - not a match
         // model2: [CHAT(0), EMBEDDING(1), TOOL_CALLING(2)] - maxIndex = 2
         // model3: [EMBEDDING(0), TOOL_CALLING(1), CHAT(2)] - maxIndex = 2
-        // Ожидаем model2 или model3 (обе с maxIndex = 2)
+        // Expect model2 or model3 (both with maxIndex = 2)
         assertTrue(result.isPresent());
         assertTrue(result.get().getName().equals("model2") || result.get().getName().equals("model3"));
     }
@@ -384,10 +384,10 @@ class SpringAIModelCapabilitiesTest {
     @Test
     void whenGetByCapabilities_multipleModelsWithSameMaxIndex_thenReturnModelWithHigherPriority() {
         // Arrange
-        // Все модели имеют одинаковый maxIndex = 1, но разные приоритеты
-        // model1: priority=2 (платная)
-        // model2: priority=1 (бесплатная) - должна быть выбрана
-        // model3: priority=2 (платная)
+        // All models have the same maxIndex = 1 but different priorities
+        // model1: priority=2 (paid)
+        // model2: priority=1 (free) - should be selected
+        // model3: priority=2 (paid)
         List<SpringAIModelConfig> models = List.of(
                 createModel("model1", List.of(CHAT, EMBEDDING), SpringAIModelConfig.ProviderType.OLLAMA, 2),
                 createModel("model2", List.of(EMBEDDING, CHAT), SpringAIModelConfig.ProviderType.OLLAMA, 1),
@@ -399,7 +399,7 @@ class SpringAIModelCapabilitiesTest {
         Optional<SpringAIModelConfig> result = springAIModelType.getByCapabilities(Set.of(CHAT, EMBEDDING));
 
         // Assert
-        // Все модели имеют maxIndex = 1, но model2 имеет приоритет 1 (выше)
+        // All models have maxIndex = 1, but model2 has priority 1 (higher)
         assertTrue(result.isPresent());
         assertEquals("model2", result.get().getName());
         assertEquals(1, result.get().getPriority());
@@ -408,7 +408,7 @@ class SpringAIModelCapabilitiesTest {
     @Test
     void whenGetByCapabilities_freeModelsHaveHigherPriority_thenReturnFreeModel() {
         // Arrange
-        // Бесплатные модели (priority=1) должны иметь приоритет над платными (priority=2)
+        // Free models (priority=1) should have priority over paid (priority=2)
         List<SpringAIModelConfig> models = List.of(
                 createModel("paid-model", List.of(CHAT), SpringAIModelConfig.ProviderType.OPENAI, 2),
                 createModel("free-model", List.of(CHAT), SpringAIModelConfig.ProviderType.OLLAMA, 1)
@@ -419,7 +419,7 @@ class SpringAIModelCapabilitiesTest {
         Optional<SpringAIModelConfig> result = springAIModelType.getByCapability(CHAT);
 
         // Assert
-        // Обе модели имеют одинаковый maxIndex = 0, но free-model имеет приоритет 1 (выше)
+        // Both models have the same maxIndex = 0, but free-model has priority 1 (higher)
         assertTrue(result.isPresent());
         assertEquals("free-model", result.get().getName());
         assertEquals(1, result.get().getPriority());

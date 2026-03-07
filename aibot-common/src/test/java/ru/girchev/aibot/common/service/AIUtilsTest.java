@@ -14,66 +14,66 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class AIUtilsTest {
 
-    // Полный текст сказки для тестирования реалистичного стриминга
+    // Full fairy tale text for realistic streaming test
     private static final String FULL_FAIRY_TALE_TEXT = """
-            Окей, давай расскажу тебе сказку. Приготовься, ведь она может быть волшебной…
+            Ok, let me tell you a fairy tale. Get ready, for it may be magical…
             
             ***
             
-            В тихом краю, укрытом густыми лесами и журчащими ручьями, жила маленькая девочка по имени Лили. Лили была очень любопытна и любила собирать ракушки на берегу моря. Однажды, когда она собирала ракушки,\s
-            она наткнулась на старую, заброшенную хижину.  Не раздумывая, Лили проскользнула внутрь.
+            In a quiet land, sheltered by dense forests and babbling brooks, lived a little girl named Lily. Lily was very curious and loved to collect shells on the seashore. One day, as she was gathering shells,
+            she came upon an old, abandoned hut. Without a second thought, Lily slipped inside.
             
-            Внутри было темно и сыро, но в углу, на грубом, потемневшем столе, лежала старая, изящная шкатулка.  Лили осторожно открыла ее. Внутри лежала маленькая, сверкающая серебряной пылью фигурка: птичка, с\s
-            крыльями, словно сотканными из лунного света.\s
+            Inside it was dark and damp, but in the corner, on a rough, darkened table, lay an old, delicate casket. Lily opened it carefully. Inside was a small figure gleaming with silver dust: a bird with
+            wings as if woven from moonlight.
             
-            "Это - Перо Счастья," - прошептала фигурка. - "Оно может принести счастье тем, кто умеет верить в чудо."
+            "This is the Feather of Happiness," the figure whispered. "It can bring happiness to those who know how to believe in wonder."
             
-            Лили решила, что ей нужно найти способ использовать Перо Счастья.  Она отправилась в путь, и ее путь был полон опасностей.
+            Lily decided she must find a way to use the Feather of Happiness. She set off on a journey, and her path was full of dangers.
             
-            Первым испытанием стала Река Забытых Снов.  Вода в ней была очень глубокой, и если провалиться, то можно утонуть.  Лили, дрожа, переплыла через реку, используя только свою веру в то, что она смелая и\s
-            способная.
+            The first trial was the River of Forgotten Dreams. The water was very deep, and to fall in was to drown. Lily, trembling, swam across the river using only her faith that she was brave and
+            capable.
             
-            Затем она наткнулась на лес, где говорилось, что только те, кто искренне любит цветы, могут пройти сквозь его.  Лили внимательно изучила каждый цветок, и вскоре заметила, что каждая из них излучает\s
-            какую-то волшебную энергию.  Она посадила все цветы в небольшую лужайку, и по волшебству, она прошла сквозь лес, не чувствуя страха.
+            Then she came to a forest where it was said that only those who truly love flowers could pass through. Lily studied each flower carefully, and soon noticed that each one gave off
+            some kind of magical energy. She planted all the flowers in a small clearing, and as if by magic, she passed through the forest without fear.
             
-            Наконец, Лили добралась до Зачарованного Дома, где жили старые мудрые феи.  Но феи были очень скучными и не любили рассказывать истории. Лили попросила их рассказать ей сказку о настоящем чуде.
+            At last Lily reached the Enchanted House where the wise old fairies lived. But the fairies were very dull and did not like to tell stories. Lily asked them to tell her a tale of true wonder.
             
-            Феи, оторвавшись от своих дел, согласились.  Они рассказали Лили о Древнем Храме, который спрятан в глубине леса.  Внутри храма, по их словам, хранилось Волшебное Блеск –  нечто, что дарит истинное\s
-            счастье. \s
+            The fairies, leaving their work, agreed. They told Lily of the Ancient Temple hidden deep in the forest. Inside the temple, they said, was kept the Magic Shine—something that grants true
+            happiness.
             
-            Лили, вдохновленная рассказом феи, отправилась вглубь леса.  Когда она вышла к источнику, она увидела огромное озеро, в котором плавали маленькие светящиеся ручейки.  Добраться до самого центра озера\s
-            оказалось нелегко, но Лили верила в себя и в чудеса.
+            Lily, inspired by the fairies' tale, went deep into the forest. When she reached the spring, she saw a vast lake with little glowing streams. Reaching the very center of the lake
+            was not easy, but Lily believed in herself and in wonders.
             
-            И вот, она достигла сердца озера. Там, в самой глубине, лежала маска, которая светилась мягким, золотистым светом.  Под маской было написано: "Счастье – это не просто радость, но и благодарность за то,\s
-            что имеешь."
+            And so she reached the heart of the lake. There, in the depths, lay a mask that glowed with a soft, golden light. Beneath the mask was written: "Happiness is not only joy, but gratitude for what
+            you have."
             
-            Лили поняла, что Перо Счастья не дало ей самого счастья, а показало ей, что нужно ценить то, что она уже имеет -  свет, дружбу, любовь и возможности. \s
+            Lily understood that the Feather of Happiness had not given her happiness itself, but had shown her to value what she already had—light, friendship, love, and possibility.
             
-            Счастливая, Лили вернулась домой, а Перо Счастья остался у нее в руках. Она, не изменившись,  направилась в свою маленькую хижину и, глядя на  светящиеся ручейки, тихо прошептала: "Я буду благодарна за\s
-            все."
+            Happy, Lily returned home, and the Feather of Happiness remained in her hands. Unchanged, she went to her little hut and, gazing at the glowing streams, whispered quietly: "I will be grateful for
+            everything."
             
             ***
             
-            А теперь, мне нужно знать, что ты хочешь, чтобы я рассказала дальше? Может, ты хочешь узнать:
+            And now I need to know what you would like me to tell next? Perhaps you would like to know:
             
-            *   Что произошло с Пером Счастья?
-            *   Как Лили нашла Волшебное Блеск?
-            *   Как Лили использовала счастье, которое она получила?
-            *   Или ты хочешь, чтобы я рассказала еще одну сказку?
+            *   What happened to the Feather of Happiness?
+            *   How did Lily find the Magic Shine?
+            *   How did Lily use the happiness she received?
+            *   Or would you like me to tell another fairy tale?
             """;
 
     @Test
     void testProcessStreamingResponseByParagraphs_RealisticCharByCharStreaming() {
-        // Arrange: Максимально реалистичная симуляция стриминга - текст приходит посимвольно
-        // Это имитирует реальное поведение Spring AI / OpenAI streaming, где каждый токен приходит отдельно
+        // Arrange: realistic streaming simulation — text arrives character by character
+        // Mimics Spring AI / OpenAI streaming where each token arrives separately
         
-        // Разбиваем текст посимвольно (как в реальном стриминге)
+        // Split text character by character (as in real streaming)
         List<String> chunks = new ArrayList<>();
         for (char c : FULL_FAIRY_TALE_TEXT.toCharArray()) {
             chunks.add(String.valueOf(c));
         }
         
-        // Создаём Flux из посимвольных чанков
+        // Create Flux from character-sized chunks
         Flux<ChatResponse> responseFlux = Flux.fromIterable(chunks)
                 .map(this::createChatResponse);
         
@@ -87,48 +87,48 @@ class AIUtilsTest {
         );
         
         // Assert
-        assertNotNull(result, "Результат не должен быть null");
-        assertTrue(receivedParagraphs.size() == 8, "Должно быть получено много абзацев (сказка длинная)");
+        assertNotNull(result, "Result must not be null");
+        assertTrue(receivedParagraphs.size() == 8, "Should receive many paragraphs (tale is long)");
         
-        // Проверяем, что первый абзац начинается правильно
-        assertTrue(receivedParagraphs.getFirst().trim().startsWith("Окей, давай расскажу"),
-                "Первый абзац должен начинаться с 'Окей, давай расскажу'");
+        // First paragraph must start correctly
+        assertTrue(receivedParagraphs.getFirst().trim().startsWith("Ok, let me tell you"),
+                "First paragraph must start with 'Ok, let me tell you'");
         
-        // Проверяем, что последний абзац содержит ожидаемый текст
+        // Last paragraph must contain expected text
         String lastParagraph = receivedParagraphs.getLast().trim();
-        assertTrue(lastParagraph.contains("еще одну сказку"), 
-                "Последний абзац должен содержать текст о сказке");
+        assertTrue(lastParagraph.contains("another fairy tale"),
+                "Last paragraph must contain tale-related text");
         
-        // Проверяем, что все абзацы кроме последнего имеют разделитель
+        // All paragraphs except last must end with separator
         for (int i = 0; i < receivedParagraphs.size() - 1; i++) {
             assertTrue(receivedParagraphs.get(i).endsWith("\n\n"), 
-                    "Абзац " + i + " должен заканчиваться разделителем");
+                    "Paragraph " + i + " must end with separator");
         }
         
-        // Последний абзац не должен иметь разделитель
+        // Last paragraph must not end with separator
         assertFalse(receivedParagraphs.getLast().endsWith("\n\n"),
-                "Последний абзац НЕ должен заканчиваться разделителем");
+                "Last paragraph must NOT end with separator");
     }
 
     @Test
     void testProcessStreamingResponseByParagraphs_MixedChunkSizes() {
-        // Arrange: Реалистичная симуляция с разными размерами чанков (как в реальности)
-        // Иногда приходят отдельные символы, иногда слова, иногда фразы
-        // Используем полный текст сказки для максимальной реалистичности
+        // Arrange: realistic simulation with mixed chunk sizes (as in production)
+        // Sometimes single chars, sometimes words, sometimes phrases arrive
+        // Use full tale text for maximum realism
         
-        // Разбиваем текст на смешанные чанки (максимально реалистично)
-        // Имитируем реальное поведение: иногда по 1 символу, иногда по 2-3, иногда целые слова
+        // Split text into mixed chunks (as realistic as possible)
+        // Simulate real behaviour: sometimes 1 char, sometimes 2-3, sometimes whole words
         List<String> chunks = new ArrayList<>();
         int i = 0;
         while (i < FULL_FAIRY_TALE_TEXT.length()) {
-            // Случайный размер чанка: 1-5 символов (имитация реального стриминга)
+            // Random chunk size: 1-5 chars (simulate real streaming)
             int chunkSize = (i % 7 == 0) ? 1 : (i % 5 == 0) ? 2 : (i % 3 == 0) ? 3 : Math.min(5, FULL_FAIRY_TALE_TEXT.length() - i);
             int endIndex = Math.min(i + chunkSize, FULL_FAIRY_TALE_TEXT.length());
             chunks.add(FULL_FAIRY_TALE_TEXT.substring(i, endIndex));
             i = endIndex;
         }
         
-        // Создаём Flux из чанков
+        // Create Flux from chunks
         Flux<ChatResponse> responseFlux = Flux.fromIterable(chunks)
                 .map(this::createChatResponse);
         
@@ -142,33 +142,33 @@ class AIUtilsTest {
         );
         
         // Assert
-        assertNotNull(result, "Результат не должен быть null");
-        assertTrue(receivedParagraphs.size() == 8, "Должно быть получено много абзацев (сказка длинная)");
+        assertNotNull(result, "Result must not be null");
+        assertTrue(receivedParagraphs.size() == 8, "Should receive many paragraphs (tale is long)");
         
-        // Проверяем, что первый абзац начинается правильно
-        assertTrue(receivedParagraphs.getFirst().trim().startsWith("Окей, давай расскажу"),
-                "Первый абзац должен начинаться с 'Окей, давай расскажу'");
+        // First paragraph must start correctly
+        assertTrue(receivedParagraphs.getFirst().trim().startsWith("Ok, let me tell you"),
+                "First paragraph must start with 'Ok, let me tell you'");
         
-        // Проверяем, что последний абзац содержит ожидаемый текст
+        // Last paragraph must contain expected text
         String lastParagraph = receivedParagraphs.getLast().trim();
-        assertTrue(lastParagraph.contains("еще одну сказку"), 
-                "Последний абзац должен содержать текст о сказке");
+        assertTrue(lastParagraph.contains("another fairy tale"),
+                "Last paragraph must contain tale-related text");
         
-        // Проверяем, что все абзацы кроме последнего имеют разделитель
+        // All paragraphs except last must end with separator
         for (int j = 0; j < receivedParagraphs.size() - 1; j++) {
             assertTrue(receivedParagraphs.get(j).endsWith("\n\n"), 
-                    "Абзац " + j + " должен заканчиваться разделителем");
+                    "Paragraph " + j + " must end with separator");
         }
         
-        // Последний абзац не должен иметь разделитель
+        // Last paragraph must not end with separator
         assertFalse(receivedParagraphs.getLast().endsWith("\n\n"),
-                "Последний абзац НЕ должен заканчиваться разделителем");
+                "Last paragraph must NOT end with separator");
     }
 
     @Test
     void testProcessStreamingResponseByParagraphs_SingleParagraph() {
         // Arrange
-        String singleParagraph = "Единственный абзац текста.";
+        String singleParagraph = "Single paragraph of text.";
         Flux<ChatResponse> responseFlux = Flux.just(createChatResponse(singleParagraph));
 
         List<String> receivedBlocks = new ArrayList<>();
@@ -187,9 +187,9 @@ class AIUtilsTest {
 
     @Test
     void testProcessStreamingResponseByParagraphs_EmptyParagraphsFiltered() {
-        // Arrange: текст с пустыми абзацами между содержательными
-        String paragraph1 = "Первый абзац.";
-        String paragraph2 = "Второй абзац.";
+        // Arrange: text with empty paragraphs between content
+        String paragraph1 = "First paragraph.";
+        String paragraph2 = "Second paragraph.";
 
         String textWithEmptyParagraphs = paragraph1 + "\n\n\n\n" + paragraph2;
 
@@ -204,7 +204,7 @@ class AIUtilsTest {
                 receivedBlocks::add
         );
 
-        // Assert: пустые абзацы должны быть отфильтрованы
+        // Assert: empty paragraphs must be filtered out
         assertEquals(1, receivedBlocks.size());
         assertTrue(receivedBlocks.getFirst().contains(paragraph1));
         assertTrue(receivedBlocks.getFirst().contains(paragraph2));
@@ -212,11 +212,11 @@ class AIUtilsTest {
 
     @Test
     void testProcessStreamingResponseByParagraphs_IncompleteParagraphInTail() {
-        // Arrange: текст приходит кусками, последний кусок - незавершенный абзац
+        // Arrange: text arrives in chunks, last chunk is incomplete paragraph
         Flux<ChatResponse> responseFlux = Flux.just(
-                createChatResponse("Первый абзац.\n\n"),
-                createChatResponse("Второй абз"), // неполный абзац
-                createChatResponse("ац завершен.")
+                createChatResponse("First paragraph.\n\n"),
+                createChatResponse("Second parag"), // incomplete
+                createChatResponse("raph done.")
         );
 
         List<String> receivedBlocks = new ArrayList<>();
@@ -234,9 +234,9 @@ class AIUtilsTest {
 
     @Test
     void testProcessStreamingResponseByParagraphs_MultilineChunks() {
-        // Arrange: один chunk содержит несколько коротких абзацев
-        // Короткие абзацы (< 100 символов) должны объединяться
-        String chunk = "Абзац 1.\n\nАбзац 2.\n\nАбзац 3.";
+        // Arrange: one chunk contains several short paragraphs
+        // Short paragraphs (< 100 chars) must be merged
+        String chunk = "Paragraph 1.\n\nParagraph 2.\n\nParagraph 3.";
         Flux<ChatResponse> responseFlux = Flux.just(createChatResponse(chunk));
 
         List<String> receivedBlocks = new ArrayList<>();
@@ -248,22 +248,20 @@ class AIUtilsTest {
                 receivedBlocks::add
         );
 
-        // Assert: короткие абзацы объединяются
-        // Может быть 1 или 2 блока в зависимости от того, когда накопится 100 символов
-        assertTrue(receivedBlocks.size() <= 2, "Короткие абзацы должны быть объединены (не более 2 блоков)");
+        // Assert: short paragraphs are merged (1 or 2 blocks depending on when 100 chars is reached)
+        assertTrue(receivedBlocks.size() <= 2, "Short paragraphs must be merged (at most 2 blocks)");
         
-        // Проверяем, что все абзацы присутствуют
+        // All paragraphs must be present
         String allText = String.join(" ", receivedBlocks);
-        assertTrue(allText.contains("Абзац 1"), "Должен содержать Абзац 1");
-        assertTrue(allText.contains("Абзац 2"), "Должен содержать Абзац 2");
-        assertTrue(allText.contains("Абзац 3"), "Должен содержать Абзац 3");
+        assertTrue(allText.contains("Paragraph 1"), "Must contain Paragraph 1");
+        assertTrue(allText.contains("Paragraph 2"), "Must contain Paragraph 2");
+        assertTrue(allText.contains("Paragraph 3"), "Must contain Paragraph 3");
     }
 
     @Test
     void testProcessStreamingResponseByParagraphs_ShortParagraphsFiltering() {
-        // Arrange: текст с очень короткими параграфами (например, ***)
-        // которые должны объединяться с соседними параграфами
-        String text = "Начало истории.\n\n***\n\nПродолжение истории с достаточно длинным текстом, чтобы превысить минимальную длину параграфа в сто символов для отправки.\n\n***\n\nКонец истории.";
+        // Arrange: text with very short paragraphs (e.g. ***) that must be merged with neighbours
+        String text = "Start of story.\n\n***\n\nContinuation of story with long enough text to exceed the minimum paragraph length of one hundred characters for sending.\n\n***\n\nEnd of story.";
         
         Flux<ChatResponse> responseFlux = Flux.just(createChatResponse(text));
         List<String> receivedBlocks = new ArrayList<>();
@@ -275,25 +273,24 @@ class AIUtilsTest {
                 receivedBlocks::add
         );
 
-        // Assert: короткие параграфы (***) не должны отправляться отдельно
-        // Они должны быть объединены с соседними параграфами
-        assertTrue(receivedBlocks.size() <= 3, "Короткие параграфы должны быть объединены с соседними");
+        // Assert: short paragraphs (***) must not be sent alone; they must be merged with neighbours
+        assertTrue(receivedBlocks.size() <= 3, "Short paragraphs must be merged with neighbours");
         
-        // Проверяем, что все части текста присутствуют
+        // All parts of text must be present
         String allText = String.join(" ", receivedBlocks);
-        assertTrue(allText.contains("Начало истории"), "Должно содержать начало");
-        assertTrue(allText.contains("***"), "Должно содержать разделители");
-        assertTrue(allText.contains("Продолжение истории"), "Должно содержать продолжение");
-        assertTrue(allText.contains("Конец истории"), "Должно содержать конец");
+        assertTrue(allText.contains("Start of story"), "Must contain start");
+        assertTrue(allText.contains("***"), "Must contain separators");
+        assertTrue(allText.contains("Continuation of story"), "Must contain continuation");
+        assertTrue(allText.contains("End of story"), "Must contain end");
         
-        // Проверяем, что *** не является отдельным блоком
+        // *** must not be a separate block
         for (String block : receivedBlocks) {
-            assertFalse(block.trim().equals("***"), "*** не должен быть отдельным блоком");
+            assertFalse(block.trim().equals("***"), "*** must not be a separate block");
         }
     }
 
     /**
-     * Вспомогательный метод для создания ChatResponse с заданным текстом
+     * Helper to create ChatResponse with given text.
      */
     private ChatResponse createChatResponse(String text) {
         AssistantMessage message = new AssistantMessage(text);

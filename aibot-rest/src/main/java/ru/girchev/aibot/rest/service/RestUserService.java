@@ -17,7 +17,7 @@ public class RestUserService {
     private final AssistantRoleService assistantRoleService;
     
     /**
-     * Получает или создает пользователя по email
+     * Gets or creates user by email
      */
     @Transactional
     public RestUser getOrCreateUser(String email) {
@@ -34,36 +34,36 @@ public class RestUserService {
     }
     
     /**
-     * Получает активную роль ассистента для пользователя
-     * @param user пользователь
-     * @param defaultContent содержание роли по умолчанию
-     * @return активная роль
+     * Gets active assistant role for user.
+     * @param user user
+     * @param defaultContent default role content
+     * @return active role
      */
     @Transactional
     public AssistantRole getOrCreateAssistantRole(RestUser user, String defaultContent) {
-        // Важно: сюда часто приходит detatched user (метод вызывается из bulkhead потока).
-        // Поэтому сначала заново загружаем пользователя в текущую сессию, а роль - инициализируем.
+        // Important: often receives detached user (method called from bulkhead thread).
+        // So we reload user into current session first, then init role.
         String email = user.getEmail();
         if (email == null) {
             throw new IllegalArgumentException("email is null");
         }
 
         RestUser managedUser = restUserRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Пользователь не найден"));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Проверяем, есть ли связь с ролью
+        // Check if user has role
         AssistantRole role = managedUser.getCurrentAssistantRole();
         if (role == null) {
-            // Получаем или создаем роль
+            // Get or create role
             role = assistantRoleService.getOrCreateDefaultRole(managedUser, defaultContent);
 
-            // Сохраняем ссылку в пользователе
+            // Save reference in user
             managedUser.setCurrentAssistantRole(role);
             restUserRepository.save(managedUser);
         }
 
-        // Принудительно инициализируем нужные поля роли внутри транзакции,
-        // чтобы потом безопасно использовать их вне Hibernate Session
+        // Force-init role fields inside transaction
+        // so we can use them safely outside Hibernate Session
         role.getId();
         role.getVersion();
         role.getContent();
@@ -72,14 +72,14 @@ public class RestUserService {
     }
     
     /**
-     * Находит пользователя по email
+     * Finds user by email
      */
     public Optional<RestUser> findByEmail(String email) {
         return restUserRepository.findByEmail(email);
     }
     
     /**
-     * Находит пользователя по id
+     * Finds user by id
      */
     public Optional<RestUser> findById(Long id) {
         return restUserRepository.findById(id);

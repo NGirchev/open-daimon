@@ -11,9 +11,10 @@ import ru.girchev.aibot.telegram.command.handler.TelegramSupportedCommandProvide
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
- * Сервис для установки меню команд Telegram бота
+ * Service for setting up Telegram bot command menu.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -22,20 +23,23 @@ public class TelegramBotMenuService {
     private final ObjectProvider<TelegramBot> telegramBotProvider;
     private final ObjectProvider<TelegramSupportedCommandProvider> commandHandlersProvider;
 
+    private static final Set<String> SUPPORTED_MENU_LANGUAGES = Set.of("ru", "en");
+
     /**
-     * Устанавливает меню команд для бота на основе обработчиков команд
+     * Sets bot command menu for each supported language (ru, en). Telegram shows the menu in the user's app language.
      */
     public void setupBotMenu() {
         try {
-            List<BotCommand> commands = buildCommandsList();
-            if (commands.isEmpty()) {
-                log.warn("No commands found to set up bot menu");
-                return;
-            }
-            
             TelegramBot bot = telegramBotProvider.getObject();
-            bot.setMyCommands(commands);
-            log.info("Bot menu successfully configured with {} commands", commands.size());
+            for (String lang : SUPPORTED_MENU_LANGUAGES) {
+                List<BotCommand> commands = buildCommandsList(lang);
+                if (commands.isEmpty()) {
+                    log.warn("No commands found for language {}", lang);
+                    continue;
+                }
+                bot.setMyCommands(commands, lang);
+            }
+            log.info("Bot menu configured for languages: {}", SUPPORTED_MENU_LANGUAGES);
         } catch (TelegramApiException e) {
             log.error("Failed to set up bot menu", e);
             throw new RuntimeException("Failed to set up bot menu", e);
@@ -43,14 +47,12 @@ public class TelegramBotMenuService {
     }
 
     /**
-     * Строит список команд из обработчиков
-     * @return список команд для меню
+     * Builds list of commands from handlers for the given language.
      */
-    private List<BotCommand> buildCommandsList() {
+    private List<BotCommand> buildCommandsList(String languageCode) {
         List<BotCommand> commands = new ArrayList<>();
-        
         commandHandlersProvider.orderedStream()
-                .map(TelegramSupportedCommandProvider::getSupportedCommandText)
+                .map(h -> h.getSupportedCommandText(languageCode))
                 .filter(Objects::nonNull)
                 .forEach(commandText -> {
                     BotCommand command = parseCommandText(commandText);
@@ -58,14 +60,13 @@ public class TelegramBotMenuService {
                         commands.add(command);
                     }
                 });
-        
         return commands;
     }
 
     /**
-     * Парсит строку вида "/command - описание" в BotCommand
-     * @param commandText строка с командой и описанием
-     * @return BotCommand или null, если не удалось распарсить
+     * Parses string of form "/command - description" into BotCommand.
+     * @param commandText string with command and description
+     * @return BotCommand or null if parsing failed
      */
     private BotCommand parseCommandText(String commandText) {
         if (commandText == null || commandText.trim().isEmpty()) {
@@ -76,7 +77,7 @@ public class TelegramBotMenuService {
         int dashIndex = trimmed.indexOf(" - ");
         
         if (dashIndex == -1) {
-            // Если нет описания, используем команду как есть
+            // If no description, use command as is
             String command = trimmed.startsWith("/") ? trimmed : "/" + trimmed;
             return new BotCommand(command, "");
         }
@@ -84,12 +85,12 @@ public class TelegramBotMenuService {
         String command = trimmed.substring(0, dashIndex).trim();
         String description = trimmed.substring(dashIndex + 3).trim();
         
-        // Убеждаемся, что команда начинается с /
+        // Ensure command starts with /
         if (!command.startsWith("/")) {
             command = "/" + command;
         }
         
-        // Ограничиваем длину описания (Telegram ограничивает до 256 символов)
+        // Limit description length (Telegram max 256 chars)
         if (description.length() > 256) {
             description = description.substring(0, 253) + "...";
         }

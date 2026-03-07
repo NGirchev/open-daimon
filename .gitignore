@@ -12,7 +12,7 @@
 /aibot-spring-ai/target/
 /telegram-utils/target/
 /.idea/
-# Исключение: отслеживать конфигурации запуска
+# Exception: track run configurations
 !/.idea/runConfigurations/
 !/.idea/runConfigurations/Application.xml
 

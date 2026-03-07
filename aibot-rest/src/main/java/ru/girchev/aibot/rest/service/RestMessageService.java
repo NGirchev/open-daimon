@@ -12,9 +12,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Сервис для работы с REST сообщениями.
- * Создает Message Entity для REST API запросов.
- * Заменяет RestApiUserRequestService.
+ * Service for REST messages.
+ * Creates Message entity for REST API requests.
+ * Replaces RestApiUserRequestService.
  */
 @RequiredArgsConstructor
 public class RestMessageService {
@@ -24,10 +24,10 @@ public class RestMessageService {
     private final CoreCommonProperties coreCommonProperties;
     
     /**
-     * Сохраняет USER сообщение от REST пользователя с conversation thread
-     * Автоматически получает или создает активный thread и роль для пользователя
-     * 
-     * @param assistantRoleContent опциональное содержание роли ассистента (если null, используется дефолтная)
+     * Saves USER message from REST user with conversation thread.
+     * Automatically gets or creates active thread and role for the user.
+     *
+     * @param assistantRoleContent optional assistant role content (if null, default is used)
      */
     @Transactional
     public AIBotMessage saveUserMessage(
@@ -37,19 +37,19 @@ public class RestMessageService {
             String assistantRoleContent,
             HttpServletRequest request) {
         
-        // Получаем или создаем роль ассистента для пользователя через RestUserService
+        // Get or create assistant role for user via RestUserService
         String roleContent = assistantRoleContent != null 
                 ? assistantRoleContent 
                 : coreCommonProperties.getAssistantRole();
         AssistantRole assistantRole = restUserService.getOrCreateAssistantRole(user, roleContent);
         
-        // Подготавливаем REST-специфичные метаданные
+        // Prepare REST-specific metadata
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("client_ip", getClientIp(request));
         metadata.put("user_agent", request.getHeader("User-Agent"));
         metadata.put("endpoint", request.getRequestURI());
         
-        // Используем базовый MessageService для сохранения сообщения
+        // Use base MessageService to save message
         return messageService.saveUserMessage(
                 user, 
                 content, 
@@ -67,7 +67,7 @@ public class RestMessageService {
     }
 
     /**
-     * Получает client_ip из metadata сообщения (для REST)
+     * Gets client_ip from message metadata (for REST)
      */
     public String getClientIpFromMetadata(AIBotMessage message) {
         if (message.getMetadata() == null) {
@@ -78,7 +78,7 @@ public class RestMessageService {
     }
 
     /**
-     * Получает user_agent из metadata сообщения (для REST)
+     * Gets user_agent from message metadata (for REST)
      */
     public String getUserAgentFromMetadata(AIBotMessage message) {
         if (message.getMetadata() == null) {
@@ -89,7 +89,7 @@ public class RestMessageService {
     }
 
     /**
-     * Получает endpoint из metadata сообщения (для REST)
+     * Gets endpoint from message metadata (for REST)
      */
     public String getEndpointFromMetadata(AIBotMessage message) {
         if (message.getMetadata() == null) {

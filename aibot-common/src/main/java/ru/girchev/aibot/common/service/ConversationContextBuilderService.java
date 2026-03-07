@@ -78,9 +78,9 @@ public class ConversationContextBuilderService {
         
         // 2. Add summary (if present)
         if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
-            String summaryContent = "Краткое содержание предыдущей беседы:\n" + thread.getSummary();
+            String summaryContent = "Summary of previous conversation:\n" + thread.getSummary();
             if (thread.getMemoryBullets() != null && !thread.getMemoryBullets().isEmpty()) {
-                summaryContent += "\n\nКлючевые моменты:\n" + 
+                summaryContent += "\n\nKey points:\n" + 
                     String.join("\n", thread.getMemoryBullets());
             }
             int summaryTokens = tokenCounter.estimateTokens(summaryContent);

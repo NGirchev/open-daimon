@@ -36,8 +36,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * Тест для механизма ретраев и ротации моделей OpenRouter.
- * Использует OpenRouterRotationRegistry для получения кандидатов и записи статистики.
+ * Test for OpenRouter retry and model rotation.
+ * Uses OpenRouterRotationRegistry to get candidates and record stats.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -92,7 +92,7 @@ class OpenRouterModelRotationAspectTest {
 
     @Test
     void whenNonFreeModel_thenProceedWithoutRotation() throws Throwable {
-        // Arrange: модель без FREE — реестр возвращает одного кандидата
+        // Arrange: model without FREE — registry returns one candidate
         aspect = new OpenRouterModelRotationAspect(registry, 3);
         modelConfig.setName("gpt-4");
         modelConfig.setCapabilities(List.of(ModelCapabilities.CHAT));
@@ -275,7 +275,7 @@ class OpenRouterModelRotationAspectTest {
     }
 
     @Test
-    @Disabled("Может дёргать реальный API при подписке на Flux. Требует ручного запуска.")
+    @Disabled("May call real API when subscribing to Flux. Requires manual run.")
     void whenStreamRequest_thenRotateOnError() throws Throwable {
         aspect = new OpenRouterModelRotationAspect(registry, 3);
         List<SpringAIModelConfig> candidates = List.of(configWithName("model1:free"), configWithName("model2:free"));

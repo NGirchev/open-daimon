@@ -40,23 +40,23 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Интеграционный тест для Telegram модуля с реальным Telegram Bot API.
- * 
- * <p><b>Цель:</b> Протестировать модуль aibot-telegram целиком без моков - 
- * реальные бины, реальная БД, реальный Telegram API.
- * 
- * <p>Этот тест проверяет работу TelegramBot с реальным Telegram API.
- * Тест по умолчанию отключен (@Disabled), так как требует реальных credentials.
- * 
- * <p>Для запуска теста:
+ * Integration test for Telegram module with real Telegram Bot API.
+ *
+ * <p><b>Goal:</b> Test aibot-telegram module end-to-end without mocks —
+ * real beans, real DB, real Telegram API.
+ *
+ * <p>This test verifies TelegramBot with real Telegram API.
+ * Test is disabled by default (@Disabled) as it requires real credentials.
+ *
+ * <p>To run the test:
  * <ol>
- *   <li>Убедитесь что файл .env содержит TELEGRAM_TOKEN, TELEGRAM_USERNAME и ADMIN_TELEGRAM_ID</li>
- *   <li>Удалите @Disabled с нужного теста или со всего класса</li>
- *   <li>Запустите тест</li>
+ *   <li>Ensure .env contains TELEGRAM_TOKEN, TELEGRAM_USERNAME and ADMIN_TELEGRAM_ID</li>
+ *   <li>Remove @Disabled from the test or the whole class</li>
+ *   <li>Run the test</li>
  * </ol>
  */
 @Slf4j
-@Disabled("Требует реальные Telegram credentials. Удалите @Disabled для локального запуска.")
+@Disabled("Requires real Telegram credentials. Remove @Disabled for local run.")
 @SpringBootTest(
         classes = TelegramRealGatewayIT.TestConfig.class,
         properties = {
@@ -98,26 +98,25 @@ class TelegramRealGatewayIT {
     private AIBotMessageRepository messageRepository;
 
     /**
-     * Тест отправки сообщения через реальный Telegram API.
+     * Test sending a message via real Telegram API.
      * <p>
-     * Для запуска установите переменную окружения TEST_TELEGRAM_CHAT_ID
-     * с вашим chat ID (можно получить через @userinfobot в Telegram).
+     * To run, set env var TEST_TELEGRAM_CHAT_ID to your chat ID (e.g. from @userinfobot in Telegram).
      */
     @Test
     void messageCommand_sendsRealTelegramMessage() {
         // Arrange
         assertThat(telegramBot.getBotToken())
-                .as("TELEGRAM_TOKEN должен быть установлен")
+                .as("TELEGRAM_TOKEN must be set")
                 .isNotBlank();
         assertThat(telegramBot.getBotUsername())
-                .as("TELEGRAM_USERNAME должен быть установлен")
+                .as("TELEGRAM_USERNAME must be set")
                 .isNotBlank();
 
         log.info("=== Testing real Telegram message command ===");
         log.info("Bot: @{}", telegramBot.getBotUsername());
         log.info("Chat ID: {}", adminTelegramId);
 
-        // Создаём имитацию Update с реальным chatId
+        // Create mock Update with real chatId
         var update = new Update();
 
         var from = new User();
@@ -132,7 +131,7 @@ class TelegramRealGatewayIT {
         var chat = new Chat();
         chat.setId(adminTelegramId);
         msg.setChat(chat);
-        msg.setText("Тестовое сообщение из интеграционного теста");
+        msg.setText("Test message from integration test");
         msg.setFrom(from);
         update.setMessage(msg);
 
@@ -145,46 +144,45 @@ class TelegramRealGatewayIT {
         );
         command.stream(false);
 
-        // Act - выполняем обработку, это отправит реальное сообщение в Telegram
+        // Act - run handling; this sends a real message to Telegram
         messageHandler.handle(command);
 
         // Assert
         assertThat(messageRepository.count())
-                .as("Сообщения должны быть сохранены в БД")
+                .as("Messages must be saved to DB")
                 .isGreaterThanOrEqualTo(2);
         
         log.info("=== Real Telegram message test completed successfully ===");
     }
 
     /**
-     * Тест прямой отправки сообщения через TelegramBot.sendMessage()
+     * Test direct message send via TelegramBot.sendMessage()
      */
     @Test
     void directSendMessage_sendsRealTelegramMessage() throws TelegramApiException {
         // Arrange
         assertThat(telegramBot.getBotToken())
-                .as("TELEGRAM_TOKEN должен быть установлен")
+                .as("TELEGRAM_TOKEN must be set")
                 .isNotBlank();
 
         log.info("=== Testing direct Telegram send message ===");
         log.info("Bot: @{}", telegramBot.getBotUsername());
         log.info("Chat ID: {}", adminTelegramId);
 
-        // Act - отправляем прямое сообщение через Telegram API
-        telegramBot.sendMessage(adminTelegramId, "🧪 Прямое тестовое сообщение из TelegramRealGatewayIT");
+        // Act - send direct message via Telegram API
+        telegramBot.sendMessage(adminTelegramId, "🧪 Direct test message from TelegramRealGatewayIT");
         
         log.info("=== Direct send message test completed successfully ===");
     }
 
     // ==================== FILE UPLOAD TESTS ====================
-    // 
-    // ВАЖНО: Следующие тесты являются ФИНАЛЬНЫМИ тестами для Agent 1.
-    // Они требуют включённых feature flags:
+    //
+    // NOTE: The following tests require feature flags:
     //   - ai-bot.common.storage.enabled=true
     //   - ai-bot.telegram.file-upload.enabled=true
-    // И запущенного MinIO сервера (docker-compose up minio).
-    // 
-    // Тесты должны запускаться пользователем вручную после настройки окружения.
+    // And MinIO server running (docker-compose up minio).
+    //
+    // Run these tests manually after setting up the environment.
     // ===========================================================
 
     @Autowired(required = false)
@@ -194,73 +192,71 @@ class TelegramRealGatewayIT {
     private ObjectProvider<FileStorageService> storageServiceProvider;
 
     /**
-     * ФИНАЛЬНЫЙ ТЕСТ для Agent 1: Обработка фото из Telegram и сохранение в MinIO.
-     * 
-     * <p>Для запуска этого теста необходимо:
+     * Test: process photo from Telegram and save to MinIO.
+     *
+     * <p>To run this test:
      * <ol>
-     *   <li>Запустить MinIO: docker-compose up minio</li>
-     *   <li>Включить feature flags в TestPropertySource:
+     *   <li>Start MinIO: docker-compose up minio</li>
+     *   <li>Enable feature flags in TestPropertySource:
      *       <ul>
      *         <li>ai-bot.common.storage.enabled=true</li>
      *         <li>ai-bot.telegram.file-upload.enabled=true</li>
      *       </ul>
      *   </li>
-     *   <li>Отправить боту реальное фото в Telegram</li>
-     *   <li>Удалить @Disabled с этого теста</li>
+     *   <li>Send a real photo to the bot in Telegram</li>
+     *   <li>Remove @Disabled from this test</li>
      * </ol>
-     * 
-     * <p>Тест демонстрирует полный цикл:
+     *
+     * <p>Test demonstrates full flow:
      * <ol>
-     *   <li>TelegramBot получает Update с фото</li>
-     *   <li>TelegramFileService скачивает фото через Telegram API</li>
-     *   <li>MinioFileStorageService сохраняет файл в bucket</li>
-     *   <li>TelegramCommand содержит Attachment с метаданными</li>
+     *   <li>TelegramBot receives Update with photo</li>
+     *   <li>TelegramFileService downloads photo via Telegram API</li>
+     *   <li>MinioFileStorageService saves file to bucket</li>
+     *   <li>TelegramCommand contains Attachment with metadata</li>
      * </ol>
      */
     @Test
-    @Disabled("ФИНАЛЬНЫЙ ТЕСТ: Требует MinIO и реальное фото от пользователя")
+    @Disabled("Requires MinIO and a real photo from user")
     void photoCommand_savesToMinioStorage() {
         log.info("=== Testing photo upload to MinIO ===");
         
-        // Проверка что сервисы доступны
+        // Ensure services are available
         assertThat(fileServiceProvider)
-                .as("TelegramFileService должен быть доступен (включите ai-bot.telegram.file-upload.enabled=true)")
+                .as("TelegramFileService must be available (enable ai-bot.telegram.file-upload.enabled=true)")
                 .isNotNull();
         assertThat(storageServiceProvider)
-                .as("FileStorageService должен быть доступен (включите ai-bot.common.storage.enabled=true)")
+                .as("FileStorageService must be available (enable ai-bot.common.storage.enabled=true)")
                 .isNotNull();
 
         TelegramFileService fileService = fileServiceProvider.getIfAvailable();
         FileStorageService storageService = storageServiceProvider.getIfAvailable();
         
         assertThat(fileService)
-                .as("TelegramFileService bean должен быть создан")
+                .as("TelegramFileService bean must be created")
                 .isNotNull();
         assertThat(storageService)
-                .as("FileStorageService bean должен быть создан")
+                .as("FileStorageService bean must be created")
                 .isNotNull();
 
-        // Создаём имитацию Update с фото
-        // ПРИМЕЧАНИЕ: В реальном сценарии Update приходит от Telegram API
-        // Здесь мы тестируем инфраструктуру без реального фото
+        // Create mock Update with photo (in real scenario Update comes from Telegram API)
         var update = createUpdateWithPhoto();
         var command = telegramBot.mapToTelegramPhotoCommand(update);
 
         // Assert
         assertThat(command.attachments())
-                .as("Команда должна содержать вложения")
+                .as("Command must contain attachments")
                 .hasSize(1);
         assertThat(command.attachments().get(0).type())
-                .as("Тип вложения должен быть IMAGE")
+                .as("Attachment type must be IMAGE")
                 .isEqualTo(AttachmentType.IMAGE);
         assertThat(command.attachments().get(0).key())
-                .as("Файл должен иметь ключ хранилища")
+                .as("File must have storage key")
                 .startsWith("photo/");
 
-        // Проверяем что файл сохранён в MinIO
+        // Verify file is saved in MinIO
         String storageKey = command.attachments().get(0).key();
         assertThat(storageService.exists(storageKey))
-                .as("Файл должен существовать в MinIO")
+                .as("File must exist in MinIO")
                 .isTrue();
 
         log.info("Photo saved to MinIO: key={}, mimeType={}, size={}", 
@@ -271,47 +267,47 @@ class TelegramRealGatewayIT {
     }
 
     /**
-     * ФИНАЛЬНЫЙ ТЕСТ для Agent 1: Обработка PDF документа из Telegram и сохранение в MinIO.
-     * 
-     * <p>Для запуска этого теста необходимо:
+     * Test: process PDF document from Telegram and save to MinIO.
+     *
+     * <p>To run this test:
      * <ol>
-     *   <li>Запустить MinIO: docker-compose up minio</li>
-     *   <li>Включить feature flags в TestPropertySource</li>
-     *   <li>Отправить боту реальный PDF документ в Telegram</li>
-     *   <li>Удалить @Disabled с этого теста</li>
+     *   <li>Start MinIO: docker-compose up minio</li>
+     *   <li>Enable feature flags in TestPropertySource</li>
+     *   <li>Send a real PDF document to the bot in Telegram</li>
+     *   <li>Remove @Disabled from this test</li>
      * </ol>
      */
     @Test
-    @Disabled("ФИНАЛЬНЫЙ ТЕСТ: Требует MinIO и реальный PDF от пользователя")
+    @Disabled("Requires MinIO and a real PDF from user")
     void documentCommand_savesPdfToMinioStorage() {
         log.info("=== Testing PDF document upload to MinIO ===");
 
-        // Проверка что сервисы доступны
+        // Ensure services are available
         TelegramFileService fileService = fileServiceProvider.getIfAvailable();
         FileStorageService storageService = storageServiceProvider.getIfAvailable();
         
-        assertThat(fileService).as("TelegramFileService должен быть доступен").isNotNull();
-        assertThat(storageService).as("FileStorageService должен быть доступен").isNotNull();
+        assertThat(fileService).as("TelegramFileService must be available").isNotNull();
+        assertThat(storageService).as("FileStorageService must be available").isNotNull();
 
-        // Создаём имитацию Update с PDF документом
+        // Create mock Update with PDF document
         var update = createUpdateWithPdfDocument();
         var command = telegramBot.mapToTelegramDocumentCommand(update);
 
         // Assert
         assertThat(command.attachments())
-                .as("Команда должна содержать вложения")
+                .as("Command must contain attachments")
                 .hasSize(1);
         assertThat(command.attachments().get(0).type())
-                .as("Тип вложения должен быть PDF")
+                .as("Attachment type must be PDF")
                 .isEqualTo(AttachmentType.PDF);
         assertThat(command.attachments().get(0).key())
-                .as("Файл должен иметь ключ хранилища")
+                .as("File must have storage key")
                 .startsWith("document/");
 
-        // Проверяем что файл сохранён в MinIO
+        // Verify file is saved in MinIO
         String storageKey = command.attachments().get(0).key();
         assertThat(storageService.exists(storageKey))
-                .as("Файл должен существовать в MinIO")
+                .as("File must exist in MinIO")
                 .isTrue();
 
         log.info("PDF saved to MinIO: key={}, mimeType={}, size={}", 
@@ -322,8 +318,8 @@ class TelegramRealGatewayIT {
     }
 
     /**
-     * Создаёт Update с фото для тестирования.
-     * ПРИМЕЧАНИЕ: fileId должен быть реальным для работы с Telegram API.
+     * Creates Update with photo for testing.
+     * NOTE: fileId must be real when using Telegram API.
      */
     private Update createUpdateWithPhoto() {
         var update = new Update();
@@ -342,10 +338,9 @@ class TelegramRealGatewayIT {
         msg.setFrom(from);
         msg.setCaption("Test photo caption");
         
-        // PhotoSize - в реальном сценарии fileId приходит от Telegram API
-        // Для тестирования с реальным API нужно использовать реальный fileId
+        // PhotoSize - in real scenario fileId comes from Telegram API; use real fileId for real API testing
         var photo = new PhotoSize();
-        photo.setFileId("TEST_FILE_ID_PHOTO"); // Замените на реальный fileId
+        photo.setFileId("TEST_FILE_ID_PHOTO"); // Replace with real fileId for real API
         photo.setFileUniqueId("unique_id");
         photo.setWidth(800);
         photo.setHeight(600);
@@ -358,8 +353,8 @@ class TelegramRealGatewayIT {
     }
 
     /**
-     * Создаёт Update с PDF документом для тестирования.
-     * ПРИМЕЧАНИЕ: fileId должен быть реальным для работы с Telegram API.
+     * Creates Update with PDF document for testing.
+     * NOTE: fileId must be real when using Telegram API.
      */
     private Update createUpdateWithPdfDocument() {
         var update = new Update();
@@ -378,9 +373,9 @@ class TelegramRealGatewayIT {
         msg.setFrom(from);
         msg.setCaption("Test PDF document");
         
-        // Document - в реальном сценарии fileId приходит от Telegram API
+        // Document - in real scenario fileId comes from Telegram API
         var doc = new Document();
-        doc.setFileId("TEST_FILE_ID_PDF"); // Замените на реальный fileId
+        doc.setFileId("TEST_FILE_ID_PDF"); // Replace with real fileId for real API
         doc.setFileUniqueId("unique_id");
         doc.setFileName("test-document.pdf");
         doc.setMimeType("application/pdf");

@@ -5,7 +5,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 
 /**
- * Контроллер для отображения страниц UI
+ * Controller for UI pages
  */
 @Controller
 public class PageController {
@@ -14,7 +14,7 @@ public class PageController {
 
     @GetMapping("/")
     public String index(HttpSession session) {
-        // Проверяем, авторизован ли пользователь
+        // Check if user is authenticated
         String email = (String) session.getAttribute(SESSION_EMAIL_KEY);
         if (email == null || email.isBlank()) {
             return "redirect:/login";
@@ -29,7 +29,7 @@ public class PageController {
 
     @GetMapping("/chat")
     public String chat(HttpSession session) {
-        // Проверяем, авторизован ли пользователь
+        // Check if user is authenticated
         String email = (String) session.getAttribute(SESSION_EMAIL_KEY);
         if (email == null || email.isBlank()) {
             return "redirect:/login";

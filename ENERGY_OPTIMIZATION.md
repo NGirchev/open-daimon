@@ -1,121 +1,121 @@
-# Оптимизация энергопотребления Ubuntu Server
+# Ubuntu Server Energy Optimization
 
-Документация по оптимизации энергопотребления Ubuntu Server на ноутбуке для проекта AI Bot.
+Documentation for optimizing power consumption of Ubuntu Server on a laptop for the AI Bot project.
 
-## ✅ Что уже сделано
+## ✅ What Has Been Done
 
-### 1. TLP (Автоматическая оптимизация энергопотребления)
+### 1. TLP (Automatic Power Optimization)
 ```bash
 sudo apt install tlp tlp-rdw
 sudo systemctl enable tlp
 sudo systemctl start tlp
 ```
-**Статус**: ✅ Установлено и запущено  
-**Эффект**: Автоматическая оптимизация CPU, дисков, сети, USB  
-**Откат**: `sudo systemctl disable tlp && sudo systemctl stop tlp`
+**Status**: ✅ Installed and running  
+**Effect**: Automatic optimization of CPU, disks, network, USB  
+**Rollback**: `sudo systemctl disable tlp && sudo systemctl stop tlp`
 
-### 2. Отключение Bluetooth
+### 2. Disabling Bluetooth
 ```bash
 sudo systemctl disable bluetooth
 ```
-**Статус**: ✅ Отключено  
-**Эффект**: Экономия энергии, если Bluetooth не используется  
-**Откат**: `sudo systemctl enable bluetooth && sudo systemctl start bluetooth`
+**Status**: ✅ Disabled  
+**Effect**: Power savings when Bluetooth is not used  
+**Rollback**: `sudo systemctl enable bluetooth && sudo systemctl start bluetooth`
 
-### 3. Установка cpufrequtils
+### 3. Installing cpufrequtils
 ```bash
 sudo apt install cpufrequtils
 ```
-**Статус**: ✅ Установлено  
-**Эффект**: Возможность управления частотой CPU  
-**Использование**: 
-- `sudo cpufreq-set -g ondemand` - баланс производительности/энергопотребления
-- `sudo cpufreq-set -g powersave` - максимальная экономия
-- `sudo cpufreq-set -g performance` - максимальная производительность
+**Status**: ✅ Installed  
+**Effect**: Ability to manage CPU frequency  
+**Usage**: 
+- `sudo cpufreq-set -g ondemand` - balance performance/power consumption
+- `sudo cpufreq-set -g powersave` - maximum power savings
+- `sudo cpufreq-set -g performance` - maximum performance
 
-### 4. Отключение режимов сна/гибернации
+### 4. Disabling Sleep/Hibernation Modes
 ```bash
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 ```
-**Статус**: ✅ Отключено  
-**Эффект**: Предотвращает случайное засыпание системы  
-**Откат**: `sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target`
+**Status**: ✅ Disabled  
+**Effect**: Prevents accidental system sleep  
+**Rollback**: `sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target`
 
-### 5. Настройка systemd-logind
+### 5. Configuring systemd-logind
 ```bash
 sudo nano /etc/systemd/logind.conf
-# Настроено поведение при закрытии крышки ноутбука
+# Configured behavior when laptop lid is closed
 ```
-**Статус**: ✅ Настроено  
-**Файл**: `/etc/systemd/logind.conf`  
-**Откат**: Вернуть настройки по умолчанию в `/etc/systemd/logind.conf`
+**Status**: ✅ Configured  
+**File**: `/etc/systemd/logind.conf`  
+**Rollback**: Restore default settings in `/etc/systemd/logind.conf`
 
-## 🔧 Что можно оптимизировать дополнительно
+## 🔧 Additional Optimization Options
 
-### 1. CPU Governor (режим управления частотой)
-**Текущее состояние**: cpufrequtils установлен, но режим не установлен явно
+### 1. CPU Governor (Frequency Management Mode)
+**Current state**: cpufrequtils is installed, but the mode is not set explicitly
 
-**Рекомендация**: Установить режим `ondemand` (баланс)
+**Recommendation**: Set the `ondemand` mode (balanced)
 ```bash
-# Установить ondemand (рекомендуется для разработки)
+# Set ondemand (recommended for development)
 sudo cpufreq-set -g ondemand
 
-# Проверить текущий режим
+# Check current mode
 cpufreq-info
 
-# Или через systemd
+# Or via systemd
 sudo systemctl enable cpupower
 sudo cpupower frequency-set -g ondemand
 ```
 
-**Альтернативы**:
-- `powersave` - максимальная экономия (медленнее при нагрузке)
-- `performance` - максимальная производительность (больше энергопотребление)
-- `conservative` - плавное переключение частот
+**Alternatives**:
+- `powersave` - maximum savings (slower under load)
+- `performance` - maximum performance (higher power consumption)
+- `conservative` - smooth frequency scaling
 
-### 2. Отключение ненужных сервисов
-**Проверить и отключить**:
+### 2. Disabling Unnecessary Services
+**Check and disable**:
 ```bash
-# Посмотреть все запущенные сервисы
+# List all running services
 sudo systemctl list-units --type=service --state=running
 
-# Примеры сервисов, которые можно отключить (если не используются):
-sudo systemctl disable snapd  # Если не используете snap
-sudo systemctl disable avahi-daemon  # Если не нужен mDNS
-sudo systemctl disable cups  # Если нет принтера
-sudo systemctl disable ModemManager  # Если нет модема
+# Example services that can be disabled (if not used):
+sudo systemctl disable snapd  # If you don't use snap
+sudo systemctl disable avahi-daemon  # If mDNS is not needed
+sudo systemctl disable cups  # If no printer
+sudo systemctl disable ModemManager  # If no modem
 ```
 
-### 3. Оптимизация дисков
+### 3. Disk Optimization
 ```bash
-# Добавить noatime в /etc/fstab для уменьшения записи на диск
+# Add noatime in /etc/fstab to reduce disk writes
 sudo nano /etc/fstab
-# Изменить строки с дисками, добавив noatime:
+# Edit disk lines, add noatime:
 # /dev/sda1 / ext4 defaults,noatime 0 1
 
-# Отключить индексацию файлов (если не нужна)
+# Disable file indexing (if not needed)
 sudo systemctl disable tracker-extract tracker-miner-fs tracker-store
 ```
 
-### 4. Сетевая оптимизация
+### 4. Network Optimization
 ```bash
-# Отключить Wake-on-LAN (если не нужен)
+# Disable Wake-on-LAN (if not needed)
 sudo ethtool -s eth0 wol d
 
-# Для WiFi (если используется)
+# For WiFi (if used)
 sudo iw dev wlan0 set power_save on
 ```
 
-### 5. Оптимизация Docker контейнеров
+### 5. Docker Container Optimization
 ```bash
-# Остановить неиспользуемые контейнеры
+# Stop unused containers
 docker ps -a
 docker stop <container_id>
 
-# Очистить неиспользуемые ресурсы
+# Clean up unused resources
 docker system prune -a
 
-# В docker-compose.yml можно добавить лимиты:
+# In docker-compose.yml you can add limits:
 # deploy:
 #   resources:
 #     limits:
@@ -123,402 +123,402 @@ docker system prune -a
 #       memory: 512M
 ```
 
-### 6. Настройка ядра для энергосбережения
+### 6. Kernel Settings for Power Saving
 ```bash
-# Добавить параметры ядра
+# Add kernel parameters
 sudo nano /etc/default/grub
-# В GRUB_CMDLINE_LINUX_DEFAULT добавить:
+# In GRUB_CMDLINE_LINUX_DEFAULT add:
 # intel_pstate=passive processor.max_cstate=2
 
 sudo update-grub
 sudo reboot
 ```
 
-### 7. Мониторинг энергопотребления
+### 7. Power Consumption Monitoring
 ```bash
-# Установить powertop для анализа
+# Install powertop for analysis
 sudo apt install powertop
 
-# Калибровка (один раз)
+# Calibration (one-time)
 sudo powertop --calibrate
 
-# Просмотр что потребляет энергию
+# View what consumes power
 sudo powertop
 ```
 
-## ⚠️ Что может потребоваться вернуть обратно
+## ⚠️ What May Need to Be Restored
 
-### 1. Режимы сна/гибернации
-**Если нужно вернуть возможность засыпания**:
+### 1. Sleep/Hibernation Modes
+**If you need to restore sleep capability**:
 ```bash
 sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
 sudo systemctl restart systemd-logind
 ```
 
-**Проверка**:
+**Verification**:
 ```bash
-sudo systemctl suspend  # Должно работать
+sudo systemctl suspend  # Should work
 ```
 
 ### 2. Bluetooth
-**Если понадобится Bluetooth**:
+**If Bluetooth is needed**:
 ```bash
 sudo systemctl enable bluetooth
 sudo systemctl start bluetooth
 ```
 
 ### 3. CPU Governor
-**Если нужна максимальная производительность**:
+**If maximum performance is needed**:
 ```bash
 sudo cpufreq-set -g performance
 ```
 
-**Если нужна максимальная экономия**:
+**If maximum power savings is needed**:
 ```bash
 sudo cpufreq-set -g powersave
 ```
 
 ### 4. TLP
-**Если нужно временно отключить TLP**:
+**If you need to temporarily disable TLP**:
 ```bash
 sudo tlp stop
 ```
 
-**Включить обратно**:
+**Re-enable**:
 ```bash
 sudo tlp start
 ```
 
-**Полностью отключить**:
+**Fully disable**:
 ```bash
 sudo systemctl disable tlp
 sudo systemctl stop tlp
 ```
 
-### 5. Отключенные сервисы
-**Вернуть сервис**:
+### 5. Disabled Services
+**Restore a service**:
 ```bash
 sudo systemctl enable <service-name>
 sudo systemctl start <service-name>
 ```
 
-## 📊 Мониторинг энергопотребления
+## 📊 Power Consumption Monitoring
 
-### 1. PowerTOP (Основной инструмент)
+### 1. PowerTOP (Primary Tool)
 
-**Установка**:
+**Installation**:
 ```bash
 sudo apt install powertop
 ```
 
-**Калибровка (один раз, занимает ~5 минут)**:
+**Calibration (one-time, takes ~5 minutes)**:
 ```bash
 sudo powertop --calibrate
-# Система будет мигать экраном и тестировать различные компоненты
+# System will flash the screen and test various components
 ```
 
-**Интерактивный режим**:
+**Interactive mode**:
 ```bash
 sudo powertop
-# Показывает:
-# - Топ процессов по энергопотреблению
-# - Частоты CPU
-# - Состояние устройств (USB, PCIe, WiFi)
-# - Tunables (настройки, которые можно изменить)
+# Shows:
+# - Top processes by power consumption
+# - CPU frequencies
+# - Device states (USB, PCIe, WiFi)
+# - Tunables (settings that can be changed)
 ```
 
-**Экспорт отчёта в HTML**:
+**Export report to HTML**:
 ```bash
 sudo powertop --html=power_report.html
-# Откроет браузер с детальным отчётом
+# Opens browser with detailed report
 ```
 
-**Автоматический режим (для сервера)**:
+**Automatic mode (for server)**:
 ```bash
-# Генерировать отчёт каждые 10 секунд
+# Generate report every 10 seconds
 sudo powertop --time=10 --html=power_report.html
 
-# Или в фоне
+# Or in background
 nohup sudo powertop --time=60 --html=power_report.html &
 ```
 
 ### 2. TLP Statistics
 
-**Базовый статус**:
+**Basic status**:
 ```bash
 sudo tlp-stat -s
-# Показывает: статус TLP, режим работы (AC/BAT), уровень батареи
+# Shows: TLP status, mode (AC/BAT), battery level
 ```
 
-**Детальная информация**:
+**Detailed information**:
 ```bash
-# Все настройки TLP
+# All TLP settings
 sudo tlp-stat -c
 
-# Информация о батарее
+# Battery information
 sudo tlp-stat -b
 
-# Информация о CPU
+# CPU information
 sudo tlp-stat -p
 
-# Информация о дисках
+# Disk information
 sudo tlp-stat -d
 
-# Информация о температуре
+# Temperature information
 sudo tlp-stat -t
 
-# Полная статистика
+# Full statistics
 sudo tlp-stat
 ```
 
-**Экспорт в файл**:
+**Export to file**:
 ```bash
 sudo tlp-stat > tlp_report.txt
 ```
 
-### 3. CPU Frequency и Governor
+### 3. CPU Frequency and Governor
 
-**Текущие частоты CPU**:
+**Current CPU frequencies**:
 ```bash
-# Через cpufreq-info
+# Via cpufreq-info
 cpufreq-info
 
-# Или через sysfs
+# Or via sysfs
 cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq
 cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq
 cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq
 
-# Текущий governor
+# Current governor
 cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 ```
 
-**Мониторинг в реальном времени**:
+**Real-time monitoring**:
 ```bash
-# Следить за частотами каждую секунду
+# Watch frequencies every second
 watch -n 1 'cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq'
 
-# Или через cpupower
+# Or via cpupower
 sudo apt install linux-tools-common linux-tools-generic
 watch -n 1 'cpupower frequency-info'
 ```
 
-### 4. Мониторинг батареи (если есть)
+### 4. Battery Monitoring (if available)
 
-**Через upower**:
+**Via upower**:
 ```bash
-# Установить
+# Install
 sudo apt install upower
 
-# Информация о батарее
+# Battery information
 upower -i /org/freedesktop/UPower/devices/battery_BAT0
 
-# Мониторинг в реальном времени
+# Real-time monitoring
 watch -n 1 'upower -i /org/freedesktop/UPower/devices/battery_BAT0 | grep -E "(percentage|energy-rate|time)"'
 ```
 
-**Через sysfs**:
+**Via sysfs**:
 ```bash
-# Уровень заряда
+# Charge level
 cat /sys/class/power_supply/BAT0/capacity
 
-# Статус (Charging/Discharging)
+# Status (Charging/Discharging)
 cat /sys/class/power_supply/BAT0/status
 
-# Текущее потребление (в мкВт)
+# Current consumption (in µW)
 cat /sys/class/power_supply/BAT0/power_now
 
-# Оставшееся время
+# Time remaining
 cat /sys/class/power_supply/BAT0/time_to_empty
 ```
 
-**Скрипт для мониторинга батареи**:
+**Battery monitoring script**:
 ```bash
 #!/bin/bash
-# Сохранить как monitor_battery.sh
+# Save as monitor_battery.sh
 while true; do
     clear
-    echo "=== Мониторинг батареи ==="
-    echo "Уровень: $(cat /sys/class/power_supply/BAT0/capacity)%"
-    echo "Статус: $(cat /sys/class/power_supply/BAT0/status)"
-    echo "Потребление: $(($(cat /sys/class/power_supply/BAT0/power_now) / 1000000))W"
-    echo "Время до разряда: $(cat /sys/class/power_supply/BAT0/time_to_empty) минут"
-    echo "Время: $(date '+%H:%M:%S')"
+    echo "=== Battery Monitoring ==="
+    echo "Level: $(cat /sys/class/power_supply/BAT0/capacity)%"
+    echo "Status: $(cat /sys/class/power_supply/BAT0/status)"
+    echo "Consumption: $(($(cat /sys/class/power_supply/BAT0/power_now) / 1000000))W"
+    echo "Time to empty: $(cat /sys/class/power_supply/BAT0/time_to_empty) minutes"
+    echo "Time: $(date '+%H:%M:%S')"
     sleep 5
 done
 ```
 
-### 5. Мониторинг процессов и ресурсов
+### 5. Process and Resource Monitoring
 
-**Топ процессов по CPU**:
+**Top processes by CPU**:
 ```bash
-# Установить htop (более удобный чем top)
+# Install htop (more convenient than top)
 sudo apt install htop
 
-# Запустить
+# Run
 htop
 
-# Или через top
+# Or via top
 top
 
-# Топ 10 процессов по CPU
+# Top 10 processes by CPU
 ps aux --sort=-%cpu | head -11
 
-# Топ 10 процессов по памяти
+# Top 10 processes by memory
 ps aux --sort=-%mem | head -11
 ```
 
-**Мониторинг дисков**:
+**Disk monitoring**:
 ```bash
-# Установить iotop
+# Install iotop
 sudo apt install iotop
 
-# Мониторинг I/O в реальном времени
+# Real-time I/O monitoring
 sudo iotop
 
-# Статистика дисков
+# Disk statistics
 iostat -x 1
 ```
 
-**Мониторинг сети**:
+**Network monitoring**:
 ```bash
-# Установить iftop
+# Install iftop
 sudo apt install iftop
 
-# Мониторинг сетевого трафика
+# Network traffic monitoring
 sudo iftop
 
-# Статистика сети
+# Network statistics
 iftop -i eth0 -t -s 10
 ```
 
-### 6. Температура компонентов
+### 6. Component Temperature
 
-**Температура CPU**:
+**CPU temperature**:
 ```bash
-# Установить sensors
+# Install sensors
 sudo apt install lm-sensors
 
-# Инициализация (один раз)
+# Initialization (one-time)
 sudo sensors-detect
 
-# Просмотр температуры
+# View temperature
 sensors
 
-# Только CPU
+# CPU only
 sensors | grep -i cpu
 
-# Мониторинг в реальном времени
+# Real-time monitoring
 watch -n 1 sensors
 ```
 
-**Температура через sysfs**:
+**Temperature via sysfs**:
 ```bash
-# Температура CPU (в миллиградусах)
+# CPU temperature (in millidegrees)
 cat /sys/class/thermal/thermal_zone*/temp
 
-# В градусах
+# In degrees
 for i in /sys/class/thermal/thermal_zone*/temp; do
     echo "$i: $(($(cat $i) / 1000))°C"
 done
 ```
 
-### 7. Системные метрики
+### 7. System Metrics
 
-**Через systemd-cgtop**:
+**Via systemd-cgtop**:
 ```bash
-# Мониторинг cgroups (CPU, память, I/O)
+# cgroups monitoring (CPU, memory, I/O)
 systemd-cgtop
 
-# Или
+# Or
 systemctl status
 ```
 
-**Через vmstat**:
+**Via vmstat**:
 ```bash
-# Статистика системы каждую секунду
+# System statistics every second
 vmstat 1
 
-# Показывает: CPU, память, swap, I/O, прерывания
+# Shows: CPU, memory, swap, I/O, interrupts
 ```
 
-**Через iostat**:
+**Via iostat**:
 ```bash
-# Установить sysstat
+# Install sysstat
 sudo apt install sysstat
 
-# Статистика каждые 2 секунды
+# Statistics every 2 seconds
 iostat -x 2
 ```
 
-### 8. Создание скрипта для комплексного мониторинга
+### 8. Creating a Comprehensive Monitoring Script
 
-**Скрипт power_monitor.sh**:
+**Script power_monitor.sh**:
 ```bash
 #!/bin/bash
-# Сохранить как power_monitor.sh
+# Save as power_monitor.sh
 # chmod +x power_monitor.sh
 
 while true; do
     clear
-    echo "=== Мониторинг энергопотребления ==="
+    echo "=== Power Consumption Monitoring ==="
     echo ""
     
     # CPU
     echo "=== CPU ==="
     echo "Governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)"
-    echo "Частота: $(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq) / 1000)) MHz"
-    echo "Загрузка: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}')"
+    echo "Frequency: $(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq) / 1000)) MHz"
+    echo "Load: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}')"
     echo ""
     
-    # Батарея (если есть)
+    # Battery (if present)
     if [ -f /sys/class/power_supply/BAT0/capacity ]; then
-        echo "=== Батарея ==="
-        echo "Уровень: $(cat /sys/class/power_supply/BAT0/capacity)%"
-        echo "Статус: $(cat /sys/class/power_supply/BAT0/status)"
+        echo "=== Battery ==="
+        echo "Level: $(cat /sys/class/power_supply/BAT0/capacity)%"
+        echo "Status: $(cat /sys/class/power_supply/BAT0/status)"
         if [ -f /sys/class/power_supply/BAT0/power_now ]; then
-            echo "Потребление: $(($(cat /sys/class/power_supply/BAT0/power_now) / 1000000))W"
+            echo "Consumption: $(($(cat /sys/class/power_supply/BAT0/power_now) / 1000000))W"
         fi
         echo ""
     fi
     
-    # Температура
+    # Temperature
     if command -v sensors &> /dev/null; then
-        echo "=== Температура ==="
+        echo "=== Temperature ==="
         sensors | grep -E "(CPU|Core|Package)" | head -3
         echo ""
     fi
     
-    # TLP статус
+    # TLP status
     if command -v tlp-stat &> /dev/null; then
         echo "=== TLP ==="
         sudo tlp-stat -s | grep -E "(Mode|Battery|AC)" | head -3
         echo ""
     fi
     
-    # Топ процессов по CPU
-    echo "=== Топ процессов (CPU) ==="
+    # Top processes by CPU
+    echo "=== Top Processes (CPU) ==="
     ps aux --sort=-%cpu | head -6
     echo ""
     
-    echo "Время: $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "Обновление каждые 5 секунд (Ctrl+C для выхода)"
+    echo "Time: $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "Refreshing every 5 seconds (Ctrl+C to exit)"
     
     sleep 5
 done
 ```
 
-**Использование**:
+**Usage**:
 ```bash
 chmod +x power_monitor.sh
 ./power_monitor.sh
 ```
 
-### 9. Логирование энергопотребления
+### 9. Power Consumption Logging
 
-**Создать скрипт для логирования**:
+**Create a logging script**:
 ```bash
 #!/bin/bash
-# Сохранить как log_power.sh
+# Save as log_power.sh
 # chmod +x log_power.sh
 
 LOG_FILE="/var/log/power_monitor.log"
@@ -526,11 +526,11 @@ LOG_FILE="/var/log/power_monitor.log"
 while true; do
     TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
     
-    # CPU частота
+    # CPU frequency
     CPU_FREQ=$(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq) / 1000))
     CPU_GOV=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)
     
-    # Батарея
+    # Battery
     if [ -f /sys/class/power_supply/BAT0/capacity ]; then
         BAT_CAP=$(cat /sys/class/power_supply/BAT0/capacity)
         BAT_STAT=$(cat /sys/class/power_supply/BAT0/status)
@@ -545,98 +545,98 @@ while true; do
         BAT_PWR="N/A"
     fi
     
-    # Записать в лог
+    # Write to log
     echo "$TIMESTAMP | CPU: ${CPU_FREQ}MHz ($CPU_GOV) | Battery: ${BAT_CAP}% ($BAT_STAT) ${BAT_PWR}W" >> $LOG_FILE
     
-    sleep 60  # Каждую минуту
+    sleep 60  # Every minute
 done
 ```
 
-**Запуск в фоне**:
+**Run in background**:
 ```bash
 nohup ./log_power.sh &
 ```
 
-**Просмотр логов**:
+**View logs**:
 ```bash
 tail -f /var/log/power_monitor.log
 ```
 
-### 10. Автоматические отчёты
+### 10. Automatic Reports
 
-**Ежедневный отчёт через cron**:
+**Daily report via cron**:
 ```bash
-# Добавить в crontab
+# Add to crontab
 sudo crontab -e
 
-# Генерировать отчёт каждый день в 23:00
+# Generate report every day at 23:00
 0 23 * * * /usr/bin/sudo powertop --html=/var/log/power_report_$(date +\%Y\%m\%d).html --time=60
 ```
 
-## 📊 Проверка эффективности
+## 📊 Effectiveness Check
 
-### Быстрая проверка текущего состояния
+### Quick Check of Current State
 ```bash
-# Статус TLP
+# TLP status
 sudo tlp-stat -s
 
-# Текущие настройки CPU
+# Current CPU settings
 sudo tlp-stat -p
 cpufreq-info
 
-# Потребление энергии (если установлен powertop)
+# Power consumption (if powertop is installed)
 sudo powertop
 
-# Статус всех сервисов
+# Status of all services
 sudo systemctl list-units --type=service --state=running
 ```
 
-### Проверка логов
+### Log Verification
 ```bash
-# Проверить логи suspend/sleep
+# Check suspend/sleep logs
 journalctl -b | grep -i suspend
 
-# Логи systemd-logind
+# systemd-logind logs
 journalctl -u systemd-logind
 
-# Логи TLP
+# TLP logs
 journalctl -u tlp
 ```
 
-## 🔍 Проблемы и решения
+## 🔍 Issues and Solutions
 
-### Проблема: vbetool dpms off не работает
-**Причина**: vbetool может не работать на сервере без GUI или с некоторыми видеокартами  
-**Решение**: Использовать другие методы оптимизации (TLP, CPU governor)
+### Issue: vbetool dpms off does not work
+**Cause**: vbetool may not work on a server without GUI or with certain graphics cards  
+**Solution**: Use other optimization methods (TLP, CPU governor)
 
-### Проблема: nvidia-smi не установлена
-**Причина**: NVIDIA драйверы не установлены (нормально для Ubuntu Server)  
-**Решение**: GPU уже не потребляет энергию через драйверы, дополнительная оптимизация не нужна
+### Issue: nvidia-smi is not installed
+**Cause**: NVIDIA drivers are not installed (normal for Ubuntu Server)  
+**Solution**: GPU is not consuming power through drivers anyway, no additional optimization needed
 
-### Проблема: Система всё равно потребляет много энергии
-**Диагностика**:
+### Issue: System still consumes a lot of power
+**Diagnostics**:
 ```bash
-# Проверить что потребляет CPU
+# Check what is using CPU
 top
 htop
 
-# Проверить активные процессы
+# Check active processes
 ps aux --sort=-%cpu | head -20
 
-# Проверить активность дисков
+# Check disk activity
 sudo iotop
 
-# Проверить сетевую активность
+# Check network activity
 sudo iftop
 ```
 
-## 📝 Заметки
+## 📝 Notes
 
-- **Дата последнего обновления**: 2024
-- **Система**: Ubuntu Server на ноутбуке
-- **Проект**: AI Bot (Spring Boot + Docker + PostgreSQL)
+- **Last updated**: 2024
+- **System**: Ubuntu Server on laptop
+- **Project**: AI Bot (Spring Boot + Docker + PostgreSQL)
 
-## 🔗 Полезные ссылки
+## 🔗 Useful Links
 
 - [TLP Documentation](https://linrunner.de/tlp/)
 - [Ubuntu Power Management](https://help.ubuntu.com/community/PowerManagement)

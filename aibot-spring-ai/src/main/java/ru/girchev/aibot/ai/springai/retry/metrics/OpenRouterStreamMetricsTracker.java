@@ -8,8 +8,8 @@ import reactor.core.publisher.Flux;
 import ru.girchev.aibot.ai.springai.retry.OpenRouterModelStatsRecorder;
 
 /**
- * Явно оборачивает stream, чтобы метрики модели записывались без AOP.
- * Использует {@link OpenRouterModelStatsRecorder} (реестр); запись только для моделей с capability FREE выполняется внутри реестра.
+ * Explicitly wraps stream so model metrics are recorded without AOP.
+ * Uses {@link OpenRouterModelStatsRecorder} (registry); recording for FREE capability models only is done inside the registry.
  */
 @Slf4j
 @RequiredArgsConstructor

@@ -121,7 +121,7 @@
             <version>${caffeine.version}</version>
         </dependency>
 
-        <!-- MinIO (optional - для файлового хранилища) -->
+        <!-- MinIO (optional - for file storage) -->
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>

@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.rest.dto.*;
 import ru.girchev.aibot.rest.exception.UnauthorizedException;
 import ru.girchev.aibot.rest.service.ChatService;
@@ -19,8 +20,8 @@ import ru.girchev.aibot.rest.service.RestAuthorizationService;
 import java.util.List;
 
 /**
- * Контроллер для работы с сессиями чата через UI
- * Управляет сессиями и сообщениями
+ * Controller for chat sessions via UI.
+ * Manages sessions and messages.
  */
 @Slf4j
 @RestController
@@ -31,6 +32,7 @@ public class SessionController {
 
     private final ChatService chatService;
     private final RestAuthorizationService restAuthorizationService;
+    private final MessageLocalizationService messageLocalizationService;
 
     private static final String SESSION_EMAIL_KEY = "userEmail";
 
@@ -40,10 +42,11 @@ public class SessionController {
             @RequestBody ChatRequestDto request,
             HttpServletRequest httpRequest,
             HttpSession session) {
+        String email = getEmailFromSessionOrRequest(session, request.email(), httpRequest.getLocale().getLanguage());
         return ResponseEntity.ok(
                 chatService.sendMessageToNewChat(
                         request.message(),
-                        restAuthorizationService.authorize(getEmailFromSessionOrRequest(session, request.email())),
+                        restAuthorizationService.authorize(email, httpRequest.getLocale().getLanguage()),
                         httpRequest,
                         false)
         );
@@ -56,10 +59,11 @@ public class SessionController {
             @RequestBody ChatRequestDto request,
             HttpServletRequest httpRequest,
             HttpSession session) {
+        String email = getEmailFromSessionOrRequest(session, request.email(), httpRequest.getLocale().getLanguage());
         return ResponseEntity.ok(chatService.sendMessage(
                 sessionId,
                 request.message(),
-                restAuthorizationService.authorize(getEmailFromSessionOrRequest(session, request.email())),
+                restAuthorizationService.authorize(email, httpRequest.getLocale().getLanguage()),
                 httpRequest,
                 false)
         );
@@ -70,22 +74,21 @@ public class SessionController {
             @RequestBody ChatRequestDto request,
             HttpServletRequest httpRequest,
             HttpSession session) {
-        // Получаем email из сессии или из запроса (для обратной совместимости с REST API)
-        String email = getEmailFromSessionOrRequest(session, request.email());
-        var user = restAuthorizationService.authorize(email);
+        String email = getEmailFromSessionOrRequest(session, request.email(), httpRequest.getLocale().getLanguage());
+        var user = restAuthorizationService.authorize(email, httpRequest.getLocale().getLanguage());
         ChatResponseDto<Flux<String>> response = chatService.sendMessageToNewChat(request.message(), user, httpRequest, true);
         String sessionId = response.sessionId();
-        // Отправляем sessionId в первом событии с типом "metadata"
+        // Send sessionId in first event with type "metadata"
         ServerSentEvent<String> sessionEvent = ServerSentEvent.<String>builder()
                 .event("metadata")
                 .data("{\"sessionId\":\"" + sessionId + "\"}")
                 .build();
-        // Затем отправляем поток сообщений с типом "message" (или без типа для обычного контента)
-        // НЕ используем delayElements - отправляем данные сразу, как только они приходят
+        // Then send message stream with type "message" (or no type for regular content)
+        // Do not use delayElements - send data as soon as it arrives
         return Flux.concat(
                 Flux.just(sessionEvent),
                 response.message()
-                        // превращаем в SSE (без event type - это обычный контент)
+                        // Convert to SSE (no event type = regular content)
                         .map(ch -> ServerSentEvent.builder(ch).build())
         );
     }
@@ -96,13 +99,12 @@ public class SessionController {
             @RequestBody ChatRequestDto request,
             HttpServletRequest httpRequest,
             HttpSession session) {
-        // Получаем email из сессии или из запроса (для обратной совместимости с REST API)
-        String email = getEmailFromSessionOrRequest(session, request.email());
-        var user = restAuthorizationService.authorize(email);
+        String email = getEmailFromSessionOrRequest(session, request.email(), httpRequest.getLocale().getLanguage());
+        var user = restAuthorizationService.authorize(email, httpRequest.getLocale().getLanguage());
         ChatResponseDto<Flux<String>> response = chatService.sendMessage(sessionId, request.message(), user, httpRequest, true);
-        // НЕ используем delayElements - отправляем данные сразу, как только они приходят
+        // Do not use delayElements - send data as soon as it arrives
         return response.message()
-                // превращаем в SSE
+                // Convert to SSE
                 .map(ch -> ServerSentEvent.builder(ch).build());
     }
 
@@ -110,12 +112,11 @@ public class SessionController {
     @Operation(summary = "Get all sessions", description = "Returns list of all chat sessions for the user")
     public ResponseEntity<List<ChatSessionDto>> getSessions(
             @RequestParam(value = "email", required = false) String email,
-            HttpSession session) {
-        // Получаем email из сессии или из параметра запроса (для обратной совместимости с REST API)
-        String userEmail = getEmailFromSessionOrRequest(session, email);
-        var user = restAuthorizationService.authorize(userEmail);
-        List<ChatSessionDto> sessions = chatService.getSessions(user);
-        return ResponseEntity.ok(sessions);
+            HttpSession session,
+            HttpServletRequest httpRequest) {
+        String userEmail = getEmailFromSessionOrRequest(session, email, httpRequest.getLocale().getLanguage());
+        var user = restAuthorizationService.authorize(userEmail, httpRequest.getLocale().getLanguage());
+        return ResponseEntity.ok(chatService.getSessions(user));
     }
 
     @GetMapping("/{sessionId}/messages")
@@ -123,10 +124,10 @@ public class SessionController {
     public ResponseEntity<ChatHistoryResponseDto> getSessionMessages(
             @PathVariable String sessionId,
             @RequestParam(value = "email", required = false) String email,
-            HttpSession session) {
-        // Получаем email из сессии или из параметра запроса (для обратной совместимости с REST API)
-        String userEmail = getEmailFromSessionOrRequest(session, email);
-        var user = restAuthorizationService.authorize(userEmail);
+            HttpSession session,
+            HttpServletRequest httpRequest) {
+        String userEmail = getEmailFromSessionOrRequest(session, email, httpRequest.getLocale().getLanguage());
+        var user = restAuthorizationService.authorize(userEmail, httpRequest.getLocale().getLanguage());
         List<ChatMessageDto> messages = chatService.getChatHistory(sessionId, user);
         return ResponseEntity.ok(new ChatHistoryResponseDto(sessionId, messages));
     }
@@ -136,19 +137,18 @@ public class SessionController {
     public ResponseEntity<Void> deleteSession(
             @PathVariable String sessionId,
             @RequestParam(value = "email", required = false) String email,
-            HttpSession session) {
-        // Получаем email из сессии или из параметра запроса (для обратной совместимости с REST API)
-        String userEmail = getEmailFromSessionOrRequest(session, email);
-        var user = restAuthorizationService.authorize(userEmail);
+            HttpSession session,
+            HttpServletRequest httpRequest) {
+        String userEmail = getEmailFromSessionOrRequest(session, email, httpRequest.getLocale().getLanguage());
+        var user = restAuthorizationService.authorize(userEmail, httpRequest.getLocale().getLanguage());
         chatService.deleteSession(sessionId, user);
         return ResponseEntity.noContent().build();
     }
 
     /**
-     * Получает email из сессии или из запроса (для обратной совместимости с REST API)
+     * Gets email from session or request. Throws UnauthorizedException with localized message if missing.
      */
-    private String getEmailFromSessionOrRequest(HttpSession session, String emailFromRequest) {
-        // Сначала пытаемся получить из сессии (для UI)
+    private String getEmailFromSessionOrRequest(HttpSession session, String emailFromRequest, String languageCode) {
         if (session != null) {
             try {
                 String emailFromSession = (String) session.getAttribute(SESSION_EMAIL_KEY);
@@ -156,18 +156,13 @@ public class SessionController {
                     return emailFromSession;
                 }
             } catch (IllegalStateException e) {
-                // Сессия истекла или невалидна - игнорируем и продолжаем
                 log.debug("Session is invalid or expired, trying request parameter");
             }
         }
-
-        // Если в сессии нет, используем из запроса (для REST API)
         if (emailFromRequest != null && !emailFromRequest.isBlank()) {
             return emailFromRequest;
         }
-
-        // Если нигде нет - выбрасываем исключение
-        throw new UnauthorizedException("Email required");
+        throw new UnauthorizedException(messageLocalizationService.getMessage("rest.auth.email.required", languageCode));
     }
 }
 
