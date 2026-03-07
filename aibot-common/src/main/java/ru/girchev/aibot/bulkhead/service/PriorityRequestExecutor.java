@@ -154,7 +154,7 @@ public class PriorityRequestExecutor implements AutoCloseable {
 
         if (priority == null) {
             log.error("Unknown user priority: null");
-            throw new IllegalStateException("Неизвестный приоритет пользователя: null");
+            throw new IllegalStateException("Unknown user priority: null");
         }
 
         switch (priority) {
@@ -166,10 +166,10 @@ public class PriorityRequestExecutor implements AutoCloseable {
                 return executeInRegularBulkhead(task);
             case BLOCKED:
                 log.error("Access denied for blocked user {}", userId);
-                throw new AccessDeniedException("Пользователь заблокирован. Доступ запрещен.");
+                throw new AccessDeniedException("User is blocked. Access denied.");
             default:
                 log.error("Unknown user priority: {}", priority);
-                throw new IllegalStateException("Неизвестный приоритет пользователя: " + priority);
+                throw new IllegalStateException("Unknown user priority: " + priority);
         }
     }
 
@@ -188,7 +188,7 @@ public class PriorityRequestExecutor implements AutoCloseable {
         if (priority == null) {
             log.error("Unknown user priority: null");
             CompletableFuture<T> nullFuture = new CompletableFuture<>();
-            nullFuture.completeExceptionally(new IllegalStateException("Неизвестный приоритет пользователя: null"));
+            nullFuture.completeExceptionally(new IllegalStateException("Unknown user priority: null"));
             return nullFuture;
         }
 
@@ -202,12 +202,12 @@ public class PriorityRequestExecutor implements AutoCloseable {
             case BLOCKED:
                 log.error("Access denied for blocked user {}", userId);
                 CompletableFuture<T> blockedFuture = new CompletableFuture<>();
-                blockedFuture.completeExceptionally(new AccessDeniedException("Пользователь заблокирован. Доступ запрещен."));
+                blockedFuture.completeExceptionally(new AccessDeniedException("User is blocked. Access denied."));
                 return blockedFuture;
             default:
                 log.error("Unknown user priority: {}", priority);
                 CompletableFuture<T> unknownFuture = new CompletableFuture<>();
-                unknownFuture.completeExceptionally(new IllegalStateException("Неизвестный приоритет пользователя: " + priority));
+                unknownFuture.completeExceptionally(new IllegalStateException("Unknown user priority: " + priority));
                 return unknownFuture;
         }
     }

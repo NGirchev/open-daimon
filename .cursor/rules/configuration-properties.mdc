@@ -1,54 +1,54 @@
 ---
-description: Правила работы с @ConfigurationProperties
+description: Rules for @ConfigurationProperties
 globs: 
 alwaysApply: true
 ---
 
-# Правила работы с @ConfigurationProperties
+# Rules for @ConfigurationProperties
 
-**ВАЖНО:** При создании классов с `@ConfigurationProperties`:
+**IMPORTANT:** When creating classes with `@ConfigurationProperties`:
 
-1. **Все значения обязательны** - должны быть указаны в `application.yml`
-2. **Дефолтные значения НЕ задаются в коде** - только в конфигурации
-3. **Используется валидация** - `@NotNull`, `@Min`, `@Max` для гарантии корректности значений
-4. **Используются типы-обертки** (`Integer`, `Double`, `Boolean`) для поддержки `@NotNull`
-5. **Валидация гарантирует**, что все значения указаны и корректны при старте приложения
-6. **Конфигурация только в основном файле** - значения задаются ТОЛЬКО в `application.yml`. В профильных файлах (`application-local.yml`, `application-dev.yml`, `application-mock.yml`, `application-test.yml`) переопределяются только те значения, которые отличаются от дефолтных. НЕ дублируй одинаковые значения во все файлы!
+1. **All values are required** — must be set in `application.yml`
+2. **Do not set default values in code** — only in configuration
+3. **Use validation** — `@NotNull`, `@Min`, `@Max` to ensure valid values
+4. **Use wrapper types** (`Integer`, `Double`, `Boolean`) to support `@NotNull`
+5. **Validation ensures** all values are set and valid at application startup
+6. **Configuration only in main file** — values are set ONLY in `application.yml`. In profile files (`application-local.yml`, `application-dev.yml`, `application-mock.yml`, `application-test.yml`) override only values that differ from defaults. Do not duplicate the same values into every file.
 
-**Пример правильного использования:**
+**Correct usage example:**
 ```java
 @ConfigurationProperties(prefix = "ai-bot.context")
 @Validated
 @Getter
 @Setter
 public class ContextProperties {
-    @NotNull(message = "maxContextTokens обязателен")
-    @Min(value = 1000, message = "maxContextTokens должен быть >= 1000")
-    private Integer maxContextTokens; // БЕЗ дефолтного значения!
+    @NotNull(message = "maxContextTokens is required")
+    @Min(value = 1000, message = "maxContextTokens must be >= 1000")
+    private Integer maxContextTokens; // NO default in code!
     
-    @NotNull(message = "summaryTriggerThreshold обязателен")
-    @Min(value = 0, message = "summaryTriggerThreshold должен быть >= 0.0")
-    @Max(value = 1, message = "summaryTriggerThreshold должен быть <= 1.0")
-    private Double summaryTriggerThreshold; // БЕЗ дефолтного значения!
+    @NotNull(message = "summaryTriggerThreshold is required")
+    @Min(value = 0, message = "summaryTriggerThreshold must be >= 0.0")
+    @Max(value = 1, message = "summaryTriggerThreshold must be <= 1.0")
+    private Double summaryTriggerThreshold; // NO default in code!
     
-    // ... остальные поля
+    // ... other fields
 }
 ```
 
-**НЕПРАВИЛЬНО:**
+**WRONG:**
 ```java
-private int maxContextTokens = 8000; // ❌ Дефолтное значение в коде
-private Integer maxContextTokens = 8000; // ❌ Дефолтное значение в коде
+private int maxContextTokens = 8000; // ❌ Default in code
+private Integer maxContextTokens = 8000; // ❌ Default in code
 ```
 
-**ПРАВИЛЬНО:**
+**CORRECT:**
 ```java
 @NotNull
 @Min(value = 1000)
-private Integer maxContextTokens; // ✅ Значение только из application.yml
+private Integer maxContextTokens; // ✅ Value only from application.yml
 ```
 
-**Импорты:**
+**Imports:**
 ```java
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;

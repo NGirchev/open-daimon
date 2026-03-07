@@ -1,22 +1,22 @@
 ---
-description: Обновлять документацию при изменении логики компонентов
+description: Update documentation when changing component logic
 alwaysApply: true
 ---
 
-# Документация при изменении логики
+# Documentation when changing logic
 
-При внесении **логических изменений в алгоритм или порядок работы** компонента обязательно обновляй связанную документацию.
+When making **logical changes to a component's algorithm or flow**, always update the related documentation.
 
-**Когда обновлять:**
-- Изменилась последовательность шагов, условия, ветвления.
-- Изменились входные/выходные контракты или семантика (что делает метод/сервис).
-- Добавлен или убран значимый шаг в пайплайне, retry, ротации моделей и т.п.
+**When to update:**
+- Step order, conditions, or branches have changed.
+- Input/output contracts or semantics (what a method/service does) have changed.
+- A significant step was added or removed in the pipeline, retry, model rotation, etc.
 
-**Где искать документацию:**
-- `README.md` в пакете/модуле (например `aibot-spring-ai/.../retry/README.md`).
-- Комментарии в коде (класс, ключевые методы).
-- `AGENTS.md` — если затронута архитектура или описание потока.
+**Where to find documentation:**
+- `README.md` in the package/module (e.g. `aibot-spring-ai/.../retry/README.md`).
+- Code comments (class, key methods).
+- `AGENTS.md` — if architecture or flow description is affected.
 
-**Минимум действий:** обновить описание алгоритма/потока так, чтобы оно соответствовало текущей реализации (шаги, условия, исключения).
+**Minimum:** Update the algorithm/flow description so it matches the current implementation (steps, conditions, exceptions).
 
-Не требовать обновления документации при: правках опечаток, переименованиях без смены смысла, рефакторинге без изменения поведения.
+Do not require documentation updates for: typo fixes, renames without semantic change, refactors without behaviour change.

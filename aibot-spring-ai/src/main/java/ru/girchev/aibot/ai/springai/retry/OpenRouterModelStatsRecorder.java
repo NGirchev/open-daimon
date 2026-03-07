@@ -1,8 +1,8 @@
 package ru.girchev.aibot.ai.springai.retry;
 
 /**
- * Запись успехов/неудач вызовов моделей для ранжирования (cooldown, ewma).
- * Реализуется реестром моделей; вызовы для моделей без capability FREE игнорируются внутри реализации.
+ * Records success/failure of model calls for ranking (cooldown, ewma).
+ * Implemented by model registry; calls for models without FREE capability are ignored in the implementation.
  */
 public interface OpenRouterModelStatsRecorder {
 

@@ -24,7 +24,7 @@ public class TelegramBotRegistrar implements ApplicationListener<ApplicationRead
             botsApi.registerBot(telegramBot);
             log.info("Telegram bot '{}' successfully registered", telegramBot.getBotUsername());
             
-            // Устанавливаем меню команд после регистрации бота
+            // Set command menu after bot registration
             menuServiceProvider.ifAvailable(TelegramBotMenuService::setupBotMenu);
         } catch (TelegramApiException e) {
             log.error("Application can't start, telegram bot is not accessible", e);

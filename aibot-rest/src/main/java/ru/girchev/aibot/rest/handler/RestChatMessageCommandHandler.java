@@ -40,6 +40,7 @@ public class RestChatMessageCommandHandler implements
     private final AIGatewayRegistry aiGatewayRegistry;
     private final AICommandFactoryRegistry aiCommandFactoryRegistry;
     private final ObjectMapper objectMapper;
+    private final MessageLocalizationService messageLocalizationService;
 
     @Override
     public boolean canHandle(ICommand<RestChatCommandType> command) {
@@ -60,17 +61,18 @@ public class RestChatMessageCommandHandler implements
         ConversationThread thread;
         
         try {
-            // Получаем пользователя по userId из команды (уже авторизован)
+            String lang = command.request() != null && command.request().getLocale() != null
+                    ? command.request().getLocale().getLanguage() : "ru";
             RestUser user = restUserService.findById(command.userId())
-                    .orElseThrow(() -> new RuntimeException("Пользователь не найден: " + command.userId()));
+                    .orElseThrow(() -> new RuntimeException(messageLocalizationService.getMessage("rest.user.not.found", lang, command.userId())));
             
-            // Определяем содержание роли ассистента: из запроса или из проперти
+            // Determine assistant role content: from request or from property
             String assistantRoleContent = command.chatRequestDto().assistantRole() != null
                     ? command.chatRequestDto().assistantRole()
-                    : null; // Если null, сервис использует дефолтную из coreCommonProperties
+                    : null; // If null, service uses default from coreCommonProperties
 
-            // Сохраняем запрос пользователя
-            // Thread и роль автоматически получаются или создаются внутри saveUserMessage
+            // Save user request
+            // Thread and role are obtained or created inside saveUserMessage
             userMessage = restMessageService.saveUserMessage(
                     user,
                     command.chatRequestDto().message(),
@@ -78,7 +80,7 @@ public class RestChatMessageCommandHandler implements
                     assistantRoleContent,
                     command.request());
             
-            // Получаем thread и роль из сохраненного сообщения для дальнейшего использования
+            // Get thread and role from saved message for further use
             thread = userMessage.getThread();
             AssistantRole assistantRole = userMessage.getAssistantRole();
             String assistantRoleContentFromRole = assistantRole.getContent();
@@ -88,18 +90,18 @@ public class RestChatMessageCommandHandler implements
             log.info("Using conversation thread: {} with AssistantRole {} (v{})", 
                 thread.getThreadKey(), assistantRoleId, assistantRoleVersion);
 
-            // Обрабатываем запрос и получаем ответ
+            // Process request and get response
             long startTime = System.currentTimeMillis();
             
-            // Передаем в metadata необходимые данные для построения контекста
-            // Новая фабрика RestConversationHistoryAiCommandFactory сама использует ContextBuilderService для построения контекста
-            // Если в metadata есть threadKey - используется RestConversationHistoryAiCommandFactory
-            // Если нет - используется DefaultAiCommandFactory (fallback)
+            // Pass metadata required for context building
+            // RestConversationHistoryAiCommandFactory uses ContextBuilderService for context
+            // If metadata has threadKey - RestConversationHistoryAiCommandFactory is used
+            // Otherwise DefaultAiCommandFactory (fallback)
             Map<String, String> metadata = new HashMap<>();
             metadata.put(THREAD_KEY_FIELD, thread.getThreadKey());
             metadata.put(ASSISTANT_ROLE_ID_FIELD, assistantRoleId.toString());
             metadata.put(USER_ID_FIELD, user.getId().toString());
-            // Для обратной совместимости также передаем роль (на случай fallback на DefaultAiCommandFactory)
+            // For backward compatibility also pass role (for fallback to DefaultAiCommandFactory)
             metadata.put(ROLE_FIELD, assistantRoleContentFromRole);
             
             AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
@@ -111,18 +113,18 @@ public class RestChatMessageCommandHandler implements
                     .orElseThrow(() -> new RuntimeException("No supported AI gateway found"));
             AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
             
-            // Извлекаем полезные данные из ответа AI провайдера ДО попытки получить content
-            // Это нужно для обработки ошибок (например, когда finish_reason = "length")
+            // Extract useful data from AI provider response BEFORE getting content
+            // Needed for error handling (e.g. when finish_reason = "length")
             Map<String, Object> usefulResponseData = AIUtils.extractUsefulData(aiResponse);
             
-            // Пытаемся получить content из ответа
+            // Try to get content from response
             Optional<String> responseOpt = retrieveMessage(aiResponse);
             if (responseOpt.isEmpty()) {
-                // Если content пустой, используем ошибку из AIResponse
+                // If content is empty, use error from AIResponse
                 String errorMessage = extractError(aiResponse)
                         .orElse("Content is empty");
                 
-                // Сохраняем ошибку в БД с finish_reason в response_data
+                // Save error to DB with finish_reason in response_data
                 messageService.saveAssistantErrorMessage(
                         user,
                         errorMessage,
@@ -140,8 +142,8 @@ public class RestChatMessageCommandHandler implements
 
             log.info("Gateway: [{}]. Model: [{}]", aiResponse.gatewaySource(), usefulResponseData.get("model"));
 
-            // Сохраняем ответ от сервиса
-            // Thread и роль автоматически получаются или создаются внутри saveAssistantMessage
+            // Save service response
+            // Thread and role are obtained or created inside saveAssistantMessage
             AIBotMessage assistantMessage = messageService.saveAssistantMessage(
                     user,
                     response,
@@ -150,12 +152,12 @@ public class RestChatMessageCommandHandler implements
                     (int) processingTime,
                     usefulResponseData);
 
-            // Обновляем статус ответа на SUCCESS
+            // Update response status to SUCCESS
             messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
 
             return response;
         } catch (AccessDeniedException e) {
-            // Пробрасываем AccessDeniedException без оборачивания для правильной обработки в RestExceptionHandler
+            // Re-throw AccessDeniedException without wrapping for proper handling in RestExceptionHandler
             log.warn("Access denied for user: {}", e.getMessage());
             throw e;
         } catch (UserMessageTooLongException e) {
@@ -168,14 +170,15 @@ public class RestChatMessageCommandHandler implements
                 log.error("Error processing REST API request", e);
             }
 
-            // Создаем метаданные об ошибке и сериализуем их в JSON
+            // Create error metadata and serialize to JSON
             Map<String, Object> errorMetadata = createErrorMetadata(modelCapabilities.isEmpty() ? Set.of(ModelCapabilities.CHAT) : modelCapabilities, e);
             String errorDataJson = serializeToJson(errorMetadata);
 
-            // Сохраняем информацию об ошибке
-            String errorMessage = "Произошла ошибка при обработке запроса: " + e.getMessage();
+            String lang = command.request() != null && command.request().getLocale() != null
+                    ? command.request().getLocale().getLanguage() : "ru";
+            String errorMessage = messageLocalizationService.getMessage("rest.error.processing", lang, e.getMessage());
             if (userMessage != null) {
-                // Получаем роль из сохраненного сообщения для сохранения ошибки
+                // Get role from saved message for saving error
                 String errorRoleContent = userMessage.getAssistantRole() != null 
                         ? userMessage.getAssistantRole().getContent() 
                         : null;
@@ -187,12 +190,12 @@ public class RestChatMessageCommandHandler implements
                     errorDataJson);
             }
 
-            throw new RuntimeException("Ошибка при обработке запроса: " + e.getMessage(), e);
+            throw new RuntimeException(errorMessage, e);
         }
     }
 
     /**
-     * Создает метаданные для ошибки
+     * Creates metadata for error
      */
     private Map<String, Object> createErrorMetadata(Set<ModelCapabilities> modelCapabilities, Exception error) {
         Map<String, Object> metadata = new HashMap<>();
@@ -204,7 +207,7 @@ public class RestChatMessageCommandHandler implements
     }
 
     /**
-     * Сериализует метаданные в JSON
+     * Serializes metadata to JSON
      */
     private String serializeToJson(Map<String, Object> metadata) {
         if (metadata == null || metadata.isEmpty()) {

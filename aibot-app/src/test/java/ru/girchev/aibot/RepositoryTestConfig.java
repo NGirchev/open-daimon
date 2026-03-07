@@ -3,9 +3,9 @@ package ru.girchev.aibot;
 import org.springframework.boot.SpringBootConfiguration;
 
 /**
- * Минимальная конфигурация для поиска @SpringBootConfiguration при сканировании пакетов
- * из тестов репозиториев (ru.girchev.aibot.rest.repository, ru.girchev.aibot.telegram.repository).
- * Без этого класса slice-тесты (@DataJpaTest) не находят конфигурацию и падают с
+ * Minimal configuration for @SpringBootConfiguration when scanning packages
+ * from repository tests (ru.girchev.aibot.rest.repository, ru.girchev.aibot.telegram.repository).
+ * Without this class slice tests (@DataJpaTest) fail with
  * "Unable to find a @SpringBootConfiguration".
  */
 @SpringBootConfiguration

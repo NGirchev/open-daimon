@@ -7,6 +7,7 @@ import ru.girchev.aibot.common.command.ICommand;
 import ru.girchev.aibot.common.model.ConversationThread;
 import ru.girchev.aibot.common.repository.ConversationThreadRepository;
 import ru.girchev.aibot.common.service.ConversationThreadService;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
@@ -19,7 +20,7 @@ import ru.girchev.aibot.telegram.service.TypingIndicatorService;
 import java.util.Optional;
 
 /**
- * Обработчик команды /newthread для создания новой беседы
+ * Handler for /newthread command to start a new conversation.
  */
 @Slf4j
 public class NewThreadTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
@@ -31,10 +32,11 @@ public class NewThreadTelegramCommandHandler extends AbstractTelegramCommandHand
     public NewThreadTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
             ConversationThreadService threadService,
             ConversationThreadRepository threadRepository,
             TelegramUserService userService) {
-        super(telegramBotProvider, typingIndicatorService);
+        super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.threadService = threadService;
         this.threadRepository = threadRepository;
         this.userService = userService;
@@ -61,26 +63,26 @@ public class NewThreadTelegramCommandHandler extends AbstractTelegramCommandHand
         
         TelegramUser user = userService.getOrCreateUser(message.getFrom());
         
-        // Закрываем текущий thread (если есть активный)
+        // Close current thread (if any active)
         Optional<ConversationThread> currentThread = threadRepository.findMostRecentActiveThread(user);
         boolean hadPreviousThread = currentThread.isPresent();
         currentThread.ifPresent(threadService::closeThread);
         
-        // Создаем новый
+        // Create new thread
         ConversationThread newThread = threadService.createNewThread(user);
         
-        // Формируем сообщение в зависимости от того, была ли предыдущая беседа
-        String responseMessage = "✅ Начата новая беседа!\n\n" +
-            "ID беседы: `" + newThread.getThreadKey().substring(0, 8) + "...`";
+        // Build message depending on whether there was a previous conversation
+        String responseMessage = "✅ New conversation started!\n\n" +
+            "Thread ID: `" + newThread.getThreadKey().substring(0, 8) + "...`";
         if (hadPreviousThread) {
-            responseMessage += "\n\nИстория предыдущей беседы сохранена.";
+            responseMessage += "\n\nPrevious conversation history was saved.";
         }
         
         return responseMessage;
     }
     
     @Override
-    public String getSupportedCommandText() {
-        return TelegramCommand.NEWTHREAD + " - 🆕 начать новую беседу";
+    public String getSupportedCommandText(String languageCode) {
+        return messageLocalizationService.getMessage("telegram.command.newthread.desc", languageCode);
     }
 }

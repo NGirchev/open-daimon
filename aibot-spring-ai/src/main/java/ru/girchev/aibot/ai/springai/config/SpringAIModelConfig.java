@@ -33,8 +33,8 @@ public class SpringAIModelConfig {
     }
 
     /**
-     * Модель бесплатная (бесплатный тир OpenRouter и т.п.), если в capabilities есть FREE.
-     * FREE в yml добавлять только для реально бесплатных моделей; для openrouter/auto — не добавлять.
+     * Model is free (OpenRouter free tier etc.) if capabilities contain FREE.
+     * Add FREE in yml only for actually free models; do not add for openrouter/auto.
      */
     public boolean isFree() {
         return capabilities != null && capabilities.contains(ModelCapabilities.FREE);

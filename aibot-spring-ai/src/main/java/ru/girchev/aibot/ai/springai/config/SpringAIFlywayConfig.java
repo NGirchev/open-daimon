@@ -9,8 +9,8 @@ import org.springframework.context.annotation.Configuration;
 import javax.sql.DataSource;
 
 /**
- * Конфигурация Flyway для Spring AI модуля
- * Миграции выполняются только если включен Spring AI модуль
+ * Flyway configuration for the Spring AI module.
+ * Migrations run only when the Spring AI module is enabled.
  */
 @Configuration
 @DependsOn("coreFlyway")

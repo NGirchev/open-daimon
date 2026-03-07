@@ -21,11 +21,11 @@ ai-bot:
       rest-email: ${ADMIN_REST_EMAIL:}
     assistant-role: "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language."
     max-total-prompt-tokens: 32000
-    # Лимит токенов одного сообщения пользователя; при превышении можно отклонить с подсказкой сократить.
+    # Max tokens per user message; can reject with hint to shorten if exceeded.
     max-user-message-tokens: 4000
-    # Общий лимит токенов вывода (max_tokens): reasoning + ответ укладываются в этот лимит.
+    # Total output token limit (max_tokens): reasoning + reply fit in this limit.
     max-output-tokens: 4000
-    # Бюджет на reasoning (часть от общего; должен быть < max-output-tokens). Опционально.
+    # Reasoning budget (part of total; must be < max-output-tokens). Optional.
     max-reasoning-tokens: 1500
     summarization:
       max-context-tokens: 8000
@@ -43,7 +43,6 @@ ai-bot:
     token: ${TELEGRAM_TOKEN}
     whitelist-exceptions: ${WHITELIST_EXCEPTIONS:}
     whitelist-channel-id-exceptions: ${WHITELIST_CHANNEL_ID_EXCEPTIONS:}
-    start-message: "Привет! Я бот с интеграцией OpenRouter. Задай мне любой вопрос, и я постараюсь на него ответить.\nДоступные команды:\n"
     commands:
       start-enabled: true
       role-enabled: true
@@ -92,8 +91,8 @@ ai-bot:
       mock: false
       history-window-size: 20
       timeouts:
-        response-timeout-seconds: 600  # 10 минут для HTTP запросов к AI провайдерам
-        stream-timeout-seconds: 600    # 10 минут для обработки стриминга
+        response-timeout-seconds: 600  # 10 min for HTTP requests to AI providers
+        stream-timeout-seconds: 600    # 10 min for streaming
       models:
         list:
           - name: "openrouter/auto"

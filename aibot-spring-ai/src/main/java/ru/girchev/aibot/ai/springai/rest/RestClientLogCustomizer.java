@@ -26,17 +26,17 @@ public class RestClientLogCustomizer implements RestClientCustomizer {
                     log.debug("HTTP {} {}", req.getMethod(), req.getURI());
 
                     try {
-                        // красиво печатаем JSON
+                        // pretty-print JSON
                         Object json = objectMapper.readValue(requestBody, Object.class);
                         log.debug("REQUEST BODY:\n{}",
                                 objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(json)
                         );
                     } catch (Exception e) {
-                        // если вдруг не JSON
+                        // in case it's not JSON
                         log.debug("REQUEST BODY (raw): {}", requestBody);
                     }
 
-                    // выполняем запрос
+                    // execute request
                     ClientHttpResponse response = exec.execute(req, body);
 
                     // ---------- RESPONSE ----------
@@ -57,7 +57,7 @@ public class RestClientLogCustomizer implements RestClientCustomizer {
 
                     log.debug("==========================");
 
-                    // ВАЖНО: возвращаем response с восстановленным body
+                    // IMPORTANT: return response with restored body
                     return new ClientHttpResponseWrapper(response, responseBytes);
                 }
         );

@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import ru.girchev.aibot.common.ai.factory.AICommandFactoryRegistry;
 import ru.girchev.aibot.common.config.CoreCommonProperties;
 import ru.girchev.aibot.common.repository.ConversationThreadRepository;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.common.repository.AIBotMessageRepository;
 import ru.girchev.aibot.common.service.*;
 import ru.girchev.aibot.telegram.TelegramBot;
@@ -27,9 +28,10 @@ public class TelegramCommandHandlerConfig {
     public BugreportTelegramCommandHandler callbackQueryTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
             TelegramUserService telegramUserService,
             BugreportService bugreportService) {
-        return new BugreportTelegramCommandHandler(telegramBotProvider, typingIndicatorService, telegramUserService, bugreportService);
+        return new BugreportTelegramCommandHandler(telegramBotProvider, typingIndicatorService, messageLocalizationService, telegramUserService, bugreportService);
     }
 
     @Bean
@@ -38,9 +40,9 @@ public class TelegramCommandHandlerConfig {
     public StartTelegramCommandHandler startTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
-            ObjectProvider<TelegramSupportedCommandProvider> handlersProvider,
-            TelegramProperties telegramProperties) {
-        return new StartTelegramCommandHandler(telegramBotProvider, typingIndicatorService, handlersProvider, telegramProperties);
+            MessageLocalizationService messageLocalizationService,
+            ObjectProvider<TelegramSupportedCommandProvider> handlersProvider) {
+        return new StartTelegramCommandHandler(telegramBotProvider, typingIndicatorService, messageLocalizationService, handlersProvider);
     }
 
     @Bean
@@ -48,9 +50,9 @@ public class TelegramCommandHandlerConfig {
     public BackoffCommandHandler backoffCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
-            ObjectProvider<TelegramSupportedCommandProvider> handlersProvider,
-            TelegramProperties telegramProperties) {
-        return new BackoffCommandHandler(telegramBotProvider, typingIndicatorService, handlersProvider, telegramProperties);
+            MessageLocalizationService messageLocalizationService,
+            ObjectProvider<TelegramSupportedCommandProvider> handlersProvider) {
+        return new BackoffCommandHandler(telegramBotProvider, typingIndicatorService, messageLocalizationService, handlersProvider);
     }
 
     @Bean
@@ -59,10 +61,23 @@ public class TelegramCommandHandlerConfig {
     public RoleTelegramCommandHandler roleTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
             TelegramUserService telegramUserService,
             CoreCommonProperties coreCommonProperties) {
         return new RoleTelegramCommandHandler(telegramBotProvider,
-                typingIndicatorService, telegramUserService, coreCommonProperties);
+                typingIndicatorService, messageLocalizationService, telegramUserService, coreCommonProperties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "ai-bot.telegram.commands", name = "language-enabled", havingValue = "true", matchIfMissing = true)
+    public LanguageTelegramCommandHandler languageTelegramCommandHandler(
+            ObjectProvider<TelegramBot> telegramBotProvider,
+            ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
+            TelegramUserService telegramUserService) {
+        return new LanguageTelegramCommandHandler(telegramBotProvider,
+                typingIndicatorService, messageLocalizationService, telegramUserService);
     }
 
     @Bean
@@ -71,12 +86,14 @@ public class TelegramCommandHandlerConfig {
     public NewThreadTelegramCommandHandler newThreadTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
             ConversationThreadService threadService,
             ConversationThreadRepository threadRepository,
             TelegramUserService telegramUserService) {
         return new NewThreadTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
+                messageLocalizationService,
                 threadService,
                 threadRepository,
                 telegramUserService);
@@ -88,12 +105,14 @@ public class TelegramCommandHandlerConfig {
     public HistoryTelegramCommandHandler historyTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
             ConversationThreadRepository threadRepository,
             AIBotMessageRepository messageRepository,
             TelegramUserService telegramUserService) {
         return new HistoryTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
+                messageLocalizationService,
                 threadRepository,
                 messageRepository,
                 telegramUserService);
@@ -105,12 +124,14 @@ public class TelegramCommandHandlerConfig {
     public ThreadsTelegramCommandHandler threadsTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
             ConversationThreadRepository threadRepository,
             ConversationThreadService threadService,
             TelegramUserService telegramUserService) {
         return new ThreadsTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
+                messageLocalizationService,
                 threadRepository,
                 threadService,
                 telegramUserService);
@@ -122,6 +143,7 @@ public class TelegramCommandHandlerConfig {
     public MessageTelegramCommandHandler messageTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             ru.girchev.aibot.telegram.service.TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
             TelegramUserService telegramUserService,
             TelegramUserSessionService telegramUserSessionService,
             TelegramMessageService telegramMessageService,
@@ -132,6 +154,7 @@ public class TelegramCommandHandlerConfig {
         return new MessageTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
+                messageLocalizationService,
                 telegramUserService,
                 telegramUserSessionService,
                 telegramMessageService,

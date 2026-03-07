@@ -1,7 +1,7 @@
 package ru.girchev.aibot.rest.exception;
 
 /**
- * Исключение, выбрасываемое при ошибке авторизации
+ * Exception thrown on authorization failure
  */
 public class UnauthorizedException extends RuntimeException {
     

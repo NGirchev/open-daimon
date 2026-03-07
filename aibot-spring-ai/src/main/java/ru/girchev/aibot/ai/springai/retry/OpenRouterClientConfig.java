@@ -3,10 +3,10 @@ package ru.girchev.aibot.ai.springai.retry;
 import org.springframework.util.StringUtils;
 
 /**
- * Минимальная конфигурация для обращения к OpenRouter Models API.
+ * Minimal config for calling OpenRouter Models API.
  *
- * @param baseUrl базовый URL, например {@code https://openrouter.ai/api}
- * @param apiKey  ключ OpenRouter
+ * @param baseUrl base URL, e.g. {@code https://openrouter.ai/api}
+ * @param apiKey  OpenRouter API key
  */
 public record OpenRouterClientConfig(String baseUrl, String apiKey) {
 
@@ -15,7 +15,7 @@ public record OpenRouterClientConfig(String baseUrl, String apiKey) {
     }
 
     /**
-     * Удобно для случаев, когда у нас есть полный URL до chat/completions:
+     * Convenient when we have full URL to chat/completions:
      * {@code https://openrouter.ai/api/v1/chat/completions}.
      */
     public static OpenRouterClientConfig fromChatCompletionsUrl(String chatCompletionsUrl, String apiKey) {

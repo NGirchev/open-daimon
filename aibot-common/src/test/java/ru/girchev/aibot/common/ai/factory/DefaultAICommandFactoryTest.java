@@ -36,7 +36,7 @@ class DefaultAICommandFactoryTest {
 
         assertInstanceOf(ChatAICommand.class, command);
         ChatAICommand chatCommand = (ChatAICommand) command;
-        assertEquals(1, chatCommand.modelCapabilities().size(), "ADMIN должен использовать только AUTO");
+        assertEquals(1, chatCommand.modelCapabilities().size(), "ADMIN must use AUTO only");
         assertTrue(chatCommand.modelCapabilities().contains(ModelCapabilities.AUTO));
     }
 
@@ -119,7 +119,7 @@ class DefaultAICommandFactoryTest {
         List<Attachment> attachments = List.of(pdfAttachment);
 
         AICommand command = factory.createCommand(
-                new TestChatCommandWithAttachments(6L, "Что в файле?", false, attachments),
+                new TestChatCommandWithAttachments(6L, "What is in the file?", false, attachments),
                 Map.of()
         );
 

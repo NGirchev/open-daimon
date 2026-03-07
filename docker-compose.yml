@@ -1,5 +1,5 @@
 services:
-  # Приложение AI Bot
+  # AI Bot application
   aibot-app:
     build:
       context: .
@@ -20,7 +20,7 @@ services:
       - OPENROUTER_KEY=${OPENROUTER_KEY}
       - SERPER_KEY=${SERPER_KEY:-}
       - SERP_API_KEY=${SERP_API_KEY:-}
-      # Database (используем имя сервиса из docker-compose)
+      # Database (use service name from docker-compose)
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ai_bot}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}

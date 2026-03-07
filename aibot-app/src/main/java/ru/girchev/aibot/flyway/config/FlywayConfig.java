@@ -3,21 +3,21 @@ package ru.girchev.aibot.flyway.config;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Конфигурация Flyway для основного приложения
- * Теперь использует модульные миграции из отдельных модулей
- * 
- * Конфигурация перенесена в модульные конфигурации:
- * - CoreFlywayConfig (aibot-common) - базовые миграции, выполняются всегда
- * - TelegramFlywayConfig (aibot-telegram) - миграции Telegram модуля
- * - RestFlywayConfig (aibot-rest) - миграции REST модуля
- * 
- * Каждая конфигурация создает Flyway бин с initMethod = "migrate",
- * который автоматически выполняет миграции при инициализации Spring контекста.
- * 
- * FlywayMigrationCheck проверяет статус всех миграций после запуска приложения.
+ * Flyway configuration for main application.
+ * Now uses modular migrations from individual modules.
+ *
+ * Config moved to module configs:
+ * - CoreFlywayConfig (aibot-common) - base migrations, always run
+ * - TelegramFlywayConfig (aibot-telegram) - Telegram module migrations
+ * - RestFlywayConfig (aibot-rest) - REST module migrations
+ *
+ * Each config creates Flyway bean with initMethod = "migrate",
+ * migrations run automatically on Spring context init.
+ *
+ * FlywayMigrationCheck verifies all migrations status after app startup.
  */
 @Configuration
 public class FlywayConfig {
-    // Конфигурация миграций перенесена в модульные конфигурации
-    // Этот класс оставлен для обратной совместимости и документации
+    // Migration config moved to module configs
+    // This class kept for backward compatibility and documentation
 } 

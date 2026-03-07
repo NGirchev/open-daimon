@@ -1,5 +1,5 @@
-# Общая конфигурация для интеграционных тестов
-# Используется с @ActiveProfiles("integration-test")
+# Shared configuration for integration tests
+# Use with @ActiveProfiles("integration-test")
 
 spring:
   ai:
@@ -8,14 +8,14 @@ spring:
       base-url: https://openrouter.ai/api
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
-  # Отключаем ненужные автоконфигурации для тестов (SpringAIAutoConfig не исключаем — нужна авторотация в IT)
+  # Disable unneeded autoconfig for tests (do not exclude SpringAIAutoConfig — needed for autorotation in IT)
   autoconfigure:
     exclude:
       - org.springframework.ai.model.ollama.autoconfigure.OllamaAutoConfiguration
       - org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration
       - org.springframework.ai.model.chat.memory.repository.jdbc.autoconfigure.JdbcChatMemoryRepositoryAutoConfiguration
 
-# aibot настройки для интеграционных тестов
+# ai-bot settings for integration tests
 ai-bot:
   telegram:
     token: test-token
@@ -50,7 +50,7 @@ ai-bot:
       enabled: true
       openrouter-auto-rotation:
         models:
-          enabled: true  # для интеграционных тестов — проверяем полный путь с ротацией
+          enabled: true  # for integration tests — verify full path with rotation
           api:
             key: ${OPENROUTER_KEY:}
             url: https://openrouter.ai/api
@@ -76,12 +76,12 @@ ai-bot:
           key: test-key
           url: https://google.serper.dev/search
       rag:
-        enabled: false  # По умолчанию выключено в тестах
+        enabled: false  # Disabled by default in tests
         chunk-size: 800
         chunk-overlap: 100
         top-k: 5
         similarity-threshold: 0.7
-      # Модели для теста - используем openrouter/auto с бесплатным max_price
+      # Models for test - use openrouter/auto with free max_price
       models:
         list:
           - name: openrouter/auto

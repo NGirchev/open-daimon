@@ -1,22 +1,22 @@
 ---
-description: Тесты и подтверждение исправлений
+description: Tests and confirming fixes
 alwaysApply: true
 ---
 
-# Тесты и подтверждение исправлений
+# Tests and confirming fixes
 
-## Тесты в проекте
+## Tests in the project
 
-- В проекте есть **юнит-тесты** и **интеграционные тесты**.
-- Запуск: `mvn test` (все тесты), `mvn test -pl <module>` (модуль), `mvn test -Dtest=ClassName` (класс/метод).
-- При изменении кода учитывай существующие тесты и при необходимости добавляй или правишь их.
+- The project has **unit tests** and **integration tests**.
+- Run: `mvn test` (all tests), `mvn test -pl <module>` (module), `mvn test -Dtest=ClassName` (class/method).
+- When changing code, consider existing tests and add or update them as needed.
 
-## Подтверждение исправлений
+## Confirming fixes
 
-При исправлении проблемы **нельзя ограничиваться первой догадкой и считать задачу выполненной**. Нужно **подтвердить исправление**:
+When fixing an issue **do not stop at the first guess and consider the task done**. You must **confirm the fix**:
 
-- Запустить релевантные тесты (затронутый модуль или конкретный тест-класс).
-- Убедиться, что тесты проходят и поведение соответствует ожиданию.
-- Если тестов для изменённого кода нет — по возможности добавить проверку или явно сообщить пользователю, что подтверждение выполнено вручную (например, ручной прогон сценария).
+- Run the relevant tests (affected module or specific test class).
+- Ensure tests pass and behaviour matches expectations.
+- If there are no tests for the changed code — add a check if possible, or tell the user that confirmation was done manually (e.g. manual scenario run).
 
-Итог: после фикса всегда должно быть **подтверждение** (прогон тестов или явная проверка), а не только выдача гипотезы пользователю.
+Result: after a fix there must always be **confirmation** (test run or explicit check), not just a hypothesis to the user.

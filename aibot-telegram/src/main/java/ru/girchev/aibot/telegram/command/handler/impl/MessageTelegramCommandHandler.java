@@ -51,6 +51,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     @SuppressWarnings("java:S107")
     public MessageTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                          TypingIndicatorService typingIndicatorService,
+                                         MessageLocalizationService messageLocalizationService,
                                          TelegramUserService telegramUserService,
                                          TelegramUserSessionService telegramUserSessionService,
                                          TelegramMessageService telegramMessageService,
@@ -58,7 +59,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                                          AIBotMessageService messageService,
                                          AICommandFactoryRegistry aiCommandFactoryRegistry,
                                          TelegramProperties telegramProperties) {
-        super(telegramBotProvider, typingIndicatorService);
+        super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.telegramUserSessionService = telegramUserSessionService;
         this.telegramMessageService = telegramMessageService;
@@ -87,22 +88,22 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         ConversationThread thread;
 
         try {
-            // Получаем пользователя и его роль
+            // Get user and their role
             if (message == null) {
                 throw new IllegalStateException("Message is required for message command");
             }
             TelegramUser telegramUser = telegramUserService.getOrCreateUser(message.getFrom());
 
-            // Получаем или создаем сессию пользователя
+            // Get or create user session
             TelegramUserSession session = telegramUserSessionService.getOrCreateSession(telegramUser);
 
-            // Сохраняем запрос пользователя (включая ссылки на вложения при наличии)
-            // Thread и роль автоматически получаются или создаются внутри saveUserMessage
+            // Save user request (including attachment refs when present)
+            // Thread and role are obtained or created inside saveUserMessage
             userMessage = telegramMessageService.saveUserMessage(
                     telegramUser, session, command.userText(),
                     RequestType.TEXT, null, command.attachments());
 
-            // Получаем thread и роль из сохраненного сообщения для дальнейшего использования
+            // Get thread and role from saved message for further use
             thread = userMessage.getThread();
             AssistantRole assistantRole = userMessage.getAssistantRole();
             String assistantRoleContent = assistantRole.getContent();
@@ -112,13 +113,13 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             log.info("Using conversation thread: {} with AssistantRole {} (v{})",
                     thread.getThreadKey(), assistantRoleId, assistantRoleVersion);
 
-            // Обрабатываем запрос и получаем ответ
+            // Process request and get response
             long startTime = System.currentTimeMillis();
 
-            // Передаем в metadata необходимые данные для построения контекста
-            // Новая фабрика ConversationHistoryAiCommandFactory сама использует ContextBuilderService для построения контекста
-            // Если в metadata есть threadKey - используется ConversationHistoryAiCommandFactory
-            // Если нет - используется DefaultAiCommandFactory (fallback)
+            // Pass metadata required for context building
+            // ConversationHistoryAiCommandFactory uses ContextBuilderService for context
+            // If metadata has threadKey - ConversationHistoryAiCommandFactory is used
+            // Otherwise DefaultAiCommandFactory (fallback)
             Map<String, String> metadata = prepareMetadata(thread, assistantRoleContent, assistantRoleId, telegramUser);
 
             List<Attachment> atts = command.attachments() != null ? command.attachments() : List.of();
@@ -148,23 +149,23 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                         s -> {
                             log.debug("Sending message: {}", s);
                             sendMessage(command.telegramId(), AIUtils.convertMarkdownToHtml(s), replyToMessageId[0]);
-                            replyToMessageId[0] = null; // После первого сообщения reply-to не нужен
+                            replyToMessageId[0] = null; // After first message reply-to is not needed
                         }
                 );
 
-                // Извлекаем полезные данные из ответа AI провайдера ДО попытки получить content
-                // Это нужно для обработки ошибок (например, когда finish_reason = "length")
+                // Extract useful data from AI provider response BEFORE getting content
+                // Needed for error handling (e.g. when finish_reason = "length")
                 usefulResponseData = AIUtils.extractSpringAiUsefulData(chatResponse);
 
-                // Пытаемся получить content из ответа
+                // Try to get content from response
                 responseTextOpt = AIUtils.extractText(chatResponse);
                 errorOpt = extractError(chatResponse);
             } else {
-                // Извлекаем полезные данные из ответа AI провайдера ДО попытки получить content
-                // Это нужно для обработки ошибок (например, когда finish_reason = "length")
+                // Extract useful data from AI provider response BEFORE getting content
+                // Needed for error handling (e.g. when finish_reason = "length")
                 usefulResponseData = AIUtils.extractUsefulData(aiResponse);
 
-                // Пытаемся получить content из ответа
+                // Try to get content from response
                 responseTextOpt = retrieveMessage(aiResponse);
                 errorOpt = extractError(aiResponse);
             }
@@ -178,8 +179,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                     : "unknown";
                 log.info("Gateway: [{}]. Model: [{}]", aiResponse.gatewaySource(), model);
 
-                // Сохраняем ответ от сервиса
-                // Thread и роль автоматически получаются или создаются внутри saveAssistantMessage
+                // Save service response
+                // Thread and role are obtained or created inside saveAssistantMessage
                 var assistantMessage = telegramMessageService.saveAssistantMessage(
                         telegramUser,
                         responseText,
@@ -188,21 +189,21 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                         (int) processingTime,
                         usefulResponseData);
 
-                // Отправляем ответ пользователю с reply-to на исходное сообщение если не стрим
-                // Конвертируем Markdown в HTML для корректного отображения форматирования
+                // Send response to user with reply-to original message if not streaming
+                // Convert Markdown to HTML for proper formatting
                 if (!alreadySentInStream) {
                     Integer replyToMessageId = message.getMessageId();
                     String htmlFormattedText = AIUtils.convertMarkdownToHtml(responseText);
                     sendMessage(command.telegramId(), htmlFormattedText, replyToMessageId);
                 }
 
-                // Обновляем статус ответа на SUCCESS
+                // Update response status to SUCCESS
                 messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
             } else {
-                // Если content пустой, используем ошибку из AIResponse
+                // If content is empty, use error from AIResponse
                 String errorMessage = errorOpt.orElse("Content is empty");
 
-                // Сохраняем ошибку в БД с finish_reason в response_data
+                // Save error to DB with finish_reason in response_data
                 telegramMessageService.saveAssistantErrorMessage(
                         telegramUser,
                         errorMessage,
@@ -219,7 +220,10 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         } catch (UserMessageTooLongException e) {
             log.warn("Message exceeds token limit: {}", e.getMessage());
             Integer replyToMessageId = message != null ? message.getMessageId() : null;
-            sendErrorMessage(command.telegramId(), e.getMessage(), replyToMessageId);
+            String errorText = e.getEstimatedTokens() > 0 && e.getMaxAllowed() > 0
+                    ? messageLocalizationService.getMessage("common.error.message.too.long", command.languageCode(), e.getEstimatedTokens(), e.getMaxAllowed())
+                    : e.getMessage();
+            sendErrorMessage(command.telegramId(), errorText, replyToMessageId);
             return null;
         } catch (DocumentContentNotExtractableException e) {
             log.warn("Could not extract text from document: {}", e.getMessage());
@@ -262,19 +266,19 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 log.error("Error processing message", e);
             }
             if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
-                // Получаем роль из сохраненного сообщения для сохранения ошибки
+                // Get role from saved message for saving error
                 String errorRoleContent = userMessage.getAssistantRole() != null
                         ? userMessage.getAssistantRole().getContent()
                         : null;
                 telegramMessageService.saveAssistantErrorMessage(
                         telegramUser,
-                        "Произошла ошибка при обработке запроса",
+                        "An error occurred while processing your request",
                         modelCapabilities.toString(),
                         errorRoleContent,
                         null);
             }
             Integer replyToMessageId = message != null ? message.getMessageId() : null;
-            sendErrorMessage(command.telegramId(), "Произошла ошибка при обработке запроса", replyToMessageId);
+            sendErrorMessage(command.telegramId(), "An error occurred while processing your request", replyToMessageId);
         }
         return null;
     }
@@ -299,16 +303,16 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         metadata.put(THREAD_KEY_FIELD, thread.getThreadKey());
         metadata.put(ASSISTANT_ROLE_ID_FIELD, assistantRoleId.toString());
         metadata.put(USER_ID_FIELD, telegramUser.getId().toString());
-        // Для обратной совместимости также передаем роль (на случай fallback на DefaultAiCommandFactory)
+        // For backward compatibility also pass role (for fallback to DefaultAiCommandFactory)
         metadata.put(ROLE_FIELD, assistantRoleContent);
         return metadata;
     }
 
-    // Методы createResponseMetadata и serializeToJson удалены,
-    // так как все данные уже сохраняются в таблице message и не нужно дублировать их в response_data
+    // createResponseMetadata and serializeToJson were removed;
+    // all data is already stored in message table and need not be duplicated in response_data
 
     @Override
-    public String getSupportedCommandText() {
+    public String getSupportedCommandText(String languageCode) {
         return null;
     }
 }

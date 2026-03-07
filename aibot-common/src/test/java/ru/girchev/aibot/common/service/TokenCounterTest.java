@@ -56,7 +56,7 @@ class TokenCounterTest {
 
     @Test
     void whenTextHasExactMultipleOfCharsPerToken_thenReturnCorrectCount() {
-        // Arrange - 8 символов, 4 символа на токен = 2 токена
+        // Arrange - 8 chars, 4 chars per token = 2 tokens
         String text = "12345678";
 
         // Act
@@ -68,7 +68,7 @@ class TokenCounterTest {
 
     @Test
     void whenTextHasRemainder_thenRoundUp() {
-        // Arrange - 9 символов, 4 символа на токен = 2.25 токена, округляем до 3
+        // Arrange - 9 chars, 4 chars per token = 2.25 tokens, round up to 3
         String text = "123456789";
 
         // Act
@@ -98,7 +98,7 @@ class TokenCounterTest {
 
     @Test
     void whenTextListHasMultipleTexts_thenReturnSum() {
-        // Arrange - каждый текст по 4 символа = 1 токен, итого 3 токена
+        // Arrange - each text 4 chars = 1 token, total 3 tokens
         List<String> texts = Arrays.asList("1234", "5678", "9012");
 
         // Act

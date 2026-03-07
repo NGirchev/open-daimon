@@ -127,7 +127,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         @SuppressWarnings("unchecked")
         org.springframework.beans.factory.ObjectProvider<ChatMemory> chatMemoryProvider =
                 mock(org.springframework.beans.factory.ObjectProvider.class);
-        when(chatMemoryProvider.getIfAvailable()).thenReturn(chatMemory);
+        lenient().when(chatMemoryProvider.getIfAvailable()).thenReturn(chatMemory);
         
         springAIGateway = new SpringAIGateway(
                 springAIProperties,
@@ -188,11 +188,11 @@ class SpringAIGatewayMemoryAdvisorTest {
         // Arrange
         String threadKey = "test-thread-key";
         String systemRole = "You are a friendly assistant. respond concisely and to the point.";
-        String userRole = "Что ты знаешь?";
+        String userRole = "What do you know?";
         
         // Setup ChatMemory to return history
         // History should be: User -> Assistant
-        String historyUser = "Тест";
+        String historyUser = "Test";
         String historyAssistant = "Okay.";
         List<Message> historyMessages = List.of(
                 new UserMessage(historyUser),
@@ -229,12 +229,12 @@ class SpringAIGatewayMemoryAdvisorTest {
         // Assert
         // Verify Prompt was captured
         Prompt capturedPrompt = promptCaptor.getValue();
-        assertNotNull(capturedPrompt, "Prompt должен быть перехвачен");
+        assertNotNull(capturedPrompt, "Prompt must be captured");
         
         // Get message list from Prompt
         List<Message> messages = capturedPrompt.getInstructions();
-        assertNotNull(messages, "Список сообщений не должен быть null");
-        assertFalse(messages.isEmpty(), "Список сообщений не должен быть пустым");
+        assertNotNull(messages, "Message list must not be null");
+        assertFalse(messages.isEmpty(), "Message list must not be empty");
         
         // Verify exact message order per requirements:
         // 1. System message (first) - fixed by MessageOrderingAdvisor
@@ -273,37 +273,37 @@ class SpringAIGatewayMemoryAdvisorTest {
         }
         
         // Verify all messages were found
-        assertTrue(systemIndex >= 0, "System сообщение должно быть найдено");
-        assertTrue(historyUserIndex >= 0, "История User сообщение должно быть найдено");
-        assertTrue(historyAssistantIndex >= 0, "История Assistant сообщение должно быть найдено");
-        assertTrue(currentUserIndex >= 0, "Текущее User сообщение должно быть найдено");
+        assertTrue(systemIndex >= 0, "System message must be found");
+        assertTrue(historyUserIndex >= 0, "History User message must be found");
+        assertTrue(historyAssistantIndex >= 0, "History Assistant message must be found");
+        assertTrue(currentUserIndex >= 0, "Current User message must be found");
         
         // Verify correct order per requirements:
         // System (index 0) -> History User (index 1) -> History Assistant (index 2) -> Current User (index 3)
         
         // Verify System message is first
         assertEquals(0, systemIndex, 
-                "System сообщение должно быть первым (index 0), но было на index: " + systemIndex + 
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+"System message must be first (index 0), but was at index: " + systemIndex +
+                ". Order: " + getMessagesOrderString(messages));
         
         // Verify history User comes after System
         assertEquals(1, historyUserIndex, 
-                "История User должна быть на index 1, но была на index: " + historyUserIndex + 
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+"History User must be at index 1, but was at index: " + historyUserIndex +
+                ". Order: " + getMessagesOrderString(messages));
         
         // Verify history Assistant comes after history User
         assertEquals(2, historyAssistantIndex, 
-                "История Assistant должна быть на index 2, но была на index: " + historyAssistantIndex + 
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+"History Assistant must be at index 2, but was at index: " + historyAssistantIndex +
+                ". Order: " + getMessagesOrderString(messages));
         
         // Verify current User message is last
         assertEquals(3, currentUserIndex, 
-                "Текущее User сообщение должно быть последним (index 3), но было на index: " + currentUserIndex + 
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+"Current User message must be last (index 3), but was at index: " + currentUserIndex +
+                ". Order: " + getMessagesOrderString(messages));
         
         // Final check: order must be System -> History (User -> Assistant) -> User
         assertEquals(4, messages.size(), 
-                "Должно быть 4 сообщения: System, History User, History Assistant, Current User");
+                "Must have 4 messages: System, History User, History Assistant, Current User");
     }
     
     private String getMessagesOrderString(List<Message> messages) {
@@ -328,7 +328,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         String threadKey = "test-thread-key";
         String systemRole = "You are a helpful assistant";
         String userRole = "Hello, how are you?";
-        String summaryText = "Краткое содержание предыдущей беседы:\nSummary text\n\nКлючевые моменты:\n• Point 1\n• Point 2";
+        String summaryText = "Summary of previous conversation:\nSummary text\n\nKey points:\n• Point 1\n• Point 2";
         
         // Setup ChatMemory to return summary as SystemMessage
         List<Message> historyWithSummary = List.of(
@@ -370,11 +370,11 @@ class SpringAIGatewayMemoryAdvisorTest {
         
         // Verify Prompt was captured
         Prompt capturedPrompt = promptCaptor.getValue();
-        assertNotNull(capturedPrompt, "Prompt должен быть перехвачен");
+        assertNotNull(capturedPrompt, "Prompt must be captured");
         
         // Get message list from Prompt
         List<Message> messages = capturedPrompt.getInstructions();
-        assertNotNull(messages, "Список сообщений не должен быть null");
+        assertNotNull(messages, "Message list must not be null");
         
         // Verify correct order: System (current) -> summary(System) -> History -> User
         // MessageOrderingAdvisor must reorder all System messages first
@@ -392,7 +392,7 @@ class SpringAIGatewayMemoryAdvisorTest {
                 SystemMessage sysMsg = (SystemMessage) msg;
                 if (systemRole.equals(sysMsg.getText())) {
                     systemRoleIndex = i;
-                } else if (sysMsg.getText().contains("Краткое содержание предыдущей беседы") || 
+                } else if (sysMsg.getText().contains("Summary of previous conversation") || 
                           sysMsg.getText().contains("Summary text")) {
                     summaryIndex = i;
                 }
@@ -412,32 +412,32 @@ class SpringAIGatewayMemoryAdvisorTest {
         }
         
         // Verify all messages were found
-        assertTrue(systemRoleIndex >= 0, "System сообщение (systemRole) должно быть найдено");
-        assertTrue(summaryIndex >= 0, "Summary System сообщение должно быть найдено");
-        assertTrue(historyUserIndex >= 0, "История User сообщение должно быть найдено");
-        assertTrue(historyAssistantIndex >= 0, "История Assistant сообщение должно быть найдено");
-        assertTrue(currentUserIndex >= 0, "Текущее User сообщение должно быть найдено");
+        assertTrue(systemRoleIndex >= 0, "System message (systemRole) must be found");
+        assertTrue(summaryIndex >= 0, "Summary System message must be found");
+        assertTrue(historyUserIndex >= 0, "History User message must be found");
+        assertTrue(historyAssistantIndex >= 0, "History Assistant message must be found");
+        assertTrue(currentUserIndex >= 0, "Current User message must be found");
         
         // Verify correct order: System (current) -> summary(System) -> History -> User
         assertEquals(0, systemRoleIndex, 
-                "System сообщение (systemRole) должно быть первым (index 0), но было на index: " + systemRoleIndex +
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+                "System message (systemRole) must be first (index 0), but was at index: " + systemRoleIndex +
+                ". Order: " + getMessagesOrderString(messages));
         assertEquals(1, summaryIndex,
-                "Summary System сообщение должно быть вторым (index 1), но было на index: " + summaryIndex +
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+                "Summary System message must be second (index 1), but was at index: " + summaryIndex +
+                ". Order: " + getMessagesOrderString(messages));
         assertEquals(2, historyUserIndex,
-                "История User должна быть на index 2, но была на index: " + historyUserIndex +
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+                "History User must be at index 2, but was at index: " + historyUserIndex +
+                ". Order: " + getMessagesOrderString(messages));
         assertEquals(3, historyAssistantIndex,
-                "История Assistant должна быть на index 3, но была на index: " + historyAssistantIndex +
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+                "History Assistant must be at index 3, but was at index: " + historyAssistantIndex +
+                ". Order: " + getMessagesOrderString(messages));
         assertEquals(4, currentUserIndex,
-                "Текущее User сообщение должно быть последним (index 4), но было на index: " + currentUserIndex +
-                ". Текущий порядок: " + getMessagesOrderString(messages));
+                "Current User message must be last (index 4), but was at index: " + currentUserIndex +
+                ". Order: " + getMessagesOrderString(messages));
         
         // Final check: order must be System -> summary(System) -> History (User -> Assistant) -> User
         assertEquals(5, messages.size(), 
-                "Должно быть 5 сообщений: System, Summary, History User, History Assistant, Current User");
+                "Must have 5 messages: System, Summary, History User, History Assistant, Current User");
     }
 
     @Test
@@ -487,20 +487,20 @@ class SpringAIGatewayMemoryAdvisorTest {
         
         // Verify Prompt was captured
         Prompt capturedPrompt = promptCaptor.getValue();
-        assertNotNull(capturedPrompt, "Prompt должен быть перехвачен");
+        assertNotNull(capturedPrompt, "Prompt must be captured");
         
         // Verify messages were passed to ChatModel
         List<Message> messages = capturedPrompt.getInstructions();
-        assertNotNull(messages, "Список сообщений не должен быть null");
-        assertFalse(messages.isEmpty(), "Список сообщений не должен быть пустым");
+        assertNotNull(messages, "Message list must not be null");
+        assertFalse(messages.isEmpty(), "Message list must not be empty");
         
         // Verify order: System must be at start, User last
         boolean hasSystemMessage = messages.stream()
                 .anyMatch(m -> m instanceof SystemMessage);
         assertTrue(hasSystemMessage, 
-                "Должно быть хотя бы одно System сообщение");
+                "Must have at least one System message");
         assertTrue(messages.get(messages.size() - 1) instanceof UserMessage, 
-                "Последнее сообщение должно быть UserMessage, но было: " + 
+                "Last message must be UserMessage, but was: " + 
                 messages.get(messages.size() - 1).getClass().getSimpleName());
     }
 }

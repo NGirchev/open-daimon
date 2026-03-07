@@ -8,8 +8,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.test.context.ActiveProfiles;
 import org.telegram.telegrambots.meta.api.objects.Chat;
 import org.telegram.telegrambots.meta.api.objects.Message;
@@ -196,11 +198,24 @@ class TelegramMockGatewayIT {
         }
 
         @Bean
+        public MessageSource messageSource() {
+            ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
+            source.setBasenames("classpath:messages/common", "classpath:messages/telegram");
+            source.setDefaultEncoding("UTF-8");
+            source.setFallbackToSystemLocale(false);
+            return source;
+        }
+
+        @Bean
+        public MessageLocalizationService messageLocalizationService(MessageSource messageSource) {
+            return new MessageLocalizationService(messageSource);
+        }
+
+        @Bean
         public TelegramProperties telegramProperties() {
             var props = new TelegramProperties();
             props.setToken("test-token");
             props.setUsername("test-bot");
-            props.setStartMessage("Hello from integration test");
             props.setWhitelistExceptions("");
             props.setWhitelistChannelIdExceptions("");
             props.setMaxMessageLength(4096);
@@ -280,6 +295,7 @@ class TelegramMockGatewayIT {
         public MessageTelegramCommandHandler messageTelegramCommandHandler(
                 ObjectProvider<TelegramBot> telegramBotProvider,
                 TypingIndicatorService typingIndicatorService,
+                MessageLocalizationService messageLocalizationService,
                 TelegramUserService telegramUserService,
                 TelegramUserSessionService telegramUserSessionService,
                 TelegramMessageService telegramMessageService,
@@ -291,6 +307,7 @@ class TelegramMockGatewayIT {
             return new MessageTelegramCommandHandler(
                     telegramBotProvider,
                     typingIndicatorService,
+                    messageLocalizationService,
                     telegramUserService,
                     telegramUserSessionService,
                     telegramMessageService,
@@ -330,7 +347,7 @@ class TelegramMockGatewayIT {
         var chat = new Chat();
         chat.setId(350001752L);
         msg.setChat(chat);
-        msg.setText("Привет");
+        msg.setText("Hi");
         msg.setFrom(from);
         update.setMessage(msg);
 

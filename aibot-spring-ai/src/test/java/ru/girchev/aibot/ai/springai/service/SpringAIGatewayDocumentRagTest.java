@@ -123,7 +123,7 @@ class SpringAIGatewayDocumentRagTest {
                 1000,
                 null,
                 null,
-                "Что в файле?",
+                "What is in the file?",
                 true,
                 Map.of(),
                 body,
@@ -162,7 +162,7 @@ class SpringAIGatewayDocumentRagTest {
                 1000,
                 null,
                 null,
-                "Что в файле?",
+                "What is in the file?",
                 true,
                 Map.of(),
                 body,
@@ -192,7 +192,7 @@ class SpringAIGatewayDocumentRagTest {
         boolean hasSystemMessageWithPdfContext = messages.stream()
                 .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
                 .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
-                .anyMatch(text -> text.contains("PDF-документ") && text.contains("scan.pdf") && text.contains("изображений"));
+                .anyMatch(text -> text.contains("PDF document") && text.contains("scan.pdf") && text.contains("images"));
         
         assertTrue(hasSystemMessageWithPdfContext, "Should have SystemMessage with PDF attachment context");
 
@@ -219,7 +219,7 @@ class SpringAIGatewayDocumentRagTest {
                 1000,
                 null,
                 null,
-                "Что на картинке?",
+                "What is in the image?",
                 true,
                 Map.of(),
                 body,
@@ -247,7 +247,7 @@ class SpringAIGatewayDocumentRagTest {
         boolean hasSystemMessageWithImageContext = messages.stream()
                 .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
                 .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
-                .anyMatch(text -> text.contains("прикрепил изображение"));
+                .anyMatch(text -> text.contains("attached") && text.contains("image"));
 
         assertTrue(hasSystemMessageWithImageContext, "Should have SystemMessage with image attachment context");
 
@@ -287,7 +287,7 @@ class SpringAIGatewayDocumentRagTest {
                 1000,
                 null,
                 null,
-                "Что в файлах?",
+                "What is in the files?",
                 true,
                 Map.of(),
                 body,
@@ -314,8 +314,8 @@ class SpringAIGatewayDocumentRagTest {
         boolean hasSystemMessageWithBothContexts = messages.stream()
                 .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
                 .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
-                .anyMatch(text -> text.contains("PDF-документ") && text.contains("scan.pdf") && 
-                                 text.contains("прикрепил изображение"));
+                .anyMatch(text -> text.contains("PDF document") && text.contains("scan.pdf") && 
+                                 text.contains("attached") && text.contains("image"));
 
         assertTrue(hasSystemMessageWithBothContexts, "Should have SystemMessage with both PDF and image contexts");
 

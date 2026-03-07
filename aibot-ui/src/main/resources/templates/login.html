@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Вход в систему</title>
+    <title>Sign in</title>
     <style>
         * {
             margin: 0;
@@ -112,8 +112,8 @@
 </head>
 <body>
     <div class="login-container">
-        <h1>Вход в систему</h1>
-        <p class="subtitle">Введите ваш email для доступа к чату</p>
+        <h1>Sign in</h1>
+        <p class="subtitle">Enter your email to access the chat</p>
         <form id="loginForm">
             <div class="form-group">
                 <label for="email">Email</label>
@@ -127,7 +127,7 @@
                 >
                 <div class="error-message" id="errorMessage"></div>
             </div>
-            <button type="submit" id="submitBtn">Войти</button>
+            <button type="submit" id="submitBtn">Sign in</button>
         </form>
     </div>
     
@@ -140,7 +140,7 @@
             const submitBtn = document.getElementById('submitBtn');
             
             if (!email) {
-                errorMessage.textContent = 'Пожалуйста, введите email';
+                errorMessage.textContent = 'Please enter your email';
                 errorMessage.classList.add('show');
                 return;
             }
@@ -155,18 +155,18 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({ email }),
-                    credentials: 'include' // Важно для сохранения сессии
+                    credentials: 'include' // Required to persist session
                 });
                 
                 if (response.ok) {
                     window.location.href = '/chat';
                 } else {
-                    const error = await response.json().catch(() => ({ message: 'Ошибка авторизации' }));
-                    errorMessage.textContent = error.message || 'Ошибка авторизации';
+                    const error = await response.json().catch(() => ({ message: 'Authentication error' }));
+                    errorMessage.textContent = error.message || 'Authentication error';
                     errorMessage.classList.add('show');
                 }
             } catch (error) {
-                errorMessage.textContent = 'Ошибка подключения к серверу';
+                errorMessage.textContent = 'Connection error';
                 errorMessage.classList.add('show');
             } finally {
                 submitBtn.disabled = false;

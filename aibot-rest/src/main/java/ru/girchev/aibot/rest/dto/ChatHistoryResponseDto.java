@@ -3,7 +3,7 @@ package ru.girchev.aibot.rest.dto;
 import java.util.List;
 
 /**
- * DTO для истории сообщений в сессии
+ * DTO for session message history
  */
 public record ChatHistoryResponseDto(String sessionId, List<ChatMessageDto> messages) {
 }

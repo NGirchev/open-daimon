@@ -19,13 +19,13 @@ import static ru.girchev.aibot.common.ai.LlmParamNames.*;
 public class MockGateway implements AIGateway {
 
     private static final List<String> MOCK_RESPONSES = List.of(
-            "Это тестовый ответ от Mock Gateway",
-            "Mock Gateway получил ваш запрос и отвечает случайным образом",
-            "Привет! Я mock gateway, и я просто отвечаю случайными фразами",
-            "Вот случайный ответ для тестирования системы",
-            "Mock Gateway работает корректно и обработал ваш запрос",
-            "Это ответ от mock gateway для проверки функциональности",
-            "Mock Gateway успешно обработал запрос и вернул тестовый ответ"
+            "This is a test response from Mock Gateway",
+            "Mock Gateway received your request and responds randomly",
+            "Hi! I am mock gateway and I just reply with random phrases",
+            "Here is a random response for testing the system",
+            "Mock Gateway works correctly and processed your request",
+            "This is a response from mock gateway to verify functionality",
+            "Mock Gateway successfully processed the request and returned a test response"
     );
 
     private final AIGatewayRegistry aiGatewayRegistry;
@@ -39,7 +39,7 @@ public class MockGateway implements AIGateway {
 
     @Override
     public boolean supports(AICommand command) {
-        return true; // Поддерживает все команды
+        return true; // Supports all commands
     }
 
     @Override
@@ -68,7 +68,7 @@ public class MockGateway implements AIGateway {
         log.info("=== MockGateway received Map request ===");
         log.info("Request content: {}", request);
         
-        // Логируем основные поля если они есть
+        // Log main fields if present
         if (request.containsKey(MESSAGES)) {
             log.info("Messages: {}", request.get(MESSAGES));
         }
@@ -98,7 +98,7 @@ public class MockGateway implements AIGateway {
         
         Map<String, Object> response = new HashMap<>();
         response.put(CHOICES, List.of(choice));
-        response.put(MODEL, "mock");  // Добавляем поле model для совместимости с extractUsefulData
+        response.put(MODEL, "mock");  // Add model field for compatibility with extractUsefulData
         
         return new MockResponse(response);
     }

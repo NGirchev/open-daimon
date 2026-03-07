@@ -18,7 +18,7 @@
   let currentSessionId = null;
   let isSending = false;
   let userEmail = null;
-  let renderScheduled = false; // Флаг для батчинга обновлений DOM
+  let renderScheduled = false; // Flag for DOM update batching
 
   document.addEventListener('DOMContentLoaded', () => {
     el.sessionList = document.getElementById('sessionList');
@@ -68,12 +68,12 @@
 
     window.addEventListener('hashchange', handleHashChange);
 
-    // Инициализация с обработкой ошибок
+    // Init with error handling
     try {
       init();
     } catch (e) {
       console.error('Error during initialization:', e);
-      // Гарантируем, что форма видна даже при ошибке
+      // Ensure form is visible even on error
       if (el.form && el.form.style) {
         el.form.style.display = '';
       }
@@ -81,7 +81,7 @@
   });
 
   async function init() {
-    // Проверяем авторизацию и получаем email пользователя
+    // Check auth and get user email
     try {
       const userInfo = await getJSON('/api/v1/ui/me');
       userEmail = userInfo.email;
@@ -89,7 +89,7 @@
         el.userEmail.textContent = userEmail;
       }
     } catch (e) {
-      // Если не авторизован, перенаправляем на страницу логина
+      // If not authenticated, redirect to login
       window.location.href = '/login';
       return;
     }
@@ -125,7 +125,7 @@
 
   async function loadSessions() {
     try {
-      // Email теперь берется из сессии на сервере, не нужно передавать в запросе
+      // Email is taken from server session, no need to pass in request
       const list = await getJSON(`${API}`);
       // sort by createdAt desc
       list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -140,7 +140,7 @@
       }
     } catch (e) {
       console.error('Error loading sessions:', e);
-      // Если статус 401, сразу делаем редирект
+      // If status 401, redirect immediately
       if (e.status === 401 || e.redirect) {
         const redirectUrl = e.redirect || '/login';
         console.log('Unauthorized - redirecting to:', redirectUrl);
@@ -201,7 +201,7 @@
     }
     if (el.input) {
       el.input.value = '';
-      // Гарантируем, что поле ввода разблокировано
+      // Ensure input is unlocked
       setSendingState(false);
       el.input.focus();
     }
@@ -224,7 +224,7 @@
 
   async function loadHistory(sessionId) {
     try {
-      // Email теперь берется из сессии на сервере, не нужно передавать в запросе
+      // Email is taken from server session, no need to pass in request
       const data = await getJSON(`${API}/${sessionId}/messages`);
       const items = (data && Array.isArray(data.messages)) ? data.messages : [];
       // filter out SYSTEM
@@ -233,7 +233,7 @@
       scrollToBottom();
     } catch (e) {
       console.error('Error loading history:', e);
-      // Если статус 401, сразу делаем редирект
+      // If status 401, redirect immediately
       if (e.status === 401 || e.redirect) {
         const redirectUrl = e.redirect || '/login';
         console.log('Unauthorized - redirecting to:', redirectUrl);
@@ -269,16 +269,16 @@
     const r = (role || '').toUpperCase();
     div.className = 'message ' + (r === 'USER' ? 'user' : 'assistant');
     if (r === 'ASSISTANT') {
-      // Создаем контейнер для постепенного добавления контента
+      // Container for incremental content
       const contentContainer = document.createElement('div');
-      // Создаем один textNode для накопления текста - используем nodeValue для обновления
+      // Single textNode for accumulating text — use nodeValue for updates
       const textNode = document.createTextNode('');
       contentContainer.appendChild(textNode);
       div.appendChild(contentContainer);
       div._contentContainer = contentContainer;
-      div._textNode = textNode; // Сохраняем ссылку на textNode для обновления
+      div._textNode = textNode; // Keep reference for updates
       div._contentBuffer = '';
-      div._renderTimeout = null; // Для периодической перерисовки think-блоков
+      div._renderTimeout = null; // For periodic re-render of think blocks
     } else {
       div.textContent = '';
     }
@@ -299,47 +299,41 @@
       messageDiv._contentBuffer = '';
     }
     
-    // Накапливаем текст в буфере
+    // Accumulate text in buffer
     messageDiv._contentBuffer += text;
     
-    // Обновляем один textNode вместо создания новых - это предотвращает переносы строк
-    // Используем nodeValue вместо textContent для более эффективного обновления
+    // Update single textNode instead of creating new ones — avoids line breaks
+    // Use nodeValue instead of textContent for more efficient updates
     if (messageDiv._textNode) {
-      // Проверяем, что это действительно textNode (nodeType === 3)
       if (messageDiv._textNode.nodeType === 3) {
         messageDiv._textNode.nodeValue = messageDiv._contentBuffer;
       } else {
-        // Если это не textNode, обновляем textContent
         messageDiv._textNode.textContent = messageDiv._contentBuffer;
       }
     } else {
-      // Fallback: если textNode не создан, создаем его
+      // Fallback: create textNode if not present
       messageDiv._textNode = document.createTextNode(messageDiv._contentBuffer);
       messageDiv._contentContainer.appendChild(messageDiv._textNode);
     }
     
-    // Прокручиваем вниз при каждом обновлении
+    // Scroll down on each update
     scrollToBottom();
     
-    // Периодически перерисовываем для обработки think-блоков (если они есть)
-    // Но не при каждом символе - это слишком дорого
+    // Periodically re-render for think blocks; not on every char (too expensive)
     if (!messageDiv._renderTimeout) {
       messageDiv._renderTimeout = setTimeout(() => {
         messageDiv._renderTimeout = null;
-        // Перерисовываем для обработки think-блоков, если они появились
         const currentContent = messageDiv._contentBuffer;
         if (currentContent.includes('<think>')) {
           renderAssistantContent(messageDiv._contentContainer, currentContent);
-          // После перерисовки нужно обновить ссылку на textNode
-          // Но renderAssistantContent создает новые узлы, поэтому textNode нужно будет пересоздать
-          messageDiv._textNode = null;
+          messageDiv._textNode = null; // renderAssistantContent creates new nodes
         }
-      }, 100); // Перерисовываем раз в 100мс, если есть think-блоки
+      }, 100);
     }
   }
 
   function renderAssistantContent(container, content) {
-    // Очищаем контейнер перед перерисовкой
+    // Clear container before re-render
     container.innerHTML = '';
     
     if (!content) {
@@ -417,7 +411,7 @@
     if (!text) return;
 
     if (!currentSessionId) {
-      // New chat flow: используем стриминг
+      // New chat flow: use streaming
       setSendingState(true);
       appendMessage('USER', text);
       const assistantMessageDiv = appendStreamingMessage('ASSISTANT');
@@ -434,7 +428,7 @@
         updateSendButtonState();
       } catch (e) {
         console.error('Error sending message (new chat):', e);
-        // Удаляем сообщения пользователя и ассистента при ошибке
+        // Remove user and assistant messages on error
         const messages = el.messages.querySelectorAll('.message');
         if (messages.length >= 2) {
           messages[messages.length - 1].remove(); // assistant
@@ -442,30 +436,28 @@
         } else if (messages.length >= 1) {
           messages[messages.length - 1].remove();
         }
-        // Разблокируем поле ввода перед обработкой ошибки
+        // Unlock input before handling error
         setSendingState(false);
         
-        // Если статус 401, сразу делаем редирект
+        // If status 401, redirect immediately
         if (e.status === 401 || e.redirect) {
           const redirectUrl = e.redirect || '/login';
           console.log('Unauthorized - redirecting to:', redirectUrl);
           window.location.href = redirectUrl;
           return;
         }
-        // Пытаемся обработать как ошибку авторизации через handleAuthError
         if (handleAuthError(e)) {
-          return; // Редирект произошел, выходим
+          return; // Redirect happened
         }
-        // Если это не ошибка авторизации, показываем сообщение
         alert('Failed to send message: ' + (e.message || 'Unknown error'));
       } finally {
-        // Дополнительная проверка - разблокируем поле ввода на всякий случай
+        // Safeguard: unlock input
         if (isSending) {
           setSendingState(false);
         }
       }
     } else {
-      // Existing chat: используем стриминг
+      // Existing chat: use streaming
       appendMessage('USER', text);
       scrollToBottom();
       const assistantMessageDiv = appendStreamingMessage('ASSISTANT');
@@ -479,7 +471,7 @@
         updateSendButtonState();
       } catch (e) {
         console.error('Error sending message (existing chat):', e);
-        // Удаляем сообщения пользователя и ассистента при ошибке
+        // Remove user and assistant messages on error
         const messages = el.messages.querySelectorAll('.message');
         if (messages.length >= 2) {
           messages[messages.length - 1].remove(); // assistant
@@ -487,24 +479,22 @@
         } else if (messages.length >= 1) {
           messages[messages.length - 1].remove();
         }
-        // Разблокируем поле ввода перед обработкой ошибки
+        // Unlock input before handling error
         setSendingState(false);
         
-        // Если статус 401, сразу делаем редирект
+        // If status 401, redirect immediately
         if (e.status === 401 || e.redirect) {
           const redirectUrl = e.redirect || '/login';
           console.log('Unauthorized - redirecting to:', redirectUrl);
           window.location.href = redirectUrl;
           return;
         }
-        // Пытаемся обработать как ошибку авторизации через handleAuthError
         if (handleAuthError(e)) {
-          return; // Редирект произошел, выходим
+          return; // Redirect happened
         }
-        // Если это не ошибка авторизации, показываем сообщение
         alert('Failed to send message: ' + (e.message || 'Unknown error'));
       } finally {
-        // Дополнительная проверка - разблокируем поле ввода на всякий случай
+        // Safeguard: unlock input
         if (isSending) {
           setSendingState(false);
         }
@@ -525,7 +515,7 @@
       })
       .then(response => {
         if (!response.ok) {
-          // Пытаемся обработать ошибку
+          // Try to handle error
           return response.text().then(text => {
             const error = new Error(`HTTP ${response.status}: ${text}`);
             error.status = response.status;
@@ -546,7 +536,7 @@
         function readChunk() {
           reader.read().then(({ done, value }) => {
             if (done) {
-              // Обрабатываем последние данные, если есть
+              // Process remaining data if any
               if (currentData !== null && currentEventType === 'metadata') {
                 try {
                   const json = JSON.parse(currentData);
@@ -567,17 +557,13 @@
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // Оставляем неполную строку в буфере
+            buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
             for (const line of lines) {
-              // НЕ используем trim() для всей строки - это удалит пробелы в данных!
-              // Проверяем только на пустую строку (без пробелов)
               if (line === '') {
-                // Пустая строка означает конец события - обрабатываем накопленные данные
-                // Обрабатываем только если есть данные (не пустая строка)
                 if (currentData !== null && currentData !== undefined && currentData !== '') {
                   if (currentEventType === 'metadata') {
-                    // Обрабатываем метаданные (sessionId)
+                    // Parse metadata (sessionId)
                     try {
                       const json = JSON.parse(currentData);
                       if (json.sessionId) {
@@ -590,7 +576,7 @@
                       console.warn('Failed to parse metadata:', e);
                     }
                   } else {
-                    // Обычный контент сообщения (без event type или с пустым event type)
+                    // Message content (no event type or empty event type)
                     if (currentData) {
                       appendToStreamingMessage(messageDiv, currentData);
                     }
@@ -601,33 +587,19 @@
                 continue;
               }
               
-              // Парсим SSE формат
-              // SSE формат: "event:тип" или "data:данные" (может быть с пробелом или без)
-              // Используем trim() только для проверки префикса, но не для данных
               const trimmedForCheck = line.trim();
               if (trimmedForCheck.startsWith('event:')) {
-                // Извлекаем тип события (может быть "event:тип" или "event: тип")
-                const eventPart = trimmedForCheck.substring(6); // После "event:"
+                const eventPart = trimmedForCheck.substring(6);
                 currentEventType = eventPart.trim();
               } else if (trimmedForCheck.startsWith('data:')) {
-                // Извлекаем данные (может быть "data:данные" или "data: данные")
-                // ВАЖНО: используем оригинальную строку line, а не trimmedForCheck!
-                // Это сохраняет пробелы в начале данных
-                const dataPart = line.substring(5); // После "data:"
-                // НЕ используем trim() - сохраняем все пробелы и символы как есть
+                const dataPart = line.substring(5);
                 const data = dataPart;
-                
-                // Игнорируем пустые data: строки полностью - они не несут информации
                 if (data === '') {
                   continue;
                 }
-                
-                // Накапливаем непустые данные
-                // Для стриминга посимвольно просто добавляем символы друг за другом
                 if (currentData === null || currentData === undefined) {
                   currentData = data;
                 } else {
-                  // Просто добавляем данные без переноса строки (символы идут подряд)
                   currentData += data;
                 }
               }
@@ -654,7 +626,7 @@
     const ok = window.confirm('Delete current chat?');
     if (!ok) return;
     try {
-      // Email теперь берется из сессии на сервере, не нужно передавать в запросе
+      // Email is taken from server session, no need to pass in request
       await del(`${API}/${currentSessionId}`);
       currentSessionId = null;
       setHashSessionId(null);
@@ -662,7 +634,7 @@
       setUIForNewChat();
     } catch (e) {
       console.error('Error deleting chat:', e);
-      // Если статус 401, сразу делаем редирект
+      // If status 401, redirect immediately
       if (e.status === 401 || e.redirect) {
         const redirectUrl = e.redirect || '/login';
         console.log('Unauthorized - redirecting to:', redirectUrl);
@@ -690,14 +662,13 @@
       window.location.href = '/login';
     } catch (e) {
       console.error(e);
-      // В любом случае перенаправляем на логин
+      // Redirect to login in any case
       window.location.href = '/login';
     }
   }
 
-  // Helper для обработки ошибок авторизации
   function handleAuthError(e) {
-    // Проверяем статус код 401 или наличие поля redirect
+    // Check status 401 or redirect field
     const status = e.status;
     const hasRedirect = e.redirect;
     const message = e.message || '';
@@ -709,21 +680,19 @@
     if (isUnauthorized) {
       const redirectUrl = hasRedirect ? e.redirect : '/login';
       console.log('Unauthorized error detected. Status:', status, 'Redirect:', redirectUrl, 'Error:', e);
-      // Немедленно делаем редирект
       window.location.href = redirectUrl;
       return true;
     }
     return false;
   }
 
-  // HTTP helpers
   async function getJSON(url) {
     const resp = await fetch(url, { 
       headers: { 'Accept': 'application/json' },
-      credentials: 'include' // Важно для отправки cookies (сессии)
+      credentials: 'include' // Required to send session cookies
     });
     if (!resp.ok) {
-      await ensureOk(resp.clone()); // Используем clone, чтобы не "съесть" тело
+      await ensureOk(resp.clone()); // clone so body is still readable
     }
     return resp.json();
   }
@@ -733,10 +702,10 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(body || {}),
-      credentials: 'include' // Важно для отправки cookies (сессии)
+      credentials: 'include' // Required to send session cookies
     });
     if (!resp.ok) {
-      await ensureOk(resp.clone()); // Используем clone, чтобы не "съесть" тело
+      await ensureOk(resp.clone());
     }
     return resp.json();
   }
@@ -745,10 +714,10 @@
     const resp = await fetch(url, { 
       method: 'DELETE',
       headers: { 'Accept': 'application/json' },
-      credentials: 'include' // Важно для отправки cookies (сессии)
+      credentials: 'include' // Required to send session cookies
     });
     if (!resp.ok) {
-      await ensureOk(resp.clone()); // Используем clone, чтобы не "съесть" тело
+      await ensureOk(resp.clone());
     }
     return true;
   }
@@ -758,8 +727,6 @@
       let msg = `HTTP ${resp.status}`;
       let redirectUrl = null;
       const status = resp.status;
-      
-      // Пытаемся извлечь JSON из ответа
       try {
         const contentType = resp.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
@@ -767,21 +734,17 @@
           if (err && err.message) msg += `: ${err.message}`;
           if (err && err.redirect) redirectUrl = err.redirect;
         } else {
-          // Если не JSON, пробуем прочитать как текст
           const text = await resp.text();
           if (text) msg += `: ${text}`;
         }
       } catch(e) {
         console.warn('Failed to parse error response:', e);
-        // Если не удалось распарсить, просто используем статус код
       }
-      
       const error = new Error(msg);
-      error.status = status; // Сохраняем статус код для проверки
+      error.status = status;
       if (redirectUrl) {
         error.redirect = redirectUrl;
       }
-      // Если статус 401 (Unauthorized), всегда устанавливаем redirect
       if (status === 401) {
         error.redirect = redirectUrl || '/login';
       }

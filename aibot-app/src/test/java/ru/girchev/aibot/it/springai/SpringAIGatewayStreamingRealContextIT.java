@@ -38,11 +38,11 @@ import static ru.girchev.aibot.common.ai.LlmParamNames.MAX_PRICE;
 import static ru.girchev.aibot.common.ai.ModelCapabilities.CHAT;
 
 /**
- * Интеграционный тест стриминга в условиях, близких к реальному приложению:
- * реальный контекст (SpringAIGateway, SpringAIChatService, реальный ChatClient/WebClient),
- * мок только HTTP — MockWebServer отдаёт SSE с задержкой между чанками (throttleBody).
- * Если в проде стрим буферизуется, чанки приходят разом (span ≈ 0) — тест падает.
- * После исправления буферизации тест проходит (span >= minSpanMs).
+ * Integration test for streaming in conditions close to the real app:
+ * real context (SpringAIGateway, SpringAIChatService, real ChatClient/WebClient),
+ * only HTTP is mocked — MockWebServer serves SSE with delay between chunks (throttleBody).
+ * If the stream is buffered in prod, chunks arrive in one go (span ≈ 0) — test fails.
+ * After fixing buffering the test passes (span >= minSpanMs).
  */
 @Slf4j
 @SpringBootTest(
@@ -62,6 +62,7 @@ import static ru.girchev.aibot.common.ai.ModelCapabilities.CHAT;
         "ai-bot.common.summarization.max-context-tokens=8000",
         "ai-bot.common.summarization.summary-trigger-threshold=0.7",
         "ai-bot.common.summarization.keep-recent-messages=20",
+        "ai-bot.common.summarization.prompt=You are an assistant. Create a summary in JSON. Conversation:",
         "ai-bot.common.manual-conversation-history.enabled=false",
         "ai-bot.common.manual-conversation-history.max-response-tokens=4000",
         "ai-bot.common.manual-conversation-history.default-window-size=20",
@@ -107,8 +108,8 @@ class SpringAIGatewayStreamingRealContextIT {
     private SpringAIGateway springAIGateway;
 
     /**
-     * Реальный контекст, реальный WebClient → MockWebServer с SSE и throttleBody.
-     * При буферизации стрима чанки приходят разом → span ≈ 0 → тест падает.
+     * Real context, real WebClient → MockWebServer with SSE and throttleBody.
+     * If stream is buffered, chunks arrive in one go → span ≈ 0 → test fails.
      */
     @Test
     void whenStreamViaRealGateway_thenChunksArriveProgressivelyNotAllAtOnce() {

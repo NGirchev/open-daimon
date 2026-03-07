@@ -8,8 +8,8 @@ import org.springframework.context.annotation.Configuration;
 import javax.sql.DataSource;
 
 /**
- * Конфигурация Flyway для Telegram модуля
- * Миграции выполняются только если включен Telegram модуль
+ * Flyway configuration for Telegram module.
+ * Migrations run only when Telegram module is enabled.
  */
 @Configuration
 @DependsOn("coreFlyway")

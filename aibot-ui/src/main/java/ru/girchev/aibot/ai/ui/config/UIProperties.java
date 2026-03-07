@@ -5,7 +5,7 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Свойства конфигурации для UI модуля
+ * Configuration properties for UI module
  */
 @Getter
 @Setter
@@ -13,7 +13,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class UIProperties {
 
     /**
-     * Включен ли UI модуль
+     * Whether UI module is enabled
      */
     private Boolean enabled = false;
 }

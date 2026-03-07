@@ -35,21 +35,20 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Интеграционный тест для RAG (Retrieval-Augmented Generation) с SimpleVectorStore.
- * 
- * <p><b>Цель:</b> Протестировать ETL Pipeline и RAG поиск с реальными embeddings.
- * 
- * <p>Этот тест требует:
+ * Integration test for RAG (Retrieval-Augmented Generation) with SimpleVectorStore.
+ *
+ * <p><b>Goal:</b> Test ETL pipeline and RAG search with real embeddings.
+ *
+ * <p>This test requires:
  * <ul>
- *   <li>OPENROUTER_KEY в .env файле (для embeddings через OpenAI API)</li>
- *   <li>Или локальный Ollama с моделью nomic-embed-text:v1.5</li>
+ *   <li>OPENROUTER_KEY in .env (for embeddings via OpenAI API)</li>
+ *   <li>Or local Ollama with model nomic-embed-text:v1.5</li>
  * </ul>
- * 
- * <p>Тест по умолчанию отключен (@Disabled), так как требует реального API ключа
- * или локального Ollama для генерации embeddings.
+ *
+ * <p>Test is disabled by default (@Disabled) as it requires a real API key or local Ollama for embeddings.
  */
 @Slf4j
-@Disabled("Требует реальный OPENROUTER_KEY или Ollama для embeddings. Удалите @Disabled для локального запуска.")
+@Disabled("Requires real OPENROUTER_KEY or Ollama for embeddings. Remove @Disabled for local run.")
 @SpringBootTest(
         classes = FileRAGServiceIT.TestConfig.class,
         properties = {
@@ -91,7 +90,7 @@ class FileRAGServiceIT {
     private VectorStore vectorStore;
 
     /**
-     * Тест полного цикла: загрузка PDF -> создание embeddings -> поиск релевантных чанков.
+     * Full cycle test: load PDF -> create embeddings -> search relevant chunks.
      */
     @Test
     void testDocumentProcessing_fullCycle() throws IOException {
@@ -101,18 +100,18 @@ class FileRAGServiceIT {
 
         log.info("=== Testing RAG Full Cycle ===");
 
-        // Act - обрабатываем PDF
+        // Act - process PDF
         String documentId = documentProcessingService.processPdf(pdfData, originalName);
         
-        // Assert - документ должен быть обработан
+        // Assert - document must be processed
         assertNotNull(documentId, "Document ID should not be null");
         log.info("Document processed with ID: {}", documentId);
 
-        // Act - ищем релевантный контекст
+        // Act - search relevant context
         String query = "artificial intelligence machine learning";
         List<Document> relevantChunks = fileRagService.findRelevantContext(query, documentId);
 
-        // Assert - должны найти релевантные чанки
+        // Assert - should find relevant chunks
         assertFalse(relevantChunks.isEmpty(), "Should find relevant chunks");
         log.info("Found {} relevant chunks for query: '{}'", relevantChunks.size(), query);
         
@@ -120,10 +119,10 @@ class FileRAGServiceIT {
             log.info("Chunk: {} ...", doc.getText().substring(0, Math.min(100, doc.getText().length())))
         );
 
-        // Act - создаем augmented prompt
+        // Act - create augmented prompt
         String augmentedPrompt = fileRagService.createAugmentedPrompt(query, relevantChunks);
 
-        // Assert - промпт должен содержать контекст
+        // Assert - prompt must contain context
         assertNotNull(augmentedPrompt);
         assertTrue(augmentedPrompt.contains("Context:"));
         log.info("Augmented prompt created successfully");
@@ -132,7 +131,7 @@ class FileRAGServiceIT {
     }
 
     /**
-     * Тест поиска по всем документам (без фильтра по documentId).
+     * Test search across all documents (no documentId filter).
      */
     @Test
     void testFindRelevantContext_acrossAllDocuments() throws IOException {
@@ -145,17 +144,17 @@ class FileRAGServiceIT {
 
         log.info("Processed documents: {} and {}", docId1, docId2);
 
-        // Act - поиск без указания documentId
+        // Act - search without documentId
         String query = "programming language";
         List<Document> results = fileRagService.findRelevantContext(query);
 
-        // Assert - должны найти результаты из обоих документов
+        // Assert - should find results from both documents
         assertFalse(results.isEmpty(), "Should find relevant chunks from both documents");
         log.info("Found {} chunks across all documents", results.size());
     }
 
     /**
-     * Тест на пустой контекст - createAugmentedPrompt должен вернуть оригинальный запрос.
+     * Test empty context - createAugmentedPrompt should return original query.
      */
     @Test
     void testCreateAugmentedPrompt_emptyContext_returnsOriginalQuery() {
@@ -171,7 +170,7 @@ class FileRAGServiceIT {
     }
 
     /**
-     * Создает тестовый PDF с текстом об AI и Machine Learning.
+     * Creates test PDF with text about AI and Machine Learning.
      */
     private byte[] createTestPdf() throws IOException {
         return createTestPdfWithContent("""
@@ -194,7 +193,7 @@ class FileRAGServiceIT {
     }
 
     /**
-     * Создает PDF с указанным содержимым.
+     * Creates PDF with given content.
      */
     private byte[] createTestPdfWithContent(String content) throws IOException {
         try (PDDocument document = new PDDocument()) {
@@ -207,10 +206,10 @@ class FileRAGServiceIT {
                 contentStream.setLeading(14.5f);
                 contentStream.newLineAtOffset(50, 700);
 
-                // Разбиваем текст на строки
+                // Split text into lines
                 String[] lines = content.split("\n");
                 for (String line : lines) {
-                    // Ограничиваем длину строки
+                    // Limit line length
                     while (line.length() > 80) {
                         contentStream.showText(line.substring(0, 80));
                         contentStream.newLine();

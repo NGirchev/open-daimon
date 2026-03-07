@@ -125,7 +125,7 @@ class ConversationThreadServiceTest {
         User user = createTestUser();
         ConversationThread thread = createThread(user, true, OffsetDateTime.now());
         thread.setTitle(null);
-        String firstMessage = "Это первое сообщение пользователя";
+        String firstMessage = "This is the first user message";
 
         when(threadRepository.save(any(ConversationThread.class))).thenReturn(thread);
 
@@ -144,7 +144,7 @@ class ConversationThreadServiceTest {
         User user = createTestUser();
         ConversationThread thread = createThread(user, true, OffsetDateTime.now());
         thread.setTitle("Existing Title");
-        String firstMessage = "Это первое сообщение пользователя";
+        String firstMessage = "This is the first user message";
 
         // Act
         threadService.updateThreadTitleIfNeeded(thread, firstMessage);
@@ -160,7 +160,7 @@ class ConversationThreadServiceTest {
         User user = createTestUser();
         ConversationThread thread = createThread(user, true, OffsetDateTime.now());
         thread.setTitle(null);
-        String longMessage = "Это очень длинное сообщение пользователя, которое должно быть обрезано до 50 символов";
+        String longMessage = "This is a very long user message that should be truncated to 50 characters";
 
         when(threadRepository.save(any(ConversationThread.class))).thenReturn(thread);
 
@@ -241,8 +241,8 @@ class ConversationThreadServiceTest {
         // Arrange
         User user = createTestUser();
         ConversationThread thread = createThread(user, true, OffsetDateTime.now());
-        String summary = "Краткая сводка диалога";
-        List<String> memoryBullets = List.of("Факт 1", "Факт 2", "Факт 3");
+        String summary = "Short dialogue summary";
+        List<String> memoryBullets = List.of("Fact 1", "Fact 2", "Fact 3");
 
         when(threadRepository.save(any(ConversationThread.class))).thenReturn(thread);
 
@@ -260,7 +260,7 @@ class ConversationThreadServiceTest {
         // Arrange
         User user = createTestUser();
         ConversationThread thread = createThread(user, true, OffsetDateTime.now());
-        String summary = "Краткая сводка диалога";
+        String summary = "Short dialogue summary";
 
         when(threadRepository.save(any(ConversationThread.class))).thenReturn(thread);
 
@@ -292,7 +292,7 @@ class ConversationThreadServiceTest {
         verify(threadRepository).findByThreadKey(threadKey);
     }
 
-    // Вспомогательные методы
+    // Helper methods
     private User createTestUser() {
         User user = new User() {};
         user.setId(1L);

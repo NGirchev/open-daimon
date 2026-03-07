@@ -12,8 +12,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Сервис для управления индикатором печати в Telegram.
- * Периодически отправляет индикатор печати, пока идет обработка команды пользователя.
+ * Service for Telegram typing indicator.
+ * Periodically sends typing indicator while user command is being processed.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -23,30 +23,30 @@ public class TypingIndicatorService {
     private final ScheduledExecutorService scheduledExecutorService;
 
     /**
-     * Интервал отправки индикатора печати в секундах.
-     * Telegram API требует обновлять индикатор каждые 4-5 секунд.
+     * Typing indicator send interval in seconds.
+     * Telegram API requires updating indicator every 4-5 seconds.
      */
     private static final long TYPING_INDICATOR_INTERVAL_SECONDS = 2;
 
     /**
-     * Хранилище активных задач отправки индикатора для каждого пользователя.
+     * Store of active typing indicator tasks per user.
      */
     private final ConcurrentHashMap<Long, ScheduledFuture<?>> activeTypingIndicators = new ConcurrentHashMap<>();
 
     /**
-     * Запускает периодическую отправку индикатора печати для пользователя.
-     * Если для пользователя уже есть активный индикатор, он будет остановлен и заменен новым.
+     * Starts periodic typing indicator for user.
+     * If user already has active indicator, it is stopped and replaced.
      *
-     * @param userId идентификатор пользователя (chatId)
+     * @param userId user identifier (chatId)
      */
     public void startTyping(Long userId) {
-        // Останавливаем предыдущий индикатор, если он есть
+        // Stop previous indicator if any
         stopTyping(userId);
 
-        // Отправляем индикатор сразу
+        // Send indicator immediately
         sendTypingIndicator(userId);
 
-        // Запускаем периодическую отправку
+        // Start periodic send
         ScheduledFuture<?> future = scheduledExecutorService.scheduleAtFixedRate(
                 () -> sendTypingIndicator(userId),
                 TYPING_INDICATOR_INTERVAL_SECONDS,
@@ -59,9 +59,9 @@ public class TypingIndicatorService {
     }
 
     /**
-     * Останавливает периодическую отправку индикатора печати для пользователя.
+     * Stops periodic typing indicator for user.
      *
-     * @param userId идентификатор пользователя (chatId)
+     * @param userId user identifier (chatId)
      */
     public void stopTyping(Long userId) {
         ScheduledFuture<?> future = activeTypingIndicators.remove(userId);
@@ -72,16 +72,16 @@ public class TypingIndicatorService {
     }
 
     /**
-     * Отправляет индикатор печати пользователю.
+     * Sends typing indicator to user.
      *
-     * @param userId идентификатор пользователя (chatId)
+     * @param userId user identifier (chatId)
      */
     private void sendTypingIndicator(Long userId) {
         try {
             telegramBotProvider.getObject().showTyping(userId);
         } catch (TelegramApiException e) {
             log.warn("Failed to send typing indicator for user {}: {}", userId, e.getMessage());
-            // Останавливаем индикатор при ошибке
+            // Stop indicator on error
             stopTyping(userId);
         } catch (Exception e) {
             log.error("Unexpected error while sending typing indicator for user {}", userId, e);

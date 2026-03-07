@@ -156,7 +156,7 @@ class DefaultUserPriorityServiceTest {
         assertEquals(UserPriority.ADMIN, result);
         verify(telegramUserService).findById(userId);
         verify(mockUser).getIsAdmin();
-        // Проверяем, что whitelist проверка не вызывается для администратора
+        // Verify whitelist check is not called for admin
         verify(whitelistService, never()).isUserAllowed(userId);
         verify(mockUser, never()).getIsBlocked();
         verify(mockUser, never()).getIsPremium();

@@ -94,16 +94,16 @@ class CommandSyncServiceTest {
 
                 start.countDown();
 
-                assertTrue(firstTwoEnteredHandler.await(2, TimeUnit.SECONDS), "Две задачи должны войти в handler (permits=2)");
-                assertEquals(2, inHandler.get(), "Ровно две задачи должны быть внутри handler одновременно (permits=2)");
-                assertEquals(2, maxInHandler.get(), "Максимальная параллельность внутри handler должна быть 2 (permits=2)");
+                assertTrue(firstTwoEnteredHandler.await(2, TimeUnit.SECONDS), "Two tasks must enter handler (permits=2)");
+                assertEquals(2, inHandler.get(), "Exactly two tasks must be inside handler at once (permits=2)");
+                assertEquals(2, maxInHandler.get(), "Max concurrency inside handler must be 2 (permits=2)");
 
                 allowHandlerToFinish.countDown();
 
                 assertEquals("ok", f1.get(2, TimeUnit.SECONDS));
                 assertEquals("ok", f2.get(2, TimeUnit.SECONDS));
                 assertEquals("ok", f3.get(2, TimeUnit.SECONDS));
-                assertEquals(2, maxInHandler.get(), "Семафор не должен допустить 3 параллельных handler-вызова");
+                assertEquals(2, maxInHandler.get(), "Semaphore must not allow 3 concurrent handler calls");
             } finally {
                 executor.shutdown();
                 if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
@@ -135,8 +135,8 @@ class CommandSyncServiceTest {
         BulkHeadProperties bulkHeadProperties = new BulkHeadProperties();
         bulkHeadProperties.setExecutorThreads(5);
         bulkHeadProperties.getInstances().put(UserPriority.VIP, new BulkheadInstance(3, Duration.ofMillis(5000)));
-        // При "rest" пуле = 4 второй REGULAR должен быстро отвалиться по таймауту ожидания permit,
-        // чтобы освободить поток для запуска 3 VIP параллельно (VIP bulkhead = 3).
+        // With "rest" pool = 4 the second REGULAR should time out waiting for a permit quickly,
+        // so a thread is freed to run 3 VIP in parallel (VIP bulkhead = 3).
         bulkHeadProperties.getInstances().put(UserPriority.REGULAR, new BulkheadInstance(1, Duration.ofMillis(50)));
 
         try (var requestExecutor = new PriorityRequestExecutor(userPriorityService, bulkHeadProperties)) {
@@ -198,7 +198,7 @@ class CommandSyncServiceTest {
 	                assertEquals("Result", v4.get(3, TimeUnit.SECONDS));
 
 	                var ex = assertThrows(ExecutionException.class, regularUserInWork.get() == regular1Id ? r2::get : r1::get);
-                    assertInstanceOf(BulkheadFullException.class, ex.getCause(), "Второй REGULAR должен упасть по переполнению bulkhead");
+                    assertInstanceOf(BulkheadFullException.class, ex.getCause(), "Second REGULAR must fail with bulkhead full");
 
                     countDownLatch.countDown();
 	                assertEquals("Result", regularUserInWork.get() == regular1Id ? r1.get() : r2.get());

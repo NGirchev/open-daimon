@@ -45,26 +45,26 @@ import static ru.girchev.aibot.common.ai.LlmParamNames.MAX_PRICE;
 import static ru.girchev.aibot.common.ai.ModelCapabilities.*;
 
 /**
- * Интеграционный тест для модуля aibot-spring-ai с реальными вызовами OpenRouter API.
- * 
- * <p><b>Цель:</b> Протестировать модуль aibot-spring-ai целиком без моков - 
- * реальные бины, реальная БД, реальный API.
- * 
- * <p>Этот тест проверяет работу SpringAIGateway с реальным OpenRouter API.
- * Тест по умолчанию отключен (@Disabled), так как требует реального API ключа.
- * 
- * <p>Для запуска теста:
+ * Integration test for aibot-spring-ai with real OpenRouter API calls.
+ *
+ * <p><b>Goal:</b> Test aibot-spring-ai end-to-end without mocks —
+ * real beans, real DB, real API.
+ *
+ * <p>This test verifies SpringAIGateway with real OpenRouter API.
+ * Test is disabled by default (@Disabled) as it requires a real API key.
+ *
+ * <p>To run the test:
  * <ol>
- *   <li>Убедитесь что файл .env содержит OPENROUTER_KEY с вашим API ключом</li>
- *   <li>Удалите @Disabled с нужного теста или со всего класса</li>
- *   <li>Запустите тест</li>
+ *   <li>Ensure .env contains OPENROUTER_KEY with your API key</li>
+ *   <li>Remove @Disabled from the test or the whole class</li>
+ *   <li>Run the test</li>
  * </ol>
- * 
- * <p>Примечание: тесты используют бесплатную модель (openrouter/auto с max_price=0),
- * поэтому при наличии API ключа они не должны стоить денег.
+ *
+ * <p>Note: tests use a free model (openrouter/auto with max_price=0),
+ * so with an API key they should not incur cost.
  */
 @Slf4j
-@Disabled("Требует реальный OPENROUTER_KEY. Удалите @Disabled для локального запуска.")
+@Disabled("Requires real OPENROUTER_KEY. Remove @Disabled for local run.")
 @SpringBootTest(
         classes = SpringAIGatewayOpenRouterIT.TestConfig.class,
         properties = {
@@ -95,8 +95,8 @@ class SpringAIGatewayOpenRouterIT {
     private SpringAIGateway springAIGateway;
 
     /**
-     * Тест синхронного вызова OpenRouter через SpringAIGateway.
-     * Отправляет простой запрос и проверяет, что получен непустой ответ.
+     * Test synchronous OpenRouter call via SpringAIGateway.
+     * Sends a simple request and verifies a non-empty response.
      */
     @Test
     void testGenerateResponse_callMode() {
@@ -141,8 +141,8 @@ class SpringAIGatewayOpenRouterIT {
     }
 
     /**
-     * Тест стримингового вызова OpenRouter через SpringAIGateway.
-     * Отправляет запрос в режиме stream и проверяет, что получен поток ответов.
+     * Test streaming OpenRouter call via SpringAIGateway.
+     * Sends a stream request and verifies a response stream is received.
      */
     @Test
     void testGenerateResponse_streamMode() {
@@ -175,7 +175,7 @@ class SpringAIGatewayOpenRouterIT {
         SpringAIStreamResponse streamResponse = (SpringAIStreamResponse) response;
         assertNotNull(streamResponse.chatResponse(), "Flux should not be null");
         
-        // Обрабатываем стрим и собираем ответ
+        // Process stream and collect response
         StringBuilder collectedResponse = new StringBuilder();
         log.info("Streaming response: ");
         
@@ -183,7 +183,7 @@ class SpringAIGatewayOpenRouterIT {
                 streamResponse.chatResponse(),
                 text -> {
                     collectedResponse.append(text);
-                    // Выводим чанки в реальном времени
+                    // Output chunks in real time
                     try {
                         System.out.write(text.getBytes(StandardCharsets.UTF_8));
                         System.out.flush();
@@ -194,9 +194,9 @@ class SpringAIGatewayOpenRouterIT {
                 Duration.ofMinutes(2)
         );
         
-        System.out.println(); // Перевод строки после стрима
-        
-        // Проверяем финальный ответ
+        System.out.println(); // Newline after stream
+
+        // Verify final response
         assertNotNull(finalResponse, "Final ChatResponse should not be null");
         String responseText = collectedResponse.toString();
         assertFalse(responseText.isBlank(), "Collected response should not be blank");
@@ -206,9 +206,9 @@ class SpringAIGatewayOpenRouterIT {
     }
 
     /**
-     * Тест отправки изображения через multimodal API.
-     * Создает простое тестовое изображение, отправляет его с запросом на описание,
-     * и проверяет, что модель ответила описанием.
+     * Test sending an image via multimodal API.
+     * Creates a simple test image, sends it with a description request,
+     * and verifies the model returns a description.
      */
     @Test
     void testGenerateResponse_withImageAttachment() throws IOException {
@@ -259,14 +259,14 @@ class SpringAIGatewayOpenRouterIT {
     }
 
     /**
-     * Создает простое тестовое изображение 100x100 пикселей с цветными квадратами.
-     * Это минимальное изображение для проверки multimodal API.
+     * Creates a simple 100x100 test image with colored squares.
+     * Minimal image for verifying multimodal API.
      */
     private byte[] createTestImage() throws IOException {
         BufferedImage image = new BufferedImage(100, 100, BufferedImage.TYPE_INT_RGB);
         Graphics2D g2d = image.createGraphics();
         
-        // Рисуем цветные квадраты для визуального разнообразия
+        // Draw colored squares for visual variety
         g2d.setColor(Color.RED);
         g2d.fillRect(0, 0, 50, 50);
         

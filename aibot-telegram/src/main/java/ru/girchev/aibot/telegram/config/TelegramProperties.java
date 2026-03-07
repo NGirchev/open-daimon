@@ -59,12 +59,6 @@ public class TelegramProperties {
     private Set<String> whitelistChannelIdExceptionsSet = new HashSet<>();
     
     /**
-     * Welcome message sent on /start command.
-     */
-    @NotBlank(message = "Start welcome message cannot be blank")
-    private String startMessage;
-    
-    /**
      * Enable/disable settings for command handlers.
      */
     private Commands commands = new Commands();
@@ -132,6 +126,11 @@ public class TelegramProperties {
          * Enable/disable /threads command handler
          */
         private boolean threadsEnabled;
+
+        /**
+         * Enable/disable /language command handler
+         */
+        private boolean languageEnabled;
     }
     
     @PostConstruct

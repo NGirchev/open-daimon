@@ -45,40 +45,39 @@ public class TelegramUserService implements IUserService {
     }
 
     /**
-     * Обновляет роль ассистента для пользователя
-     * @param telegramUser telegram пользователь
-     * @param assistantRoleContent новое содержание роли
-     * @return обновленный пользователь
+     * Updates the assistant role for the user.
+     *
+     * @param telegramUser          Telegram API user
+     * @param assistantRoleContent  new role content
+     * @return updated user
      */
     @Transactional
     public TelegramUser updateAssistantRole(User telegramUser, String assistantRoleContent) {
         TelegramUser user = telegramUserRepository.findByTelegramId(telegramUser.getId())
-                .orElseThrow(() -> new RuntimeException("Пользователь не найден"));
+                .orElseThrow(() -> new RuntimeException("User not found"));
         
-        // Добавляем универсальное требование учитывать локаль пользователя
-        String languageCode = user.getLanguageCode() != null ? user.getLanguageCode() : "ru";
+        String languageCode = user.getLanguageCode() != null && !user.getLanguageCode().isBlank()
+                ? user.getLanguageCode() : "en";
         String enhancedRoleContent = addLanguageRequirement(assistantRoleContent, languageCode);
         
-        // Обновляем роль через сервис (создаст новую версию или активирует существующую)
         AssistantRole role = assistantRoleService.updateActiveRole(user, enhancedRoleContent);
-        
-        // Устанавливаем ссылку на активную роль
         user.setCurrentAssistantRole(role);
         
         return telegramUserRepository.save(user);
     }
     
     /**
-     * Добавляет универсальное требование учитывать локаль пользователя к промпту роли.
+     * Appends a requirement to the role prompt to consider user locale and answer in the corresponding language.
      */
     private String addLanguageRequirement(String roleContent, String languageCode) {
         if (roleContent == null || roleContent.trim().isEmpty()) {
             return roleContent;
         }
         
-        String normalizedLangCode = languageCode != null ? languageCode.toLowerCase().split("-")[0] : "ru";
+        String normalizedLangCode = languageCode != null && !languageCode.isBlank()
+                ? languageCode.trim().toLowerCase().split("-")[0] : "en";
         String languageRequirement = String.format(
-                " Учитывай локаль пользователя [%s] чтобы всегда отвечать на соответствующем языке, кроме тех случаев когда пользователь просит об ином.",
+                " Consider user locale [%s] and always respond in the corresponding language, unless the user asks otherwise.",
                 normalizedLangCode);
         
         String enhanced = roleContent.trim();
@@ -91,40 +90,35 @@ public class TelegramUserService implements IUserService {
     }
     
     /**
-     * Получает активную роль ассистента для пользователя
-     * @param user пользователь
-     * @param defaultContent содержание роли по умолчанию
-     * @return активная роль
+     * Returns the active assistant role for the user, creating one with default content if none exists.
+     *
+     * @param user           user
+     * @param defaultContent default role content
+     * @return active role
      */
     @Transactional
     public AssistantRole getOrCreateAssistantRole(TelegramUser user, String defaultContent) {
-        // Важно: сюда часто приходит detatched user (метод вызывается из bulkhead потока).
-        // Поэтому сначала заново загружаем пользователя в текущую сессию, а роль - инициализируем.
+        // Re-load user in this transaction (caller may pass detached user from bulkhead thread)
         Long telegramId = user.getTelegramId();
         if (telegramId == null) {
             throw new IllegalArgumentException("telegramId is null");
         }
 
         TelegramUser managedUser = telegramUserRepository.findByTelegramId(telegramId)
-                .orElseThrow(() -> new RuntimeException("Пользователь не найден"));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Проверяем, есть ли связь с ролью
         AssistantRole role = managedUser.getCurrentAssistantRole();
         if (role == null) {
-            // Добавляем универсальное требование учитывать локаль пользователя
-            String languageCode = managedUser.getLanguageCode() != null ? managedUser.getLanguageCode() : "ru";
+            String languageCode = managedUser.getLanguageCode() != null && !managedUser.getLanguageCode().isBlank()
+                    ? managedUser.getLanguageCode() : "en";
             String enhancedDefaultContent = addLanguageRequirement(defaultContent, languageCode);
-            
-            // Получаем или создаем роль
             role = assistantRoleService.getOrCreateDefaultRole(managedUser, enhancedDefaultContent);
 
-            // Сохраняем ссылку в пользователе
-            managedUser.setCurrentAssistantRole(role);
-            telegramUserRepository.save(managedUser);
-        }
+        managedUser.setCurrentAssistantRole(role);
+        telegramUserRepository.save(managedUser);
+    }
 
-        // Принудительно инициализируем нужные поля роли внутри транзакции,
-        // чтобы потом безопасно использовать их вне Hibernate Session
+        // Initialize role fields in this transaction to avoid LazyInitializationException later
         role.getId();
         role.getVersion();
         role.getContent();
@@ -133,10 +127,54 @@ public class TelegramUserService implements IUserService {
     }
 
     /**
-     * Обновляет статус бота в текущей активной сессии пользователя.
+     * Updates the user's language by telegramId and, if present, reapplies the language
+     * requirement in the active assistant role.
      *
-     * @param user пользователь
-     * @param botStatus новый статус бота
+     * @param telegramId   Telegram user id
+     * @param languageCode new language code (e.g. "ru", "en")
+     * @return updated user
+     */
+    @Transactional
+    public TelegramUser updateLanguageCode(Long telegramId, String languageCode) {
+        TelegramUser user = telegramUserRepository.findByTelegramId(telegramId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        String normalized = languageCode != null && !languageCode.isBlank()
+                ? languageCode.trim().toLowerCase().split("-")[0] : "en";
+        user.setLanguageCode(normalized);
+        user.setUpdatedAt(OffsetDateTime.now());
+
+        Optional<AssistantRole> activeRole = assistantRoleService.getActiveRole(user);
+        if (activeRole.isPresent()) {
+            String currentContent = activeRole.get().getContent();
+            String baseContent = stripLanguageRequirement(currentContent);
+            String enhancedContent = addLanguageRequirement(baseContent, normalized);
+            AssistantRole updated = assistantRoleService.updateActiveRole(user, enhancedContent);
+            user.setCurrentAssistantRole(updated);
+        }
+
+        return telegramUserRepository.save(user);
+    }
+
+    /**
+     * Strips the locale requirement suffix from role content so it can be reapplied with a new language.
+     */
+    private String stripLanguageRequirement(String roleContent) {
+        if (roleContent == null || roleContent.isBlank()) {
+            return roleContent;
+        }
+        String marker = " Consider user locale ";
+        int idx = roleContent.indexOf(marker);
+        if (idx < 0) {
+            return roleContent.trim();
+        }
+        return roleContent.substring(0, idx).trim();
+    }
+
+    /**
+     * Updates the bot status in the user's current session.
+     *
+     * @param user      user
+     * @param botStatus new bot status
      */
     @Transactional
     public void updateUserSession(TelegramUser user, String botStatus) {
@@ -172,7 +210,10 @@ public class TelegramUserService implements IUserService {
         user.setUsername(telegramUser.getUserName());
         user.setFirstName(telegramUser.getFirstName());
         user.setLastName(telegramUser.getLastName());
-        user.setLanguageCode(telegramUser.getLanguageCode());
+        String fromApi = telegramUser.getLanguageCode();
+        user.setLanguageCode((fromApi != null && !fromApi.isBlank())
+                ? fromApi.trim().toLowerCase().split("-")[0]
+                : "en");
         user.setIsPremium(telegramUser.getIsPremium());
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
@@ -194,10 +235,7 @@ public class TelegramUserService implements IUserService {
         if (lastName != null) {
             user.setLastName(lastName);
         }
-        String languageCode = telegramUser.getLanguageCode();
-        if (languageCode != null) {
-            user.setLanguageCode(languageCode);
-        }
+        // Do not overwrite language from Telegram API; it is set via /language and must be preserved
         Boolean isPremium = telegramUser.getIsPremium();
         if (isPremium != null) {
             user.setIsPremium(isPremium);

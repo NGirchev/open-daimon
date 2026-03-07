@@ -8,8 +8,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.web.client.RestTemplate;
 import ru.girchev.aibot.common.storage.service.FileStorageService;
 import ru.girchev.aibot.bulkhead.service.IUserPriorityService;
@@ -51,6 +53,27 @@ public class CoreAutoConfig {
     @ConditionalOnMissingBean(RestTemplate.class)
     public RestTemplate restTemplate(RestTemplateBuilder builder) {
         return builder.build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(MessageSource.class)
+    public MessageSource messageSource() {
+        ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
+        source.setBasenames(
+                "classpath:messages/common",
+                "classpath:messages/telegram",
+                "classpath:messages/rest",
+                "classpath:messages/ui"
+        );
+        source.setDefaultEncoding("UTF-8");
+        source.setFallbackToSystemLocale(false);
+        return source;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MessageLocalizationService messageLocalizationService(MessageSource messageSource) {
+        return new MessageLocalizationService(messageSource);
     }
 
     @Bean

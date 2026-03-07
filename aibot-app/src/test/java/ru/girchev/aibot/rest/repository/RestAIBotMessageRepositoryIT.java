@@ -87,7 +87,7 @@ class RestAIBotMessageRepositoryIT {
         message.setRequestType(RequestType.TEXT);
         message.setAssistantRole(assistantRole);
         
-        // Заполняем metadata для REST
+        // Fill metadata for REST
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("client_ip", "127.0.0.1");
         metadata.put("user_agent", "Mozilla/5.0");
@@ -106,7 +106,7 @@ class RestAIBotMessageRepositoryIT {
         assertEquals("assistant", saved.getAssistantRole().getContent());
         assertEquals(user.getId(), saved.getUser().getId());
         
-        // Проверяем metadata
+        // Verify metadata
         assertNotNull(saved.getMetadata());
         assertEquals("127.0.0.1", saved.getMetadata().get("client_ip"));
         assertEquals("Mozilla/5.0", saved.getMetadata().get("user_agent"));
@@ -208,7 +208,7 @@ class RestAIBotMessageRepositoryIT {
         AIBotMessage assistantMessage2 = createAssistantMessage(user, thread, 4, "Response 2");
         messageRepository.saveAll(List.of(userMessage1, assistantMessage1, userMessage2, assistantMessage2));
 
-        // Act - получаем только ASSISTANT сообщения
+        // Act - get ASSISTANT messages only
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread)
                 .stream()
                 .filter(m -> m.getRole() == MessageRole.ASSISTANT)
@@ -351,7 +351,7 @@ class RestAIBotMessageRepositoryIT {
         assertEquals(4, lastMessage.get().getSequenceNumber());
     }
 
-    // Вспомогательные методы
+    // Helper methods
     private RestUser createTestUser() {
         RestUser user = new RestUser();
         user.setEmail("test@example.com");

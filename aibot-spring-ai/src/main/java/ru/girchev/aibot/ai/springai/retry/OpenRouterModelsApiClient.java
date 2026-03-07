@@ -15,8 +15,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Тонкий клиент для загрузки списка моделей OpenRouter (GET /v1/models).
- * Без состояния ранжирования; используется реестром при refresh.
+ * Thin client for fetching OpenRouter models list (GET /v1/models).
+ * Stateless for ranking; used by registry on refresh.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -29,11 +29,11 @@ public class OpenRouterModelsApiClient {
     private final ObjectMapper objectMapper;
 
     /**
-     * Загружает весь список моделей с OpenRouter.
+     * Fetches full models list from OpenRouter.
      *
-     * @param baseUrl базовый URL API (например https://openrouter.ai/api)
-     * @param apiKey  ключ OpenRouter
-     * @return список записей (id, free, node); пустой при ошибке или пустом ответе
+     * @param baseUrl base API URL (e.g. https://openrouter.ai/api)
+     * @param apiKey  OpenRouter API key
+     * @return list of entries (id, free, node); empty on error or empty response
      */
     public List<OpenRouterModelEntry> fetchModels(String baseUrl, String apiKey) {
         if (!StringUtils.hasText(baseUrl) || !StringUtils.hasText(apiKey)) {

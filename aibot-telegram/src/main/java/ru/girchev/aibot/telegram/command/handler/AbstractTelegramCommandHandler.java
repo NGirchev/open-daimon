@@ -8,6 +8,7 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.girchev.aibot.bulkhead.exception.AccessDeniedException;
 import ru.girchev.aibot.common.command.ICommandHandler;
 import ru.girchev.aibot.common.service.AIUtils;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
@@ -21,6 +22,7 @@ public abstract class AbstractTelegramCommandHandler implements
 
     protected final ObjectProvider<TelegramBot> telegramBotProvider;
     protected final TypingIndicatorService typingIndicatorService;
+    protected final MessageLocalizationService messageLocalizationService;
 
     @PostConstruct
     public void init() {
@@ -42,7 +44,7 @@ public abstract class AbstractTelegramCommandHandler implements
                 handleInner(command);
             } catch (AccessDeniedException e) {
                 log.error("Access denied for user {}: {}", command.telegramId(), e.getMessage());
-                sendErrorMessage(command.telegramId(), "Доступ ограничен. Пожалуйста, попробуйте позже.");
+                sendErrorMessage(command.telegramId(), messageLocalizationService.getMessage("common.error.access.denied", command.languageCode()));
             } catch (TelegramCommandHandlerException e) {
                 log.error("Error processing message: {}", e.getMessage(), e);
                 sendErrorMessage(command.telegramId(), e.getMessage());
@@ -52,7 +54,7 @@ public abstract class AbstractTelegramCommandHandler implements
                 } else {
                     log.error("Error processing message: {}", e.getMessage(), e);
                 }
-                sendErrorMessage(command.telegramId(), "Произошла ошибка при обработке сообщения");
+                sendErrorMessage(command.telegramId(), messageLocalizationService.getMessage("common.error.processing", command.languageCode()));
             }
         } finally {
             typingIndicatorService.stopTyping(command.telegramId());
@@ -67,10 +69,15 @@ public abstract class AbstractTelegramCommandHandler implements
     }
 
     public void sendMessage(Long chatId, String text, Integer replyToMessageId) {
+        sendMessage(chatId, text, replyToMessageId, null);
+    }
+
+    public void sendMessage(Long chatId, String text, Integer replyToMessageId, String languageCode) {
         try {
             telegramBotProvider.getObject().sendMessage(chatId, text, replyToMessageId);
         } catch (TelegramApiException e) {
-            throw new TelegramCommandHandlerException("Ошибка отправки сообщения в Telegram", e);
+            String msg = messageLocalizationService.getMessage("common.error.send.failed", languageCode);
+            throw new TelegramCommandHandlerException(msg, e);
         }
     }
 
@@ -79,10 +86,20 @@ public abstract class AbstractTelegramCommandHandler implements
     }
 
     public void sendErrorMessage(Long chatId, String errorMessage, Integer replyToMessageId) {
+        sendErrorMessage(chatId, errorMessage, replyToMessageId, null);
+    }
+
+    public void sendErrorMessage(Long chatId, String errorMessage, Integer replyToMessageId, String languageCode) {
         try {
             telegramBotProvider.getObject().sendErrorMessage(chatId, errorMessage, replyToMessageId);
         } catch (TelegramApiException e) {
-            throw new TelegramCommandHandlerException("Ошибка отправки сообщения об ошибке в Telegram", e);
+            String msg = messageLocalizationService.getMessage("common.error.send.error.failed", languageCode);
+            throw new TelegramCommandHandlerException(msg, e);
         }
+    }
+
+    @Override
+    public String getSupportedCommandText(String languageCode) {
+        return null;
     }
 }

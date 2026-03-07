@@ -87,18 +87,18 @@ class TelegramConversationThreadRepositoryIT {
         entityManager.flush();
         entityManager.clear();
 
-        // Создаем threads
+        // Create threads
         ConversationThread thread1 = createThread(user, "thread-1", true, OffsetDateTime.now().minusHours(2));
         ConversationThread thread2 = createThread(user, "thread-2", true, OffsetDateTime.now().minusHours(1));
-        ConversationThread thread3 = createThread(user, "thread-3", false, OffsetDateTime.now()); // Неактивный
+        ConversationThread thread3 = createThread(user, "thread-3", false, OffsetDateTime.now()); // Inactive
         
-        // Сохраняем threads
+        // Save threads
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         threadRepository.save(thread3);
         entityManager.flush();
         
-        // Обновляем lastActivityAt напрямую через SQL, чтобы обойти @PreUpdate
+        // Update lastActivityAt via SQL to bypass @PreUpdate
         OffsetDateTime time1 = OffsetDateTime.now().minusHours(2);
         OffsetDateTime time2 = OffsetDateTime.now().minusHours(1);
         entityManager.createNativeQuery(
@@ -120,7 +120,7 @@ class TelegramConversationThreadRepositoryIT {
 
         // Assert
         assertEquals(2, found.size());
-        assertEquals("thread-2", found.get(0).getThreadKey()); // Более свежий первым
+        assertEquals("thread-2", found.get(0).getThreadKey()); // Most recent first
         assertEquals("thread-1", found.get(1).getThreadKey());
     }
 
@@ -134,14 +134,14 @@ class TelegramConversationThreadRepositoryIT {
         entityManager.clear();
 
         OffsetDateTime cutoff = OffsetDateTime.now().minusHours(1);
-        ConversationThread thread1 = createThread(user, "thread-1", true, OffsetDateTime.now().minusHours(2)); // Старый
-        ConversationThread thread2 = createThread(user, "thread-2", true, OffsetDateTime.now().minusMinutes(30)); // Новый
+        ConversationThread thread1 = createThread(user, "thread-1", true, OffsetDateTime.now().minusHours(2)); // Older
+        ConversationThread thread2 = createThread(user, "thread-2", true, OffsetDateTime.now().minusMinutes(30)); // Newer
         
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         entityManager.flush();
         
-        // Обновляем lastActivityAt напрямую через SQL, чтобы обойти @PreUpdate
+        // Update lastActivityAt via SQL to bypass @PreUpdate
         entityManager.createNativeQuery(
                 "UPDATE conversation_thread SET last_activity_at = :time WHERE id = :id")
                 .setParameter("time", OffsetDateTime.now().minusHours(2))
@@ -173,23 +173,23 @@ class TelegramConversationThreadRepositoryIT {
         entityManager.flush();
         entityManager.clear();
 
-        // Создаем threads
+        // Create threads
         ConversationThread thread1 = createThread(user, "thread-1", true, null);
         ConversationThread thread2 = createThread(user, "thread-2", true, null);
-        ConversationThread thread3 = createThread(user, "thread-3", false, null); // Неактивный
+        ConversationThread thread3 = createThread(user, "thread-3", false, null); // Inactive
         
-        // Сохраняем все threads
+        // Save all threads
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         threadRepository.save(thread3);
         entityManager.flush();
         
-        // Отсоединяем объекты от контекста, чтобы Hibernate не перезаписывал изменения
+        // Detach entities so Hibernate does not overwrite changes
         entityManager.detach(thread1);
         entityManager.detach(thread2);
         entityManager.detach(thread3);
         
-        // Обновляем lastActivityAt напрямую через SQL с разными временами
+        // Update lastActivityAt via SQL with different times
         OffsetDateTime time1 = OffsetDateTime.now().minusHours(2);
         OffsetDateTime time2 = OffsetDateTime.now().minusHours(1);
         entityManager.createNativeQuery(
@@ -206,22 +206,22 @@ class TelegramConversationThreadRepositoryIT {
         entityManager.flush();
         entityManager.clear();
 
-        // Проверяем, что данные правильно сохранены через список
+        // Verify data saved correctly via list
         List<ConversationThread> allActive = threadRepository.findByUserAndIsActiveTrueOrderByLastActivityAtDesc(user);
-        assertEquals(2, allActive.size(), "Должно быть 2 активных thread");
-        assertEquals("thread-2", allActive.get(0).getThreadKey(), "Первый в списке должен быть thread-2");
+        assertEquals(2, allActive.size(), "Must have 2 active threads");
+        assertEquals("thread-2", allActive.get(0).getThreadKey(), "First in list must be thread-2");
         
-        // Проверяем, что findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc работает
+        // Verify findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc works
         Optional<ConversationThread> foundDirect = threadRepository.findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc(user);
-        assertTrue(foundDirect.isPresent(), "findFirstBy должен вернуть результат");
-        assertEquals("thread-2", foundDirect.get().getThreadKey(), "findFirstBy должен вернуть thread-2");
+        assertTrue(foundDirect.isPresent(), "findFirstBy must return a result");
+        assertEquals("thread-2", foundDirect.get().getThreadKey(), "findFirstBy must return thread-2");
 
-        // Act - используем удобный метод-алиас
+        // Act - use convenience alias method
         Optional<ConversationThread> found = threadRepository.findMostRecentActiveThread(user);
 
         // Assert
-        assertTrue(found.isPresent(), "Должен быть найден активный thread");
-        assertEquals("thread-2", found.get().getThreadKey(), "Самый свежий активный должен быть thread-2");
+        assertTrue(found.isPresent(), "Active thread must be found");
+        assertEquals("thread-2", found.get().getThreadKey(), "Most recent active must be thread-2");
     }
 
     @Test
@@ -269,7 +269,7 @@ class TelegramConversationThreadRepositoryIT {
         assertNotNull(saved.getCreatedAt());
     }
 
-    // Вспомогательные методы
+    // Helper methods
     private TelegramUser createTestUser() {
         TelegramUser user = new TelegramUser();
         user.setTelegramId(123L);

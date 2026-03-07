@@ -1,6 +1,7 @@
 package ru.girchev.aibot.rest.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -9,22 +10,30 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import ru.girchev.aibot.bulkhead.exception.AccessDeniedException;
 import ru.girchev.aibot.common.exception.UserMessageTooLongException;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Глобальный обработчик исключений для REST API
+ * Global exception handler for REST API. Returns localized messages based on Accept-Language.
  */
 @Slf4j
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class RestExceptionHandler {
+
+    private final MessageLocalizationService messageLocalizationService;
+
+    private String languageCode(HttpServletRequest request) {
+        return request != null && request.getLocale() != null ? request.getLocale().getLanguage() : "ru";
+    }
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<Object> handleUnauthorizedException(UnauthorizedException e, HttpServletRequest request) {
         log.warn("Authorization error: {} for request {}", e.getMessage(), request.getRequestURI());
         
-        // Проверяем, является ли запрос AJAX запросом (от UI) или запросом к UI endpoints
+        // Check if request is AJAX (from UI) or to UI endpoints
         String acceptHeader = request.getHeader("Accept");
         String requestPath = request.getRequestURI();
         boolean isAjaxRequest = acceptHeader != null && acceptHeader.contains("application/json");
@@ -33,7 +42,7 @@ public class RestExceptionHandler {
         log.debug("Request path: {}, Accept: {}, isAjax: {}, isUI: {}", 
                 requestPath, acceptHeader, isAjaxRequest, isUIRequest);
         
-        // Для AJAX запросов или UI запросов возвращаем JSON с информацией об ошибке и редиректе
+        // For AJAX or UI requests return JSON with error info and redirect
         if (isAjaxRequest || isUIRequest) {
             Map<String, Object> response = new HashMap<>();
             response.put("message", e.getMessage());
@@ -46,7 +55,7 @@ public class RestExceptionHandler {
                     .body(response);
         }
         
-        // Для обычных REST API запросов возвращаем plain text
+        // For regular REST API requests return plain text
         log.debug("Returning plain text response for REST API request");
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
     }
@@ -54,41 +63,39 @@ public class RestExceptionHandler {
     @ExceptionHandler(UserMessageTooLongException.class)
     public ResponseEntity<Object> handleUserMessageTooLongException(UserMessageTooLongException e, HttpServletRequest request) {
         log.warn("Message exceeds token limit: {}", e.getMessage());
+        String message = e.getEstimatedTokens() > 0 && e.getMaxAllowed() > 0
+                ? messageLocalizationService.getMessage("common.error.message.too.long", languageCode(request), e.getEstimatedTokens(), e.getMaxAllowed())
+                : e.getMessage();
         String acceptHeader = request.getHeader("Accept");
         boolean isJson = acceptHeader != null && acceptHeader.contains("application/json");
         if (isJson) {
             Map<String, Object> response = new HashMap<>();
-            response.put("message", e.getMessage());
+            response.put("message", message);
             response.put("status", HttpStatus.BAD_REQUEST.value());
             return ResponseEntity
                     .status(HttpStatus.BAD_REQUEST)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(response);
         }
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(message);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Object> handleAccessDeniedException(AccessDeniedException e, HttpServletRequest request) {
         log.warn("Access denied: {}", e.getMessage());
-        
-        // Проверяем, является ли запрос AJAX запросом (от UI)
+        String message = messageLocalizationService.getMessage("common.error.access.denied", languageCode(request));
         String acceptHeader = request.getHeader("Accept");
         boolean isAjaxRequest = acceptHeader != null && acceptHeader.contains("application/json");
-        
-        // Для AJAX запросов возвращаем JSON с информацией об ошибке
         if (isAjaxRequest) {
             Map<String, Object> response = new HashMap<>();
-            response.put("message", e.getMessage());
+            response.put("message", message);
             response.put("status", HttpStatus.FORBIDDEN.value());
             return ResponseEntity
                     .status(HttpStatus.FORBIDDEN)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(response);
         }
-        
-        // Для обычных REST API запросов возвращаем plain text
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(message);
     }
 }
 

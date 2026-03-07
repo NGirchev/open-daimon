@@ -8,9 +8,9 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Маппинг возможностей модели из ответа OpenRouter API (GET /v1/models) в наш enum {@link ModelCapabilities}.
- * Используется только для моделей, приходящих из OpenRouter (например, free-модели).
- * Для моделей из application.yml возможности не перезаписываются — берутся из конфига.
+ * Maps model capabilities from OpenRouter API response (GET /v1/models) to our {@link ModelCapabilities} enum.
+ * Used only for models from OpenRouter (e.g. free models).
+ * For models from application.yml capabilities are not overwritten — taken from config.
  */
 public final class OpenRouterModelCapabilitiesMapper {
 
@@ -31,21 +31,21 @@ public final class OpenRouterModelCapabilitiesMapper {
     }
 
     /**
-     * Строит множество наших capabilities по объекту модели из OpenRouter (элемент data[] из /v1/models).
+     * Builds our capabilities set from OpenRouter model object (data[] element from /v1/models).
      *
-     * @param modelNode объект модели из ответа API (не null)
-     * @return множество ModelCapabilities; пустое при невалидном modelNode
+     * @param modelNode model object from API response (not null)
+     * @return ModelCapabilities set; empty for invalid modelNode
      */
     public static Set<ModelCapabilities> fromOpenRouterModel(JsonNode modelNode) {
         return fromOpenRouterModel(modelNode, false);
     }
 
     /**
-     * Строит множество наших capabilities по объекту модели из OpenRouter.
+     * Builds our capabilities set from OpenRouter model object.
      *
-     * @param modelNode объект модели из ответа API (не null)
-     * @param free если true, в множество добавляется {@link ModelCapabilities#FREE} (для бесплатных моделей OpenRouter)
-     * @return множество ModelCapabilities; пустое при невалидном modelNode
+     * @param modelNode model object from API response (not null)
+     * @param free if true, {@link ModelCapabilities#FREE} is added (for free OpenRouter models)
+     * @return ModelCapabilities set; empty for invalid modelNode
      */
     public static Set<ModelCapabilities> fromOpenRouterModel(JsonNode modelNode, boolean free) {
         if (modelNode == null || modelNode.isMissingNode() || modelNode.isNull()) {
@@ -57,19 +57,19 @@ public final class OpenRouterModelCapabilitiesMapper {
             out.add(ModelCapabilities.FREE);
         }
 
-        // CHAT — все модели в списке чатовые
+        // CHAT — all models in list are chat models
         out.add(ModelCapabilities.CHAT);
 
-        // MODERATION — в OpenRouter все модели проходят модерацию
+        // MODERATION — in OpenRouter all models go through moderation
         out.add(ModelCapabilities.MODERATION);
 
-        // SUMMARIZATION — любая чатовая модель может саммаризировать
+        // SUMMARIZATION — any chat model can summarize
         out.add(ModelCapabilities.SUMMARIZATION);
 
         boolean toolsSupported = hasToolsSupport(modelNode);
         if (toolsSupported) {
             out.add(ModelCapabilities.TOOL_CALLING);
-            // WEB в OpenRouter — это tool_calling, мы передаём веб-тулы как tools
+            // WEB in OpenRouter is tool_calling; we pass web tools as tools
             out.add(ModelCapabilities.WEB);
         }
 
@@ -79,7 +79,7 @@ public final class OpenRouterModelCapabilitiesMapper {
 
         if (hasEmbeddingSupport(modelNode)) {
             out.add(ModelCapabilities.EMBEDDING);
-            // RERANK — переранжирование после vector search; модели с embedding обычно подходят
+            // RERANK — reranking after vector search; embedding models usually fit
             out.add(ModelCapabilities.RERANK);
         }
 

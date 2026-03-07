@@ -15,6 +15,7 @@ import ru.girchev.aibot.common.service.BugreportService;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
+import ru.girchev.aibot.common.service.MessageLocalizationService;
 import ru.girchev.aibot.telegram.command.handler.AbstractTelegramCommandHandler;
 import ru.girchev.aibot.telegram.service.TelegramUserService;
 import ru.girchev.aibot.telegram.service.TypingIndicatorService;
@@ -29,16 +30,17 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
 
     public BugreportTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                            TypingIndicatorService typingIndicatorService,
+                                           MessageLocalizationService messageLocalizationService,
                                            TelegramUserService telegramUserService,
                                            BugreportService bugReportService) {
-        super(telegramBotProvider, typingIndicatorService);
+        super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.bugReportService = bugReportService;
     }
 
     @Override
-    public String getSupportedCommandText() {
-        return TelegramCommand.BUGREPORT + " - 🐞 обратная связь и багрепорты";
+    public String getSupportedCommandText(String languageCode) {
+        return messageLocalizationService.getMessage("telegram.command.bugreport.desc", languageCode);
     }
 
     @Override
@@ -67,10 +69,10 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
             ackCallback(cq.getId());
 
             switch (data) {
-                case "ERROR" -> telegramBot.execute(new SendMessage(chatId.toString(), "Введите текст ошибки"));
+                case "ERROR" -> telegramBot.execute(new SendMessage(chatId.toString(), "Enter error description"));
                 case "IMPROVEMENT" ->
-                        telegramBot.execute(new SendMessage(chatId.toString(), "Введите текст предложения"));
-                default -> telegramBot.execute(new SendMessage(chatId.toString(), "неизвестная команда: " + data));
+                        telegramBot.execute(new SendMessage(chatId.toString(), "Enter your suggestion"));
+                default -> telegramBot.execute(new SendMessage(chatId.toString(), "Unknown command: " + data));
             }
             telegramUserService.updateUserSession(userSession.getTelegramUser(), TelegramCommand.BUGREPORT + "/" + data);
         } else {
@@ -86,11 +88,11 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
                     if ((TelegramCommand.BUGREPORT + "/ERROR").equals(userSession.getBotStatus())) {
                         bugReportService.saveBug(userSession.getTelegramUser(), message.getText().strip());
                         telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
-                        sendMessage(command.telegramId(), "Сообщение сохранено");
+                        sendMessage(command.telegramId(), "Message saved");
                     } else if ((TelegramCommand.BUGREPORT + "/IMPROVEMENT").equals(userSession.getBotStatus())) {
                         bugReportService.saveImprovementProposal(userSession.getTelegramUser(), message.getText().strip());
                         telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
-                        sendMessage(command.telegramId(), "Сообщение сохранено");
+                        sendMessage(command.telegramId(), "Message saved");
                     } else {
                         throw new IllegalArgumentException();
                     }
@@ -103,18 +105,18 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
     }
 
     public void sendMenu(Long chatId) throws TelegramApiException {
-        InlineKeyboardButton b1 = new InlineKeyboardButton("Сообщить об ошибке");
+        InlineKeyboardButton b1 = new InlineKeyboardButton("Report a bug");
         b1.setCallbackData("ERROR");
 
-        InlineKeyboardButton b2 = new InlineKeyboardButton("Предложить улучшение");
+        InlineKeyboardButton b2 = new InlineKeyboardButton("Suggest improvement");
         b2.setCallbackData("IMPROVEMENT");
 
         InlineKeyboardMarkup kb = new InlineKeyboardMarkup();
         kb.setKeyboard(List.of(
-                List.of(b1, b2) // один ряд, две кнопки
+                List.of(b1, b2) // one row, two buttons
         ));
 
-        SendMessage msg = new SendMessage(chatId.toString(), "Выбери действие:");
+        SendMessage msg = new SendMessage(chatId.toString(), "Choose an action:");
         msg.setReplyMarkup(kb);
         telegramBotProvider.getObject().execute(msg);
     }
@@ -122,7 +124,7 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
     public void ackCallback(String callbackQueryId) throws TelegramApiException {
         AnswerCallbackQuery ack = new AnswerCallbackQuery();
         ack.setCallbackQueryId(callbackQueryId);
-        ack.setText("Ок! Обрабатываю...");
+        ack.setText("OK! Processing...");
         ack.setShowAlert(false);
         telegramBotProvider.getObject().execute(ack);
     }

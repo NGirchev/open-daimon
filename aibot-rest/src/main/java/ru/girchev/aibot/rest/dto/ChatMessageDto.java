@@ -1,7 +1,7 @@
 package ru.girchev.aibot.rest.dto;
 
 /**
- * DTO для представления сообщения в чате
+ * DTO for chat message
  */
 public record ChatMessageDto(String role, String content) {
 }

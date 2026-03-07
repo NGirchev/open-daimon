@@ -1,15 +1,16 @@
 package ru.girchev.aibot.telegram.command.handler;
 
 /**
- * Маркерный интерфейс для обработчиков, которые могут предоставить описание поддерживаемой команды
- * (используется для формирования списка команд в /start).
+ * Marker interface for handlers that can provide the description of their supported command
+ * (used to build the command list in /start).
  */
 public interface TelegramSupportedCommandProvider {
 
     /**
-     * @return строка вида "/command - описание" или null, если обработчик не должен отображаться в списке команд
+     * @param languageCode user language code (e.g. ru, en) for localized description
+     * @return string like "/command - description" or null if handler should not appear in command list
      */
-    String getSupportedCommandText();
+    String getSupportedCommandText(String languageCode);
 }
 
 

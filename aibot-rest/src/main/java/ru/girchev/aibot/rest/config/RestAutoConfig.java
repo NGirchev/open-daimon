@@ -22,9 +22,9 @@ import ru.girchev.aibot.rest.service.RestUserService;
 import ru.girchev.aibot.rest.exception.RestExceptionHandler;
 
 /**
- * Автоконфигурация для REST модуля
- * Создает все необходимые бины для работы REST API
- * Активируется только если включен REST модуль (ai-bot.rest.enabled=true)
+ * Auto-configuration for REST module.
+ * Creates beans required for REST API.
+ * Active only when REST module is enabled (ai-bot.rest.enabled=true).
  */
 @AutoConfiguration
 @Import({
@@ -44,8 +44,10 @@ public class RestAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public RestAuthorizationService restAuthorizationService(RestUserRepository restUserRepository) {
-        return new RestAuthorizationService(restUserRepository);
+    public RestAuthorizationService restAuthorizationService(
+            RestUserRepository restUserRepository,
+            MessageLocalizationService messageLocalizationService) {
+        return new RestAuthorizationService(restUserRepository, messageLocalizationService);
     }
 
     @Bean
@@ -68,14 +70,16 @@ public class RestAutoConfig {
             AIBotMessageService messageService,
             AIGatewayRegistry aiGatewayRegistry,
             AICommandFactoryRegistry aiCommandFactoryRegistry,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            MessageLocalizationService messageLocalizationService) {
         return new RestChatMessageCommandHandler(
                 restMessageService,
                 restUserService,
                 messageService,
                 aiGatewayRegistry,
                 aiCommandFactoryRegistry,
-                objectMapper
+                objectMapper,
+                messageLocalizationService
         );
     }
 
@@ -87,14 +91,16 @@ public class RestAutoConfig {
             AIBotMessageService messageService,
             AIGatewayRegistry aiGatewayRegistry,
             AICommandFactoryRegistry aiCommandFactoryRegistry,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            MessageLocalizationService messageLocalizationService) {
         return new RestChatStreamMessageCommandHandler(
                 restMessageService,
                 restUserService,
                 messageService,
                 aiGatewayRegistry,
                 aiCommandFactoryRegistry,
-                objectMapper
+                objectMapper,
+                messageLocalizationService
         );
     }
 
@@ -116,14 +122,15 @@ public class RestAutoConfig {
     @ConditionalOnMissingBean
     public SessionController sessionController(
             ChatService restChatService,
-            RestAuthorizationService restAuthorizationService) {
-        return new SessionController(restChatService, restAuthorizationService);
+            RestAuthorizationService restAuthorizationService,
+            MessageLocalizationService messageLocalizationService) {
+        return new SessionController(restChatService, restAuthorizationService, messageLocalizationService);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public RestExceptionHandler restExceptionHandler() {
-        return new RestExceptionHandler();
+    public RestExceptionHandler restExceptionHandler(MessageLocalizationService messageLocalizationService) {
+        return new RestExceptionHandler(messageLocalizationService);
     }
 }
 

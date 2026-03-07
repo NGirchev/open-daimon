@@ -17,14 +17,14 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Кастомная реализация ChatMemory, которая интегрирует SummarizationService.
- * 
- * Основные возможности:
- * 1. Делегирует основную работу MessageWindowChatMemory
- * 2. При загрузке истории добавляет summary из ConversationThread как SystemMessage
- * 3. При сохранении проверяет, нужно ли запустить суммаризацию через SummarizationService
- * 
- * ВАЖНО: conversationId соответствует thread_key из ConversationThread.
+ * Custom ChatMemory implementation that integrates SummarizationService.
+ *
+ * Main behaviour:
+ * 1. Delegates core work to MessageWindowChatMemory
+ * 2. When loading history adds summary from ConversationThread as SystemMessage
+ * 3. On save checks whether to trigger summarization via SummarizationService
+ *
+ * IMPORTANT: conversationId corresponds to thread_key from ConversationThread.
  */
 @Slf4j
 public class SummarizingChatMemory implements ChatMemory {
@@ -33,7 +33,7 @@ public class SummarizingChatMemory implements ChatMemory {
     private final ConversationThreadRepository conversationThreadRepository;
     private final AIBotMessageRepository messageRepository;
     private final SummarizationService summarizationService;
-    private final Integer maxMessages; // Максимальное количество сообщений из MessageWindowChatMemory
+    private final Integer maxMessages; // Max messages from MessageWindowChatMemory
 
     public SummarizingChatMemory(
             ChatMemoryRepository chatMemoryRepository,
@@ -54,20 +54,20 @@ public class SummarizingChatMemory implements ChatMemory {
     @Override
     @NonNull
     public List<Message> get(@NonNull String conversationId) {
-        // Получаем сообщения из delegate (MessageWindowChatMemory)
+        // Get messages from delegate (MessageWindowChatMemory)
         List<Message> messages = delegate.get(conversationId);
         
-        // Проверяем количество сообщений в ChatMemory
+        // Check message count in ChatMemory
         int messageCount = messages.size();
         
-        // Если сообщений больше maxMessages, нужно суммаризировать
+        // If more than maxMessages, trigger summarization
         if (messageCount >= maxMessages) {
             log.debug("ChatMemory has {} messages (max: {}), triggering summarization for conversationId {}", 
                 messageCount, maxMessages, conversationId);
             
-            // Выполняем суммаризацию и обновляем ChatMemory
+            // Run summarization and update ChatMemory
             if (performSummarizationAndUpdateChatMemory(conversationId)) {
-                // После успешной суммаризации получаем обновленный список сообщений
+                // After successful summarization get updated message list
                 messages = delegate.get(conversationId);
                 log.debug("After summarization, ChatMemory has {} messages for conversationId {}", 
                     messages.size(), conversationId);
@@ -79,27 +79,27 @@ public class SummarizingChatMemory implements ChatMemory {
 
     @Override
     public void add(@NonNull String conversationId, @NonNull Message message) {
-        // Сохраняем сообщение через delegate
+        // Save message via delegate
         delegate.add(conversationId, message);
     }
 
     @Override
     public void add(@NonNull String conversationId, @NonNull List<Message> messages) {
-        // Сохраняем сообщения через delegate
+        // Save messages via delegate
         delegate.add(conversationId, messages);
     }
 
     /**
-     * Выполняет суммаризацию и обновляет ChatMemory.
-     * 
-     * Логика:
-     * 1. Получает все сообщения из основной БД для суммаризации
-     * 2. Вызывает синхронную суммаризацию (синхронизация внутри SummarizationService)
-     * 3. Очищает ChatMemory (delegate.clear) - удаляет сообщения из SPRING_AI_CHAT_MEMORY
-     * 4. Добавляет summary как SystemMessage в ChatMemory (delegate.add)
-     * 
-     * @param conversationId идентификатор разговора
-     * @return true если суммаризация выполнена успешно, false в противном случае
+     * Performs summarization and updates ChatMemory.
+     *
+     * Logic:
+     * 1. Gets all messages from main DB for summarization
+     * 2. Calls synchronous summarization (sync inside SummarizationService)
+     * 3. Clears ChatMemory (delegate.clear) — removes messages from SPRING_AI_CHAT_MEMORY
+     * 4. Adds summary as SystemMessage to ChatMemory (delegate.add)
+     *
+     * @param conversationId conversation id
+     * @return true if summarization succeeded, false otherwise
      */
     private boolean performSummarizationAndUpdateChatMemory(@NonNull String conversationId) {
         try {
@@ -115,9 +115,9 @@ public class SummarizingChatMemory implements ChatMemory {
             log.info("Triggering summarization for conversationId {} (thread {})",
                 conversationId, thread.getThreadKey());
             
-            // Получаем сообщения из основной БД для суммаризации
-            // Если была предыдущая суммаризация, берем только новые сообщения после неё
-            // Если messagesAtLastSummarization == null, значит суммаризации еще не было, берем все сообщения (начиная с 0)
+            // Get messages from main DB for summarization
+            // If there was a previous summarization, take only new messages after it
+            // If messagesAtLastSummarization == null, no summarization yet, take all messages (from 0)
             Integer messagesAtLastSummarization = thread.getMessagesAtLastSummarization();
             int minSequenceNumber = messagesAtLastSummarization != null ? messagesAtLastSummarization : 0;
             
@@ -133,17 +133,17 @@ public class SummarizingChatMemory implements ChatMemory {
                 return false;
             }
             
-            // Вызываем синхронную суммаризацию
+            // Call synchronous summarization
             summarizationService.summarizeThread(thread, messages);
             
-            // Обновляем thread из БД после суммаризации
+            // Refresh thread from DB after summarization
             thread = conversationThreadRepository.findByThreadKey(conversationId)
                 .orElseThrow(() -> new RuntimeException("Thread not found after summarization"));
             
-            // Очищаем ChatMemory (временная история Spring AI) - удаляет сообщения из SPRING_AI_CHAT_MEMORY
+            // Clear ChatMemory (Spring AI temporary history) — removes messages from SPRING_AI_CHAT_MEMORY
             delegate.clear(conversationId);
             
-            // Добавляем summary как SystemMessage в ChatMemory
+            // Add summary as SystemMessage to ChatMemory
             if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
                 String summaryContent = buildSummaryContent(thread);
                 SystemMessage summaryMessage = new SystemMessage(summaryContent);
@@ -168,16 +168,16 @@ public class SummarizingChatMemory implements ChatMemory {
     }
 
     /**
-     * Строит содержимое SystemMessage из summary и memory bullets
+     * Builds SystemMessage content from summary and memory bullets.
      */
     private String buildSummaryContent(ConversationThread thread) {
         StringBuilder content = new StringBuilder();
         
-        content.append("Краткое содержание предыдущей беседы:\n");
+        content.append("Summary of previous conversation:\n");
         content.append(thread.getSummary());
         
         if (thread.getMemoryBullets() != null && !thread.getMemoryBullets().isEmpty()) {
-            content.append("\n\nКлючевые моменты:\n");
+            content.append("\n\nKey points:\n");
             thread.getMemoryBullets().forEach(bullet -> 
                 content.append("• ").append(bullet).append("\n")
             );

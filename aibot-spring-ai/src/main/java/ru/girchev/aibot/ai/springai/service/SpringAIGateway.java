@@ -637,18 +637,18 @@ public class SpringAIGateway implements AIGateway {
         // PDF documents represented as images
         if (hasPdfAsImages) {
             if (pdfAsImageFilenames.size() == 1) {
-                context.append("Пользователь приложил PDF-документ \"")
+                context.append("User attached PDF document \"")
                         .append(pdfAsImageFilenames.get(0))
-                        .append("\", который представлен в виде изображений.");
+                        .append("\" represented as images.");
             } else {
-                context.append("Пользователь приложил PDF-документы ");
+                context.append("User attached PDF documents ");
                 for (int i = 0; i < pdfAsImageFilenames.size(); i++) {
                     if (i > 0) {
                         context.append(", ");
                     }
                     context.append("\"").append(pdfAsImageFilenames.get(i)).append("\"");
                 }
-                context.append(", которые представлены в виде изображений.");
+                context.append(", represented as images.");
             }
         }
         
@@ -658,11 +658,11 @@ public class SpringAIGateway implements AIGateway {
                 context.append("\n");
             }
             if (originalImageCount == 1) {
-                context.append("Пользователь прикрепил изображение.");
+                context.append("User attached an image.");
             } else {
-                context.append("Пользователь прикрепил изображения (")
+                context.append("User attached images (")
                         .append(originalImageCount)
-                        .append(" шт.).");
+                        .append(").");
             }
         }
         

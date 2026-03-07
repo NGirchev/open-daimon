@@ -21,8 +21,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Сервис для работы с файлами в Telegram.
- * Обеспечивает скачивание файлов через Telegram API и сохранение в MinIO.
+ * Service for Telegram file handling.
+ * Downloads files via Telegram API and saves to MinIO.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -33,18 +33,18 @@ public class TelegramFileService {
     private final FileUploadProperties fileUploadProperties;
 
     /**
-     * Обрабатывает фото из сообщения Telegram.
-     * Выбирает фото с наибольшим разрешением, скачивает и сохраняет в MinIO.
+     * Processes photo from Telegram message.
+     * Picks largest resolution, downloads and saves to MinIO.
      *
-     * @param photos список объектов PhotoSize (разные размеры одного фото)
-     * @return Attachment с данными о сохраненном файле
+     * @param photos list of PhotoSize (different sizes of same photo)
+     * @return Attachment with saved file data
      */
     public Attachment processPhoto(List<PhotoSize> photos) {
         if (photos == null || photos.isEmpty()) {
             throw new IllegalArgumentException("Photos list is empty");
         }
 
-        // Выбираем фото с максимальным разрешением
+        // Pick photo with max resolution
         PhotoSize largestPhoto = photos.stream()
                 .max((p1, p2) -> {
                     int size1 = p1.getWidth() * p1.getHeight();
@@ -56,23 +56,23 @@ public class TelegramFileService {
         String fileId = largestPhoto.getFileId();
         Integer fileSize = largestPhoto.getFileSize();
 
-        // Проверка размера файла
+        // Check file size
         if (fileSize != null && fileSize > fileUploadProperties.getMaxFileSizeBytes()) {
             throw new IllegalArgumentException("File size exceeds maximum allowed: " + 
                     fileUploadProperties.getMaxFileSizeMb() + "MB");
         }
 
-        // Скачиваем файл
+        // Download file
         byte[] fileData = downloadFile(fileId);
 
-        // Определяем MIME тип (Telegram фото всегда JPEG)
+        // Determine MIME type (Telegram photos are always JPEG)
         String mimeType = "image/jpeg";
         String originalName = "photo_" + fileId + ".jpg";
 
-        // Генерируем ключ для хранилища
+        // Generate storage key
         String storageKey = generateStorageKey("photo", ".jpg");
 
-        // Сохраняем в MinIO
+        // Save to MinIO
         fileStorageServiceProvider.getObject().save(storageKey, fileData, mimeType, originalName);
 
         log.info("Processed photo: fileId={}, size={}, storageKey={}", fileId, fileData.length, storageKey);
@@ -88,11 +88,11 @@ public class TelegramFileService {
     }
 
     /**
-     * Обрабатывает документ из сообщения Telegram.
-     * Скачивает и сохраняет в MinIO.
+     * Processes document from Telegram message.
+     * Downloads and saves to MinIO.
      *
-     * @param document объект Document из Telegram
-     * @return Attachment с данными о сохраненном файле или null если тип не поддерживается
+     * @param document Telegram Document object
+     * @return Attachment with saved file data or null if type not supported
      */
     public Attachment processDocument(Document document) {
         if (document == null) {
@@ -104,29 +104,29 @@ public class TelegramFileService {
         String originalName = document.getFileName();
         Long fileSize = document.getFileSize();
 
-        // Проверяем поддержку типа
+        // Check type support
         if (!fileUploadProperties.isSupportedDocumentType(mimeType)) {
             log.warn("Unsupported document type: {}", mimeType);
             return null;
         }
 
-        // Проверка размера файла
+        // Check file size
         if (fileSize != null && fileSize > fileUploadProperties.getMaxFileSizeBytes()) {
             throw new IllegalArgumentException("File size exceeds maximum allowed: " + 
                     fileUploadProperties.getMaxFileSizeMb() + "MB");
         }
 
-        // Скачиваем файл
+        // Download file
         byte[] fileData = downloadFile(fileId);
 
-        // Определяем тип вложения
+        // Determine attachment type
         AttachmentType attachmentType = determineAttachmentType(mimeType);
 
-        // Генерируем ключ для хранилища
+        // Generate storage key
         String extension = getExtensionFromMimeType(mimeType);
         String storageKey = generateStorageKey("document", extension);
 
-        // Сохраняем в MinIO
+        // Save to MinIO
         fileStorageServiceProvider.getObject().save(storageKey, fileData, mimeType, originalName);
 
         log.info("Processed document: fileId={}, mimeType={}, size={}, storageKey={}", 
@@ -143,25 +143,25 @@ public class TelegramFileService {
     }
 
     /**
-     * Скачивает файл из Telegram по fileId.
+     * Downloads file from Telegram by fileId.
      *
-     * @param fileId идентификатор файла в Telegram
-     * @return содержимое файла
+     * @param fileId file identifier in Telegram
+     * @return file content
      */
     public byte[] downloadFile(String fileId) {
         try {
             TelegramBot bot = telegramBotProvider.getObject();
             
-            // Получаем информацию о файле
+            // Get file info
             GetFile getFile = new GetFile();
             getFile.setFileId(fileId);
             File file = bot.execute(getFile);
 
-            // Формируем URL для скачивания
+            // Build download URL
             String fileUrl = "https://api.telegram.org/file/bot" + 
                     bot.getBotToken() + "/" + file.getFilePath();
 
-            // Скачиваем файл
+            // Download file
             try (InputStream is = new URL(fileUrl).openStream()) {
                 byte[] data = is.readAllBytes();
                 log.debug("Downloaded file: fileId={}, size={}", fileId, data.length);
@@ -174,10 +174,10 @@ public class TelegramFileService {
     }
 
     /**
-     * Получает информацию о файле из Telegram.
+     * Gets file info from Telegram.
      *
-     * @param fileId идентификатор файла в Telegram
-     * @return объект File с информацией о файле
+     * @param fileId file identifier in Telegram
+     * @return File object with file info
      */
     public File getFileInfo(String fileId) {
         try {
@@ -192,18 +192,18 @@ public class TelegramFileService {
     }
 
     /**
-     * Генерирует уникальный ключ для хранилища.
+     * Generates unique storage key.
      */
     private String generateStorageKey(String prefix, String extension) {
         return prefix + "/" + UUID.randomUUID() + extension;
     }
 
     /**
-     * Определяет тип вложения по MIME типу.
+     * Determines attachment type from MIME type.
      */
     private AttachmentType determineAttachmentType(String mimeType) {
         if (mimeType == null) {
-            return AttachmentType.PDF; // По умолчанию для документов
+            return AttachmentType.PDF; // Default for documents
         }
         String type = mimeType.toLowerCase();
         if (type.startsWith("image/")) {
@@ -213,7 +213,7 @@ public class TelegramFileService {
     }
 
     /**
-     * Получает расширение файла по MIME типу.
+     * Gets file extension from MIME type.
      */
     private String getExtensionFromMimeType(String mimeType) {
         if (mimeType == null) return "";
@@ -245,7 +245,7 @@ public class TelegramFileService {
             case "image/bmp" -> ".bmp";
             case "image/tiff" -> ".tiff";
             default -> {
-                // Проверяем по содержимому MIME типа
+                // Check by MIME type content
                 if (type.contains("wordprocessingml")) {
                     yield ".docx";
                 } else if (type.contains("msword")) {

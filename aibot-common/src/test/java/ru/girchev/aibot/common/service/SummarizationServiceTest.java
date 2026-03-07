@@ -67,7 +67,7 @@ class SummarizationServiceTest {
     @BeforeEach
     void setUp() {
         when(coreCommonProperties.getSummarization()).thenReturn(summarization);
-        objectMapper = new ObjectMapper(); // Используем реальный ObjectMapper для парсинга JSON
+        objectMapper = new ObjectMapper(); // Use real ObjectMapper for JSON parsing
         summarizationService = new SummarizationService(
             messageRepository,
             threadService,
@@ -94,7 +94,7 @@ class SummarizationServiceTest {
     @Test
     void whenThreadTokensAtThreshold_thenShouldTrigger() {
         // Arrange
-        ConversationThread thread = createThread(5600L); // 70% от 8000
+        ConversationThread thread = createThread(5600L); // 70% of 8000
         when(summarization.getMaxContextTokens()).thenReturn(8000);
         when(summarization.getSummaryTriggerThreshold()).thenReturn(0.7);
 
@@ -108,7 +108,7 @@ class SummarizationServiceTest {
     @Test
     void whenThreadTokensAboveThreshold_thenShouldTrigger() {
         // Arrange
-        ConversationThread thread = createThread(8000L); // 100% от 8000
+        ConversationThread thread = createThread(8000L); // 100% of 8000
         when(summarization.getMaxContextTokens()).thenReturn(8000);
         when(summarization.getSummaryTriggerThreshold()).thenReturn(0.7);
 
@@ -184,7 +184,7 @@ class SummarizationServiceTest {
         ConversationThread thread = createThread(1000L);
         when(summarization.getKeepRecentMessages()).thenReturn(2);
         
-        // Создаем 3 turns (6 сообщений): при defaultWindowSize=2 суммаризируется только первые 2 turns (4 сообщения)
+        // Create 3 turns (6 messages): with defaultWindowSize=2 only first 2 turns (4 messages) are summarized
         AIBotMessage userMsg1 = createUserMessage("Message 1");
         AIBotMessage assistantMsg1 = createAssistantMessage("Response 1");
         AIBotMessage userMsg2 = createUserMessage("Message 2");
@@ -198,7 +198,7 @@ class SummarizationServiceTest {
         AIGateway mockGateway = mock(AIGateway.class);
         when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(mockGateway));
         
-        // Мокируем generateResponse, который возвращает OpenRouterResponse в формате, ожидаемом retrieveMessage
+        // Mock generateResponse returning OpenRouterResponse in format expected by retrieveMessage
         Map<String, Object> message = new HashMap<>();
         message.put("content", "{\"summary\": \"Test summary\", \"memory_bullets\": [\"Fact 1\", \"Fact 2\"]}");
         Map<String, Object> choice = new HashMap<>();
@@ -238,7 +238,7 @@ class SummarizationServiceTest {
         when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(mockGateway));
         String validJson = "{\"summary\": \"Test summary\", \"memory_bullets\": [\"Fact 1\", \"Fact 2\"]}";
         when(mockGateway.generateResponse(any(AICommand.class)))
-            .thenReturn(responseWithContent("Дорогая, вот сводка..."))
+            .thenReturn(responseWithContent("Dear, here is the summary..."))
             .thenReturn(responseWithContent(validJson));
 
         assertDoesNotThrow(() -> summarizationService.summarizeThreadAsync(thread).join());
@@ -263,11 +263,11 @@ class SummarizationServiceTest {
         AIGateway mockGateway = mock(AIGateway.class);
         when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(mockGateway));
         when(mockGateway.generateResponse(any(AICommand.class)))
-            .thenReturn(responseWithContent("Дорогая, вот краткая сводка..."));
+            .thenReturn(responseWithContent("Dear, here is a brief summary..."));
 
         summarizationService.summarizeThreadAsync(thread).join();
 
-        // После 3 неудачных попыток парсинга саммаризация не сохраняет результат
+        // After 3 failed parse attempts summarization does not save result
         verify(mockGateway, times(3)).generateResponse(any(AICommand.class));
         verify(threadService, never()).updateThreadSummary(any(), any(), any());
     }
@@ -282,7 +282,7 @@ class SummarizationServiceTest {
         return new MapResponse(AIGateways.OPENROUTER, responseData);
     }
 
-    // Вспомогательные методы для создания тестовых объектов
+    // Helper methods for creating test objects
     private ConversationThread createThread(Long totalTokens) {
         ConversationThread thread = new ConversationThread();
         thread.setId(1L);

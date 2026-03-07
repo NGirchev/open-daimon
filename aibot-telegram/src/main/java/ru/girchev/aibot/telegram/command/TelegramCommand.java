@@ -15,7 +15,7 @@ import java.util.List;
 @NoArgsConstructor
 public class TelegramCommand implements IChatCommand<TelegramCommandType> {
 
-    // Константы команд
+    // Command constants
     public static final String START = "/start";
     public static final String ROLE = "/role";
     public static final String MESSAGE = "/message";
@@ -23,14 +23,17 @@ public class TelegramCommand implements IChatCommand<TelegramCommandType> {
     public static final String NEWTHREAD = "/newthread";
     public static final String HISTORY = "/history";
     public static final String THREADS = "/threads";
+    public static final String LANGUAGE = "/language";
 
     private Long userId;
     private Long telegramId;
-    private TelegramCommandType commandType; // может быть null
+    private TelegramCommandType commandType; // may be null
     private Update update; // original message
-    private String userText; // может быть null для callback query
+    private String userText; // may be null for callback query
     private boolean stream;
     private List<Attachment> attachments = new ArrayList<>();
+    /** User language code (e.g. from Telegram), for localization. */
+    private String languageCode;
 
     public TelegramCommand(Long userId, Long chatId, TelegramCommandType telegramCommandType, Update update) {
         this.userId = userId;
@@ -78,14 +81,14 @@ public class TelegramCommand implements IChatCommand<TelegramCommandType> {
     }
 
     /**
-     * Проверяет, есть ли вложения в команде.
+     * Returns whether the command has attachments.
      */
     public boolean hasAttachments() {
         return attachments != null && !attachments.isEmpty();
     }
 
     /**
-     * Добавляет вложение к команде.
+     * Adds an attachment to the command.
      */
     public TelegramCommand addAttachment(Attachment attachment) {
         if (this.attachments == null) {

@@ -32,10 +32,10 @@ public class TelegramUserIdFinder {
 
     public Long findUserIdByUsername(String username) {
         try {
-            // Убираем @ если он есть в начале username
+            // Strip @ from username if present
             username = username.startsWith("@") ? username.substring(1) : username;
             
-            System.out.println("Получаем информацию о канале " + CHANNEL_ID + "...");
+            System.out.println("Fetching channel info for " + CHANNEL_ID + "...");
 
             GetChatAdministrators getChatAdministrators = new GetChatAdministrators();
             getChatAdministrators.setChatId(CHANNEL_ID);
@@ -47,15 +47,15 @@ public class TelegramUserIdFinder {
             Chat chat = sender.execute(getChat);
             System.out.println(chat);
 
-            // Получаем количество участников
+            // Get member count
             GetChatMemberCount getMemberCount = new GetChatMemberCount();
             getMemberCount.setChatId(CHANNEL_ID);
             
             try {
                 Integer memberCount = sender.execute(getMemberCount);
-                System.out.println("Количество участников в канале: " + memberCount);
+                System.out.println("Channel member count: " + memberCount);
                 
-                // Пробуем найти конкретного пользователя
+                // Try to find the specific user
                 GetChatMember getChatMember = new GetChatMember();
                 getChatMember.setChatId(CHANNEL_ID);
 //                getChatMember.setUserId(username);
@@ -63,22 +63,22 @@ public class TelegramUserIdFinder {
                 try {
                     ChatMember member = sender.execute(getChatMember);
                     if (member != null && member.getUser() != null) {
-                        System.out.println("Найден пользователь: " + member.getUser().getUserName() + 
+                        System.out.println("Found user: " + member.getUser().getUserName() + 
                                          " (ID: " + member.getUser().getId() + 
-                                         ", Имя: " + member.getUser().getFirstName() + " " + 
+                                         ", Name: " + member.getUser().getFirstName() + " " + 
                                          member.getUser().getLastName() + ")");
                         return member.getUser().getId();
                     }
                 } catch (TelegramApiException ex) {
-                    System.out.println("Ошибка при поиске пользователя: " + ex.getMessage());
+                    System.out.println("Error finding user: " + ex.getMessage());
                 }
             } catch (TelegramApiException ex) {
-                System.out.println("Ошибка при получении информации о канале: " + ex.getMessage());
+                System.out.println("Error fetching channel info: " + ex.getMessage());
             }
             
             return null;
         } catch (Exception e) {
-            System.out.println("Неожиданная ошибка: " + e.getMessage());
+            System.out.println("Unexpected error: " + e.getMessage());
             return null;
         }
     }
@@ -92,20 +92,20 @@ public class TelegramUserIdFinder {
         TelegramUserIdFinder finder = new TelegramUserIdFinder();
 
         while (true) {
-            System.out.print("Введите username пользователя (или 'exit' для выхода): ");
+            System.out.print("Enter username (or 'exit' to quit): ");
             String username = scanner.nextLine().trim();
             
             if (username.equalsIgnoreCase("exit")) {
-                System.out.println("До свидания!");
+                System.out.println("Goodbye!");
                 scanner.close();
                 return;
             }
 
             Long userId = finder.findUserIdByUsername(username);
             if (userId != null) {
-                System.out.println("ID пользователя " + username + ": " + userId);
+                System.out.println("User ID for " + username + ": " + userId);
             } else {
-                System.out.println("Не удалось найти пользователя " + username);
+                System.out.println("Could not find user " + username);
             }
         }
     }

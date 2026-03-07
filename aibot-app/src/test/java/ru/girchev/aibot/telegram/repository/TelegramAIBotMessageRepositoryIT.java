@@ -67,7 +67,7 @@ class TelegramAIBotMessageRepositoryIT {
         AIBotMessage assistantMessage2 = createAssistantMessage(user, thread, 4, "Response 2");
         messageRepository.saveAll(List.of(userMessage1, assistantMessage1, userMessage2, assistantMessage2));
 
-        // Act - получаем только ASSISTANT сообщения
+        // Act - get ASSISTANT messages only
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread)
                 .stream()
                 .filter(m -> m.getRole() == MessageRole.ASSISTANT)
@@ -222,7 +222,7 @@ class TelegramAIBotMessageRepositoryIT {
         assertEquals(4, lastMessage.get().getSequenceNumber());
     }
 
-    // Вспомогательные методы
+    // Helper methods
     private TelegramUser createTestUser() {
         TelegramUser user = new TelegramUser();
         user.setTelegramId(123L);

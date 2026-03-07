@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Тесты для {@link PriorityRequestExecutor}.
+ * Tests for {@link PriorityRequestExecutor}.
  */
 @ExtendWith(MockitoExtension.class)
 class PriorityRequestExecutorTest {
@@ -35,7 +35,7 @@ class PriorityRequestExecutorTest {
     void setUp() {
         BulkHeadProperties bulkHeadProperties = new BulkHeadProperties();
         requestExecutor = new PriorityRequestExecutor(userPriorityService, bulkHeadProperties);
-        // Вызываем метод инициализации вручную, так как @PostConstruct не вызывается в тестах
+        // Call init manually since @PostConstruct is not invoked in tests
         requestExecutor.init();
     }
 
@@ -153,7 +153,7 @@ class PriorityRequestExecutorTest {
         // Assert
         ExecutionException exception = assertThrows(ExecutionException.class, future::get);
         assertInstanceOf(AccessDeniedException.class, exception.getCause(),
-                "Причиной исключения должен быть AccessDeniedException");
+                "Exception cause must be AccessDeniedException");
         verify(userPriorityService).getUserPriority(userId);
     }
 
@@ -172,11 +172,11 @@ class PriorityRequestExecutorTest {
 
     @Test
     void testBulkheadInitialization() {
-        // Проверяем, что bulkhead инициализированы правильно
-        assertNotNull(requestExecutor, "RequestExecutor не должен быть null");
+        // Verify bulkheads are initialized correctly
+        assertNotNull(requestExecutor, "RequestExecutor must not be null");
         
-        // Проверяем, что метод init() был вызван в setUp()
-        // Косвенно проверяем через вызов метода executeRequest
+        // Verify init() was called in setUp()
+        // Check indirectly via executeRequest call
         Long userId = 1L;
         String expectedResult = "Test";
         Callable<String> task = () -> expectedResult;
@@ -185,26 +185,26 @@ class PriorityRequestExecutorTest {
         
         try {
             String result = requestExecutor.executeRequest(userId, task);
-            assertEquals(expectedResult, result, "Задача должна быть выполнена после инициализации");
+            assertEquals(expectedResult, result, "Task should complete after initialization");
         } catch (Exception e) {
-            fail("Не должно быть исключения при выполнении задачи: " + e.getMessage());
+            fail("No exception expected when executing task: " + e.getMessage());
         }
     }
 
     @Test
-    @Disabled("Этот тест может быть нестабильным, так как зависит от времени выполнения")
+    @Disabled("This test may be flaky as it depends on execution timing")
     void testBulkheadRejection() throws Exception {
         // Arrange
         Long userId = 1L;
         when(userPriorityService.getUserPriority(userId)).thenReturn(UserPriority.REGULAR);
         
-        // Создаем задачу, которая будет выполняться долго
+        // Create a long-running task
         Callable<String> longRunningTask = () -> {
-            Thread.sleep(1000); // Имитация долгой работы
-            return "Результат";
+            Thread.sleep(1000); // Simulate long work
+            return "Result";
         };
         
-        // Запускаем максимальное количество задач (5 для REGULAR)
+        // Start max number of tasks (5 for REGULAR)
         CompletableFuture<?>[] futures = new CompletableFuture[5];
         for (int i = 0; i < 5; i++) {
             final int taskNum = i;
@@ -212,37 +212,37 @@ class PriorityRequestExecutorTest {
                 try {
                     requestExecutor.executeRequest(userId, longRunningTask);
                 } catch (Exception e) {
-                    // Игнорируем исключения в фоновых задачах
+                    // Ignore exceptions in background tasks
                 }
             });
         }
         
-        // Даем время на запуск задач
+        // Allow time for tasks to start
         Thread.sleep(100);
         
         // Act & Assert
-        // Шестая задача должна быть отклонена из-за исчерпания пула
+        // Sixth task should be rejected due to pool exhaustion
         assertThrows(Exception.class, () -> {
-            requestExecutor.executeRequest(userId, () -> "Эта задача не должна выполниться");
-        }, "Должно быть выброшено исключение при исчерпании пула потоков");
+            requestExecutor.executeRequest(userId, () -> "This task should not run");
+        }, "Exception expected when thread pool is exhausted");
     }
 
     @Test
     void testExecuteRequest_UnknownPriority_ShouldThrowIllegalStateException() {
         // Arrange
         Long userId = 5L;
-        Callable<String> task = () -> "Этот результат не должен быть возвращен";
+        Callable<String> task = () -> "This result should not be returned";
         
-        // Имитируем возврат null вместо конкретного приоритета
+        // Simulate null instead of concrete priority
         when(userPriorityService.getUserPriority(userId)).thenReturn(null);
 
         // Act & Assert
         Exception exception = assertThrows(IllegalStateException.class, () -> {
             requestExecutor.executeRequest(userId, task);
-        }, "Должно быть выброшено исключение IllegalStateException для неизвестного приоритета");
+        }, "IllegalStateException expected for unknown priority");
         
-        assertTrue(exception.getMessage().contains("Неизвестный приоритет пользователя"), 
-                "Сообщение об ошибке должно содержать информацию о неизвестном приоритете");
+        assertTrue(exception.getMessage().contains("Unknown user priority"),
+                "Error message must contain unknown priority info");
         verify(userPriorityService).getUserPriority(userId);
     }
 
@@ -250,9 +250,9 @@ class PriorityRequestExecutorTest {
     void testExecuteRequestAsync_UnknownPriority_ShouldCompleteExceptionally() {
         // Arrange
         Long userId = 5L;
-        Supplier<String> task = () -> "Этот результат не должен быть возвращен";
+        Supplier<String> task = () -> "This result should not be returned";
         
-        // Имитируем возврат null вместо конкретного приоритета
+        // Simulate null instead of concrete priority
         when(userPriorityService.getUserPriority(userId)).thenReturn(null);
 
         // Act
@@ -260,13 +260,13 @@ class PriorityRequestExecutorTest {
         
         // Assert
         CompletableFuture<String> future = resultStage.toCompletableFuture();
-        assertTrue(future.isCompletedExceptionally(), "CompletableFuture должен завершиться с исключением для неизвестного приоритета");
+        assertTrue(future.isCompletedExceptionally(), "CompletableFuture must complete exceptionally for unknown priority");
         
-        ExecutionException exception = assertThrows(ExecutionException.class, future::get, "CompletableFuture должен завершиться с исключением для неизвестного приоритета");
+        ExecutionException exception = assertThrows(ExecutionException.class, future::get, "CompletableFuture must complete with exception for unknown priority");
 
-        assertInstanceOf(IllegalStateException.class, exception.getCause(), "Причиной исключения должен быть IllegalStateException");
-        assertTrue(exception.getCause().getMessage().contains("Неизвестный приоритет пользователя"), 
-                "Сообщение об ошибке должно содержать информацию о неизвестном приоритете");
+        assertInstanceOf(IllegalStateException.class, exception.getCause(), "Exception cause must be IllegalStateException");
+        assertTrue(exception.getCause().getMessage().contains("Unknown user priority"),
+                "Error message must contain unknown priority info");
         verify(userPriorityService).getUserPriority(userId);
     }
 } 
