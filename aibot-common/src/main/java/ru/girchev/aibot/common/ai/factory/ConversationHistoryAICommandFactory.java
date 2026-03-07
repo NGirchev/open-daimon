@@ -8,17 +8,16 @@ import ru.girchev.aibot.common.ai.command.AICommand;
 import ru.girchev.aibot.common.ai.command.ChatAICommand;
 import ru.girchev.aibot.common.command.ICommand;
 import ru.girchev.aibot.common.command.IChatCommand;
+import ru.girchev.aibot.common.model.Attachment;
 import ru.girchev.aibot.common.model.AssistantRole;
+import ru.girchev.aibot.common.model.AttachmentType;
 import ru.girchev.aibot.common.model.ConversationThread;
 import ru.girchev.aibot.common.service.AssistantRoleService;
 import ru.girchev.aibot.common.service.ConversationContextBuilderService;
 import ru.girchev.aibot.common.service.ConversationThreadService;
 import ru.girchev.aibot.common.service.SummarizationService;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import static ru.girchev.aibot.common.ai.LlmParamNames.CONVERSATION_ID;
 import static ru.girchev.aibot.common.ai.LlmParamNames.MESSAGES;
@@ -105,22 +104,44 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
 
             body.put(CONVERSATION_ID, threadKey);
 
+            List<Attachment> attachments = command.attachments() != null 
+                    ? command.attachments() 
+                    : List.of();
+
+            // Динамически определяем modelTypes - добавляем VISION если есть изображения
+            Set<ModelType> modelTypes = determineModelTypes(attachments);
+
             // TODO add vip/regular logic
             // Температура 0.35 для бытового ассистента (рекомендуемый диапазон: 0.3-0.4)
             return new ChatAICommand(
-                    Set.of(ModelType.CHAT),
+                    modelTypes,
                     0.35,
                     1000,
                     assistantRole.getContent(),
                     command.userText(),
                     command.stream(),
                     metadata,
-                    body
+                    body,
+                    attachments
             );
         } catch (Exception e) {
             log.error("Failed to build context with history for thread {}: {}", threadKey, e.getMessage(), e);
             throw new RuntimeException("Failed to create AI command with conversation history", e);
         }
+    }
+
+    /**
+     * Определяет ModelTypes для команды.
+     * Добавляет VISION если есть image attachments.
+     */
+    private Set<ModelType> determineModelTypes(List<Attachment> attachments) {
+        boolean hasImages = attachments.stream()
+                .anyMatch(a -> a.type() == AttachmentType.IMAGE);
+        
+        if (hasImages) {
+            return Set.of(ModelType.CHAT, ModelType.VISION);
+        }
+        return Set.of(ModelType.CHAT);
     }
 }
 

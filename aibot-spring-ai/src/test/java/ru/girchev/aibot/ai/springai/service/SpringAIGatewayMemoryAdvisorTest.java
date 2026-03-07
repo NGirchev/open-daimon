@@ -111,12 +111,22 @@ class SpringAIGatewayMemoryAdvisorTest {
         lenient().when(springAIModelType.getByCapabilities(eq(Set.of(ModelType.AUTO))))
                 .thenReturn(Optional.of(modelConfig));
         
-        // Создаем SpringAIGateway
+        // Создаем SpringAIGateway (RAG выключен - передаем null/empty providers)
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<DocumentProcessingService> docProvider = 
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<RAGService> ragProvider = 
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        
         springAIGateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
                 springAIModelType,
-                realChatService
+                realChatService,
+                null, // ragProperties - RAG disabled
+                docProvider,
+                ragProvider
         );
     }
 

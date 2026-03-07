@@ -3,6 +3,14 @@ server:
 
 ai-bot:
   common:
+    storage:
+      enabled: true  # FEATURE FLAG - по умолчанию выключено
+      minio:
+        endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+        access-key: ${MINIO_USER:minioadmin}
+        secret-key: ${MINIO_PASSWORD:minioadmin}
+        bucket: aibot-files
+        ttl-hours: 24
     openrouter-free-models:
       enabled: true
       api:
@@ -59,6 +67,18 @@ ai-bot:
     whitelist-exceptions: ${WHITELIST_EXCEPTIONS:}
     whitelist-channel-id-exceptions: ${WHITELIST_CHANNEL_ID_EXCEPTIONS:}
     start-message: "Привет! Я бот с интеграцией DeepSeek и OpenRouter. Задай мне любой вопрос, и я постараюсь на него ответить.\nДоступные команды:\n"
+    file-upload:
+      enabled: true  # FEATURE FLAG - по умолчанию выключено
+      max-file-size-mb: 20  # Лимит Telegram API
+      # Поддерживаемые форматы изображений для multimodal AI
+      supported-image-types: jpeg,png,gif,webp,svg,bmp,tiff
+      # Поддерживаемые форматы документов для RAG (обработка через Tika/PDFBox)
+      # Microsoft Office: docx,doc,xls,xlsx,ppt,pptx
+      # OpenDocument: odt,ods,odp
+      # Текстовые: txt,rtf,html,md,csv
+      # Структурированные: json,xml
+      # Электронные книги: epub
+      supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub
     commands:
       start-enabled: true
       role-enabled: true
@@ -91,6 +111,8 @@ ai-bot:
               - CHAT
               - TOOL_CALLING
               - SUMMARIZATION
+              - EMBEDDING
+              - VISION
             provider-type: OPENAI
             priority: 3
           - name: "gemma3:1b"
@@ -98,11 +120,17 @@ ai-bot:
               - CHAT
             provider-type: OLLAMA
             priority: 1
-          - name: "nomic-embed-text:v1.5"
-            capabilities:
-              - EMBEDDING
-            provider-type: OLLAMA
-            priority: 1
+#          - name: "nomic-embed-text:v1.5"
+#            capabilities:
+#              - EMBEDDING
+#            provider-type: OLLAMA
+#            priority: 1
+      rag:
+        enabled: true  # FEATURE FLAG - по умолчанию выключено
+        chunk-size: 800       # Размер чанка в токенах
+        chunk-overlap: 100    # Перекрытие между чанками
+        top-k: 5              # Количество возвращаемых релевантных чанков
+        similarity-threshold: 0.7  # Минимальный порог similarity (0.0-1.0)
     gateway-mock:
       enabled: false  # По умолчанию выключен
 

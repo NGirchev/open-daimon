@@ -24,6 +24,11 @@ ai-bot:
     start-message: Hello from integration test
     whitelist-exceptions: ""
     whitelist-channel-id-exceptions: ""
+    file-upload:
+      enabled: false
+      max-file-size-mb: 10
+      supported-image-types: jpeg,png,gif,webp,svg,bmp,tiff
+      supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub
   common:
     bulkhead:
       enabled: true
@@ -49,6 +54,12 @@ ai-bot:
         api:
           key: test-key
           url: https://google.serper.dev/search
+      rag:
+        enabled: false  # По умолчанию выключено в тестах
+        chunk-size: 800
+        chunk-overlap: 100
+        top-k: 5
+        similarity-threshold: 0.7
       # Модели для теста - используем openrouter/auto с бесплатным max_price
       models:
         list:
@@ -56,5 +67,6 @@ ai-bot:
             capabilities:
               - AUTO
               - CHAT
+              - VISION
             provider-type: OPENAI
             priority: 1

@@ -121,6 +121,14 @@
             <version>${caffeine.version}</version>
         </dependency>
 
+        <!-- MinIO (optional - для файлового хранилища) -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>${minio.version}</version>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Resilience4j -->
         <dependency>
             <groupId>io.github.resilience4j</groupId>

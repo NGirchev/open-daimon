@@ -24,11 +24,19 @@ import ru.girchev.aibot.common.config.CoreJpaConfig;
 import ru.girchev.aibot.common.service.AIUtils;
 import ru.girchev.aibot.test.TestDatabaseConfiguration;
 
+import ru.girchev.aibot.common.model.Attachment;
+import ru.girchev.aibot.common.model.AttachmentType;
+
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -194,6 +202,86 @@ class SpringAIGatewayOpenRouterIT {
         
         log.info("Full response: {}", responseText);
         log.info("=== Stream mode test completed successfully ===");
+    }
+
+    /**
+     * Тест отправки изображения через multimodal API.
+     * Создает простое тестовое изображение, отправляет его с запросом на описание,
+     * и проверяет, что модель ответила описанием.
+     */
+    @Test
+    void testGenerateResponse_withImageAttachment() throws IOException {
+        // Arrange
+        byte[] imageData = createTestImage();
+        Attachment imageAttachment = new Attachment(
+                "test-key",
+                "image/png",
+                "test-image.png",
+                imageData.length,
+                AttachmentType.IMAGE,
+                imageData
+        );
+        
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelType.AUTO, ModelType.CHAT, ModelType.VISION),
+                0.7,
+                200,
+                "You are a helpful assistant.",
+                "What do you see in this image? Describe briefly in one sentence.",
+                false,
+                new HashMap<>(),
+                createBodyWithMaxPrice(),
+                List.of(imageAttachment)
+        );
+
+        log.info("=== Testing OpenRouter with image attachment (multimodal) ===");
+
+        // Act
+        AIResponse response = springAIGateway.generateResponse(command);
+
+        // Assert
+        assertNotNull(response, "Response should not be null");
+        assertInstanceOf(SpringAIResponse.class, response, "Response should be SpringAIResponse");
+        
+        SpringAIResponse springAIResponse = (SpringAIResponse) response;
+        ChatResponse chatResponse = springAIResponse.chatResponse();
+        assertNotNull(chatResponse, "ChatResponse should not be null");
+        assertNotNull(chatResponse.getResult(), "Result should not be null");
+        
+        String responseText = chatResponse.getResult().getOutput().getText();
+        assertNotNull(responseText, "Response text should not be null");
+        assertFalse(responseText.isBlank(), "Response text should not be blank");
+        
+        log.info("Vision response: {}", responseText);
+        log.info("=== Multimodal test completed successfully ===");
+    }
+
+    /**
+     * Создает простое тестовое изображение 100x100 пикселей с цветными квадратами.
+     * Это минимальное изображение для проверки multimodal API.
+     */
+    private byte[] createTestImage() throws IOException {
+        BufferedImage image = new BufferedImage(100, 100, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2d = image.createGraphics();
+        
+        // Рисуем цветные квадраты для визуального разнообразия
+        g2d.setColor(Color.RED);
+        g2d.fillRect(0, 0, 50, 50);
+        
+        g2d.setColor(Color.GREEN);
+        g2d.fillRect(50, 0, 50, 50);
+        
+        g2d.setColor(Color.BLUE);
+        g2d.fillRect(0, 50, 50, 50);
+        
+        g2d.setColor(Color.YELLOW);
+        g2d.fillRect(50, 50, 50, 50);
+        
+        g2d.dispose();
+        
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", baos);
+        return baos.toByteArray();
     }
 
     private Map<String, Object> createBodyWithMaxPrice() {

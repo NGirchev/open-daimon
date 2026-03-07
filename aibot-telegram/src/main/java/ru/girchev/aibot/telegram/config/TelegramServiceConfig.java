@@ -2,6 +2,7 @@ package ru.girchev.aibot.telegram.config;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
@@ -13,6 +14,7 @@ import ru.girchev.aibot.common.config.CoreCommonProperties;
 import ru.girchev.aibot.common.meter.AIBotMeterRegistry;
 import ru.girchev.aibot.common.service.AIBotMessageService;
 import ru.girchev.aibot.common.service.AssistantRoleService;
+import ru.girchev.aibot.common.storage.service.FileStorageService;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.handler.TelegramSupportedCommandProvider;
 import ru.girchev.aibot.telegram.repository.TelegramUserRepository;
@@ -123,5 +125,17 @@ public class TelegramServiceConfig {
             TelegramWhitelistService whitelistService) {
         return new TelegramCommandSyncService(meterRegistry, registry, priorityRequestExecutor,
                 new DefaultUserPriorityService(userService, whitelistService));
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(
+            name = "ai-bot.telegram.file-upload.enabled", 
+            havingValue = "true")
+    public TelegramFileService telegramFileService(
+            ObjectProvider<TelegramBot> telegramBotProvider,
+            ObjectProvider<FileStorageService> fileStorageServiceProvider,
+            FileUploadProperties fileUploadProperties) {
+        return new TelegramFileService(telegramBotProvider, fileStorageServiceProvider, fileUploadProperties);
     }
 }

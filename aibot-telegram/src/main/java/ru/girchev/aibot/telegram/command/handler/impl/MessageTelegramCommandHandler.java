@@ -119,7 +119,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()
                     .findFirst()
-                    .orElseThrow(() -> new RuntimeException("No supported AI gateway found"));
+                    .orElseThrow(() -> new RuntimeException("No supported AI gateway found for AI Command " + aiCommand));
             AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
 
             Map<String, Object> usefulResponseData;

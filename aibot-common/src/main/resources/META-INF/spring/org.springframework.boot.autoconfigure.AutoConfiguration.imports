@@ -1,3 +1,4 @@
 ru.girchev.aibot.common.config.CoreAutoConfig
 ru.girchev.aibot.bulkhead.config.BulkHeadAutoConfig
 ru.girchev.aibot.common.openrouter.OpenRouterFreeModelsAutoConfig
+ru.girchev.aibot.common.storage.config.StorageAutoConfig

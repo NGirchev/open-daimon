@@ -70,6 +70,11 @@ import static org.junit.jupiter.api.Assertions.*;
         "ai-bot.telegram.commands.newthread-enabled=true",
         "ai-bot.telegram.commands.history-enabled=true",
         "ai-bot.telegram.commands.threads-enabled=true",
+        // File upload properties
+        "ai-bot.telegram.file-upload.enabled=false",
+        "ai-bot.telegram.file-upload.max-file-size-mb=10",
+        "ai-bot.telegram.file-upload.supported-image-types=jpeg,png,gif,webp",
+        "ai-bot.telegram.file-upload.supported-document-types=pdf",
         "ai-bot.ai.openrouter.enabled=false",
         "ai-bot.ai.deepseek.enabled=false",
         "ai-bot.ai.spring-ai.enabled=false",

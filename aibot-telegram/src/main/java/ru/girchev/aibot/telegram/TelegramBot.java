@@ -1,9 +1,9 @@
 package ru.girchev.aibot.telegram;
 
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.ActionType;
 import org.telegram.telegrambots.meta.api.methods.AnswerInlineQuery;
@@ -25,24 +25,47 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.webapp.WebAppInfo;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import ru.girchev.aibot.common.model.Attachment;
 import ru.girchev.aibot.common.service.CommandSyncService;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
+import ru.girchev.aibot.telegram.config.FileUploadProperties;
 import ru.girchev.aibot.telegram.config.TelegramProperties;
 import ru.girchev.aibot.telegram.model.TelegramUser;
 import ru.girchev.aibot.telegram.model.TelegramUserSession;
+import ru.girchev.aibot.telegram.service.TelegramFileService;
 import ru.girchev.aibot.telegram.service.TelegramUserService;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
 @Getter
-@RequiredArgsConstructor
 public class TelegramBot extends TelegramLongPollingBot {
 
     private final TelegramProperties config;
     private final CommandSyncService commandSyncService;
     private final TelegramUserService userService;
+    private final ObjectProvider<TelegramFileService> fileServiceProvider;
+    private final ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider;
+
+    public TelegramBot(TelegramProperties config, 
+                       CommandSyncService commandSyncService, 
+                       TelegramUserService userService) {
+        this(config, commandSyncService, userService, null, null);
+    }
+
+    public TelegramBot(TelegramProperties config, 
+                       CommandSyncService commandSyncService, 
+                       TelegramUserService userService,
+                       ObjectProvider<TelegramFileService> fileServiceProvider,
+                       ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
+        this.config = config;
+        this.commandSyncService = commandSyncService;
+        this.userService = userService;
+        this.fileServiceProvider = fileServiceProvider;
+        this.fileUploadPropertiesProvider = fileUploadPropertiesProvider;
+    }
 
     @Override
     public String getBotToken() {
@@ -67,6 +90,10 @@ public class TelegramBot extends TelegramLongPollingBot {
                 internalTelegramCommandWrap = mapToTelegramCommand(update);
             } else if (update.hasMessage() && update.getMessage().hasText()) {
                 internalTelegramCommandWrap = mapToTelegramTextCommand(update);
+            } else if (update.hasMessage() && update.getMessage().hasPhoto() && isFileUploadEnabled()) {
+                internalTelegramCommandWrap = mapToTelegramPhotoCommand(update);
+            } else if (update.hasMessage() && update.getMessage().hasDocument() && isFileUploadEnabled()) {
+                internalTelegramCommandWrap = mapToTelegramDocumentCommand(update);
             } else {
                 log.warn("Unsupported message {}", update);
                 return;
@@ -93,6 +120,17 @@ public class TelegramBot extends TelegramLongPollingBot {
                 throw new RuntimeException(ex);
             }
         }
+    }
+
+    /**
+     * Проверяет, включена ли загрузка файлов.
+     */
+    private boolean isFileUploadEnabled() {
+        if (fileUploadPropertiesProvider == null) {
+            return false;
+        }
+        FileUploadProperties props = fileUploadPropertiesProvider.getIfAvailable();
+        return props != null && Boolean.TRUE.equals(props.getEnabled());
     }
 
     protected TelegramCommand mapToTelegramCommand(Update update) {
@@ -151,6 +189,77 @@ public class TelegramBot extends TelegramLongPollingBot {
             userText = stripped;
         }
         return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true);
+    }
+
+    /**
+     * Обрабатывает сообщение с фотографией.
+     * Скачивает фото и сохраняет в MinIO.
+     */
+    public TelegramCommand mapToTelegramPhotoCommand(Update update) {
+        var message = update.getMessage();
+        TelegramUser telegramUser = userService.getOrCreateUser(message.getFrom());
+        Long userId = telegramUser.getId();
+
+        // Caption используется как userText
+        String userText = message.getCaption() != null ? message.getCaption() : "";
+        TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
+
+        List<Attachment> attachments = new ArrayList<>();
+
+        try {
+            TelegramFileService fileService = fileServiceProvider.getObject();
+            Attachment attachment = fileService.processPhoto(message.getPhoto());
+            attachments.add(attachment);
+            log.info("Photo processed for user {}: key={}", userId, attachment.key());
+        } catch (Exception e) {
+            log.error("Error processing photo for user {}", userId, e);
+            // Создаем команду без attachment, но с сообщением об ошибке
+            return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
+                    userText + " [Ошибка загрузки фото: " + e.getMessage() + "]", true, new ArrayList<>());
+        }
+
+        return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
+                userText, true, attachments);
+    }
+
+    /**
+     * Обрабатывает сообщение с документом (PDF).
+     * Скачивает документ и сохраняет в MinIO.
+     */
+    public TelegramCommand mapToTelegramDocumentCommand(Update update) {
+        var message = update.getMessage();
+        TelegramUser telegramUser = userService.getOrCreateUser(message.getFrom());
+        Long userId = telegramUser.getId();
+
+        // Caption используется как userText
+        String userText = message.getCaption() != null ? message.getCaption() : "";
+        TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
+
+        List<Attachment> attachments = new ArrayList<>();
+
+        try {
+            TelegramFileService fileService = fileServiceProvider.getObject();
+            Attachment attachment = fileService.processDocument(message.getDocument());
+            
+            if (attachment != null) {
+                attachments.add(attachment);
+                log.info("Document processed for user {}: key={}, mimeType={}", 
+                        userId, attachment.key(), attachment.mimeType());
+            } else {
+                log.warn("Unsupported document type for user {}: {}", 
+                        userId, message.getDocument().getMimeType());
+                return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
+                        userText + " [Неподдерживаемый тип файла: " + message.getDocument().getMimeType() + "]", 
+                        true, new ArrayList<>());
+            }
+        } catch (Exception e) {
+            log.error("Error processing document for user {}", userId, e);
+            return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
+                    userText + " [Ошибка загрузки документа: " + e.getMessage() + "]", true, new ArrayList<>());
+        }
+
+        return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
+                userText, true, attachments);
     }
 
     public void sendMessage(Long chatId, String text) throws TelegramApiException {

@@ -14,6 +14,7 @@ import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.service.TelegramBotMenuService;
 import ru.girchev.aibot.telegram.service.TelegramBotRegistrar;
 import ru.girchev.aibot.telegram.service.TelegramCommandSyncService;
+import ru.girchev.aibot.telegram.service.TelegramFileService;
 import ru.girchev.aibot.telegram.service.TelegramUserService;
 
 /**
@@ -23,7 +24,7 @@ import ru.girchev.aibot.telegram.service.TelegramUserService;
  */
 @AutoConfiguration
 @AutoConfigureAfter(BulkHeadAutoConfig.class)
-@EnableConfigurationProperties(TelegramProperties.class)
+@EnableConfigurationProperties({TelegramProperties.class, FileUploadProperties.class})
 @Import({
         TelegramJpaConfig.class,
         TelegramFlywayConfig.class,
@@ -37,8 +38,11 @@ public class TelegramAutoConfig {
     @ConditionalOnMissingBean
     public TelegramBot telegramBot(TelegramProperties properties,
                                    TelegramCommandSyncService commandSyncService,
-                                   TelegramUserService userService) {
-        return new TelegramBot(properties, commandSyncService, userService);
+                                   TelegramUserService userService,
+                                   ObjectProvider<TelegramFileService> fileServiceProvider,
+                                   ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
+        return new TelegramBot(properties, commandSyncService, userService, 
+                fileServiceProvider, fileUploadPropertiesProvider);
     }
 
     @Bean

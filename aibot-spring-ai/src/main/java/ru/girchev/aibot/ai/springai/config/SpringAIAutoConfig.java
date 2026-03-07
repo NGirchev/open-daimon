@@ -27,6 +27,8 @@ import reactor.netty.http.client.HttpClient;
 import ru.girchev.aibot.ai.springai.memory.SummarizingChatMemory;
 import ru.girchev.aibot.ai.springai.rest.RestClientLogCustomizer;
 import ru.girchev.aibot.ai.springai.rest.WebClientLogCustomizer;
+import ru.girchev.aibot.ai.springai.service.DocumentProcessingService;
+import ru.girchev.aibot.ai.springai.service.RAGService;
 import ru.girchev.aibot.ai.springai.service.SpringAIGateway;
 import ru.girchev.aibot.ai.springai.service.SpringAIModelType;
 import ru.girchev.aibot.ai.springai.service.SpringAIPromptFactory;
@@ -48,7 +50,7 @@ import ru.girchev.aibot.common.service.SummarizationService;
     "org.springframework.ai.openai.OpenAiAutoConfiguration",
     "org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration"
 })
-@EnableConfigurationProperties(SpringAIProperties.class)
+@EnableConfigurationProperties({SpringAIProperties.class})
 @Import(SpringAIFlywayConfig.class)
 @ConditionalOnProperty(name = "ai-bot.ai.spring-ai.enabled", havingValue = "true")
 public class SpringAIAutoConfig {
@@ -111,13 +113,19 @@ public class SpringAIAutoConfig {
             SpringAIProperties props,
             AIGatewayRegistry aiGatewayRegistry,
             SpringAIModelType springAIModelType,
-            SpringAIChatService chatService
+            SpringAIChatService chatService,
+            ObjectProvider<RAGProperties> ragPropertiesProvider,
+            ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
+            ObjectProvider<RAGService> ragServiceProvider
     ) {
         return new SpringAIGateway(
                 props,
                 aiGatewayRegistry,
                 springAIModelType,
-                chatService
+                chatService,
+                ragPropertiesProvider.getIfAvailable(),
+                documentProcessingServiceProvider,
+                ragServiceProvider
         );
     }
 

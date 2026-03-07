@@ -261,6 +261,96 @@ public class ContextProperties {
 - **Telegram Handler:** `MessageTelegramCommandHandler` uses `AIUtils.processStreamingResponse()` for chunk aggregation
 - **Persistence:** Final aggregated response saved to DB after stream completes
 
+### File Processing Architecture
+
+The system supports two types of file attachments with different processing pipelines:
+
+#### Images (Multimodal API Flow)
+
+```
+User sends image via Telegram
+    ↓
+TelegramBot.mapToTelegramPhotoCommand()
+    ↓
+TelegramFileService.processPhoto()
+    ├─ Download from Telegram API
+    ├─ Save to MinIO (FileStorageService)
+    └─ Create Attachment(type=IMAGE, data=bytes)
+    ↓
+TelegramCommand.attachments = [Attachment]
+    ↓
+AICommandFactoryRegistry.createCommand()
+    ↓
+ConversationHistoryAICommandFactory / DefaultAICommandFactory
+    └─ Create ChatAICommand with attachments
+    ↓
+SpringAIGateway.generateResponse()
+    └─ createUserMessage() with Media
+        └─ UserMessage.builder().text().media(List<Media>).build()
+    ↓
+Vision-capable model (e.g., GPT-4o, Claude 3)
+```
+
+**Feature Flags:**
+- `ai-bot.common.storage.enabled=true` - MinIO storage
+- `ai-bot.telegram.file-upload.enabled=true` - Telegram file processing
+
+**Key Components:**
+- `TelegramFileService` (aibot-telegram) - Downloads files from Telegram API
+- `MinioFileStorageService` (aibot-common) - Stores files in MinIO
+- `Attachment` record (aibot-common) - File metadata + data bytes
+- `SpringAIGateway.createUserMessage()` - Converts Attachment to Spring AI Media
+
+#### PDF Documents (RAG Pipeline Flow)
+
+```
+User sends PDF via Telegram
+    ↓
+TelegramBot.mapToTelegramDocumentCommand()
+    ↓
+TelegramFileService.processDocument()
+    ├─ Download from Telegram API
+    ├─ Save to MinIO
+    └─ Create Attachment(type=PDF, data=bytes)
+    ↓
+(Future integration point)
+DocumentProcessingService.processPdf()
+    ├─ Extract: PagePdfDocumentReader reads PDF pages
+    ├─ Transform: TokenTextSplitter splits into chunks
+    └─ Load: VectorStore.add() generates embeddings
+    ↓
+RAGService.findRelevantContext(query, documentId)
+    ├─ similaritySearch with filter by documentId
+    └─ Return top-K relevant chunks
+    ↓
+RAGService.createAugmentedPrompt()
+    └─ Combine context + user query
+```
+
+**Feature Flag:**
+- `ai-bot.ai.spring-ai.rag.enabled=true` - RAG pipeline (uses SimpleVectorStore in-memory)
+
+**Key Components:**
+- `DocumentProcessingService` (aibot-spring-ai) - ETL pipeline for PDF
+- `RAGService` (aibot-spring-ai) - Similarity search and prompt augmentation
+- `SimpleVectorStore` - In-memory vector store (data lost on restart)
+- `RAGProperties` - Configuration: chunkSize, chunkOverlap, topK, similarityThreshold
+
+**RAG Configuration Example:**
+```yaml
+ai-bot:
+  ai:
+    spring-ai:
+      rag:
+        enabled: true
+        chunk-size: 500
+        chunk-overlap: 100
+        top-k: 5
+        similarity-threshold: 0.7
+```
+
+**Note:** SimpleVectorStore is in-memory only. For production, consider PGVector or Elasticsearch.
+
 ### Monitoring
 
 **Metrics:**
@@ -330,14 +420,13 @@ All versions must be extracted to `<properties>` section.
 
 ## Environment Variables
 
-Required for local development (create `.env` from `.env.example` or export):
+Required for local development (create `.env` file or export):
 ```bash
 TELEGRAM_USERNAME=your_bot_username
 TELEGRAM_TOKEN=your_telegram_bot_token
 OPENROUTER_KEY=your_openrouter_api_key
+DEEPSEEK_KEY=your_deepseek_api_key
 POSTGRES_PASSWORD=your_secure_password
-SPRING_DATASOURCE_USERNAME=postgres
-SPRING_DATASOURCE_PASSWORD=your_secure_password
 ```
 
 ## Related Documentation

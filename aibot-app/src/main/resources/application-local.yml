@@ -93,6 +93,8 @@ ai-bot:
               - CHAT
               - TOOL_CALLING
               - SUMMARIZATION
+              - EMBEDDING
+              - VISION
             provider-type: OPENAI
             priority: 3
           - name: "gemma3:1b"
@@ -102,11 +104,11 @@ ai-bot:
               - SUMMARIZATION
             provider-type: OLLAMA
             priority: 1
-          - name: "nomic-embed-text:v1.5"
-            capabilities:
-              - EMBEDDING
-            provider-type: OLLAMA
-            priority: 1
+#          - name: "nomic-embed-text:v1.5"
+#            capabilities:
+#              - EMBEDDING
+#            provider-type: OLLAMA
+#            priority: 1
 
 management:
   endpoints:

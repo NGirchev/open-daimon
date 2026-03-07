@@ -11,7 +11,10 @@ import ru.girchev.aibot.common.ai.command.AICommand;
 import ru.girchev.aibot.common.ai.command.ChatAICommand;
 import ru.girchev.aibot.common.command.IChatCommand;
 import ru.girchev.aibot.common.command.ICommandType;
+import ru.girchev.aibot.common.model.Attachment;
+import ru.girchev.aibot.common.model.AttachmentType;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -66,7 +69,64 @@ class DefaultAICommandFactoryTest {
         assertTrue(chatCommand.body().isEmpty());
     }
 
+    @Test
+    void whenCommandHasAttachments_thenPassesToChatAICommand() {
+        DefaultAICommandFactory factory = new DefaultAICommandFactory(userPriorityService);
+        when(userPriorityService.getUserPriority(4L)).thenReturn(UserPriority.REGULAR);
+
+        // Create test attachment
+        Attachment imageAttachment = new Attachment(
+                "photo/test-key.jpg",
+                "image/jpeg",
+                "test-image.jpg",
+                1024,
+                AttachmentType.IMAGE,
+                new byte[]{1, 2, 3}
+        );
+        List<Attachment> attachments = List.of(imageAttachment);
+
+        AICommand command = factory.createCommand(
+                new TestChatCommandWithAttachments(4L, "Check this image", false, attachments), 
+                Map.of()
+        );
+
+        assertInstanceOf(ChatAICommand.class, command);
+        ChatAICommand chatCommand = (ChatAICommand) command;
+        
+        // Verify attachments are passed through
+        assertNotNull(chatCommand.attachments());
+        assertEquals(1, chatCommand.attachments().size());
+        assertEquals("photo/test-key.jpg", chatCommand.attachments().get(0).key());
+        assertEquals("image/jpeg", chatCommand.attachments().get(0).mimeType());
+        assertEquals(AttachmentType.IMAGE, chatCommand.attachments().get(0).type());
+        assertTrue(chatCommand.hasImageAttachments());
+    }
+
+    @Test
+    void whenCommandHasNoAttachments_thenEmptyList() {
+        DefaultAICommandFactory factory = new DefaultAICommandFactory(userPriorityService);
+        when(userPriorityService.getUserPriority(5L)).thenReturn(UserPriority.REGULAR);
+
+        AICommand command = factory.createCommand(new TestChatCommand(5L, "plain text", false), Map.of());
+
+        assertInstanceOf(ChatAICommand.class, command);
+        ChatAICommand chatCommand = (ChatAICommand) command;
+        
+        assertNotNull(chatCommand.attachments());
+        assertTrue(chatCommand.attachments().isEmpty());
+        assertFalse(chatCommand.hasImageAttachments());
+    }
+
     private record TestChatCommand(Long userId, String userText, boolean stream) implements IChatCommand<ICommandType> {
+
+        @Override
+        public ICommandType commandType() {
+            return null;
+        }
+    }
+
+    private record TestChatCommandWithAttachments(Long userId, String userText, boolean stream, List<Attachment> attachments) 
+            implements IChatCommand<ICommandType> {
 
         @Override
         public ICommandType commandType() {

@@ -2,7 +2,6 @@ package ru.girchev.aibot.ai.springai.service;
 
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -10,15 +9,24 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.content.Media;
+import org.springframework.ai.document.Document;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.util.MimeTypeUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import ru.girchev.aibot.ai.springai.config.RAGProperties;
 import ru.girchev.aibot.ai.springai.config.SpringAIModelConfig;
 import ru.girchev.aibot.ai.springai.config.SpringAIProperties;
 import ru.girchev.aibot.common.ai.ModelType;
 import ru.girchev.aibot.common.ai.command.AIBotChatOptions;
 import ru.girchev.aibot.common.ai.command.AICommand;
+import ru.girchev.aibot.common.ai.command.ChatAICommand;
 import ru.girchev.aibot.common.ai.response.AIResponse;
 import ru.girchev.aibot.common.ai.response.SpringAIResponse;
+import ru.girchev.aibot.common.model.Attachment;
+import ru.girchev.aibot.common.model.AttachmentType;
 import ru.girchev.aibot.common.service.AIGateway;
 import ru.girchev.aibot.common.service.AIGatewayRegistry;
 
@@ -28,13 +36,34 @@ import static ru.girchev.aibot.common.ai.LlmParamNames.*;
 
 @Getter
 @Slf4j
-@RequiredArgsConstructor
 public class SpringAIGateway implements AIGateway {
 
     private final SpringAIProperties springAiProperties;
     private final AIGatewayRegistry aiGatewayRegistry;
     private final SpringAIModelType springAIModelType;
     private final SpringAIChatService chatService;
+    
+    // RAG components (optional - available only when ai-bot.ai.spring-ai.rag.enabled=true)
+    private final RAGProperties ragProperties;
+    private final ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider;
+    private final ObjectProvider<RAGService> ragServiceProvider;
+
+    public SpringAIGateway(
+            SpringAIProperties springAiProperties,
+            AIGatewayRegistry aiGatewayRegistry,
+            SpringAIModelType springAIModelType,
+            SpringAIChatService chatService,
+            RAGProperties ragProperties,
+            ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
+            ObjectProvider<RAGService> ragServiceProvider) {
+        this.springAiProperties = springAiProperties;
+        this.aiGatewayRegistry = aiGatewayRegistry;
+        this.springAIModelType = springAIModelType;
+        this.chatService = chatService;
+        this.ragProperties = ragProperties;
+        this.documentProcessingServiceProvider = documentProcessingServiceProvider;
+        this.ragServiceProvider = ragServiceProvider;
+    }
 
     @PostConstruct
     public void init() {
@@ -85,7 +114,15 @@ public class SpringAIGateway implements AIGateway {
                             .map(UserMessage.class::cast)
                             .anyMatch(m -> userRole.equals(m.getText()));
                     if (!alreadyPresent) {
-                        messages.add(new UserMessage(userRole));
+                        // Извлекаем attachments из ChatAICommand (если это ChatAICommand)
+                        List<Attachment> attachments = (command instanceof ChatAICommand chatCommand) 
+                                ? chatCommand.attachments() 
+                                : List.of();
+                        
+                        // RAG: обработка PDF attachments
+                        String finalUserRole = processRagIfEnabled(userRole, attachments);
+                        
+                        messages.add(createUserMessage(finalUserRole, attachments));
                     }
                 }
 
@@ -205,6 +242,236 @@ public class SpringAIGateway implements AIGateway {
         }
 
         return null;
+    }
+
+    /**
+     * Обрабатывает документы (PDF, DOCX и др.) через RAG если feature flag включен.
+     * 
+     * <p>Процесс:
+     * <ol>
+     *   <li>Фильтрует документы (PDF, DOCX и др.)</li>
+     *   <li>Обрабатывает каждый документ через DocumentProcessingService (создает embeddings)</li>
+     *   <li>Ищет релевантный контекст через RAGService</li>
+     *   <li>Создает augmented prompt с контекстом из документов</li>
+     * </ol>
+     *
+     * @param userQuery оригинальный запрос пользователя
+     * @param attachments список вложений
+     * @return augmented prompt с контекстом из документов (или оригинальный запрос если RAG выключен)
+     */
+    private String processRagIfEnabled(String userQuery, List<Attachment> attachments) {
+        // Проверяем feature flag
+        if (ragProperties == null || !isRagEnabled()) {
+            return userQuery;
+        }
+        
+        // Фильтруем документы (PDF, DOCX и др.)
+        List<Attachment> documentAttachments = attachments.stream()
+                .filter(Attachment::isDocument)
+                .toList();
+        
+        if (documentAttachments.isEmpty()) {
+            return userQuery;
+        }
+        
+        DocumentProcessingService documentProcessingService = documentProcessingServiceProvider.getIfAvailable();
+        RAGService ragService = ragServiceProvider.getIfAvailable();
+        
+        if (documentProcessingService == null || ragService == null) {
+            log.warn("RAG is enabled but services are not available. Skipping RAG processing.");
+            return userQuery;
+        }
+        
+        log.info("Processing {} document attachment(s) for RAG", documentAttachments.size());
+        
+        // Обрабатываем документы и собираем контекст
+        List<Document> allRelevantChunks = new ArrayList<>();
+        
+        for (Attachment documentAttachment : documentAttachments) {
+            try {
+                String documentId;
+                String mimeType = documentAttachment.mimeType() != null 
+                        ? documentAttachment.mimeType().toLowerCase() 
+                        : "";
+                
+                // 1. Обрабатываем документ через ETL Pipeline
+                String documentType = extractDocumentType(mimeType, documentAttachment.filename());
+                if (documentType == null) {
+                    log.warn("Unsupported document type for RAG: {}", mimeType);
+                    continue;
+                }
+                
+                // PDF обрабатывается через PagePdfDocumentReader (PDFBox) - специализированный ридер для лучшего качества
+                if ("pdf".equalsIgnoreCase(documentType)) {
+                    documentId = documentProcessingService.processPdf(
+                            documentAttachment.data(), 
+                            documentAttachment.filename()
+                    );
+                } else {
+                    // Все остальные форматы через TikaDocumentReader (DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT и др.)
+                    documentId = documentProcessingService.processWithTika(
+                            documentAttachment.data(), 
+                            documentAttachment.filename(),
+                            documentType
+                    );
+                }
+                
+                // 2. Ищем релевантный контекст
+                List<Document> relevantChunks = ragService.findRelevantContext(userQuery, documentId);
+                allRelevantChunks.addAll(relevantChunks);
+                
+                log.debug("Found {} relevant chunks from '{}'", relevantChunks.size(), documentAttachment.filename());
+            } catch (Exception e) {
+                log.error("Failed to process document '{}': {}", documentAttachment.filename(), e.getMessage(), e);
+                // Продолжаем с остальными документами
+            }
+        }
+        
+        if (allRelevantChunks.isEmpty()) {
+            log.info("No relevant context found in documents");
+            return userQuery;
+        }
+        
+        // 3. Создаем augmented prompt
+        String augmentedPrompt = ragService.createAugmentedPrompt(userQuery, allRelevantChunks);
+        log.info("Created augmented prompt with {} relevant chunks from {} document(s)", 
+                allRelevantChunks.size(), documentAttachments.size());
+        
+        return augmentedPrompt;
+    }
+
+    /**
+     * Проверяет, включен ли RAG feature flag.
+     */
+    private boolean isRagEnabled() {
+        // RAGProperties создается только когда rag.enabled=true (через @ConditionalOnProperty)
+        // Но для безопасности проверяем дополнительно
+        return ragProperties != null;
+    }
+
+    /**
+     * Маппинг паттернов MIME типов и расширений файлов к типам документов.
+     * PDF проверяется первым, так как обрабатывается через PDFBox, а не через Tika.
+     */
+    private static final List<DocumentTypeMapping> DOCUMENT_TYPE_MAPPINGS = List.of(
+            // PDF - проверяется первым, обрабатывается через PDFBox (PagePdfDocumentReader), не через Tika
+            new DocumentTypeMapping("pdf", List.of("pdf"), List.of(".pdf")),
+            // Word документы
+            new DocumentTypeMapping("docx", List.of("wordprocessingml"), List.of(".docx")),
+            new DocumentTypeMapping("doc", List.of("msword"), List.of(".doc")),
+            // Excel документы
+            new DocumentTypeMapping("xlsx", List.of("spreadsheetml"), List.of(".xlsx")),
+            new DocumentTypeMapping("xls", List.of("ms-excel"), List.of(".xls")),
+            // PowerPoint документы
+            new DocumentTypeMapping("pptx", List.of("presentationml"), List.of(".pptx")),
+            new DocumentTypeMapping("ppt", List.of("ms-powerpoint"), List.of(".ppt")),
+            // Текстовые файлы
+            new DocumentTypeMapping("txt", List.of("text/plain"), List.of(".txt")),
+            // Rich Text Format
+            new DocumentTypeMapping("rtf", List.of("rtf"), List.of(".rtf")),
+            // OpenDocument Format (альтернатива MS Office)
+            new DocumentTypeMapping("odt", List.of("opendocument.text"), List.of(".odt")),
+            new DocumentTypeMapping("ods", List.of("opendocument.spreadsheet"), List.of(".ods")),
+            new DocumentTypeMapping("odp", List.of("opendocument.presentation"), List.of(".odp")),
+            // CSV
+            new DocumentTypeMapping("csv", List.of("csv"), List.of(".csv")),
+            // HTML
+            new DocumentTypeMapping("html", List.of("text/html"), List.of(".html", ".htm")),
+            // Markdown
+            new DocumentTypeMapping("md", List.of("markdown"), List.of(".md", ".markdown")),
+            // JSON
+            new DocumentTypeMapping("json", List.of("json"), List.of(".json")),
+            // XML
+            new DocumentTypeMapping("xml", List.of("xml"), List.of(".xml")),
+            // EPUB (электронные книги)
+            new DocumentTypeMapping("epub", List.of("epub"), List.of(".epub"))
+    );
+
+    /**
+     * Извлекает тип документа из MIME типа или имени файла.
+     * 
+     * <p><b>Важно:</b> PDF определяется первым и обрабатывается через PagePdfDocumentReader (PDFBox),
+     * а не через TikaDocumentReader, для лучшего качества извлечения текста.
+     * 
+     * @param mimeType MIME тип файла
+     * @param filename имя файла
+     * @return тип документа (pdf, docx, doc, xls, xlsx, ppt, pptx, txt, rtf, odt, ods, odp, csv, html, md, json, xml, epub) или null если не поддерживается
+     */
+    private String extractDocumentType(String mimeType, String filename) {
+        if (mimeType == null && filename == null) {
+            return null;
+        }
+        
+        String type = mimeType != null ? mimeType.toLowerCase() : "";
+        String name = filename != null ? filename.toLowerCase() : "";
+        
+        return DOCUMENT_TYPE_MAPPINGS.stream()
+                .filter(mapping -> mapping.matches(type, name))
+                .map(DocumentTypeMapping::documentType)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Вспомогательный класс для маппинга паттернов к типам документов.
+     */
+    private record DocumentTypeMapping(
+            String documentType,
+            List<String> mimeTypePatterns,
+            List<String> fileExtensions
+    ) {
+        /**
+         * Проверяет, соответствует ли MIME тип или имя файла данному маппингу.
+         */
+        boolean matches(String mimeType, String filename) {
+            boolean mimeMatches = mimeTypePatterns.stream()
+                    .anyMatch(mimeType::contains);
+            boolean extensionMatches = fileExtensions.stream()
+                    .anyMatch(filename::endsWith);
+            return mimeMatches || extensionMatches;
+        }
+    }
+
+    /**
+     * Создает UserMessage с поддержкой multimodal (изображения).
+     * Если нет изображений, возвращает обычный текстовый UserMessage.
+     *
+     * @param content текст сообщения
+     * @param attachments список вложений
+     * @return UserMessage (с Media или без)
+     */
+    private Message createUserMessage(String content, List<Attachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return new UserMessage(content);
+        }
+        
+        // Фильтруем только изображения
+        List<Media> mediaList = attachments.stream()
+                .filter(att -> att.type() == AttachmentType.IMAGE)
+                .map(this::toMedia)
+                .toList();
+        
+        if (mediaList.isEmpty()) {
+            return new UserMessage(content);
+        }
+        
+        log.debug("Creating multimodal UserMessage with {} image(s)", mediaList.size());
+        return UserMessage.builder()
+                .text(content)
+                .media(mediaList)
+                .build();
+    }
+
+    /**
+     * Конвертирует Attachment в Spring AI Media.
+     *
+     * @param attachment вложение
+     * @return Media объект для Spring AI
+     */
+    private Media toMedia(Attachment attachment) {
+        var mimeType = MimeTypeUtils.parseMimeType(attachment.mimeType());
+        var resource = new ByteArrayResource(attachment.data());
+        return new Media(mimeType, resource);
     }
 
 }

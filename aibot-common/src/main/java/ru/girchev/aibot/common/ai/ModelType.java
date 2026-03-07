@@ -52,5 +52,11 @@ public enum ModelType {
 
     WEB,
 
-    CODE
+    CODE,
+
+    /**
+     * Модели с поддержкой изображений (Vision).
+     * Например: GPT-4o, Claude 3, Gemini Pro Vision.
+     */
+    VISION
 }

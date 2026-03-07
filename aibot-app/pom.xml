@@ -26,6 +26,8 @@
 
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <pdfbox.version>3.0.5</pdfbox.version>
     </properties>
 
     <dependencies>
@@ -113,6 +115,14 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
         </dependency>
+        
+        <!-- MinIO (optional в aibot-common, нужно явно включить для runtime) -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>${minio.version}</version>
+        </dependency>
+
         <!-- test-->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -138,6 +148,17 @@
             <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
+        </dependency>
+        <!-- PDFBox for RAG (runtime, used by spring-ai-pdf-document-reader) -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox-io</artifactId>
+            <version>${pdfbox.version}</version>
         </dependency>
 
     </dependencies>

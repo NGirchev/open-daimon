@@ -12,11 +12,17 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.objects.Chat;
+import org.telegram.telegrambots.meta.api.objects.Document;
 import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.PhotoSize;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import ru.girchev.aibot.common.model.AttachmentType;
+import ru.girchev.aibot.common.storage.service.FileStorageService;
+import ru.girchev.aibot.telegram.service.TelegramFileService;
 import ru.girchev.aibot.common.config.CoreFlywayConfig;
 import ru.girchev.aibot.common.config.CoreJpaConfig;
 import ru.girchev.aibot.common.repository.AIBotMessageRepository;
@@ -29,6 +35,7 @@ import ru.girchev.aibot.telegram.config.TelegramJpaConfig;
 import ru.girchev.aibot.test.TestDatabaseConfiguration;
 
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -166,6 +173,222 @@ class TelegramRealGatewayIT {
         telegramBot.sendMessage(adminTelegramId, "🧪 Прямое тестовое сообщение из TelegramRealGatewayIT");
         
         log.info("=== Direct send message test completed successfully ===");
+    }
+
+    // ==================== FILE UPLOAD TESTS ====================
+    // 
+    // ВАЖНО: Следующие тесты являются ФИНАЛЬНЫМИ тестами для Agent 1.
+    // Они требуют включённых feature flags:
+    //   - ai-bot.common.storage.enabled=true
+    //   - ai-bot.telegram.file-upload.enabled=true
+    // И запущенного MinIO сервера (docker-compose up minio).
+    // 
+    // Тесты должны запускаться пользователем вручную после настройки окружения.
+    // ===========================================================
+
+    @Autowired(required = false)
+    private ObjectProvider<TelegramFileService> fileServiceProvider;
+
+    @Autowired(required = false)
+    private ObjectProvider<FileStorageService> storageServiceProvider;
+
+    /**
+     * ФИНАЛЬНЫЙ ТЕСТ для Agent 1: Обработка фото из Telegram и сохранение в MinIO.
+     * 
+     * <p>Для запуска этого теста необходимо:
+     * <ol>
+     *   <li>Запустить MinIO: docker-compose up minio</li>
+     *   <li>Включить feature flags в TestPropertySource:
+     *       <ul>
+     *         <li>ai-bot.common.storage.enabled=true</li>
+     *         <li>ai-bot.telegram.file-upload.enabled=true</li>
+     *       </ul>
+     *   </li>
+     *   <li>Отправить боту реальное фото в Telegram</li>
+     *   <li>Удалить @Disabled с этого теста</li>
+     * </ol>
+     * 
+     * <p>Тест демонстрирует полный цикл:
+     * <ol>
+     *   <li>TelegramBot получает Update с фото</li>
+     *   <li>TelegramFileService скачивает фото через Telegram API</li>
+     *   <li>MinioFileStorageService сохраняет файл в bucket</li>
+     *   <li>TelegramCommand содержит Attachment с метаданными</li>
+     * </ol>
+     */
+    @Test
+    @Disabled("ФИНАЛЬНЫЙ ТЕСТ: Требует MinIO и реальное фото от пользователя")
+    void photoCommand_savesToMinioStorage() {
+        log.info("=== Testing photo upload to MinIO ===");
+        
+        // Проверка что сервисы доступны
+        assertThat(fileServiceProvider)
+                .as("TelegramFileService должен быть доступен (включите ai-bot.telegram.file-upload.enabled=true)")
+                .isNotNull();
+        assertThat(storageServiceProvider)
+                .as("FileStorageService должен быть доступен (включите ai-bot.common.storage.enabled=true)")
+                .isNotNull();
+
+        TelegramFileService fileService = fileServiceProvider.getIfAvailable();
+        FileStorageService storageService = storageServiceProvider.getIfAvailable();
+        
+        assertThat(fileService)
+                .as("TelegramFileService bean должен быть создан")
+                .isNotNull();
+        assertThat(storageService)
+                .as("FileStorageService bean должен быть создан")
+                .isNotNull();
+
+        // Создаём имитацию Update с фото
+        // ПРИМЕЧАНИЕ: В реальном сценарии Update приходит от Telegram API
+        // Здесь мы тестируем инфраструктуру без реального фото
+        var update = createUpdateWithPhoto();
+        var command = telegramBot.mapToTelegramPhotoCommand(update);
+
+        // Assert
+        assertThat(command.attachments())
+                .as("Команда должна содержать вложения")
+                .hasSize(1);
+        assertThat(command.attachments().get(0).type())
+                .as("Тип вложения должен быть IMAGE")
+                .isEqualTo(AttachmentType.IMAGE);
+        assertThat(command.attachments().get(0).key())
+                .as("Файл должен иметь ключ хранилища")
+                .startsWith("photo/");
+
+        // Проверяем что файл сохранён в MinIO
+        String storageKey = command.attachments().get(0).key();
+        assertThat(storageService.exists(storageKey))
+                .as("Файл должен существовать в MinIO")
+                .isTrue();
+
+        log.info("Photo saved to MinIO: key={}, mimeType={}, size={}", 
+                storageKey, 
+                command.attachments().get(0).mimeType(),
+                command.attachments().get(0).size());
+        log.info("=== Photo upload test completed successfully ===");
+    }
+
+    /**
+     * ФИНАЛЬНЫЙ ТЕСТ для Agent 1: Обработка PDF документа из Telegram и сохранение в MinIO.
+     * 
+     * <p>Для запуска этого теста необходимо:
+     * <ol>
+     *   <li>Запустить MinIO: docker-compose up minio</li>
+     *   <li>Включить feature flags в TestPropertySource</li>
+     *   <li>Отправить боту реальный PDF документ в Telegram</li>
+     *   <li>Удалить @Disabled с этого теста</li>
+     * </ol>
+     */
+    @Test
+    @Disabled("ФИНАЛЬНЫЙ ТЕСТ: Требует MinIO и реальный PDF от пользователя")
+    void documentCommand_savesPdfToMinioStorage() {
+        log.info("=== Testing PDF document upload to MinIO ===");
+
+        // Проверка что сервисы доступны
+        TelegramFileService fileService = fileServiceProvider.getIfAvailable();
+        FileStorageService storageService = storageServiceProvider.getIfAvailable();
+        
+        assertThat(fileService).as("TelegramFileService должен быть доступен").isNotNull();
+        assertThat(storageService).as("FileStorageService должен быть доступен").isNotNull();
+
+        // Создаём имитацию Update с PDF документом
+        var update = createUpdateWithPdfDocument();
+        var command = telegramBot.mapToTelegramDocumentCommand(update);
+
+        // Assert
+        assertThat(command.attachments())
+                .as("Команда должна содержать вложения")
+                .hasSize(1);
+        assertThat(command.attachments().get(0).type())
+                .as("Тип вложения должен быть PDF")
+                .isEqualTo(AttachmentType.PDF);
+        assertThat(command.attachments().get(0).key())
+                .as("Файл должен иметь ключ хранилища")
+                .startsWith("document/");
+
+        // Проверяем что файл сохранён в MinIO
+        String storageKey = command.attachments().get(0).key();
+        assertThat(storageService.exists(storageKey))
+                .as("Файл должен существовать в MinIO")
+                .isTrue();
+
+        log.info("PDF saved to MinIO: key={}, mimeType={}, size={}", 
+                storageKey, 
+                command.attachments().get(0).mimeType(),
+                command.attachments().get(0).size());
+        log.info("=== PDF document upload test completed successfully ===");
+    }
+
+    /**
+     * Создаёт Update с фото для тестирования.
+     * ПРИМЕЧАНИЕ: fileId должен быть реальным для работы с Telegram API.
+     */
+    private Update createUpdateWithPhoto() {
+        var update = new Update();
+        var msg = new Message();
+        
+        var from = new User();
+        from.setId(adminTelegramId);
+        from.setUserName("test-user");
+        from.setFirstName("Test");
+        
+        var chat = new Chat();
+        chat.setId(adminTelegramId);
+        
+        msg.setMessageId(1);
+        msg.setChat(chat);
+        msg.setFrom(from);
+        msg.setCaption("Test photo caption");
+        
+        // PhotoSize - в реальном сценарии fileId приходит от Telegram API
+        // Для тестирования с реальным API нужно использовать реальный fileId
+        var photo = new PhotoSize();
+        photo.setFileId("TEST_FILE_ID_PHOTO"); // Замените на реальный fileId
+        photo.setFileUniqueId("unique_id");
+        photo.setWidth(800);
+        photo.setHeight(600);
+        photo.setFileSize(50000);
+        
+        msg.setPhoto(List.of(photo));
+        update.setMessage(msg);
+        
+        return update;
+    }
+
+    /**
+     * Создаёт Update с PDF документом для тестирования.
+     * ПРИМЕЧАНИЕ: fileId должен быть реальным для работы с Telegram API.
+     */
+    private Update createUpdateWithPdfDocument() {
+        var update = new Update();
+        var msg = new Message();
+        
+        var from = new User();
+        from.setId(adminTelegramId);
+        from.setUserName("test-user");
+        from.setFirstName("Test");
+        
+        var chat = new Chat();
+        chat.setId(adminTelegramId);
+        
+        msg.setMessageId(1);
+        msg.setChat(chat);
+        msg.setFrom(from);
+        msg.setCaption("Test PDF document");
+        
+        // Document - в реальном сценарии fileId приходит от Telegram API
+        var doc = new Document();
+        doc.setFileId("TEST_FILE_ID_PDF"); // Замените на реальный fileId
+        doc.setFileUniqueId("unique_id");
+        doc.setFileName("test-document.pdf");
+        doc.setMimeType("application/pdf");
+        doc.setFileSize(100000L);
+        
+        msg.setDocument(doc);
+        update.setMessage(msg);
+        
+        return update;
     }
 
     @SpringBootConfiguration
