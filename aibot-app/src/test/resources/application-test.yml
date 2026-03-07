@@ -1,13 +1,11 @@
 spring:
   autoconfigure:
     exclude:
-      - org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
-      - org.springframework.ai.ollama.OllamaAutoConfiguration
       - ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig
   ai:
     openai:
@@ -20,12 +18,18 @@ ai-bot:
     enabled: true
   common:
     assistant-role: Ты полезный ассистент
-    conversation-context:
-      enabled: false
+    max-output-tokens: 1000
+    max-reasoning-tokens: 500
+    max-user-message-tokens: 4000
+    max-total-prompt-tokens: 32000
+    summarization:
       max-context-tokens: 8000
+      summary-trigger-threshold: 0.7
+      keep-recent-messages: 5
+    manual-conversation-history:
+      enabled: false
       max-response-tokens: 4000
       default-window-size: 5
-      summary-trigger-threshold: 0.7
       include-system-prompt: true
       token-estimation-chars-per-token: 4
   ai:

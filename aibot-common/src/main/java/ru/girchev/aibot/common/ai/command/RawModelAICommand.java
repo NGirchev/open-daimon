@@ -1,6 +1,6 @@
 package ru.girchev.aibot.common.ai.command;
 
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 
 import java.util.Map;
 import java.util.Set;
@@ -16,8 +16,8 @@ public record RawModelAICommand(
         Map<String, Object> body) implements AICommand {
 
     @Override
-    public Set<ModelType> modelTypes() {
-        return Set.of(ModelType.RAW_TYPE);
+    public Set<ModelCapabilities> modelCapabilities() {
+        return Set.of(ModelCapabilities.RAW_TYPE);
     }
 
     @Override

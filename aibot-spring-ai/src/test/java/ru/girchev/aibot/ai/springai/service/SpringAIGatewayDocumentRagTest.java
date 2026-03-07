@@ -1,0 +1,321 @@
+package ru.girchev.aibot.ai.springai.service;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.document.Document;
+import org.springframework.beans.factory.ObjectProvider;
+import reactor.core.publisher.Flux;
+import ru.girchev.aibot.ai.springai.config.RAGProperties;
+import ru.girchev.aibot.ai.springai.config.SpringAIModelConfig;
+import ru.girchev.aibot.ai.springai.config.SpringAIProperties;
+import ru.girchev.aibot.ai.springai.rag.FileRAGService;
+import ru.girchev.aibot.ai.springai.retry.SpringAIModelRegistry;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
+import ru.girchev.aibot.common.ai.command.ChatAICommand;
+import ru.girchev.aibot.common.ai.response.SpringAIStreamResponse;
+import ru.girchev.aibot.common.exception.DocumentContentNotExtractableException;
+import ru.girchev.aibot.common.model.Attachment;
+import ru.girchev.aibot.common.model.AttachmentType;
+import ru.girchev.aibot.common.service.AIGatewayRegistry;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * Тест прохождения PDF-вложения от команды до вызова DocumentProcessingService.processPdf.
+ * Проверяет, что при ChatAICommand с PDF attachment и пустом body.messages
+ * gateway вызывает processRagIfEnabled и processPdf с непустыми данными.
+ */
+@ExtendWith(MockitoExtension.class)
+class SpringAIGatewayDocumentRagTest {
+
+    @Mock
+    private SpringAIProperties springAIProperties;
+    @Mock
+    private AIGatewayRegistry aiGatewayRegistry;
+    @Mock
+    private SpringAIModelRegistry springAIModelRegistry;
+    @Mock
+    private SpringAIChatService chatService;
+    @Mock
+    private DocumentProcessingService documentProcessingService;
+    @Mock
+    private FileRAGService fileRagService;
+    @Mock
+    private ChatMemory chatMemory;
+    private SpringAIGateway springAIGateway;
+
+    @BeforeEach
+    void setUp() {
+        when(springAIProperties.getMock()).thenReturn(false);
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<DocumentProcessingService> docProvider = mock(ObjectProvider.class);
+        when(docProvider.getIfAvailable()).thenReturn(documentProcessingService);
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<FileRAGService> ragProvider = mock(ObjectProvider.class);
+        when(ragProvider.getIfAvailable()).thenReturn(fileRagService);
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ChatMemory> chatMemoryProvider = mock(ObjectProvider.class);
+
+        when(documentProcessingService.processPdf(any(byte[].class), anyString())).thenReturn("doc-id-1");
+        // RAG-сервисы в этих тестах напрямую не используются (фокус на PDF/vision),
+        // поэтому ослабляем строгую проверку Mockito через lenient-stubbing.
+        lenient().when(fileRagService.findRelevantContext(anyString(), anyString())).thenReturn(List.of(new Document("chunk text")));
+        lenient().when(fileRagService.createAugmentedPrompt(anyString(), anyList())).thenReturn("Augmented prompt with context from document.");
+
+        SpringAIModelConfig modelConfig = new SpringAIModelConfig();
+        modelConfig.setName("test-model");
+        modelConfig.setCapabilities(List.of(ModelCapabilities.CHAT));
+        when(springAIModelRegistry.getCandidatesByCapabilities(any(), any())).thenReturn(List.of(modelConfig));
+
+        when(chatService.streamChat(any(), any(), any(), any())).thenReturn(new SpringAIStreamResponse(Flux.empty()));
+
+        RAGProperties ragProperties = new RAGProperties();
+        ragProperties.setChunkSize(800);
+        ragProperties.setChunkOverlap(100);
+        ragProperties.setTopK(5);
+        ragProperties.setSimilarityThreshold(0.7);
+
+        springAIGateway = new SpringAIGateway(
+                springAIProperties,
+                aiGatewayRegistry,
+                springAIModelRegistry,
+                chatService,
+                chatMemoryProvider,
+                ragProperties,
+                docProvider,
+                ragProvider
+        );
+    }
+
+    @Test
+    void whenChatAICommandWithPdfAttachment_thenProcessPdfIsCalledOnceWithNonEmptyData() {
+        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
+        Attachment pdfAttachment = new Attachment(
+                "doc/key.pdf",
+                "application/pdf",
+                "test.pdf",
+                pdfData.length,
+                AttachmentType.PDF,
+                pdfData
+        );
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("someKey", "value");
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT),
+                0.35,
+                1000,
+                null,
+                null,
+                "Что в файле?",
+                true,
+                Map.of(),
+                body,
+                List.of(pdfAttachment)
+        );
+
+        springAIGateway.generateResponse(command);
+
+        ArgumentCaptor<byte[]> dataCaptor = ArgumentCaptor.forClass(byte[].class);
+        ArgumentCaptor<String> filenameCaptor = ArgumentCaptor.forClass(String.class);
+        verify(documentProcessingService, times(1)).processPdf(dataCaptor.capture(), filenameCaptor.capture());
+        assertTrue(dataCaptor.getValue().length > 0, "processPdf must be called with non-empty byte array");
+        assertEquals("test.pdf", filenameCaptor.getValue());
+    }
+
+    @Test
+    void whenPdfHasNoTextLayer_thenRenderedAsImagesForVision() {
+        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
+        Attachment pdfAttachment = new Attachment(
+                "doc/scan.pdf",
+                "application/pdf",
+                "scan.pdf",
+                pdfData.length,
+                AttachmentType.PDF,
+                pdfData
+        );
+
+        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
+                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
+
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("someKey", "value");
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
+                0.35,
+                1000,
+                null,
+                null,
+                "Что в файле?",
+                true,
+                Map.of(),
+                body,
+                List.of(pdfAttachment)
+        );
+
+        springAIGateway.generateResponse(command);
+
+        verify(documentProcessingService, times(1)).processPdf(any(byte[].class), eq("scan.pdf"));
+        
+        // Проверяем, что был вызван chatService с правильными сообщениями
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
+                ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(
+                any(SpringAIModelConfig.class), 
+                any(), 
+                any(), 
+                messagesCaptor.capture()
+        );
+        
+        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
+        assertNotNull(messages);
+        assertTrue(messages.size() >= 2, "Should have at least SystemMessage with attachment context and UserMessage");
+        
+        // Проверяем наличие SystemMessage с контекстом о PDF
+        boolean hasSystemMessageWithPdfContext = messages.stream()
+                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
+                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
+                .anyMatch(text -> text.contains("PDF-документ") && text.contains("scan.pdf") && text.contains("изображений"));
+        
+        assertTrue(hasSystemMessageWithPdfContext, "Should have SystemMessage with PDF attachment context");
+
+        // В этом тесте ChatMemory не используется, так как нет threadKey в metadata
+    }
+
+    @Test
+    void whenImageAttachment_thenSystemMessageWithImageContext() {
+        byte[] imageData = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        Attachment imageAttachment = new Attachment(
+                "img/photo.png",
+                "image/png",
+                "photo.png",
+                imageData.length,
+                AttachmentType.IMAGE,
+                imageData
+        );
+
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("someKey", "value");
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
+                0.35,
+                1000,
+                null,
+                null,
+                "Что на картинке?",
+                true,
+                Map.of(),
+                body,
+                List.of(imageAttachment)
+        );
+
+        springAIGateway.generateResponse(command);
+
+        // Проверяем, что был вызван chatService с правильными сообщениями
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
+                ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(
+                any(SpringAIModelConfig.class), 
+                any(), 
+                any(), 
+                messagesCaptor.capture()
+        );
+
+        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
+        assertNotNull(messages);
+        assertTrue(messages.size() >= 2, "Should have at least SystemMessage with attachment context and UserMessage");
+
+        // Проверяем наличие SystemMessage с контекстом об изображении
+        boolean hasSystemMessageWithImageContext = messages.stream()
+                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
+                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
+                .anyMatch(text -> text.contains("прикрепил изображение"));
+
+        assertTrue(hasSystemMessageWithImageContext, "Should have SystemMessage with image attachment context");
+
+        // В этом тесте ChatMemory не используется, так как нет threadKey в metadata
+    }
+
+    @Test
+    void whenBothImageAndPdfAsImage_thenSystemMessageWithBothContexts() {
+        byte[] imageData = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        Attachment imageAttachment = new Attachment(
+                "img/photo.png",
+                "image/png",
+                "photo.png",
+                imageData.length,
+                AttachmentType.IMAGE,
+                imageData
+        );
+
+        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
+        Attachment pdfAttachment = new Attachment(
+                "doc/scan.pdf",
+                "application/pdf",
+                "scan.pdf",
+                pdfData.length,
+                AttachmentType.PDF,
+                pdfData
+        );
+
+        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
+                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
+
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("someKey", "value");
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
+                0.35,
+                1000,
+                null,
+                null,
+                "Что в файлах?",
+                true,
+                Map.of(),
+                body,
+                List.of(imageAttachment, pdfAttachment)
+        );
+
+        springAIGateway.generateResponse(command);
+
+        // Проверяем, что был вызван chatService с правильными сообщениями
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
+                ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(
+                any(SpringAIModelConfig.class), 
+                any(), 
+                any(), 
+                messagesCaptor.capture()
+        );
+
+        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
+        assertNotNull(messages);
+
+        // Проверяем наличие SystemMessage с контекстом и о PDF, и об изображении
+        boolean hasSystemMessageWithBothContexts = messages.stream()
+                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
+                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
+                .anyMatch(text -> text.contains("PDF-документ") && text.contains("scan.pdf") && 
+                                 text.contains("прикрепил изображение"));
+
+        assertTrue(hasSystemMessageWithBothContexts, "Should have SystemMessage with both PDF and image contexts");
+
+        // В этом тесте ChatMemory не используется, так как нет threadKey в metadata
+    }
+}

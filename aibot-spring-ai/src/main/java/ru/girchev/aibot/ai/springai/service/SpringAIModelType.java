@@ -2,7 +2,7 @@ package ru.girchev.aibot.ai.springai.service;
 
 import lombok.RequiredArgsConstructor;
 import ru.girchev.aibot.ai.springai.config.SpringAIModelConfig;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 
 import java.util.*;
 
@@ -35,18 +35,18 @@ public class SpringAIModelType {
      * - Модель C: [CHAT(0), TOOL_CALLING(1), EMBEDDING(2)], priority=1 → maxIndex = 2
      * Выбирается Модель A, так как у неё maxIndex (1) минимальный и приоритет (1) выше, чем у Модели B
      * 
-     * @param modelTypes набор типов моделей для поиска
+     * @param modelCapabilities набор типов моделей для поиска
      * @return Optional с найденной моделью или пустой Optional, если подходящая модель не найдена
      */
-    public Optional<SpringAIModelConfig> getByCapabilities(Set<ModelType> modelTypes) {
-        if (modelTypes == null || modelTypes.isEmpty()) {
+    public Optional<SpringAIModelConfig> getByCapabilities(Set<ModelCapabilities> modelCapabilities) {
+        if (modelCapabilities == null || modelCapabilities.isEmpty()) {
             return Optional.empty();
         }
         
         Map<SpringAIModelConfig, Integer> rangedModels = new HashMap<>();
         
         for (SpringAIModelConfig model : models) {
-            List<ModelType> capabilities = model.getCapabilities();
+            List<ModelCapabilities> capabilities = model.getCapabilities();
             if (capabilities == null || capabilities.isEmpty()) {
                 continue;
             }
@@ -54,7 +54,7 @@ public class SpringAIModelType {
             // Для каждой модели находим максимальный индекс среди всех запрошенных типов
             // Например, если запрошены {CHAT, EMBEDDING} и модель имеет [CHAT(0), EMBEDDING(1)],
             // то maxIndex = 1 (максимальный индекс среди найденных типов)
-            Integer maxIndex = findMaxIndexForAllTypes(capabilities, modelTypes);
+            Integer maxIndex = findMaxIndexForAllTypes(capabilities, modelCapabilities);
             if (maxIndex == null) {
                 // Модель не содержит все запрошенные типы - пропускаем
                 continue;
@@ -97,12 +97,12 @@ public class SpringAIModelType {
      * @param requestedTypes запрошенные типы моделей
      * @return максимальный индекс среди всех найденных типов или null, если не все типы найдены
      */
-    private Integer findMaxIndexForAllTypes(List<ModelType> capabilities, Set<ModelType> requestedTypes) {
-        Map<ModelType, Integer> typeIndices = new HashMap<>();
+    private Integer findMaxIndexForAllTypes(List<ModelCapabilities> capabilities, Set<ModelCapabilities> requestedTypes) {
+        Map<ModelCapabilities, Integer> typeIndices = new HashMap<>();
         
         // Находим индексы всех запрошенных типов в capabilities
         for (int i = 0; i < capabilities.size(); i++) {
-            ModelType capability = capabilities.get(i);
+            ModelCapabilities capability = capabilities.get(i);
             if (requestedTypes.contains(capability)) {
                 typeIndices.put(capability, i);
             }
@@ -123,14 +123,14 @@ public class SpringAIModelType {
      * Находит модель по одному типу модели.
      * Удобный метод для обратной совместимости.
      * 
-     * @param modelType тип модели для поиска
+     * @param modelCapabilities тип модели для поиска
      * @return Optional с найденной моделью или пустой Optional, если подходящая модель не найдена
      */
-    public Optional<SpringAIModelConfig> getByCapability(ModelType modelType) {
-        if (modelType == null) {
+    public Optional<SpringAIModelConfig> getByCapability(ModelCapabilities modelCapabilities) {
+        if (modelCapabilities == null) {
             return Optional.empty();
         }
-        return getByCapabilities(Set.of(modelType));
+        return getByCapabilities(Set.of(modelCapabilities));
     }
 
     public Optional<SpringAIModelConfig> getByModelName(String modelName) {

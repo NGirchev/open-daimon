@@ -4,8 +4,10 @@ import ru.girchev.aibot.it.ITTestConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import ru.girchev.aibot.common.storage.service.FileStorageService;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -84,11 +86,13 @@ class SummarizationServiceIT {
         public ConversationContextBuilderService contextBuilderService(
                 AIBotMessageRepository messageRepository,
                 TokenCounter tokenCounter,
-                CoreCommonProperties coreCommonProperties) {
+                CoreCommonProperties coreCommonProperties,
+                ObjectProvider<FileStorageService> fileStorageServiceProvider) {
             return new ConversationContextBuilderService(
                     messageRepository,
                     tokenCounter,
-                    coreCommonProperties
+                    coreCommonProperties,
+                    fileStorageServiceProvider
             );
         }
 

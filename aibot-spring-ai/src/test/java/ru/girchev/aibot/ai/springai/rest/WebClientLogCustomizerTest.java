@@ -37,7 +37,7 @@ class WebClientLogCustomizerTest {
         mockWebServer.start();
 
         // Создаем WebClient с кастомайзером
-        WebClientLogCustomizer customizer = new WebClientLogCustomizer(new ObjectMapper(), false);
+        WebClientLogCustomizer customizer = new WebClientLogCustomizer(new ObjectMapper());
         WebClient.Builder builder = WebClient.builder();
         customizer.customize(builder);
         webClient = builder.build();

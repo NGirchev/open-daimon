@@ -14,7 +14,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import ru.girchev.aibot.ai.springai.config.SpringAIFlywayConfig;
 import ru.girchev.aibot.ai.springai.service.SpringAIGateway;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 import ru.girchev.aibot.common.ai.command.ChatAICommand;
 import ru.girchev.aibot.common.ai.response.AIResponse;
 import ru.girchev.aibot.common.ai.response.SpringAIResponse;
@@ -42,6 +42,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static ru.girchev.aibot.common.ai.LlmParamNames.MAX_PRICE;
+import static ru.girchev.aibot.common.ai.ModelCapabilities.*;
 
 /**
  * Интеграционный тест для модуля aibot-spring-ai с реальными вызовами OpenRouter API.
@@ -81,7 +82,7 @@ import static ru.girchev.aibot.common.ai.LlmParamNames.MAX_PRICE;
         "spring.autoconfigure.exclude=org.springframework.ai.model.ollama.autoconfigure.OllamaAutoConfiguration," +
                 "org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration",
         "ai-bot.common.bulkhead.enabled=false",
-        "ai-bot.common.conversation-context.enabled=false",
+        "ai-bot.common.manual-conversation-history.enabled=false",
         "ai-bot.ai.spring-ai.mock=false"
 })
 class SpringAIGatewayOpenRouterIT {
@@ -104,7 +105,7 @@ class SpringAIGatewayOpenRouterIT {
         String userMessage = "What is 2 + 2?";
         
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelType.AUTO, ModelType.CHAT),
+                Set.of(AUTO, CHAT),
                 0.7,
                 100,
                 systemRole,
@@ -150,7 +151,7 @@ class SpringAIGatewayOpenRouterIT {
         String userMessage = "Tell me a very short joke in one sentence.";
         
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelType.AUTO, ModelType.CHAT),
+                Set.of(AUTO, CHAT),
                 0.7,
                 150,
                 systemRole,
@@ -223,9 +224,10 @@ class SpringAIGatewayOpenRouterIT {
         );
         
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelType.AUTO, ModelType.CHAT, ModelType.VISION),
+                Set.of(AUTO, CHAT, VISION),
                 0.7,
                 200,
+                null,
                 "You are a helpful assistant.",
                 "What do you see in this image? Describe briefly in one sentence.",
                 false,

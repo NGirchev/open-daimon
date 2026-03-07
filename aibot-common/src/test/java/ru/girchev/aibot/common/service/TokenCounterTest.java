@@ -24,14 +24,14 @@ class TokenCounterTest {
     private CoreCommonProperties coreCommonProperties;
 
     @Mock
-    private CoreCommonProperties.ConversationContextProperties context;
+    private CoreCommonProperties.ManualConversationHistoryProperties manualHistory;
 
     private TokenCounter tokenCounter;
 
     @BeforeEach
     void setUp() {
-        when(coreCommonProperties.getConversationContext()).thenReturn(context);
-        when(context.getTokenEstimationCharsPerToken()).thenReturn(4);
+        when(coreCommonProperties.getManualConversationHistory()).thenReturn(manualHistory);
+        when(manualHistory.getTokenEstimationCharsPerToken()).thenReturn(4);
         tokenCounter = new TokenCounter(coreCommonProperties);
     }
 

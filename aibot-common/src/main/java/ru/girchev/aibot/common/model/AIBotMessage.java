@@ -9,6 +9,7 @@ import org.hibernate.type.SqlTypes;
 
 import jakarta.persistence.*;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -30,7 +31,7 @@ import java.util.Map;
 @DiscriminatorValue("MESSAGE")
 @Getter
 @Setter
-@ToString(exclude = {"user", "thread", "assistantRole", "metadata", "responseData"})
+@ToString(exclude = {"user", "thread", "assistantRole", "metadata", "responseData", "attachments"})
 @NoArgsConstructor
 public class AIBotMessage extends AbstractEntity<Long> {
     
@@ -132,6 +133,15 @@ public class AIBotMessage extends AbstractEntity<Long> {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private Map<String, Object> metadata;
+    
+    /**
+     * Ссылки на вложения (файлы в MinIO) с временем истечения.
+     * Формат: список мап с ключами storageKey, expiresAt (ISO-8601), mimeType, filename.
+     * Используется для подтягивания изображений в контекст до истечения TTL.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "attachments", columnDefinition = "jsonb")
+    private List<Map<String, Object>> attachments;
     
     /**
      * Дата создания сообщения

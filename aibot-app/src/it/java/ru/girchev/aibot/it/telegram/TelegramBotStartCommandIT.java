@@ -47,16 +47,15 @@ import static org.junit.jupiter.api.Assertions.*;
         "ai-bot.telegram.token=test-token",
         "ai-bot.telegram.username=test-bot",
         "ai-bot.telegram.start-message=Тестовое приветственное сообщение",
+        "ai-bot.telegram.max-message-length=4096",
         "spring.autoconfigure.exclude=" +
                 "ru.girchev.aibot.telegram.config.TelegramAutoConfig," +
                 "ru.girchev.aibot.common.config.CoreAutoConfig," +
-                "org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
-                "org.springframework.ai.ollama.OllamaAutoConfiguration," +
                 "ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig",
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",

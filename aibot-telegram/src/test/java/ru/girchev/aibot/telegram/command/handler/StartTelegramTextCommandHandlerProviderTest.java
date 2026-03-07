@@ -159,15 +159,21 @@ class StartTelegramTextCommandHandlerProviderTest {
         public CoreCommonProperties coreCommonProperties() {
             CoreCommonProperties props = new CoreCommonProperties();
             props.setAssistantRole("Test assistant role");
-            // Настраиваем ConversationContext для SummarizationService
-            CoreCommonProperties.ConversationContextProperties context = new CoreCommonProperties.ConversationContextProperties();
-            context.setMaxContextTokens(8000);
-            context.setMaxResponseTokens(4000);
-            context.setDefaultWindowSize(20);
-            context.setSummaryTriggerThreshold(0.7);
-            context.setIncludeSystemPrompt(true);
-            context.setTokenEstimationCharsPerToken(4);
-            props.setConversationContext(context);
+            props.setMaxOutputTokens(1000);
+            props.setMaxUserMessageTokens(4000);
+            props.setMaxTotalPromptTokens(32000);
+            CoreCommonProperties.SummarizationProperties summarization = new CoreCommonProperties.SummarizationProperties();
+            summarization.setMaxContextTokens(8000);
+            summarization.setSummaryTriggerThreshold(0.7);
+            summarization.setKeepRecentMessages(20);
+            props.setSummarization(summarization);
+            CoreCommonProperties.ManualConversationHistoryProperties manualHistory = new CoreCommonProperties.ManualConversationHistoryProperties();
+            manualHistory.setEnabled(false);
+            manualHistory.setMaxResponseTokens(4000);
+            manualHistory.setDefaultWindowSize(20);
+            manualHistory.setIncludeSystemPrompt(true);
+            manualHistory.setTokenEstimationCharsPerToken(4);
+            props.setManualConversationHistory(manualHistory);
             return props;
         }
 

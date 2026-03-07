@@ -1,0 +1,24 @@
+---
+description: Не использовать полные имена классов в коде — выносить в imports
+globs: **/*.java
+alwaysApply: false
+---
+
+# Импорты в Java
+
+**Не используй полные имена классов (FQN) в теле кода.** Все классы объявляй через импорты в начале файла.
+
+**Неправильно:**
+```java
+org.springframework.beans.factory.ObjectProvider<TelegramBot> telegramBotProvider
+```
+
+**Правильно:**
+```java
+import org.springframework.beans.factory.ObjectProvider;
+
+// в коде:
+ObjectProvider<TelegramBot> telegramBotProvider
+```
+
+Импорты — в блок `import` вверху файла, в коде — только короткое имя класса.

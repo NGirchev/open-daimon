@@ -28,7 +28,7 @@ public class TokenCounter {
         if (text == null || text.isEmpty()) {
             return 0;
         }
-        int charsPerToken = coreCommonProperties.getConversationContext().getTokenEstimationCharsPerToken();
+        int charsPerToken = coreCommonProperties.getManualConversationHistory().getTokenEstimationCharsPerToken();
         return (int) Math.ceil((double) text.length() / charsPerToken);
     }
     

@@ -17,19 +17,24 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.util.StringUtils;
 import org.springframework.boot.web.reactive.function.client.WebClientCustomizer;
 import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.context.annotation.*;
+import org.springframework.web.client.RestTemplate;
 import io.netty.resolver.DefaultAddressResolverGroup;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 import reactor.netty.http.client.HttpClient;
 import ru.girchev.aibot.ai.springai.memory.SummarizingChatMemory;
 import ru.girchev.aibot.ai.springai.rest.RestClientLogCustomizer;
 import ru.girchev.aibot.ai.springai.rest.WebClientLogCustomizer;
 import ru.girchev.aibot.ai.springai.service.DocumentProcessingService;
-import ru.girchev.aibot.ai.springai.service.RAGService;
+import ru.girchev.aibot.ai.springai.rag.FileRAGService;
 import ru.girchev.aibot.ai.springai.service.SpringAIGateway;
+import ru.girchev.aibot.ai.springai.retry.OpenRouterRotationRegistry;
+import ru.girchev.aibot.ai.springai.retry.SpringAIModelRegistry;
 import ru.girchev.aibot.ai.springai.service.SpringAIModelType;
 import ru.girchev.aibot.ai.springai.service.SpringAIPromptFactory;
 import ru.girchev.aibot.ai.springai.service.SpringAIChatService;
@@ -37,8 +42,11 @@ import ru.girchev.aibot.ai.springai.retry.OpenRouterModelRotationAspect;
 import ru.girchev.aibot.ai.springai.tool.WebTools;
 import ru.girchev.aibot.common.repository.AIBotMessageRepository;
 import ru.girchev.aibot.common.repository.ConversationThreadRepository;
-import ru.girchev.aibot.common.openrouter.OpenRouterFreeModelResolver;
-import ru.girchev.aibot.common.openrouter.metrics.OpenRouterStreamMetricsTracker;
+import ru.girchev.aibot.ai.springai.retry.OpenRouterFreeModelResolver;
+import ru.girchev.aibot.ai.springai.retry.OpenRouterModelsApiClient;
+import ru.girchev.aibot.ai.springai.retry.OpenRouterModelsProperties;
+import ru.girchev.aibot.ai.springai.retry.OpenRouterModelStatsRecorder;
+import ru.girchev.aibot.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker;
 import ru.girchev.aibot.common.service.AIGatewayRegistry;
 import ru.girchev.aibot.common.service.SummarizationService;
 
@@ -46,11 +54,11 @@ import ru.girchev.aibot.common.service.SummarizationService;
 @AutoConfiguration
 @AutoConfigureAfter(name = {
     "ru.girchev.aibot.common.config.CoreAutoConfig",
-    "org.springframework.ai.ollama.OllamaAutoConfiguration",
-    "org.springframework.ai.openai.OpenAiAutoConfiguration",
+    "org.springframework.ai.model.ollama.autoconfigure.OllamaChatAutoConfiguration",
+    "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration",
     "org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration"
 })
-@EnableConfigurationProperties({SpringAIProperties.class})
+@EnableConfigurationProperties({SpringAIProperties.class, OpenRouterModelsProperties.class})
 @Import(SpringAIFlywayConfig.class)
 @ConditionalOnProperty(name = "ai-bot.ai.spring-ai.enabled", havingValue = "true")
 public class SpringAIAutoConfig {
@@ -59,6 +67,64 @@ public class SpringAIAutoConfig {
     @ConditionalOnMissingBean
     public SpringAIModelType springAIModelType(SpringAIProperties properties) {
         return new SpringAIModelType(properties.getModels().getList());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "ai-bot.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    public OpenRouterModelsApiClient openRouterModelsApiClient(
+            RestTemplate restTemplate,
+            ObjectMapper objectMapper
+    ) {
+        return new OpenRouterModelsApiClient(restTemplate, objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnClass(Flux.class)
+    @ConditionalOnProperty(prefix = "ai-bot.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    public OpenRouterStreamMetricsTracker openRouterStreamMetricsTracker(
+            ObjectProvider<OpenRouterModelStatsRecorder> openRouterModelStatsRecorderProvider
+    ) {
+        return new OpenRouterStreamMetricsTracker(openRouterModelStatsRecorderProvider);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SpringAIModelRegistry springAIModelRegistry(
+            SpringAIProperties properties,
+            ObjectProvider<OpenRouterModelsApiClient> openRouterModelsApiClientProvider,
+            ObjectProvider<OpenRouterModelsProperties> openRouterModelsPropertiesProvider
+    ) {
+        return new SpringAIModelRegistry(
+                properties.getModels().getList(),
+                openRouterModelsApiClientProvider.getIfAvailable(),
+                openRouterModelsPropertiesProvider.getIfAvailable()
+        );
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "ai-bot.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    public SpringAIModelRegistryRefreshScheduler springAIModelRegistryRefreshScheduler(SpringAIModelRegistry registry) {
+        return new SpringAIModelRegistryRefreshScheduler(registry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public OpenRouterModelStatsRecorder openRouterModelStatsRecorder(SpringAIModelRegistry registry) {
+        return registry;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "ai-bot.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    public OpenRouterFreeModelResolver openRouterFreeModelResolver(
+            RestTemplate restTemplate,
+            ObjectMapper objectMapper,
+            OpenRouterModelsProperties openRouterModelsProperties
+    ) {
+        return new OpenRouterFreeModelResolver(restTemplate, objectMapper, openRouterModelsProperties);
     }
 
     @Bean
@@ -71,7 +137,7 @@ public class SpringAIAutoConfig {
             CoreCommonProperties coreCommonProperties
     ) {
         boolean manualConversationContextEnabled = Boolean.TRUE.equals(
-                coreCommonProperties.getConversationContext().getEnabled()
+                coreCommonProperties.getManualConversationHistory().getEnabled()
         );
         return new SpringAIPromptFactory(
                 ollamaChatClient,
@@ -96,33 +162,34 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnClass(org.aspectj.lang.annotation.Aspect.class)
     public OpenRouterModelRotationAspect openRouterModelRotationAspect(
-            ObjectProvider<OpenRouterFreeModelResolver> openRouterFreeModelResolverProvider,
+            OpenRouterRotationRegistry openRouterRotationRegistry,
             SpringAIProperties springAIProperties
     ) {
-        Integer maxAttempts = springAIProperties.getOpenrouterAutoRotation() != null
+        int maxAttempts = springAIProperties.getOpenrouterAutoRotation() != null
                 ? springAIProperties.getOpenrouterAutoRotation().getMaxAttempts()
-                : null;
-        int safeMaxAttempts = (maxAttempts != null && maxAttempts >= 1) ? maxAttempts : 1;
-        return new OpenRouterModelRotationAspect(openRouterFreeModelResolverProvider, safeMaxAttempts);
+                : 1;
+        int safeMaxAttempts = Math.max(maxAttempts, 1);
+        return new OpenRouterModelRotationAspect(openRouterRotationRegistry, safeMaxAttempts);
     }
 
     @Bean
     public SpringAIGateway springAiGateway(
             SpringAIProperties props,
             AIGatewayRegistry aiGatewayRegistry,
-            SpringAIModelType springAIModelType,
+            SpringAIModelRegistry springAIModelRegistry,
             SpringAIChatService chatService,
+            ObjectProvider<ChatMemory> chatMemoryProvider,
             ObjectProvider<RAGProperties> ragPropertiesProvider,
             ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-            ObjectProvider<RAGService> ragServiceProvider
+            ObjectProvider<FileRAGService> ragServiceProvider
     ) {
         return new SpringAIGateway(
                 props,
                 aiGatewayRegistry,
-                springAIModelType,
+                springAIModelRegistry,
                 chatService,
+                chatMemoryProvider,
                 ragPropertiesProvider.getIfAvailable(),
                 documentProcessingServiceProvider,
                 ragServiceProvider
@@ -184,6 +251,16 @@ public class SpringAIAutoConfig {
                     .responseTimeout(java.time.Duration.ofSeconds(timeoutSeconds));
             
             builder.clientConnector(new ReactorClientHttpConnector(httpClient));
+
+            // OpenRouter app attribution (дашборд: столбец App)
+            if (properties.getOpenrouterApp() != null) {
+                if (StringUtils.hasText(properties.getOpenrouterApp().getSiteUrl())) {
+                    builder.defaultHeader("HTTP-Referer", properties.getOpenrouterApp().getSiteUrl());
+                }
+                if (StringUtils.hasText(properties.getOpenrouterApp().getTitle())) {
+                    builder.defaultHeader("X-Title", properties.getOpenrouterApp().getTitle());
+                }
+            }
         };
     }
 
@@ -201,7 +278,7 @@ public class SpringAIAutoConfig {
     @Primary
     @Bean
     @DependsOn("springAiFlyway")
-    @ConditionalOnProperty(value = "ai-bot.common.conversation-context.enabled", havingValue = "false")
+    @ConditionalOnProperty(value = "ai-bot.common.manual-conversation-history.enabled", havingValue = "false")
     public ChatMemory chatMemoryOnPostgresDb(
             ChatMemoryRepository chatMemoryRepository,
             ConversationThreadRepository conversationThreadRepository,
@@ -219,25 +296,25 @@ public class SpringAIAutoConfig {
     }
 
     @Bean("ollamaChatClient")
-    @ConditionalOnProperty(value = "ai-bot.common.conversation-context.enabled", havingValue = "false")
+    @ConditionalOnProperty(value = "ai-bot.common.manual-conversation-history.enabled", havingValue = "false")
     public ChatClient ollamaChatClientWithHistory(OllamaChatModel ollamaChatModel) {
         return ChatClient.builder(ollamaChatModel).build();
     }
 
     @Bean("openAiChatClient")
-    @ConditionalOnProperty(value = "ai-bot.common.conversation-context.enabled", havingValue = "false")
+    @ConditionalOnProperty(value = "ai-bot.common.manual-conversation-history.enabled", havingValue = "false")
     public ChatClient openAiChatClientWithHistory(OpenAiChatModel openAiChatModel) {
         return ChatClient.builder(openAiChatModel).build();
     }
 
     @Bean("ollamaChatClient")
-    @ConditionalOnProperty(value = "ai-bot.common.conversation-context.enabled", havingValue = "true")
+    @ConditionalOnProperty(value = "ai-bot.common.manual-conversation-history.enabled", havingValue = "true")
     public ChatClient ollamaChatClient(OllamaChatModel ollamaChatModel) {
         return ChatClient.builder(ollamaChatModel).build();
     }
 
     @Bean("openAiChatClient")
-    @ConditionalOnProperty(value = "ai-bot.common.conversation-context.enabled", havingValue = "true")
+    @ConditionalOnProperty(value = "ai-bot.common.manual-conversation-history.enabled", havingValue = "true")
     public ChatClient openAiChatClient(OpenAiChatModel openAiChatModel) {
         return ChatClient.builder(openAiChatModel).build();
     }
@@ -250,13 +327,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @Profile({"dev", "local"})
-    public WebClientCustomizer webClientWithAdditionalLogs(
-            SpringAIProperties properties,
-            ObjectProvider<ObjectMapper> objectMapperProvider
-    ) {
-        return new WebClientLogCustomizer(
-                objectMapperProvider.getIfAvailable(ObjectMapper::new),
-                Boolean.TRUE.equals(properties.getHttpLogs().getCallsiteStacktraceEnabled())
-        );
+    public WebClientCustomizer webClientWithAdditionalLogs(ObjectProvider<ObjectMapper> objectMapperProvider) {
+        return new WebClientLogCustomizer(objectMapperProvider.getIfAvailable(ObjectMapper::new));
     }
 }

@@ -6,7 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import ru.girchev.aibot.common.ai.factory.AICommandFactoryRegistry;
 import ru.girchev.aibot.common.ai.command.AICommand;
 import ru.girchev.aibot.common.ai.response.AIResponse;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 import ru.girchev.aibot.common.command.ICommand;
 import ru.girchev.aibot.common.command.ICommandHandler;
 import ru.girchev.aibot.common.model.AssistantRole;
@@ -16,6 +16,7 @@ import ru.girchev.aibot.common.model.RequestType;
 import ru.girchev.aibot.common.model.ResponseStatus;
 import ru.girchev.aibot.common.service.*;
 import ru.girchev.aibot.bulkhead.exception.AccessDeniedException;
+import ru.girchev.aibot.common.exception.UserMessageTooLongException;
 import ru.girchev.aibot.rest.model.RestUser;
 import ru.girchev.aibot.rest.service.RestMessageService;
 import ru.girchev.aibot.rest.service.RestUserService;
@@ -55,7 +56,7 @@ public class RestChatMessageCommandHandler implements
     @Override
     public String handle(RestChatCommand command) {
         AIBotMessage userMessage = null;
-        Set<ModelType> modelTypes = Set.of();
+        Set<ModelCapabilities> modelCapabilities = Set.of();
         ConversationThread thread;
         
         try {
@@ -102,7 +103,7 @@ public class RestChatMessageCommandHandler implements
             metadata.put(ROLE_FIELD, assistantRoleContentFromRole);
             
             AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
-            modelTypes = aiCommand.modelTypes();
+            modelCapabilities = aiCommand.modelCapabilities();
             
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()
@@ -125,7 +126,7 @@ public class RestChatMessageCommandHandler implements
                 messageService.saveAssistantErrorMessage(
                         user,
                         errorMessage,
-                        modelTypes.toString(),
+                        modelCapabilities.toString(),
                         assistantRole,
                         usefulResponseData != null && !usefulResponseData.isEmpty() 
                                 ? usefulResponseData.toString() 
@@ -144,7 +145,7 @@ public class RestChatMessageCommandHandler implements
             AIBotMessage assistantMessage = messageService.saveAssistantMessage(
                     user,
                     response,
-                    modelTypes.toString(),
+                    modelCapabilities.toString(),
                     assistantRoleContentFromRole,
                     (int) processingTime,
                     usefulResponseData);
@@ -157,11 +158,18 @@ public class RestChatMessageCommandHandler implements
             // Пробрасываем AccessDeniedException без оборачивания для правильной обработки в RestExceptionHandler
             log.warn("Доступ запрещен для пользователя: {}", e.getMessage());
             throw e;
+        } catch (UserMessageTooLongException e) {
+            log.warn("Сообщение превышает лимит токенов: {}", e.getMessage());
+            throw e;
         } catch (Exception e) {
-            log.error("Error processing REST API request", e);
+            if (AIUtils.shouldLogWithoutStacktrace(e)) {
+                log.error("Error processing REST API request: {}", AIUtils.getRootCauseMessage(e));
+            } else {
+                log.error("Error processing REST API request", e);
+            }
 
             // Создаем метаданные об ошибке и сериализуем их в JSON
-            Map<String, Object> errorMetadata = createErrorMetadata(modelTypes.isEmpty() ? Set.of(ModelType.CHAT) : modelTypes, e);
+            Map<String, Object> errorMetadata = createErrorMetadata(modelCapabilities.isEmpty() ? Set.of(ModelCapabilities.CHAT) : modelCapabilities, e);
             String errorDataJson = serializeToJson(errorMetadata);
 
             // Сохраняем информацию об ошибке
@@ -174,7 +182,7 @@ public class RestChatMessageCommandHandler implements
                 messageService.saveAssistantErrorMessage(
                     userMessage.getUser(),
                     errorMessage,
-                    modelTypes.toString(),
+                    modelCapabilities.toString(),
                     errorRoleContent,
                     errorDataJson);
             }
@@ -186,9 +194,9 @@ public class RestChatMessageCommandHandler implements
     /**
      * Создает метаданные для ошибки
      */
-    private Map<String, Object> createErrorMetadata(Set<ModelType> modelTypes, Exception error) {
+    private Map<String, Object> createErrorMetadata(Set<ModelCapabilities> modelCapabilities, Exception error) {
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("model", modelTypes.toString());
+        metadata.put("model", modelCapabilities.toString());
         metadata.put("errorType", error.getClass().getSimpleName());
         metadata.put("errorMessage", error.getMessage());
         metadata.put("timestamp", System.currentTimeMillis());

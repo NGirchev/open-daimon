@@ -1,6 +1,7 @@
 package ru.girchev.aibot.common.config;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -10,6 +11,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.web.client.RestTemplate;
+import ru.girchev.aibot.common.storage.service.FileStorageService;
 import ru.girchev.aibot.bulkhead.service.IUserPriorityService;
 import ru.girchev.aibot.bulkhead.service.NoOpPriorityRequestExecutor;
 import ru.girchev.aibot.bulkhead.service.PriorityRequestExecutor;
@@ -152,8 +154,12 @@ public class CoreAutoConfig {
     @Bean
     @ConditionalOnMissingBean(DefaultAICommandFactory.class)
     public AICommandFactory<AICommand, ICommand<?>> defaultAiCommandFactory(
-            IUserPriorityService userPriorityService) {
-        return new DefaultAICommandFactory(userPriorityService);
+            IUserPriorityService userPriorityService,
+            CoreCommonProperties coreCommonProperties) {
+        return new DefaultAICommandFactory(
+                userPriorityService,
+                coreCommonProperties.getMaxOutputTokens(),
+                coreCommonProperties.getMaxReasoningTokens());
     }
 
     @Bean
@@ -168,14 +174,17 @@ public class CoreAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean(ConversationHistoryAICommandFactory.class)
-    @ConditionalOnProperty(value = "ai-bot.common.conversation-context.enabled", havingValue = "true")
+    @ConditionalOnProperty(value = "ai-bot.common.manual-conversation-history.enabled", havingValue = "true")
     public AICommandFactory<AICommand, IChatCommand<?>> conversationHistoryAiCommandFactory(
+            CoreCommonProperties coreCommonProperties,
             ConversationContextBuilderService conversationContextBuilderService,
             ConversationThreadService conversationThreadService,
             AssistantRoleService assistantRoleService,
             SummarizationService summarizationService
     ) {
         return new ConversationHistoryAICommandFactory(
+                coreCommonProperties.getMaxOutputTokens(),
+                coreCommonProperties.getMaxReasoningTokens(),
                 conversationContextBuilderService,
                 conversationThreadService,
                 assistantRoleService,
@@ -184,15 +193,17 @@ public class CoreAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(value = "ai-bot.common.conversation-context.enabled", havingValue = "true")
+    @ConditionalOnProperty(value = "ai-bot.common.manual-conversation-history.enabled", havingValue = "true")
     public ConversationContextBuilderService contextBuilderService(
             AIBotMessageRepository messageRepository,
             TokenCounter tokenCounter,
-            CoreCommonProperties coreCommonProperties) {
+            CoreCommonProperties coreCommonProperties,
+            ObjectProvider<FileStorageService> fileStorageServiceProvider) {
         return new ConversationContextBuilderService(
                 messageRepository,
                 tokenCounter,
-                coreCommonProperties
+                coreCommonProperties,
+                fileStorageServiceProvider
         );
     }
 

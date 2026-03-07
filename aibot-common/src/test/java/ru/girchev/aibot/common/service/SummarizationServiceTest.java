@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -55,7 +56,7 @@ class SummarizationServiceTest {
     private CoreCommonProperties coreCommonProperties;
 
     @Mock
-    private CoreCommonProperties.ConversationContextProperties context;
+    private CoreCommonProperties.SummarizationProperties summarization;
 
     @Mock
     private User user;
@@ -65,7 +66,7 @@ class SummarizationServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(coreCommonProperties.getConversationContext()).thenReturn(context);
+        when(coreCommonProperties.getSummarization()).thenReturn(summarization);
         objectMapper = new ObjectMapper(); // Используем реальный ObjectMapper для парсинга JSON
         summarizationService = new SummarizationService(
             messageRepository,
@@ -80,8 +81,8 @@ class SummarizationServiceTest {
     void whenThreadTokensBelowThreshold_thenShouldNotTrigger() {
         // Arrange
         ConversationThread thread = createThread(1000L);
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getSummaryTriggerThreshold()).thenReturn(0.7);
+        when(summarization.getMaxContextTokens()).thenReturn(8000);
+        when(summarization.getSummaryTriggerThreshold()).thenReturn(0.7);
 
         // Act
         boolean result = summarizationService.shouldTriggerSummarization(thread);
@@ -94,8 +95,8 @@ class SummarizationServiceTest {
     void whenThreadTokensAtThreshold_thenShouldTrigger() {
         // Arrange
         ConversationThread thread = createThread(5600L); // 70% от 8000
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getSummaryTriggerThreshold()).thenReturn(0.7);
+        when(summarization.getMaxContextTokens()).thenReturn(8000);
+        when(summarization.getSummaryTriggerThreshold()).thenReturn(0.7);
 
         // Act
         boolean result = summarizationService.shouldTriggerSummarization(thread);
@@ -108,8 +109,8 @@ class SummarizationServiceTest {
     void whenThreadTokensAboveThreshold_thenShouldTrigger() {
         // Arrange
         ConversationThread thread = createThread(8000L); // 100% от 8000
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getSummaryTriggerThreshold()).thenReturn(0.7);
+        when(summarization.getMaxContextTokens()).thenReturn(8000);
+        when(summarization.getSummaryTriggerThreshold()).thenReturn(0.7);
 
         // Act
         boolean result = summarizationService.shouldTriggerSummarization(thread);
@@ -163,7 +164,7 @@ class SummarizationServiceTest {
     void whenNotEnoughMessages_thenSummarizeThreadAsyncCompletesWithoutError() {
         // Arrange
         ConversationThread thread = createThread(1000L);
-        when(context.getDefaultWindowSize()).thenReturn(20);
+        when(summarization.getKeepRecentMessages()).thenReturn(20);
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
             .thenReturn(List.of(createUserMessage("Message 1"), createAssistantMessage("Response 1")));
 
@@ -181,7 +182,7 @@ class SummarizationServiceTest {
     void whenEnoughMessages_thenSummarizeThreadAsyncProcessesMessages() {
         // Arrange
         ConversationThread thread = createThread(1000L);
-        when(context.getDefaultWindowSize()).thenReturn(2);
+        when(summarization.getKeepRecentMessages()).thenReturn(2);
         
         // Создаем 3 turns (6 сообщений): при defaultWindowSize=2 суммаризируется только первые 2 turns (4 сообщения)
         AIBotMessage userMsg1 = createUserMessage("Message 1");
@@ -218,6 +219,67 @@ class SummarizationServiceTest {
         verify(messageRepository).findByThreadOrderBySequenceNumberAsc(thread);
         verify(mockGateway).generateResponse(any(AICommand.class));
         verify(threadService).updateThreadSummary(eq(thread), anyString(), anyList());
+    }
+
+    @Test
+    void whenModelReturnsNonJsonThenValidJson_thenRetrySucceeds() {
+        ConversationThread thread = createThread(1000L);
+        when(summarization.getKeepRecentMessages()).thenReturn(2);
+        when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
+            .thenReturn(List.of(
+                createUserMessage("Message 1"),
+                createAssistantMessage("Response 1"),
+                createUserMessage("Message 2"),
+                createAssistantMessage("Response 2"),
+                createUserMessage("Message 3"),
+                createAssistantMessage("Response 3")));
+
+        AIGateway mockGateway = mock(AIGateway.class);
+        when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(mockGateway));
+        String validJson = "{\"summary\": \"Test summary\", \"memory_bullets\": [\"Fact 1\", \"Fact 2\"]}";
+        when(mockGateway.generateResponse(any(AICommand.class)))
+            .thenReturn(responseWithContent("Дорогая, вот сводка..."))
+            .thenReturn(responseWithContent(validJson));
+
+        assertDoesNotThrow(() -> summarizationService.summarizeThreadAsync(thread).join());
+
+        verify(mockGateway, times(2)).generateResponse(any(AICommand.class));
+        verify(threadService).updateThreadSummary(eq(thread), eq("Test summary"), anyList());
+    }
+
+    @Test
+    void whenModelAlwaysReturnsNonJson_thenNoUpdateAfterRetries() {
+        ConversationThread thread = createThread(1000L);
+        when(summarization.getKeepRecentMessages()).thenReturn(2);
+        when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
+            .thenReturn(List.of(
+                createUserMessage("Message 1"),
+                createAssistantMessage("Response 1"),
+                createUserMessage("Message 2"),
+                createAssistantMessage("Response 2"),
+                createUserMessage("Message 3"),
+                createAssistantMessage("Response 3")));
+
+        AIGateway mockGateway = mock(AIGateway.class);
+        when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(mockGateway));
+        when(mockGateway.generateResponse(any(AICommand.class)))
+            .thenReturn(responseWithContent("Дорогая, вот краткая сводка..."));
+
+        summarizationService.summarizeThreadAsync(thread).join();
+
+        // После 3 неудачных попыток парсинга саммаризация не сохраняет результат
+        verify(mockGateway, times(3)).generateResponse(any(AICommand.class));
+        verify(threadService, never()).updateThreadSummary(any(), any(), any());
+    }
+
+    private static MapResponse responseWithContent(String content) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("content", content);
+        Map<String, Object> choice = new HashMap<>();
+        choice.put("message", message);
+        Map<String, Object> responseData = new HashMap<>();
+        responseData.put("choices", List.of(choice));
+        return new MapResponse(AIGateways.OPENROUTER, responseData);
     }
 
     // Вспомогательные методы для создания тестовых объектов

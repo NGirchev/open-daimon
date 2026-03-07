@@ -11,30 +11,6 @@ ai-bot:
         secret-key: ${MINIO_PASSWORD:minioadmin}
         bucket: aibot-files
         ttl-hours: 24
-    openrouter-free-models:
-      enabled: true
-      api:
-        key: ${OPENROUTER_KEY}
-        url: https://openrouter.ai/api
-      refresh-initial-delay: 10s
-      refresh-interval: 1h
-      filters:
-        include-model-ids:
-          - meta-llama/llama-3.3-70b-instruct:free
-          - mistralai/mistral-small-3.1-24b-instruct:free
-          - google/gemini-2.0-flash-exp:free
-          - google/gemma-3-27b-it:free
-          - openai/gpt-oss-120b:free
-          - openai/gpt-oss-20b:free
-          - qwen/qwen3-next-80b-a3b-instruct:free
-          - z-ai/glm-4.5-air:free
-          - tngtech/tng-r1t-chimera:free
-      ranking:
-        enabled: true
-        retry-max-attempts: 3
-        latency-ewma-alpha: 0.2
-        cooldown429: 10m
-        cooldown5xx: 5m
     bulkhead:
       enabled: true
       instances:
@@ -52,12 +28,24 @@ ai-bot:
       telegram-id: ${ADMIN_TELEGRAM_ID:}
       rest-email: ${ADMIN_REST_EMAIL:}
     assistant-role: "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language."
-    conversation-context:
-      enabled: false # when we are using aibot-spring-ai we shouldn't use it
+    # Жёсткий лимит всего промпта к API (system + история + текущее). При превышении — резать/отклонить и писать ошибку.
+    max-total-prompt-tokens: 32000
+    # Лимит токенов одного сообщения пользователя; при превышении можно отклонить с подсказкой сократить.
+    max-user-message-tokens: 4000
+    # Общий лимит токенов вывода (max_tokens): reasoning + ответ укладываются в этот лимит.
+    max-output-tokens: 4000
+    # Бюджет на reasoning (часть от общего; должен быть < max-output-tokens). Опционально.
+    max-reasoning-tokens: 1500
+    # Параметры суммаризации длинных диалогов (общие для ручного режима и Spring AI).
+    summarization:
       max-context-tokens: 8000
+      summary-trigger-threshold: 0.7
+      keep-recent-messages: 20
+    # История, управляемая common (ручной контекст). false = используем Spring AI ChatMemory.
+    manual-conversation-history:
+      enabled: false
       max-response-tokens: 4000
       default-window-size: 20
-      summary-trigger-threshold: 0.7
       include-system-prompt: true
       token-estimation-chars-per-token: 4
   telegram:
@@ -79,6 +67,12 @@ ai-bot:
       # Структурированные: json,xml
       # Электронные книги: epub
       supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub
+    # Long polling: socket timeout должен быть больше get-updates-timeout (избегает Read timed out)
+    long-polling-socket-timeout-seconds: 90
+    get-updates-timeout-seconds: 50
+    # Максимальная длина сообщения для отправки в Telegram (символов).
+    # По умолчанию 4096 (лимит Telegram Bot API). При превышении сообщение будет разбито на части по границам абзацев.
+    max-message-length: 4096
     commands:
       start-enabled: true
       role-enabled: true
@@ -94,6 +88,35 @@ ai-bot:
   ai:
     spring-ai:
       enabled: true
+      # Атрибуция приложения в дашборде OpenRouter (столбец App). Опционально.
+      openrouter-app:
+        site-url: ${OPENROUTER_APP_SITE_URL:}   # например https://github.com/NGirchev/ai-bot
+        title: ${OPENROUTER_APP_TITLE:}         # например AI Bot
+      openrouter-auto-rotation:
+        models:
+          enabled: true
+          api:
+            key: ${OPENROUTER_KEY}
+            url: https://openrouter.ai/api
+          refresh-initial-delay: 10s
+          refresh-interval: 1h
+          filters:
+            include-model-ids:
+              - meta-llama/llama-3.3-70b-instruct:free
+              - mistralai/mistral-small-3.1-24b-instruct:free
+              - google/gemini-2.0-flash-exp:free
+              - google/gemma-3-27b-it:free
+              - openai/gpt-oss-120b:free
+              - openai/gpt-oss-20b:free
+              - qwen/qwen3-next-80b-a3b-instruct:free
+              - z-ai/glm-4.5-air:free
+              - tngtech/tng-r1t-chimera:free
+          ranking:
+            enabled: true
+            retry-max-attempts: 3
+            latency-ewma-alpha: 0.2
+            cooldown429: 10m
+            cooldown5xx: 5m
       serper:
         api:
           url: "https://google.serper.dev/search"
@@ -103,6 +126,7 @@ ai-bot:
       timeouts:
         response-timeout-seconds: 600  # 10 минут для HTTP запросов к AI провайдерам
         stream-timeout-seconds: 600    # 10 минут для обработки стриминга
+      # Единый список моделей = yml + дополнение из OpenRouter (free). FREE в capabilities — только для реально бесплатных моделей; для openrouter/auto не добавлять.
       models:
         list:
           - name: "openrouter/auto"
@@ -110,6 +134,7 @@ ai-bot:
               - AUTO
               - CHAT
               - TOOL_CALLING
+              - WEB
               - SUMMARIZATION
               - EMBEDDING
               - VISION

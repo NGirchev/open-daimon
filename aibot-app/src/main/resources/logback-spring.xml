@@ -12,8 +12,11 @@
     </appender>
 
     <!-- Сокращаем стектрейсы для Spring AI и Reactor -->
-    <!-- MessageAggregator логирует на ERROR, но без стектрейсов -->
+    <!-- MessageAggregator и SpringAiRetryAutoConfiguration — только сообщение, без стека -->
     <logger name="org.springframework.ai.chat.model.MessageAggregator" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE_NO_STACKTRACE"/>
+    </logger>
+    <logger name="org.springframework.ai.retry" level="WARN" additivity="false">
         <appender-ref ref="CONSOLE_NO_STACKTRACE"/>
     </logger>
 

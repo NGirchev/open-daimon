@@ -45,7 +45,7 @@ public class MockGateway implements AIGateway {
     @Override
     public AIResponse generateResponse(AICommand command) {
         log.info("=== MockGateway received AICommand ===");
-        log.info("Model types: {}", command.modelTypes());
+        log.info("Model types: {}", command.modelCapabilities());
         log.info("Metadata: {}", command.metadata());
         
         if (command.options() instanceof AIBotChatOptions chatOptions) {

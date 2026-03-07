@@ -1,5 +1,9 @@
 package ru.girchev.aibot.common.model;
 
+import org.jetbrains.annotations.NotNull;
+
+import java.util.Objects;
+
 /**
  * Модель вложения для передачи в AI провайдера.
  * Используется для multimodal запросов (изображения, PDF и т.д.).
@@ -72,5 +76,29 @@ public record Attachment(
                type.contains("xml") || // XML
                type.contains("epub") || // EPUB
                type.contains("document");
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        Attachment that = (Attachment) o;
+        return size == that.size && Objects.equals(key, that.key) && Objects.equals(mimeType, that.mimeType) && Objects.equals(filename, that.filename) && type == that.type;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(key, mimeType, filename, size, type);
+    }
+
+    @NotNull
+    @Override
+    public String toString() {
+        return "Attachment{" +
+                "key='" + key + '\'' +
+                ", mimeType='" + mimeType + '\'' +
+                ", filename='" + filename + '\'' +
+                ", size=" + size +
+                ", type=" + type +
+                '}';
     }
 }

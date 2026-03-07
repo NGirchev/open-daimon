@@ -2,8 +2,7 @@ package ru.girchev.aibot.common.ai.factory;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import ru.girchev.aibot.common.ai.LlmParamNames;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 import ru.girchev.aibot.common.ai.command.AICommand;
 import ru.girchev.aibot.common.ai.command.ChatAICommand;
 import ru.girchev.aibot.common.command.ICommand;
@@ -21,6 +20,7 @@ import java.util.*;
 
 import static ru.girchev.aibot.common.ai.LlmParamNames.CONVERSATION_ID;
 import static ru.girchev.aibot.common.ai.LlmParamNames.MESSAGES;
+import static ru.girchev.aibot.common.ai.ModelCapabilities.*;
 import static ru.girchev.aibot.common.ai.command.AICommand.*;
 
 /**
@@ -34,6 +34,8 @@ import static ru.girchev.aibot.common.ai.command.AICommand.*;
 @Slf4j
 public class ConversationHistoryAICommandFactory implements AICommandFactory<AICommand, IChatCommand<?>> {
 
+    private final int maxOutputTokens;
+    private final Integer maxReasoningTokens;
     private final ConversationContextBuilderService contextBuilder;
     private final ConversationThreadService threadService;
     private final AssistantRoleService assistantRoleService;
@@ -77,7 +79,7 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
                     .orElseThrow(() -> new IllegalStateException("Thread not found: " + threadKey));
 
             // Проверяем необходимость суммаризации ДО построения контекста
-            // Фабрика работает только когда conversation-context.enabled=true (не Spring AI),
+            // Фабрика работает только когда manual-conversation-history.enabled=true (не Spring AI),
             // поэтому здесь всегда нужно проверять суммаризацию
             if (summarizationService.shouldTriggerSummarization(thread)) {
                 log.info("Thread {} reached summarization threshold, triggering async summary before building context",
@@ -85,8 +87,8 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
                 summarizationService.summarizeThreadAsync(thread);
             }
 
-            // Строим контекст с историей
-            List<Map<String, String>> messages = contextBuilder.buildContext(
+            // Строим контекст с историей (content может быть String или List of content parts для multimodal)
+            List<Map<String, Object>> messages = contextBuilder.buildContext(
                     thread,
                     userText,
                     assistantRole
@@ -109,14 +111,15 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
                     : List.of();
 
             // Динамически определяем modelTypes - добавляем VISION если есть изображения
-            Set<ModelType> modelTypes = determineModelTypes(attachments);
+            Set<ModelCapabilities> modelCapabilities = determineModelTypes(attachments);
 
             // TODO add vip/regular logic
             // Температура 0.35 для бытового ассистента (рекомендуемый диапазон: 0.3-0.4)
             return new ChatAICommand(
-                    modelTypes,
+                    modelCapabilities,
                     0.35,
-                    1000,
+                    maxOutputTokens,
+                    maxReasoningTokens,
                     assistantRole.getContent(),
                     command.userText(),
                     command.stream(),
@@ -134,14 +137,14 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
      * Определяет ModelTypes для команды.
      * Добавляет VISION если есть image attachments.
      */
-    private Set<ModelType> determineModelTypes(List<Attachment> attachments) {
+    private Set<ModelCapabilities> determineModelTypes(List<Attachment> attachments) {
         boolean hasImages = attachments.stream()
                 .anyMatch(a -> a.type() == AttachmentType.IMAGE);
         
         if (hasImages) {
-            return Set.of(ModelType.CHAT, ModelType.VISION);
+            return Set.of(CHAT, VISION);
         }
-        return Set.of(ModelType.CHAT);
+        return Set.of(CHAT);
     }
 }
 

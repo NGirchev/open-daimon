@@ -149,6 +149,11 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>mockwebserver</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- PDFBox for RAG (runtime, used by spring-ai-pdf-document-reader) -->
         <dependency>
             <groupId>org.apache.pdfbox</groupId>

@@ -12,6 +12,7 @@ import ru.girchev.aibot.common.model.*;
 import ru.girchev.aibot.common.repository.AIBotMessageRepository;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -36,7 +37,7 @@ class AIBotMessageServiceTest {
     private CoreCommonProperties coreCommonProperties;
 
     @Mock
-    private CoreCommonProperties.ConversationContextProperties contextProperties;
+    private CoreCommonProperties.ManualConversationHistoryProperties manualHistoryProperties;
 
     @Mock
     private User user;
@@ -50,10 +51,14 @@ class AIBotMessageServiceTest {
     private TokenCounter tokenCounter;
     private AIBotMessageService messageService;
 
+    /** Лимит токенов пользовательского сообщения для тестов (должен быть больше любого тестового сообщения). */
+    private static final int TEST_MAX_USER_MESSAGE_TOKENS = 10000;
+
     @BeforeEach
     void setUp() {
-        when(coreCommonProperties.getConversationContext()).thenReturn(contextProperties);
-        when(contextProperties.getTokenEstimationCharsPerToken()).thenReturn(4);
+        when(coreCommonProperties.getManualConversationHistory()).thenReturn(manualHistoryProperties);
+        doReturn(TEST_MAX_USER_MESSAGE_TOKENS).when(coreCommonProperties).getMaxUserMessageTokens();
+        when(manualHistoryProperties.getTokenEstimationCharsPerToken()).thenReturn(4);
         tokenCounter = new TokenCounter(coreCommonProperties);
         messageService = new AIBotMessageService(
                 messageRepository,
@@ -108,6 +113,34 @@ class AIBotMessageServiceTest {
         assertEquals(expectedTokens, savedMessage.getTokenCount(),
                 "tokenCount должен соответствовать оценке TokenCounter");
         
+        verify(messageRepository).save(any(AIBotMessage.class));
+    }
+
+    @Test
+    void whenSaveUserMessageWithAttachmentRefs_thenAttachmentsAreStored() {
+        String content = "Смотри фото";
+        Map<String, Object> metadata = new HashMap<>();
+        Map<String, Object> ref = new HashMap<>();
+        ref.put("storageKey", "photo/uuid.jpg");
+        ref.put("expiresAt", "2025-02-25T12:00:00Z");
+        ref.put("mimeType", "image/jpeg");
+        ref.put("filename", "photo_xxx.jpg");
+        List<Map<String, Object>> attachmentRefs = List.of(ref);
+
+        AIBotMessage savedMessage = messageService.saveUserMessage(
+                user,
+                content,
+                RequestType.TEXT,
+                assistantRole,
+                metadata,
+                attachmentRefs
+        );
+
+        assertNotNull(savedMessage);
+        assertNotNull(savedMessage.getAttachments());
+        assertEquals(1, savedMessage.getAttachments().size());
+        assertEquals("photo/uuid.jpg", savedMessage.getAttachments().get(0).get("storageKey"));
+        assertEquals("image/jpeg", savedMessage.getAttachments().get(0).get("mimeType"));
         verify(messageRepository).save(any(AIBotMessage.class));
     }
 

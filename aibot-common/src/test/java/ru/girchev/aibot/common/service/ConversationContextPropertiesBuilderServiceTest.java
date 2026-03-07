@@ -7,7 +7,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.beans.factory.ObjectProvider;
 import ru.girchev.aibot.common.config.CoreCommonProperties;
+import ru.girchev.aibot.common.storage.service.FileStorageService;
+
+import java.time.OffsetDateTime;
 import ru.girchev.aibot.common.model.AssistantRole;
 import ru.girchev.aibot.common.model.ConversationThread;
 import ru.girchev.aibot.common.model.AIBotMessage;
@@ -16,13 +20,13 @@ import ru.girchev.aibot.common.model.User;
 import ru.girchev.aibot.common.repository.AIBotMessageRepository;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import static ru.girchev.aibot.common.config.CoreCommonProperties.*;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -38,20 +42,25 @@ class ConversationContextPropertiesBuilderServiceTest {
     private CoreCommonProperties coreCommonProperties;
 
     @Mock
-    private ConversationContextProperties context;
+    private CoreCommonProperties.ManualConversationHistoryProperties historyConfig;
 
     @Mock
     private User user;
+
+    @Mock
+    private ObjectProvider<FileStorageService> fileStorageServiceProvider;
 
     private ConversationContextBuilderService conversationContextBuilderService;
 
     @BeforeEach
     void setUp() {
-        when(coreCommonProperties.getConversationContext()).thenReturn(context);
+        when(coreCommonProperties.getManualConversationHistory()).thenReturn(historyConfig);
+        when(fileStorageServiceProvider.getIfAvailable()).thenReturn(null);
         conversationContextBuilderService = new ConversationContextBuilderService(
             messageRepository,
             tokenCounter,
-            coreCommonProperties
+            coreCommonProperties,
+            fileStorageServiceProvider
         );
     }
 
@@ -62,24 +71,22 @@ class ConversationContextPropertiesBuilderServiceTest {
         AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
         String currentMessage = "Hello";
 
-        when(context.getIncludeSystemPrompt()).thenReturn(true);
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getMaxResponseTokens()).thenReturn(4000);
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(any())).thenReturn(new ArrayList<>());
         when(tokenCounter.estimateTokens("You are a helpful assistant.")).thenReturn(10);
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(2);
 
         // Act
-        List<Map<String, String>> result = conversationContextBuilderService.buildContext(
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert
+        // Assert: текущее сообщение пользователя не в контексте — его добавляет gateway с вложениями
         assertNotNull(result);
-        assertEquals(2, result.size());
+        assertEquals(1, result.size());
         assertEquals("system", result.get(0).get("role"));
         assertEquals("You are a helpful assistant.", result.get(0).get("content"));
-        assertEquals("user", result.get(1).get("role"));
-        assertEquals(currentMessage, result.get(1).get("content"));
     }
 
     @Test
@@ -89,21 +96,19 @@ class ConversationContextPropertiesBuilderServiceTest {
         AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
         String currentMessage = "Hello";
 
-        when(context.getIncludeSystemPrompt()).thenReturn(false);
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getMaxResponseTokens()).thenReturn(4000);
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(false);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(any())).thenReturn(new ArrayList<>());
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(2);
 
         // Act
-        List<Map<String, String>> result = conversationContextBuilderService.buildContext(
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert
+        // Assert: без истории и без добавления текущего сообщения контекст пустой
         assertNotNull(result);
-        assertEquals(1, result.size());
-        assertEquals("user", result.get(0).get("role"));
-        assertEquals(currentMessage, result.get(0).get("content"));
+        assertEquals(0, result.size());
     }
 
     @Test
@@ -115,16 +120,16 @@ class ConversationContextPropertiesBuilderServiceTest {
         AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
         String currentMessage = "Hello";
 
-        when(context.getIncludeSystemPrompt()).thenReturn(true);
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getMaxResponseTokens()).thenReturn(4000);
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(any())).thenReturn(new ArrayList<>());
         when(tokenCounter.estimateTokens("You are a helpful assistant.")).thenReturn(10);
         when(tokenCounter.estimateTokens(anyString())).thenReturn(20); // для summary
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(2);
 
         // Act
-        List<Map<String, String>> result = conversationContextBuilderService.buildContext(
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
         // Assert
@@ -132,8 +137,8 @@ class ConversationContextPropertiesBuilderServiceTest {
         assertTrue(result.size() >= 2);
         // Проверяем, что есть summary message
         boolean hasSummary = result.stream()
-            .anyMatch(m -> m.get("role").equals("system") && 
-                         m.get("content").contains("Краткое содержание"));
+            .anyMatch(m -> "system".equals(m.get("role")) &&
+                         m.get("content") instanceof String s && s.contains("Краткое содержание"));
         assertTrue(hasSummary);
     }
 
@@ -149,9 +154,9 @@ class ConversationContextPropertiesBuilderServiceTest {
         AIBotMessage userMsg2 = createUserMessage("Second message");
         AIBotMessage assistantMsg2 = createAssistantMessage("Second response");
 
-        when(context.getIncludeSystemPrompt()).thenReturn(true);
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getMaxResponseTokens()).thenReturn(4000);
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
             .thenReturn(List.of(userMsg1, assistantMsg1, userMsg2, assistantMsg2));
         when(tokenCounter.estimateTokens("You are a helpful assistant.")).thenReturn(10);
@@ -162,13 +167,12 @@ class ConversationContextPropertiesBuilderServiceTest {
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(3);
 
         // Act
-        List<Map<String, String>> result = conversationContextBuilderService.buildContext(
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert
+        // Assert: system + история (текущее сообщение добавляет gateway)
         assertNotNull(result);
-        // Должно быть: system, user1, assistant1, user2, assistant2, current user
-        assertEquals(6, result.size());
+        assertEquals(5, result.size());
         assertEquals("system", result.get(0).get("role"));
         assertEquals("user", result.get(1).get("role"));
         assertEquals("First message", result.get(1).get("content"));
@@ -178,8 +182,6 @@ class ConversationContextPropertiesBuilderServiceTest {
         assertEquals("Second message", result.get(3).get("content"));
         assertEquals("assistant", result.get(4).get("role"));
         assertEquals("Second response", result.get(4).get("content"));
-        assertEquals("user", result.get(5).get("role"));
-        assertEquals(currentMessage, result.get(5).get("content"));
     }
 
     @Test
@@ -192,9 +194,9 @@ class ConversationContextPropertiesBuilderServiceTest {
         AIBotMessage userMsg1 = createUserMessage("First message");
         AIBotMessage userMsg2 = createUserMessage("Second message");
 
-        when(context.getIncludeSystemPrompt()).thenReturn(true);
-        when(context.getMaxContextTokens()).thenReturn(100); // Маленький лимит
-        when(context.getMaxResponseTokens()).thenReturn(50);
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(50);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(120); // Бюджет промпта = 120 - 50 = 70, после system (20) история не влезает
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
             .thenReturn(List.of(userMsg1, userMsg2));
         when(tokenCounter.estimateTokens("You are a helpful assistant.")).thenReturn(20);
@@ -203,16 +205,13 @@ class ConversationContextPropertiesBuilderServiceTest {
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(10);
 
         // Act
-        List<Map<String, String>> result = conversationContextBuilderService.buildContext(
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert
+        // Assert: только system, история не влезла, текущее сообщение добавляет gateway
         assertNotNull(result);
-        // Должен быть только system prompt и current message, история не должна добавиться
-        assertEquals(2, result.size());
+        assertEquals(1, result.size());
         assertEquals("system", result.get(0).get("role"));
-        assertEquals("user", result.get(1).get("role"));
-        assertEquals(currentMessage, result.get(1).get("content"));
     }
 
     @Test
@@ -223,24 +222,22 @@ class ConversationContextPropertiesBuilderServiceTest {
         AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
         String currentMessage = "Hello";
 
-        when(context.getIncludeSystemPrompt()).thenReturn(true);
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getMaxResponseTokens()).thenReturn(4000);
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(any())).thenReturn(new ArrayList<>());
         when(tokenCounter.estimateTokens("You are a helpful assistant.")).thenReturn(10);
         when(tokenCounter.estimateTokens(currentMessage)).thenReturn(2);
 
         // Act
-        List<Map<String, String>> result = conversationContextBuilderService.buildContext(
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert
+        // Assert: только system (текущее сообщение добавляет gateway)
         assertNotNull(result);
-        assertEquals(2, result.size());
-        // Не должно быть summary message
+        assertEquals(1, result.size());
         boolean hasSummary = result.stream()
-            .anyMatch(m -> m.get("content") != null && 
-                         m.get("content").contains("Краткое содержание"));
+            .anyMatch(m -> m.get("content") instanceof String s && s.contains("Краткое содержание"));
         assertFalse(hasSummary);
     }
 
@@ -254,9 +251,9 @@ class ConversationContextPropertiesBuilderServiceTest {
         AIBotMessage userMsg = createUserMessage("First message");
         AIBotMessage assistantMsgWithNull = createAssistantMessage(null); // content = null
 
-        when(context.getIncludeSystemPrompt()).thenReturn(true);
-        when(context.getMaxContextTokens()).thenReturn(8000);
-        when(context.getMaxResponseTokens()).thenReturn(4000);
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
             .thenReturn(List.of(userMsg, assistantMsgWithNull));
         when(tokenCounter.estimateTokens("You are a helpful assistant.")).thenReturn(10);
@@ -265,23 +262,19 @@ class ConversationContextPropertiesBuilderServiceTest {
 
         // Act
         // Не должно быть NullPointerException - ответ с null должен быть пропущен
-        List<Map<String, String>> result = conversationContextBuilderService.buildContext(
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
             thread, currentMessage, assistantRole);
 
-        // Assert
+        // Assert: system + user из истории (текущее добавляет gateway; ответ с null пропущен)
         assertNotNull(result);
-        // Должно быть: system, user (из истории), current user
-        // Ответ с null должен быть пропущен, поэтому assistant сообщения не должно быть
-        assertEquals(3, result.size());
+        assertEquals(2, result.size());
         assertEquals("system", result.get(0).get("role"));
         assertEquals("user", result.get(1).get("role"));
         assertEquals("First message", result.get(1).get("content"));
-        assertEquals("user", result.get(2).get("role"));
-        assertEquals(currentMessage, result.get(2).get("content"));
         // Проверяем, что нет assistant сообщения с null
         boolean hasNullAssistantMessage = result.stream()
-            .anyMatch(m -> "assistant".equals(m.get("role")) && 
-                         (m.get("content") == null || m.get("content").isEmpty()));
+            .anyMatch(m -> "assistant".equals(m.get("role")) &&
+                         (m.get("content") == null || (m.get("content") instanceof String s && s.isEmpty())));
         assertFalse(hasNullAssistantMessage, "Should not have assistant message with null or empty content");
     }
 
@@ -318,6 +311,77 @@ class ConversationContextPropertiesBuilderServiceTest {
         message.setContent(text);
         message.setUser(user);
         return message;
+    }
+
+    @Test
+    void whenBuildContextWithUserMessageWithAttachments_thenContentPartsIncludeImageFromStorage() throws Exception {
+        ConversationThread thread = createEmptyThread();
+        AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
+        String currentMessage = "Next";
+
+        AIBotMessage userMsgWithAttachment = createUserMessage("Смотри фото");
+        Map<String, Object> ref = new HashMap<>();
+        ref.put("storageKey", "photo/test-key.jpg");
+        ref.put("expiresAt", OffsetDateTime.now().plusHours(1).toString());
+        ref.put("mimeType", "image/jpeg");
+        ref.put("filename", "photo.jpg");
+        userMsgWithAttachment.setAttachments(List.of(ref));
+
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
+        when(messageRepository.findByThreadOrderBySequenceNumberAsc(any())).thenReturn(List.of(userMsgWithAttachment));
+        when(tokenCounter.estimateTokens(anyString())).thenReturn(5);
+
+        FileStorageService fileStorage = mock(FileStorageService.class);
+        when(fileStorage.get("photo/test-key.jpg")).thenReturn(new byte[]{1, 2, 3});
+        when(fileStorageServiceProvider.getIfAvailable()).thenReturn(fileStorage);
+
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
+                thread, currentMessage, assistantRole);
+
+        List<Map<String, Object>> userMessages = result.stream()
+                .filter(m -> "user".equals(m.get("role")))
+                .toList();
+        assertEquals(1, userMessages.size()); // только история (текущее добавляет gateway)
+        Object historyContent = userMessages.get(0).get("content");
+        assertInstanceOf(List.class, historyContent);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> parts = (List<Map<String, Object>>) historyContent;
+        assertEquals(2, parts.size());
+        assertTrue(parts.stream().anyMatch(p -> "text".equals(p.get("type")) && "Смотри фото".equals(p.get("text"))));
+        assertTrue(parts.stream().anyMatch(p -> "image_url".equals(p.get("type")) && p.get("image_url") != null));
+    }
+
+    @Test
+    void whenBuildContextWithExpiredAttachment_thenContentIsPlainText() {
+        ConversationThread thread = createEmptyThread();
+        AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
+        String currentMessage = "Next";
+
+        AIBotMessage userMsgWithAttachment = createUserMessage("Старое фото");
+        Map<String, Object> ref = new HashMap<>();
+        ref.put("storageKey", "photo/old.jpg");
+        ref.put("expiresAt", OffsetDateTime.now().minusHours(1).toString());
+        ref.put("mimeType", "image/jpeg");
+        ref.put("filename", "old.jpg");
+        userMsgWithAttachment.setAttachments(List.of(ref));
+
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
+        when(messageRepository.findByThreadOrderBySequenceNumberAsc(any())).thenReturn(List.of(userMsgWithAttachment));
+        when(tokenCounter.estimateTokens(anyString())).thenReturn(5);
+        when(fileStorageServiceProvider.getIfAvailable()).thenReturn(mock(FileStorageService.class));
+
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
+                thread, currentMessage, assistantRole);
+
+        List<Map<String, Object>> userMessages = result.stream()
+                .filter(m -> "user".equals(m.get("role")))
+                .toList();
+        Object historyContent = userMessages.get(0).get("content");
+        assertEquals("Старое фото", historyContent);
     }
 }
 

@@ -1,6 +1,5 @@
 package ru.girchev.aibot.common.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -8,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.transaction.annotation.Transactional;
 import ru.girchev.aibot.common.ai.command.ChatAICommand;
-import ru.girchev.aibot.common.ai.ModelType;
 import ru.girchev.aibot.common.config.CoreCommonProperties;
 import ru.girchev.aibot.common.model.ConversationThread;
 import ru.girchev.aibot.common.model.AIBotMessage;
@@ -21,6 +19,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static ru.girchev.aibot.common.ai.ModelCapabilities.*;
 import static ru.girchev.aibot.common.service.AIUtils.retrieveMessage;
 
 /**
@@ -42,6 +41,9 @@ public class SummarizationService {
     
     // Синхронизация суммаризации по threadKey для предотвращения параллельных вызовов
     private final Set<String> ongoingSummarizations = ConcurrentHashMap.newKeySet();
+
+    /** Число повторных попыток при невалидном (не-JSON) ответе модели. */
+    private static final int SUMMARIZATION_PARSE_MAX_RETRIES = 3;
 
     private static final String SUMMARIZATION_PROMPT = """
             Ты — ассистент, который создает краткие сводки диалогов.
@@ -69,14 +71,14 @@ public class SummarizationService {
             return false;
         }
 
-        CoreCommonProperties.ConversationContextProperties contextConfig = coreCommonProperties.getConversationContext();
-        double usageRatio = (double) totalTokens / contextConfig.getMaxContextTokens();
-        boolean shouldTrigger = usageRatio >= contextConfig.getSummaryTriggerThreshold();
+        CoreCommonProperties.SummarizationProperties summarization = coreCommonProperties.getSummarization();
+        double usageRatio = (double) totalTokens / summarization.getMaxContextTokens();
+        boolean shouldTrigger = usageRatio >= summarization.getSummaryTriggerThreshold();
 
         if (shouldTrigger) {
             log.debug("Thread {} reached summarization threshold by tokens: {} tokens / {} max = {} (threshold: {})",
-                    thread.getThreadKey(), totalTokens, contextConfig.getMaxContextTokens(),
-                    usageRatio, contextConfig.getSummaryTriggerThreshold());
+                    thread.getThreadKey(), totalTokens, summarization.getMaxContextTokens(),
+                    usageRatio, summarization.getSummaryTriggerThreshold());
         }
 
         return shouldTrigger;
@@ -110,8 +112,7 @@ public class SummarizationService {
             }
 
             // Асинхронный метод - загружаем все сообщения, фильтруем по keepRecentMessages
-            CoreCommonProperties.ConversationContextProperties contextConfig = coreCommonProperties.getConversationContext();
-            int keepRecentMessages = contextConfig.getDefaultWindowSize();
+            int keepRecentMessages = coreCommonProperties.getSummarization().getKeepRecentMessages();
             List<AIBotMessage> messagesToSummarize = filterMessagesForSummarization(messages, keepRecentMessages, thread.getThreadKey());
 
             if (messagesToSummarize.isEmpty()) {
@@ -252,7 +253,7 @@ public class SummarizationService {
 
         // Вызываем AI для создания сводки
         ChatAICommand summaryCommand = new ChatAICommand(
-                Set.of(ModelType.SUMMARIZATION), // Можно использовать более дешевую модель
+                Set.of(SUMMARIZATION), // Можно использовать более дешевую модель
                 0.3, // Низкая температура для детерминизма
                 2000,
                 SUMMARIZATION_PROMPT, // systemRole
@@ -265,11 +266,28 @@ public class SummarizationService {
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("No AI gateway for summarization"));
 
-        String summaryResponse = retrieveMessage(aiGateway.generateResponse(summaryCommand))
-                .orElseThrow(() -> new RuntimeException("Response is empty"));
+        SummaryResult result = null;
+        RuntimeException lastError = null;
+        for (int attempt = 1; attempt <= SUMMARIZATION_PARSE_MAX_RETRIES; attempt++) {
+            String summaryResponse = retrieveMessage(aiGateway.generateResponse(summaryCommand))
+                    .orElseThrow(() -> new RuntimeException("Response is empty"));
+            try {
+                result = parseSummaryResponse(summaryResponse);
+                break;
+            } catch (RuntimeException e) {
+                lastError = e;
+                log.warn("Summarization response is not valid JSON (attempt {}/{}), retrying",
+                        attempt, SUMMARIZATION_PARSE_MAX_RETRIES, e);
+                if (attempt == SUMMARIZATION_PARSE_MAX_RETRIES) {
+                    throw new RuntimeException("Summarization failed after " + SUMMARIZATION_PARSE_MAX_RETRIES
+                            + " attempts: model did not return valid JSON", lastError);
+                }
+            }
+        }
 
-        // Парсим JSON ответ
-        SummaryResult result = parseSummaryResponse(summaryResponse);
+        if (result == null) {
+            throw new RuntimeException("Summarization failed: no valid result", lastError);
+        }
 
         // Обновляем thread
         String combinedSummary = combineWithExistingSummary(thread.getSummary(), result.summary());
@@ -283,24 +301,52 @@ public class SummarizationService {
     }
 
     private SummaryResult parseSummaryResponse(String response) {
-        try {
-            // Извлекаем JSON из markdown-блока, если он обёрнут в ```json
-            String jsonContent = extractJsonFromMarkdown(response);
-            
-            JsonNode node = objectMapper.readTree(jsonContent);
+        // Извлекаем JSON из markdown-блока или из обёрнутого текста (модель могла добавить преамбулу)
+        String jsonContent = extractJsonFromMarkdown(response);
+        jsonContent = extractJsonObjectIfNeeded(jsonContent);
 
+        try {
+            JsonNode node = objectMapper.readTree(jsonContent);
             String summary = node.has("summary") ? node.get("summary").asText() : "";
             List<String> bullets = new ArrayList<>();
-
             if (node.has("memory_bullets") && node.get("memory_bullets").isArray()) {
                 node.get("memory_bullets").forEach(b -> bullets.add(b.asText()));
             }
-
             return new SummaryResult(summary, bullets);
         } catch (Exception e) {
-            log.error("Failed to parse summarization response, using fallback", e);
-            throw new RuntimeException(e);
+            throw new RuntimeException("Invalid summarization response: not valid JSON", e);
         }
+    }
+
+    /**
+     * Пытается извлечь один JSON-объект из строки (текст до/после JSON от модели).
+     */
+    private String extractJsonObjectIfNeeded(String s) {
+        if (s == null || s.isEmpty()) {
+            return s;
+        }
+        int start = s.indexOf('{');
+        if (start == -1) {
+            return s;
+        }
+        int depth = 0;
+        int end = -1;
+        for (int i = start; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    end = i;
+                    break;
+                }
+            }
+        }
+        if (end != -1) {
+            return s.substring(start, end + 1);
+        }
+        return s;
     }
 
     /**

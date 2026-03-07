@@ -12,9 +12,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import ru.girchev.aibot.ai.springai.service.DocumentProcessingService;
-import ru.girchev.aibot.ai.springai.service.RAGService;
+import ru.girchev.aibot.ai.springai.rag.FileRAGService;
 import ru.girchev.aibot.ai.springai.service.SpringAIModelType;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 
 /**
  * Авто-конфигурация для RAG (Retrieval-Augmented Generation).
@@ -31,7 +31,7 @@ import ru.girchev.aibot.common.ai.ModelType;
  * <p>Для работы требуется EmbeddingModel (например, от Ollama или OpenAI).
  * 
  * @see DocumentProcessingService для обработки PDF документов
- * @see RAGService для поиска релевантных чанков
+ * @see FileRAGService для поиска релевантных чанков
  */
 @Slf4j
 @AutoConfiguration
@@ -65,7 +65,7 @@ public class RAGAutoConfig {
             @Qualifier("openAiEmbeddingModel") ObjectProvider<EmbeddingModel> openAiEmbeddingModelProvider) {
         
         // Динамически выбираем модель по capability EMBEDDING
-        SpringAIModelConfig modelConfig = springAIModelType.getByCapability(ModelType.EMBEDDING)
+        SpringAIModelConfig modelConfig = springAIModelType.getByCapability(ModelCapabilities.EMBEDDING)
                 .orElseThrow(() -> new IllegalStateException(
                         "No model with EMBEDDING capability found in ai-bot.ai.spring-ai.models.list"));
         
@@ -119,11 +119,11 @@ public class RAGAutoConfig {
      */
     @Bean
     @ConditionalOnMissingBean
-    public RAGService ragService(
+    public FileRAGService ragService(
             VectorStore vectorStore,
             RAGProperties ragProperties) {
         log.info("Creating RAGService with topK={}, similarityThreshold={}", 
                 ragProperties.getTopK(), ragProperties.getSimilarityThreshold());
-        return new RAGService(vectorStore, ragProperties);
+        return new FileRAGService(vectorStore, ragProperties);
     }
 }

@@ -2,14 +2,22 @@ package ru.girchev.aibot.telegram.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.annotation.Transactional;
 import ru.girchev.aibot.common.config.CoreCommonProperties;
-import ru.girchev.aibot.common.model.*;
+import ru.girchev.aibot.common.model.Attachment;
+import ru.girchev.aibot.common.model.AssistantRole;
+import ru.girchev.aibot.common.model.AIBotMessage;
+import ru.girchev.aibot.common.model.RequestType;
 import ru.girchev.aibot.common.service.AIBotMessageService;
+import ru.girchev.aibot.common.storage.config.StorageProperties;
 import ru.girchev.aibot.telegram.model.TelegramUser;
 import ru.girchev.aibot.telegram.model.TelegramUserSession;
 
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -24,12 +32,14 @@ public class TelegramMessageService {
     private final AIBotMessageService messageService;
     private final TelegramUserService telegramUserService;
     private final CoreCommonProperties coreCommonProperties;
+    private final ObjectProvider<StorageProperties> storagePropertiesProvider;
     
     /**
-     * Сохраняет USER сообщение от Telegram пользователя с сессией и conversation thread
-     * Автоматически получает или создает активный thread и роль для пользователя
-     * 
+     * Сохраняет USER сообщение от Telegram пользователя с сессией и conversation thread.
+     * При наличии вложений сохраняет ссылки и время истечения (TTL) в message.attachments.
+     *
      * @param assistantRoleContent опциональное содержание роли ассистента (если null, используется дефолтная)
+     * @param attachments опциональный список вложений (фото/документы) — для сохранения ref в БД
      */
     @Transactional
     public AIBotMessage saveUserMessage(
@@ -37,7 +47,8 @@ public class TelegramMessageService {
             TelegramUserSession session,
             String content,
             RequestType requestType,
-            String assistantRoleContent) {
+            String assistantRoleContent,
+            List<Attachment> attachments) {
         
         // Получаем или создаем роль ассистента для пользователя через TelegramUserService
         String roleContent = assistantRoleContent != null 
@@ -52,13 +63,42 @@ public class TelegramMessageService {
             metadata.put("session_id", session.getId());
         }
         
-        // Используем базовый MessageService для сохранения сообщения
+        List<Map<String, Object>> attachmentRefs = buildAttachmentRefs(attachments);
+        
         return messageService.saveUserMessage(
                 telegramUser, 
                 content, 
                 requestType, 
                 assistantRole, 
-                metadata);
+                metadata,
+                attachmentRefs);
+    }
+    
+    /**
+     * Строит список ссылок на вложения для сохранения в БД (storageKey, expiresAt, mimeType, filename).
+     */
+    private List<Map<String, Object>> buildAttachmentRefs(List<Attachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return null;
+        }
+        StorageProperties storage = storagePropertiesProvider.getIfAvailable();
+        if (storage == null) {
+            log.debug("Storage not enabled, skipping attachment refs");
+            return null;
+        }
+        int ttlHours = storage.getMinio().getTtlHours();
+        OffsetDateTime expiresAt = OffsetDateTime.now().plusHours(ttlHours);
+        String expiresAtIso = expiresAt.toString();
+        List<Map<String, Object>> refs = new ArrayList<>();
+        for (Attachment a : attachments) {
+            Map<String, Object> ref = new HashMap<>();
+            ref.put("storageKey", a.key());
+            ref.put("expiresAt", expiresAtIso);
+            ref.put("mimeType", a.mimeType());
+            ref.put("filename", a.filename());
+            refs.add(ref);
+        }
+        return refs;
     }
     
     /**

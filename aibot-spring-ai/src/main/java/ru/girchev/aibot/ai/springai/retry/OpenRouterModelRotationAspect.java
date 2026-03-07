@@ -5,90 +5,55 @@ import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import ru.girchev.aibot.ai.springai.config.SpringAIModelConfig;
-import ru.girchev.aibot.common.ai.ModelType;
-import ru.girchev.aibot.common.ai.command.AIBotChatOptions;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 import ru.girchev.aibot.common.ai.command.AICommand;
+import ru.girchev.aibot.common.ai.response.AIResponse;
 import ru.girchev.aibot.common.ai.response.SpringAIStreamResponse;
-import ru.girchev.aibot.common.openrouter.OpenRouterFreeModelResolver;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
-import static ru.girchev.aibot.common.ai.LlmParamNames.MAX_PRICE;
-import static ru.girchev.aibot.common.ai.LlmParamNames.OPTIONS;
+import static java.util.Objects.requireNonNull;
+
 
 @Slf4j
 @Aspect
 @RequiredArgsConstructor
 public class OpenRouterModelRotationAspect {
 
-    private final ObjectProvider<OpenRouterFreeModelResolver> openRouterFreeModelResolverProvider;
+    private final OpenRouterRotationRegistry registry;
     private final int maxAttempts;
     private static final int MAX_ERROR_BODY_CHARS = 2_000;
 
     @Around("@annotation(rotate)")
-    public Object rotateModels(ProceedingJoinPoint pjp, RotateOpenRouterModels rotate) throws Throwable {
-        Object[] args = pjp.getArgs();
-        SpringAIModelConfig modelConfig = extractModelConfig(args);
-        if (modelConfig == null) {
-            return pjp.proceed();
-        }
+    public AIResponse rotateModels(ProceedingJoinPoint pjp, RotateOpenRouterModels rotate) throws Throwable {
+        var args = pjp.getArgs();
+        var modelConfig = requireNonNull(extractModelConfig(args));
+        var command = extractCommand(args);
+        var candidates = resolveCandidates(modelConfig, command);
 
-        if (!shouldRotateFor(modelConfig, args)) {
-            return pjp.proceed();
-        }
-
-        AICommand command = extractCommand(args);
-        List<String> candidates = resolveCandidates(modelConfig, command);
-        if (candidates.isEmpty()) {
-            return pjp.proceed();
-        }
-
-        if (rotate.stream()) {
-            Flux<ChatResponse> rotated = streamAttempt(pjp, args, modelConfig, candidates, 0);
-            return new SpringAIStreamResponse(rotated);
-        }
-
-        return callWithRetry(pjp, args, modelConfig, candidates);
+        return rotate.stream()
+                ? streamWithRetry(pjp, args, candidates, 0)
+                : callWithRetry(pjp, args, candidates);
     }
 
-    /**
-     * AUTO-ротация по free-моделям включается только при явном желании использовать free-пул,
-     * которое в нашем проекте выражается через {@code max_price=0} в body.
-     *
-     * Во всех остальных случаях "AUTO" может означать другой механизм определения модели.
-     */
-    private boolean shouldRotateFor(SpringAIModelConfig modelConfig, Object[] args) {
-        if (isOpenRouterFreeModel(modelConfig)) {
-            return true;
-        }
-        if (!isOpenRouterAutoModel(modelConfig)) {
-            return false;
-        }
-        Map<String, Object> body = extractBody(args);
-        return isMaxPriceZero(body);
-    }
-
-    private Object callWithRetry(
+    private AIResponse callWithRetry(
             ProceedingJoinPoint pjp,
             Object[] baseArgs,
-            SpringAIModelConfig modelConfig,
-            List<String> candidates
+            List<SpringAIModelConfig> candidates
     ) throws Throwable {
         RuntimeException last = null;
-        for (String modelId : candidates) {
+        for (SpringAIModelConfig candidate : candidates) {
+            String modelId = candidate.getName();
             long startNs = System.nanoTime();
             try {
-                Object[] args = replaceModelConfig(baseArgs, modelConfig, modelId);
-                Object result = pjp.proceed(args);
+                Object[] args = replaceModelConfig(baseArgs, candidate);
+                AIResponse result = (AIResponse) pjp.proceed(args);
                 long latencyMs = (System.nanoTime() - startNs) / 1_000_000L;
                 recordSuccessIfPossible(modelId, latencyMs);
                 return result;
@@ -105,44 +70,62 @@ public class OpenRouterModelRotationAspect {
         throw last != null ? last : new RuntimeException("No models available for retry");
     }
 
-    private Flux<ChatResponse> streamAttempt(
+    private SpringAIStreamResponse streamWithRetry(
             ProceedingJoinPoint pjp,
             Object[] baseArgs,
-            SpringAIModelConfig modelConfig,
-            List<String> candidates,
+            List<SpringAIModelConfig> candidates,
             int index
     ) {
+        // TODO потестировать подход без defer
+//        try {
+//            if (index >= candidates.size()) {
+//                return new SpringAIStreamResponse(Flux.error(new RuntimeException("No models available for retry")));
+//            }
+//            SpringAIModelConfig candidate = candidates.get(index);
+//            String modelId = candidate.getName();
+//            Object[] args = replaceModelConfig(baseArgs, candidate);
+//            SpringAIStreamResponse result = (SpringAIStreamResponse) pjp.proceed(args);
+//            result.chatResponse().doOnNext()
+//            return result;
+//        } catch (Throwable e) {
+//            // тут надо обработку ретраев
+//            throw new RuntimeException(e);
+//        }
         if (index >= candidates.size()) {
-            return Flux.error(new RuntimeException("No models available for retry"));
+            log.warn("OpenRouter stream retry: no candidates available (index={}, totalCandidates={})", index, candidates.size());
+            return new SpringAIStreamResponse(Flux.error(new RuntimeException("No models available for retry")));
         }
-        String modelId = candidates.get(index);
-        Object[] args = replaceModelConfig(baseArgs, modelConfig, modelId);
-        return Flux.defer(() -> {
-            try {
-                Object result = pjp.proceed(args);
-                if (result instanceof SpringAIStreamResponse streamResponse) {
-                    return streamResponse.chatResponse();
+        SpringAIModelConfig candidate = candidates.get(index);
+        String modelId = candidate.getName();
+        Object[] args = replaceModelConfig(baseArgs, candidate);
+        try {
+            var response = (SpringAIStreamResponse) pjp.proceed(args);
+            response.chatResponse().onErrorResume(nextError -> {
+                int attempt = index + 1;
+                int total = candidates.size();
+                boolean retryable = isRetryable(nextError);
+                log.warn("OpenRouter stream retry: error caught. model={}, retryable={}, attempt={} of {}, reason={}",
+                        modelId, retryable, attempt, total, nextError.getMessage());
+                if (!retryable) {
+                    return Flux.error(nextError);
                 }
-                return Flux.error(new IllegalStateException("Expected SpringAIStreamResponse"));
-            } catch (Throwable t) {
-                return Flux.error(t);
-            }
-        }).onErrorResume(nextError -> {
-            if (!isRetryable(nextError)) {
-                return Flux.error(nextError);
-            }
-            if (index + 1 >= candidates.size()) {
-                return Flux.error(nextError);
-            }
-            log.warn("Spring AI stream failed for model={}, retrying next if available. reason={}", modelId, nextError.getMessage());
-            return streamAttempt(pjp, baseArgs, modelConfig, candidates, index + 1);
-        });
+                if (index + 1 >= candidates.size()) {
+                    log.warn("OpenRouter stream retry: no more candidates after attempt {} of {} (current={}), cannot retry. reason={}",
+                            attempt, total, modelId, nextError.getMessage());
+                    return Flux.error(nextError);
+                }
+                String nextModel = candidates.get(index + 1).getName();
+                log.warn("OpenRouter stream retry: switching from model={} to next candidate model={} (next attempt {} of {}). reason={}",
+                        modelId, nextModel, index + 2, total, nextError.getMessage());
+                return streamWithRetry(pjp, baseArgs, candidates, index + 1).chatResponse();
+            });
+            return response;
+        } catch (Throwable t) {
+            return new SpringAIStreamResponse(Flux.error(t));
+        }
     }
 
     private SpringAIModelConfig extractModelConfig(Object[] args) {
-        if (args == null) {
-            return null;
-        }
         for (Object arg : args) {
             if (arg instanceof SpringAIModelConfig config) {
                 return config;
@@ -151,152 +134,100 @@ public class OpenRouterModelRotationAspect {
         return null;
     }
 
-    private Object[] replaceModelConfig(Object[] args, SpringAIModelConfig original, String modelName) {
+    private Object[] replaceModelConfig(Object[] args, SpringAIModelConfig modelConfig) {
         Object[] copy = args.clone();
-        SpringAIModelConfig patched = copyModelConfig(original, modelName);
         for (int i = 0; i < copy.length; i++) {
             if (copy[i] instanceof SpringAIModelConfig) {
-                copy[i] = patched;
+                copy[i] = modelConfig;
                 break;
             }
         }
         return copy;
     }
 
-    private SpringAIModelConfig copyModelConfig(SpringAIModelConfig source, String modelName) {
-        SpringAIModelConfig copy = new SpringAIModelConfig();
-        copy.setName(modelName);
-        copy.setCapabilities(source.getCapabilities());
-        copy.setProviderType(source.getProviderType());
-        copy.setPriority(source.getPriority());
-        return copy;
-    }
+    private static final String OPENROUTER_AUTO_MODEL = "openrouter/auto";
 
-    private List<String> resolveCandidates(SpringAIModelConfig modelConfig, AICommand command) {
-        if (!isOpenRouterAutoModel(modelConfig) && !isOpenRouterFreeModel(modelConfig)) {
-            return modelConfig.getName() != null ? List.of(modelConfig.getName()) : Collections.emptyList();
+    private List<SpringAIModelConfig> resolveCandidates(SpringAIModelConfig modelConfig, AICommand command) {
+        var capabilities = command.modelCapabilities();
+        if (capabilities == null) {
+            capabilities = Set.of();
         }
-        OpenRouterFreeModelResolver resolver = openRouterFreeModelResolverProvider.getIfAvailable();
-        if (resolver == null) {
-            return modelConfig.getName() != null ? List.of(modelConfig.getName()) : Collections.emptyList();
+        String preferred = modelConfig != null ? modelConfig.getName() : null;
+        List<SpringAIModelConfig> candidates = new ArrayList<>(registry.getCandidatesByCapabilities(capabilities, preferred));
+        if (candidates.isEmpty() && modelConfig != null) {
+            candidates = List.of(modelConfig);
         }
-        Set<ModelType> requiredModelTypes = command != null ? command.modelTypes() : Collections.emptySet();
-        String requestedModel = modelConfig.getName();
-        List<String> candidates = new ArrayList<>(resolver.candidatesForModel(requestedModel, requiredModelTypes));
-        if (candidates.isEmpty() && modelConfig.getName() != null) {
-            candidates = List.of(modelConfig.getName());
+        // При единственном кандидате AUTO (openrouter/auto) добавляем fallback по CHAT для ретрая при пустом стриме
+        if (shouldAddChatFallback(capabilities, candidates)) {
+            candidates = mergeWithChatCandidates(candidates, preferred);
+            log.info("OpenRouter model rotation: added CHAT fallback candidates for retry (total={})", candidates.size());
         }
         if (maxAttempts >= 1 && candidates.size() > maxAttempts) {
             candidates = candidates.subList(0, maxAttempts);
         }
-        log.info("OpenRouter auto model rotation candidates (maxAttempts={}): {}", maxAttempts, candidates);
+        log.info("OpenRouter model rotation candidates (maxAttempts={}): {}", maxAttempts,
+                candidates.stream().map(SpringAIModelConfig::getName).toList());
+        if (candidates.size() <= 1) {
+            log.warn("OpenRouter model rotation: only {} candidate(s), retry on stream error will not switch model", candidates.size());
+        }
         return candidates;
     }
 
-    private AICommand extractCommand(Object[] args) {
-        if (args == null) {
-            return null;
+    private boolean shouldAddChatFallback(Set<ModelCapabilities> capabilities, List<SpringAIModelConfig> candidates) {
+        if (candidates.size() != 1) {
+            return false;
         }
+        return Set.of(ModelCapabilities.AUTO).equals(capabilities)
+                || OPENROUTER_AUTO_MODEL.equals(candidates.get(0).getName());
+    }
+
+    private List<SpringAIModelConfig> mergeWithChatCandidates(List<SpringAIModelConfig> current, String preferred) {
+        List<SpringAIModelConfig> chatCandidates = registry.getCandidatesByCapabilities(Set.of(ModelCapabilities.CHAT), preferred);
+        Set<String> seen = new HashSet<>();
+        List<SpringAIModelConfig> merged = new ArrayList<>();
+        for (SpringAIModelConfig c : current) {
+            if (seen.add(c.getName())) {
+                merged.add(c);
+            }
+        }
+        for (SpringAIModelConfig c : chatCandidates) {
+            if (seen.add(c.getName())) {
+                merged.add(c);
+            }
+        }
+        return merged;
+    }
+
+    private AICommand extractCommand(Object[] args) {
         for (Object arg : args) {
             if (arg instanceof AICommand cmd) {
                 return cmd;
             }
         }
-        return null;
-    }
-
-    private Map<String, Object> extractBody(Object[] args) {
-        if (args == null) {
-            return null;
-        }
-        for (Object arg : args) {
-            if (arg instanceof AIBotChatOptions opts) {
-                return opts.body();
-            }
-            if (arg instanceof Map<?, ?> map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> cast = (Map<String, Object>) map;
-                return cast;
-            }
-        }
-        return null;
-    }
-
-    private boolean isMaxPriceZero(Map<String, Object> body) {
-        if (body == null || body.isEmpty()) {
-            return false;
-        }
-        Object maxPrice = body.get(MAX_PRICE);
-        if (maxPrice == null) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> options = (Map<String, Object>) body.get(OPTIONS);
-            if (options != null) {
-                maxPrice = options.get(MAX_PRICE);
-            }
-        }
-        if (maxPrice == null) {
-            return false;
-        }
-
-        if (maxPrice instanceof Number number) {
-            return number.doubleValue() == 0.0d;
-        }
-        if (maxPrice instanceof String str) {
-            try {
-                return Double.parseDouble(str.trim()) == 0.0d;
-            } catch (Exception ignored) {
-                return false;
-            }
-        }
-        if (maxPrice instanceof Map<?, ?> map) {
-            Double prompt = asDouble(map.get("prompt"));
-            Double completion = asDouble(map.get("completion"));
-            return prompt != null && completion != null && prompt == 0.0d && completion == 0.0d;
-        }
-        return false;
-    }
-
-    private Double asDouble(Object v) {
-        if (v instanceof Number n) {
-            return n.doubleValue();
-        }
-        if (v instanceof String s) {
-            try {
-                return Double.parseDouble(s.trim());
-            } catch (Exception ignored) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    private boolean isOpenRouterAutoModel(SpringAIModelConfig modelConfig) {
-        if (modelConfig == null || modelConfig.getProviderType() == null) {
-            return false;
-        }
-        return modelConfig.getProviderType() == SpringAIModelConfig.ProviderType.OPENAI
-                && modelConfig.getCapabilities() != null
-                && modelConfig.getCapabilities().contains(ModelType.AUTO);
-    }
-
-    private boolean isOpenRouterFreeModel(SpringAIModelConfig modelConfig) {
-        if (modelConfig == null || modelConfig.getProviderType() == null) {
-            return false;
-        }
-        String name = modelConfig.getName();
-        return modelConfig.getProviderType() == SpringAIModelConfig.ProviderType.OPENAI
-                && name != null
-                && name.contains(":free");
+        throw new IllegalStateException("AICommand not found in aspect target method args");
     }
 
     private boolean isRetryable(Throwable error) {
-        if (error instanceof WebClientResponseException w) {
+        // Проверяем всю цепочку причин — OpenRouterEmptyStreamException может быть обёрнут
+        // в WebClientResponseException (status 200) или IllegalStateException
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof OpenRouterEmptyStreamException) {
+                return true;
+            }
+        }
+        WebClientResponseException w = findWebClientResponseException(error);
+        if (w != null) {
             int status = w.getStatusCode().value();
-            if (status == 429 || (status >= 500 && status <= 599)) {
+            // 429 rate limit; 402 Payment Required (кредиты/квота); 5xx — ротация на следующую модель.
+            if (status == 429 || status == 402 || (status >= 500 && status <= 599)) {
+                return true;
+            }
+            // 404 от OpenRouter (в т.ч. "No endpoints matching your data policy") — всегда ротация на следующую модель.
+            // Тело ответа не проверяем: в стриме оно может быть уже прочитано и недоступно.
+            if (status == 404) {
                 return true;
             }
             // Некоторые free-провайдеры в OpenRouter имеют более строгую валидацию формата messages.
-            // Это может быть модель-специфично, поэтому имеет смысл попробовать следующую кандидатуру.
             if (status == 400) {
                 String body = w.getResponseBodyAsString();
                 if (body != null && body.contains("Conversation roles must alternate")) {
@@ -309,26 +240,31 @@ public class OpenRouterModelRotationAspect {
         return true;
     }
 
-    private void recordSuccessIfPossible(String modelId, long latencyMs) {
-        OpenRouterFreeModelResolver resolver = openRouterFreeModelResolverProvider.getIfAvailable();
-        if (resolver == null || modelId == null || !modelId.contains(":free")) {
-            return;
+    /**
+     * Ищет WebClientResponseException в цепочке cause (например под NonTransientAiException от Spring AI).
+     */
+    private static WebClientResponseException findWebClientResponseException(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof WebClientResponseException w) {
+                return w;
+            }
         }
-        resolver.recordSuccess(modelId, latencyMs);
+        return null;
+    }
+
+    private void recordSuccessIfPossible(String modelId, long latencyMs) {
+        registry.recordSuccess(modelId, latencyMs);
     }
 
     private void recordFailureIfPossible(String modelId, Throwable error, long latencyMs) {
-        OpenRouterFreeModelResolver resolver = openRouterFreeModelResolverProvider.getIfAvailable();
-        if (resolver == null || modelId == null || !modelId.contains(":free")) {
-            return;
-        }
         int status = 599;
         String responseBody = null;
-        if (error instanceof WebClientResponseException w) {
+        WebClientResponseException w = findWebClientResponseException(error);
+        if (w != null) {
             status = w.getStatusCode().value();
             responseBody = truncate(w.getResponseBodyAsString());
         }
-        resolver.recordFailure(modelId, status, latencyMs);
+        registry.recordFailure(modelId, status, latencyMs);
         if (responseBody != null && status >= 400 && status <= 499) {
             log.warn("OpenRouter request failed. model={}, status={}, latencyMs={}, body={}",
                     modelId, status, latencyMs, responseBody);

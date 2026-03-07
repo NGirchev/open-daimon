@@ -127,7 +127,8 @@ public class TelegramCommandHandlerConfig {
             TelegramMessageService telegramMessageService,
             AIGatewayRegistry aiGatewayRegistry,
             AIBotMessageService messageService,
-            AICommandFactoryRegistry aiCommandFactoryRegistry) {
+            AICommandFactoryRegistry aiCommandFactoryRegistry,
+            TelegramProperties telegramProperties) {
         return new MessageTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
@@ -136,7 +137,8 @@ public class TelegramCommandHandlerConfig {
                 telegramMessageService,
                 aiGatewayRegistry,
                 messageService,
-                aiCommandFactoryRegistry
+                aiCommandFactoryRegistry,
+                telegramProperties
         );
     }
 }

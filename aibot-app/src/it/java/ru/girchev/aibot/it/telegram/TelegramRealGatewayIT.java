@@ -75,6 +75,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "ai-bot.telegram.enabled=true",
         "ai-bot.telegram.token=${TELEGRAM_TOKEN}",
         "ai-bot.telegram.username=${TELEGRAM_USERNAME}",
+        "ai-bot.telegram.max-message-length=4096",
         "ai-bot.common.bulkhead.enabled=true",
         "ai-bot.ai.gateway-mock.enabled=true"
 })
@@ -396,7 +397,7 @@ class TelegramRealGatewayIT {
             "org.springframework.ai.model.ollama.autoconfigure.OllamaAutoConfiguration",
             "org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration",
             "ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig",
-            "org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration",
+//            "org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration",
             "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration",
             "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration",
             "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration",

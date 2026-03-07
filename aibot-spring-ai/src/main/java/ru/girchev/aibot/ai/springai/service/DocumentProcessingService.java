@@ -10,6 +10,7 @@ import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.core.io.ByteArrayResource;
 import ru.girchev.aibot.ai.springai.config.RAGProperties;
+import ru.girchev.aibot.common.exception.DocumentContentNotExtractableException;
 
 import java.util.List;
 import java.util.UUID;
@@ -57,8 +58,9 @@ public class DocumentProcessingService {
                         .build()
         );
         List<Document> documents = reader.read();
+        logExtractedText(originalName, "PDF", documents);
         log.debug("Extracted {} pages from PDF", documents.size());
-        
+
         // 2. Transform: Разбиваем на чанки
         TokenTextSplitter splitter = new TokenTextSplitter(
                 ragProperties.getChunkSize(),
@@ -69,6 +71,14 @@ public class DocumentProcessingService {
         );
         List<Document> chunks = splitter.split(documents);
         log.debug("Split into {} chunks", chunks.size());
+
+        if (chunks.isEmpty()) {
+            String msg = String.format(
+                    "Не удалось извлечь текст из файла \"%s\". Файл может быть скан-копией или изображением. Загрузите PDF с текстовым слоем или вставьте текст в сообщение.",
+                    originalName);
+            log.warn("PDF '{}' produced no text chunks (e.g. image-only or empty pages). Throwing.", originalName);
+            throw new DocumentContentNotExtractableException(msg);
+        }
         
         // 3. Добавляем metadata
         chunks.forEach(doc -> {
@@ -103,8 +113,9 @@ public class DocumentProcessingService {
         // 1. Extract: Читаем документ через TikaDocumentReader
         TikaDocumentReader reader = new TikaDocumentReader(new ByteArrayResource(documentData));
         List<Document> documents = reader.read();
+        logExtractedText(originalName, documentType, documents);
         log.debug("Extracted {} document(s) from {}", documents.size(), documentType);
-        
+
         // 2. Transform: Разбиваем на чанки
         TokenTextSplitter splitter = new TokenTextSplitter(
                 ragProperties.getChunkSize(),
@@ -115,6 +126,14 @@ public class DocumentProcessingService {
         );
         List<Document> chunks = splitter.split(documents);
         log.debug("Split into {} chunks", chunks.size());
+
+        if (chunks.isEmpty()) {
+            String msg = String.format(
+                    "Не удалось извлечь текст из файла \"%s\" (тип: %s). Файл может быть скан-копией или изображением. Загрузите документ с текстовым слоем или вставьте текст в сообщение.",
+                    originalName, documentType);
+            log.warn("Document '{}' (type: {}) produced no text chunks. Throwing.", originalName, documentType);
+            throw new DocumentContentNotExtractableException(msg);
+        }
         
         // 3. Добавляем metadata
         chunks.forEach(doc -> {
@@ -130,6 +149,35 @@ public class DocumentProcessingService {
                 originalName, documentType, chunks.size(), documentId);
         
         return documentId;
+    }
+
+    private static final int EXTRACTED_TEXT_SAMPLE_MAX_LEN = 300;
+
+    /**
+     * Логирует объём и образец извлечённого текста (для диагностики пустых/картинковых PDF).
+     */
+    private void logExtractedText(String originalName, String documentType, List<Document> documents) {
+        int totalChars = 0;
+        StringBuilder sample = new StringBuilder();
+        for (Document doc : documents) {
+            String text = doc.getText();
+            if (text != null) {
+                totalChars += text.length();
+                if (sample.length() < EXTRACTED_TEXT_SAMPLE_MAX_LEN) {
+                    String oneLine = text.replaceAll("\\s+", " ").trim();
+                    sample.append(oneLine, 0, Math.min(oneLine.length(), EXTRACTED_TEXT_SAMPLE_MAX_LEN - sample.length()));
+                    if (sample.length() >= EXTRACTED_TEXT_SAMPLE_MAX_LEN) {
+                        sample.append("...");
+                    }
+                }
+            }
+        }
+        log.debug("Extracted text from '{}' ({}): pages={}, totalChars={}, sample='{}'",
+                originalName, documentType, documents.size(), totalChars, sample.length() > 0 ? sample : "");
+        if (totalChars == 0) {
+            log.warn("Document '{}' (type: {}) has no extractable text (e.g. image-only). RAG will not provide context.",
+                    originalName, documentType);
+        }
     }
 
     /**

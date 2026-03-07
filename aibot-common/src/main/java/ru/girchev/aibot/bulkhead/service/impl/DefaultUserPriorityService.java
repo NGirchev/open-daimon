@@ -8,7 +8,6 @@ import ru.girchev.aibot.bulkhead.service.IUserPriorityService;
 import ru.girchev.aibot.bulkhead.service.IUserService;
 import ru.girchev.aibot.bulkhead.service.IWhitelistService;
 
-import java.util.Optional;
 
 /**
  * Реализация сервиса для определения приоритета пользователя.
@@ -41,7 +40,6 @@ public class DefaultUserPriorityService implements IUserPriorityService {
         
         // Администраторы всегда получают ADMIN приоритет независимо от других условий
         if (user.map(IUserObject::getIsAdmin).map(Boolean.TRUE::equals).orElse(false)) {
-            log.info("User {} resolved as ADMIN", userId);
             return UserPriority.ADMIN;
         }
 

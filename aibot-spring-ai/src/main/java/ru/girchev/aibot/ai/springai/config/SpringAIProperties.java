@@ -22,6 +22,12 @@ public class SpringAIProperties {
 
     private OpenRouterAutoRotation openrouterAutoRotation = new OpenRouterAutoRotation();
 
+    /**
+     * Атрибуция приложения для OpenRouter (дашборд: столбец App).
+     * HTTP-Referer и X-Title передаются в запросах к OpenRouter.
+     */
+    private OpenRouterApp openrouterApp = new OpenRouterApp();
+
     private HttpLogs httpLogs = new HttpLogs();
     
     /**
@@ -35,6 +41,15 @@ public class SpringAIProperties {
     private Serper serper = new Serper();
     
     private Models models = new Models();
+
+    @Getter
+    @Setter
+    public static class OpenRouterApp {
+        /** URL приложения (HTTP-Referer). Опционально. */
+        private String siteUrl;
+        /** Название приложения в дашборде OpenRouter (X-Title). Опционально. */
+        private String title;
+    }
 
     @Getter
     @Setter

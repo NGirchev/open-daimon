@@ -29,7 +29,7 @@ public class WebTools {
     )
     public SearchResult webSearch(String query) {
         if (apiKey == null || apiKey.isBlank()) {
-            log.warn("Serper API key is not configured. Web search is disabled.");
+            log.warn("WebTools.webSearch: Serper API key is not configured. Web search disabled. Returning empty result for query=[{}].", query);
             return new SearchResult(query, List.of());
         }
 
@@ -78,16 +78,17 @@ public class WebTools {
                 .limit(6)
                 .collect(Collectors.toList());
 
+            if (hits.isEmpty()) {
+                log.warn("WebTools.webSearch: no results for query=[{}]. Returning empty SearchResult.", query);
+            }
             return new SearchResult(query, hits);
         } catch (WebClientResponseException e) {
             String errorBody = e.getResponseBodyAsString();
-            log.error("Error during web search (status: {}): {}. Response body: {}", 
-                e.getStatusCode(), e.getMessage(), errorBody);
-            // Возвращаем пустой результат вместо исключения, чтобы не прерывать работу бота
+            log.error("WebTools.webSearch failed (status: {}): {}. Response body: {}. Returning empty result for query=[{}].",
+                e.getStatusCode(), e.getMessage(), errorBody, query);
             return new SearchResult(query, List.of());
         } catch (Exception e) {
-            log.error("Error during web search: {}", e.getMessage(), e);
-            // Возвращаем пустой результат вместо исключения, чтобы не прерывать работу бота
+            log.error("WebTools.webSearch failed: {}. Returning empty result for query=[{}].", e.getMessage(), query, e);
             return new SearchResult(query, List.of());
         }
     }
@@ -107,7 +108,7 @@ public class WebTools {
                 .block();
 
             if (html == null || html.isBlank()) {
-                log.info("WebTools fetchUrl response");
+                log.warn("WebTools.fetchUrl: empty response for url=[{}]. Returning empty string.", url);
                 return "";
             }
 
@@ -119,10 +120,10 @@ public class WebTools {
             // защита от токен-адской боли
             return text.length() > 6000 ? text.substring(0, 6000) : text;
         } catch (WebClientResponseException e) {
-            log.error("Error fetching URL {}: {}", url, e.getMessage());
+            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning empty string.", url, e.getMessage());
             return "";
         } catch (Exception e) {
-            log.error("Error fetching URL {}: {}", url, e.getMessage(), e);
+            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning empty string.", url, e.getMessage(), e);
             return "";
         }
     }

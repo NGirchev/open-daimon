@@ -10,10 +10,12 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.content.Media;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import ru.girchev.aibot.ai.springai.config.SpringAIModelConfig;
 import ru.girchev.aibot.ai.springai.tool.WebTools;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 import ru.girchev.aibot.common.ai.command.AIBotChatOptions;
 
 import java.util.Collections;
@@ -44,18 +46,7 @@ public class SpringAIPromptFactory {
             String modelName,
             Map<String, Object> body,
             Object conversationId,
-            boolean toolsEnabled,
-            List<Message> messages
-    ) {
-        return preparePrompt(modelConfig, modelName, body, conversationId, toolsEnabled, messages, null);
-    }
-
-    public ChatClient.ChatClientRequestSpec preparePrompt(
-            SpringAIModelConfig modelConfig,
-            String modelName,
-            Map<String, Object> body,
-            Object conversationId,
-            boolean toolsEnabled,
+            boolean webEnabled,
             List<Message> messages,
             AIBotChatOptions chatOptions
     ) {
@@ -86,8 +77,11 @@ public class SpringAIPromptFactory {
             }
         }
 
-        if (toolsEnabled) {
+        if (webEnabled) {
             promptBuilder.tools(webTools);
+            log.info("Web tools added to prompt (web_search, fetch_url). Model may invoke them.");
+        } else {
+            log.info("Web tools NOT added to prompt (webEnabled=false). Serper/fetch_url will not be available. Only VIP users get WEB capability in DefaultAICommandFactory.");
         }
 
         // Наконец, добавляем User сообщение - оно будет последним
@@ -104,8 +98,14 @@ public class SpringAIPromptFactory {
                     }
                 }
                 if (lastUserMessage != null) {
-                    // Добавляем только последнее User сообщение (текущий запрос пользователя)
-                    promptBuilder.user(lastUserMessage.getText());
+                    final UserMessage userMsg = lastUserMessage;
+                    // Добавляем последнее User сообщение целиком (текст + медиа/вложения) для поддержки фото в режиме ChatMemory (local).
+                    if (userMsg.getMedia() != null && !userMsg.getMedia().isEmpty()) {
+                        promptBuilder.user(u -> u.text(userMsg.getText())
+                                .media(userMsg.getMedia().toArray(new Media[0])));
+                    } else {
+                        promptBuilder.user(userMsg.getText());
+                    }
                 }
                 // Игнорируем AssistantMessage - они уже в ChatMemory
             } else {
@@ -145,23 +145,31 @@ public class SpringAIPromptFactory {
                     .topP(getDouble(safeOverrides, TOP_P));
 
             Map<String, Object> extraBody = extractExtraBody(safeOverrides);
-            if ((extraBody == null || extraBody.isEmpty())
-                    && isOpenRouterAutoModel(modelName)) {
+            if (extraBody == null) {
+                extraBody = new HashMap<>();
+            }
+            Object reasoning = safeOverrides.get("reasoning");
+            if (reasoning != null) {
+                extraBody.put("reasoning", reasoning);
+            }
+            if (extraBody.isEmpty() && isOpenRouterAutoModel(modelName)) {
                 extraBody = defaultOpenRouterFreeMaxPriceExtraBody();
                 log.debug("Applying default max_price=0 for model={}", modelName);
             }
-            if (extraBody != null && !extraBody.isEmpty()) {
+            if (!extraBody.isEmpty()) {
                 optionsBuilder.extraBody(extraBody);
             }
 
             return optionsBuilder.build();
         }
 
-        return ChatOptions.builder()
+        // Ollama: не передаём think — часть версий/моделей возвращает 400 на этот параметр.
+        // При необходимости включить thinking для qwen3/deepseek-r1 настрой через options в конфиге модели.
+        return OllamaChatOptions.builder()
                 .model(modelName)
                 .frequencyPenalty(getDouble(safeOverrides, FREQUENCY_PENALTY))
                 .temperature(temperature)
-                .maxTokens(maxTokens)
+                .numPredict(maxTokens)
                 .topK(getInteger(safeOverrides, TOP_K))
                 .topP(getDouble(safeOverrides, TOP_P))
                 .build();
@@ -219,7 +227,7 @@ public class SpringAIPromptFactory {
     private boolean isOpenRouterAutoModel(String modelName) {
         return springAIModelType.getByModelName(modelName)
                 .filter(model -> model.getProviderType() == SpringAIModelConfig.ProviderType.OPENAI)
-                .map(model -> model.getCapabilities() != null && model.getCapabilities().contains(ModelType.AUTO))
+                .map(model -> model.getCapabilities() != null && model.getCapabilities().contains(ModelCapabilities.AUTO))
                 .orElse(false);
     }
 
