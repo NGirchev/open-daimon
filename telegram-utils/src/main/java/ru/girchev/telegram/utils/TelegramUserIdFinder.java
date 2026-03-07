@@ -85,7 +85,7 @@ public class TelegramUserIdFinder {
 
     public static void main(String[] args) {
         if (BOT_TOKEN == null || BOT_TOKEN.isBlank() || CHANNEL_ID == null || CHANNEL_ID.isBlank()) {
-            System.err.println("Укажите TELEGRAM_TOKEN и TELEGRAM_CHANNEL_ID в переменных окружения.");
+            System.err.println("Set TELEGRAM_TOKEN and TELEGRAM_CHANNEL_ID environment variables.");
             return;
         }
         Scanner scanner = new Scanner(System.in);

@@ -217,12 +217,12 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 return null;
             }
         } catch (UserMessageTooLongException e) {
-            log.warn("Сообщение превышает лимит токенов: {}", e.getMessage());
+            log.warn("Message exceeds token limit: {}", e.getMessage());
             Integer replyToMessageId = message != null ? message.getMessageId() : null;
             sendErrorMessage(command.telegramId(), e.getMessage(), replyToMessageId);
             return null;
         } catch (DocumentContentNotExtractableException e) {
-            log.warn("Не удалось извлечь текст из документа: {}", e.getMessage());
+            log.warn("Could not extract text from document: {}", e.getMessage());
             Integer replyToMessageId = message != null ? message.getMessageId() : null;
             if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
                 String errorRoleContent = userMessage.getAssistantRole() != null
@@ -240,7 +240,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         } catch (Exception e) {
             DocumentContentNotExtractableException docEx = findDocumentContentNotExtractable(e);
             if (docEx != null) {
-                log.warn("Не удалось извлечь текст из документа: {}", docEx.getMessage());
+                log.warn("Could not extract text from document: {}", docEx.getMessage());
                 Integer replyToMessageId = message != null ? message.getMessageId() : null;
                 if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
                     String errorRoleContent = userMessage.getAssistantRole() != null

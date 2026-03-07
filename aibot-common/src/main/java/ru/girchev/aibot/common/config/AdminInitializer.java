@@ -11,8 +11,8 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 
 /**
- * Компонент для инициализации администратора при старте приложения.
- * Создает администратора на основе конфигурации (Telegram ID или REST email).
+ * Initializes admin at application startup.
+ * Creates admin from config (Telegram ID or REST email).
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -25,15 +25,15 @@ public class AdminInitializer {
     @PostConstruct
     @Transactional
     public void initAdmin() {
-        log.info("Инициализация администратора...");
-        
+        log.info("Initializing admin...");
+
         CoreCommonProperties.AdminProperties adminProperties = coreCommonProperties.getAdmin();
         if (adminProperties == null) {
-            log.warn("Конфигурация администратора не найдена, пропускаем инициализацию");
+            log.warn("Admin configuration not found, skipping initialization");
             return;
         }
         
-        // Проверяем, указан ли Telegram ID администратора
+        // Check if Telegram admin ID is set
         if (adminProperties.getTelegramId() != null) {
             Object telegramRepo = getBeanByClassName("ru.girchev.aibot.telegram.repository.TelegramUserRepository");
             if (telegramRepo != null) {
@@ -41,7 +41,7 @@ public class AdminInitializer {
             }
         }
         
-        // Проверяем, указан ли REST администратор (email)
+        // Check if REST admin (email) is set
         if (adminProperties.getRestEmail() != null) {
             Object restRepo = getBeanByClassName("ru.girchev.aibot.rest.repository.RestUserRepository");
             if (restRepo != null) {
@@ -49,15 +49,15 @@ public class AdminInitializer {
             }
         }
         
-        log.info("Инициализация администратора завершена");
+        log.info("Admin initialization completed");
     }
 
     @SuppressWarnings("unchecked")
     private void initTelegramAdmin(Long telegramId, Object repository) {
-        log.info("Создание/обновление Telegram администратора с ID: {}", telegramId);
+        log.info("Creating/updating Telegram admin with ID: {}", telegramId);
         
         try {
-            // Используем рефлексию для работы с TelegramUserRepository
+            // Use reflection to work with TelegramUserRepository
             java.lang.reflect.Method findByTelegramId = repository.getClass().getMethod("findByTelegramId", Long.class);
             Optional<Object> existingUserOpt = (Optional<Object>) findByTelegramId.invoke(repository, telegramId);
             
@@ -71,13 +71,13 @@ public class AdminInitializer {
                     user.getClass().getMethod("setIsPremium", Boolean.class).invoke(user, true);
                     user.getClass().getMethod("setIsBlocked", Boolean.class).invoke(user, false);
                     repository.getClass().getMethod("save", Object.class).invoke(repository, user);
-                    log.info("Пользователь Telegram с ID {} обновлен до администратора", telegramId);
+                    log.info("Telegram user with ID {} updated to admin", telegramId);
                 } else {
-                    log.info("Пользователь Telegram с ID {} уже является администратором", telegramId);
+                    log.info("Telegram user with ID {} is already admin", telegramId);
                 }
             } else {
-                // Создаем нового администратора
-                Object admin = Class.forName("ru.girchev.aibot.telegram.model.TelegramUser").getDeclaredConstructor().newInstance();
+                // Create new admin
+            Object admin = Class.forName("ru.girchev.aibot.telegram.model.TelegramUser").getDeclaredConstructor().newInstance();
                 admin.getClass().getMethod("setTelegramId", Long.class).invoke(admin, telegramId);
                 admin.getClass().getMethod("setUsername", String.class).invoke(admin, "admin_" + telegramId);
                 admin.getClass().getMethod("setIsAdmin", Boolean.class).invoke(admin, true);
@@ -87,19 +87,19 @@ public class AdminInitializer {
                 admin.getClass().getMethod("setUpdatedAt", OffsetDateTime.class).invoke(admin, OffsetDateTime.now());
                 admin.getClass().getMethod("setLastActivityAt", OffsetDateTime.class).invoke(admin, OffsetDateTime.now());
                 repository.getClass().getMethod("save", Object.class).invoke(repository, admin);
-                log.info("Создан новый Telegram администратор с ID: {}", telegramId);
+                log.info("Created new Telegram admin with ID: {}", telegramId);
             }
         } catch (Exception e) {
-            log.error("Ошибка при создании Telegram администратора", e);
+            log.error("Error creating Telegram admin", e);
         }
     }
 
     @SuppressWarnings("unchecked")
     private void initRestAdmin(String email, Object repository) {
-        log.info("Создание/обновление REST администратора с email: {}", email);
+        log.info("Creating/updating REST admin with email: {}", email);
         
         try {
-            // Используем рефлексию для работы с RestUserRepository
+            // Use reflection to work with RestUserRepository
             java.lang.reflect.Method findByEmail = repository.getClass().getMethod("findByEmail", String.class);
             Optional<Object> existingUserOpt = (Optional<Object>) findByEmail.invoke(repository, email);
             
@@ -113,13 +113,13 @@ public class AdminInitializer {
                     user.getClass().getMethod("setIsPremium", Boolean.class).invoke(user, true);
                     user.getClass().getMethod("setIsBlocked", Boolean.class).invoke(user, false);
                     repository.getClass().getMethod("save", Object.class).invoke(repository, user);
-                    log.info("Пользователь REST с email {} обновлен до администратора", email);
+                    log.info("REST user with email {} updated to admin", email);
                 } else {
-                    log.info("Пользователь REST с email {} уже является администратором", email);
+                    log.info("REST user with email {} is already admin", email);
                 }
             } else {
-                // Создаем нового администратора
-                Object admin = Class.forName("ru.girchev.aibot.rest.model.RestUser").getDeclaredConstructor().newInstance();
+                // Create new admin
+            Object admin = Class.forName("ru.girchev.aibot.rest.model.RestUser").getDeclaredConstructor().newInstance();
                 admin.getClass().getMethod("setEmail", String.class).invoke(admin, email);
                 admin.getClass().getMethod("setUsername", String.class).invoke(admin, email);
                 admin.getClass().getMethod("setIsAdmin", Boolean.class).invoke(admin, true);
@@ -129,13 +129,13 @@ public class AdminInitializer {
                 admin.getClass().getMethod("setUpdatedAt", OffsetDateTime.class).invoke(admin, OffsetDateTime.now());
                 admin.getClass().getMethod("setLastActivityAt", OffsetDateTime.class).invoke(admin, OffsetDateTime.now());
                 repository.getClass().getMethod("save", Object.class).invoke(repository, admin);
-                log.info("Создан новый REST администратор с email: {} (API ключ можно установить позже)", email);
+                log.info("Created new REST admin with email: {} (API key can be set later)", email);
             }
         } catch (Exception e) {
-            log.error("Ошибка при создании REST администратора", e);
+            log.error("Error creating REST admin", e);
         }
     }
-    
+
     private Object getBeanByClassName(String className) {
         try {
             Class<?> clazz = Class.forName(className);
@@ -144,8 +144,8 @@ public class AdminInitializer {
                 return applicationContext.getBean(beanNames[0]);
             }
         } catch (Exception e) {
-            // Класс не найден или бин не существует - это нормально для опциональных модулей
-            log.debug("Бин {} не найден, пропускаем", className);
+            // Class or bean not found - normal for optional modules
+            log.debug("Bean {} not found, skipping", className);
         }
         return null;
     }

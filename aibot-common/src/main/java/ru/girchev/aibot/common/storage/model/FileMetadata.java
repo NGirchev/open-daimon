@@ -3,13 +3,13 @@ package ru.girchev.aibot.common.storage.model;
 import java.time.OffsetDateTime;
 
 /**
- * Метаданные файла в хранилище.
+ * File metadata in storage.
  *
- * @param key уникальный ключ файла в хранилище
- * @param mimeType MIME тип файла (image/png, application/pdf и т.д.)
- * @param originalName оригинальное имя файла
- * @param size размер файла в байтах
- * @param uploadedAt время загрузки файла
+ * @param key unique file key in storage
+ * @param mimeType file MIME type (image/png, application/pdf, etc.)
+ * @param originalName original file name
+ * @param size file size in bytes
+ * @param uploadedAt file upload time
  */
 public record FileMetadata(
     String key,

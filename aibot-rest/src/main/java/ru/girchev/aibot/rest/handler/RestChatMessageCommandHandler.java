@@ -156,10 +156,10 @@ public class RestChatMessageCommandHandler implements
             return response;
         } catch (AccessDeniedException e) {
             // Пробрасываем AccessDeniedException без оборачивания для правильной обработки в RestExceptionHandler
-            log.warn("Доступ запрещен для пользователя: {}", e.getMessage());
+            log.warn("Access denied for user: {}", e.getMessage());
             throw e;
         } catch (UserMessageTooLongException e) {
-            log.warn("Сообщение превышает лимит токенов: {}", e.getMessage());
+            log.warn("Message exceeds token limit: {}", e.getMessage());
             throw e;
         } catch (Exception e) {
             if (AIUtils.shouldLogWithoutStacktrace(e)) {

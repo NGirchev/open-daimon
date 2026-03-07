@@ -26,6 +26,7 @@ ai-bot:
       max-context-tokens: 8000
       summary-trigger-threshold: 0.7
       keep-recent-messages: 5
+      prompt: "You are an assistant. Create a summary in JSON. Conversation:"
     manual-conversation-history:
       enabled: false
       max-response-tokens: 4000

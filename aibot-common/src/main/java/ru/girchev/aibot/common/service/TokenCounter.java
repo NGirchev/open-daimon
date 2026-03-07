@@ -5,10 +5,10 @@ import ru.girchev.aibot.common.config.CoreCommonProperties;
 import java.util.List;
 
 /**
- * Утилита для оценки количества токенов в тексте.
- * Использует эвристику: 1 токен ≈ N символов (из конфигурации).
- * 
- * TODO: В будущем можно интегрировать tiktoken или другую библиотеку для точного подсчета
+ * Utility for estimating token count in text.
+ * Uses heuristic: 1 token ≈ N characters (from configuration).
+ *
+ * TODO: Can integrate tiktoken or other library for exact count in future
  */
 public class TokenCounter {
     
@@ -19,10 +19,10 @@ public class TokenCounter {
     }
     
     /**
-     * Оценивает количество токенов в тексте
-     * 
-     * @param text текст для оценки
-     * @return приблизительное количество токенов
+     * Estimates token count in text.
+     *
+     * @param text text to estimate
+     * @return approximate token count
      */
     public int estimateTokens(String text) {
         if (text == null || text.isEmpty()) {
@@ -33,10 +33,10 @@ public class TokenCounter {
     }
     
     /**
-     * Оценивает общее количество токенов в списке текстов
-     * 
-     * @param texts список текстов для оценки
-     * @return суммарное приблизительное количество токенов
+     * Estimates total token count in a list of texts.
+     *
+     * @param texts list of texts to estimate
+     * @return total approximate token count
      */
     public int estimateTokens(List<String> texts) {
         if (texts == null || texts.isEmpty()) {

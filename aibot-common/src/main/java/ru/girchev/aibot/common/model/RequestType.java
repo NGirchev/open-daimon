@@ -1,7 +1,7 @@
 package ru.girchev.aibot.common.model;
 
 /**
- * Перечисление типов запросов пользователей
+ * Enumeration of user request types.
  */
 public enum RequestType {
     TEXT,

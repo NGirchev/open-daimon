@@ -1,25 +1,25 @@
 package ru.girchev.aibot.bulkhead.exception;
 
 /**
- * Исключение, выбрасываемое при отказе в доступе к ресурсам.
- * Используется, когда пользователь заблокирован или когда исчерпан пул потоков.
+ * Thrown when access to resources is denied.
+ * Used when user is blocked or thread pool is exhausted.
  */
 public class AccessDeniedException extends RuntimeException {
 
     /**
-     * Создает новое исключение с указанным сообщением.
+     * Creates exception with given message.
      *
-     * @param message сообщение об ошибке
+     * @param message error message
      */
     public AccessDeniedException(String message) {
         super(message);
     }
 
     /**
-     * Создает новое исключение с указанным сообщением и причиной.
+     * Creates exception with message and cause.
      *
-     * @param message сообщение об ошибке
-     * @param cause причина исключения
+     * @param message error message
+     * @param cause cause
      */
     public AccessDeniedException(String message, Throwable cause) {
         super(message, cause);

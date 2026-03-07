@@ -54,7 +54,7 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
             log.info("User {} resolved as ADMIN", command.userId());
             Map<String, Object> body = new HashMap<>();
             
-            // Базовые modelTypes в зависимости от приоритета
+            // Base modelTypes depending on priority
             Set<ModelCapabilities> baseModelCapabilities = switch (priority) {
                 case ADMIN -> Set.of(AUTO);
                 case VIP -> {
@@ -64,10 +64,10 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
                 default -> Set.of(CHAT);
             };
             
-            // Динамически добавляем VISION если есть изображения
+            // Add VISION dynamically if there are images
             Set<ModelCapabilities> modelCapabilities = addVisionIfNeeded(baseModelCapabilities, attachments);
 
-            // Температура 0.35 для бытового ассистента (рекомендуемый диапазон: 0.3-0.4)
+            // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
             return new ChatAICommand(
                     modelCapabilities,
                     0.35,
@@ -86,7 +86,7 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
     }
 
     /**
-     * Добавляет ModelType.VISION если есть image attachments.
+     * Adds ModelType.VISION if there are image attachments.
      */
     private Set<ModelCapabilities> addVisionIfNeeded(Set<ModelCapabilities> baseTypes, List<Attachment> attachments) {
         boolean hasImages = attachments.stream()

@@ -76,11 +76,15 @@ ai-bot:
           key: test-key
           url: https://google.serper.dev/search
       rag:
-        enabled: false  # По умолчанию выключено в тестах
+        enabled: false
         chunk-size: 800
         chunk-overlap: 100
         top-k: 5
         similarity-threshold: 0.7
+        prompts:
+          document-extract-error-pdf: "Could not extract text from file \"%s\". The file may be a scan or image."
+          document-extract-error-document: "Could not extract text from file \"%s\" (type: %s)."
+          augmented-prompt-template: "Context:\n%s\n\nQuestion: %s"
       # Модели для теста - используем openrouter/auto с бесплатным max_price
       models:
         list:

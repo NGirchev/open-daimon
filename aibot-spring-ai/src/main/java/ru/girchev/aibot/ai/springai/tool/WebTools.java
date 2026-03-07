@@ -112,12 +112,12 @@ public class WebTools {
                 return "";
             }
 
-            // HTML → чистый текст (минимально адекватно)
+            // HTML to plain text (minimal)
             Document doc = Jsoup.parse(html);
             doc.select("script, style, nav, footer, header").remove();
 
             String text = doc.body() != null ? doc.body().text() : "";
-            // защита от токен-адской боли
+            // avoid token overflow
             return text.length() > 6000 ? text.substring(0, 6000) : text;
         } catch (WebClientResponseException e) {
             log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning empty string.", url, e.getMessage());

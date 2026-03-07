@@ -77,7 +77,7 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
                     });
         }
 
-        // OpenRouter SSE: собираем reasoning и все метаданные из сырого ответа.
+        // OpenRouter SSE: collect reasoning and metadata from raw response.
         log.debug("OpenRouter SSE response: sniffing reasoning");
         StringBuilder reasoningBuffer = new StringBuilder();
         Map<String, String> rawMetadata = new LinkedHashMap<>();
@@ -98,9 +98,9 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
     }
 
     /**
-     * Собирает reasoning и все метаданные из одного DataBuffer SSE-стрима.
+     * Collects reasoning and metadata from one DataBuffer SSE stream.
      * Reasoning: delta.reasoning / delta.reasoning_content / delta.reasoning_details.summary.
-     * Метаданные: все поля корня JSON и все поля choices[0].delta (значения обрезаются для лога).
+     * Metadata: root JSON fields and choices[0].delta (values truncated for log).
      *
      * 2026-02-19 22:55:55.497 [reactor-http-nio-2] DEBUG r.g.a.a.s.r.WebClientLogCustomizer - OpenRouter SSE response: sniffing reasoning
      * 2026-02-19 22:55:56.806 [boundedElastic-1] INFO  r.g.a.a.s.s.SpringAIChatService - Spring AI stream started - first chunk received
@@ -167,9 +167,8 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
     }
 
     /**
-     * Добавляет в map все непустые поля узла (с префиксом).
-     * Значения обрезаются до MAX_METADATA_VALUE_LENGTH.
-     * @param excludeKey имя поля корня для исключения (например "choices"), или null
+     * Adds all non-empty node fields to map (with prefix). Values truncated to MAX_METADATA_VALUE_LENGTH.
+     * @param excludeKey root field name to exclude (e.g. "choices"), or null
      */
     private void putAllNonEmptyFields(JsonNode node, String keyPrefix, Map<String, String> out, String excludeKey) {
         if (node == null || !node.isObject()) {
@@ -309,8 +308,7 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
     }
 
     /**
-     * Нормализует текст reasoning для однострочного лога: убирает переносы строк и множественные пробелы,
-     * чтобы в логе не появлялись пустые строки.
+     * Normalizes reasoning text for single-line log: strips newlines and multiple spaces.
      */
     private String normalizeReasoningForLog(String s) {
         if (s == null) {

@@ -1,23 +1,21 @@
 package ru.girchev.aibot.ai.springai.config;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.NestedConfigurationProperty;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * Конфигурация для RAG (Retrieval-Augmented Generation) с SimpleVectorStore.
- * 
+ * Configuration for RAG (Retrieval-Augmented Generation) with SimpleVectorStore.
+ *
  * <p>Feature flag: {@code ai-bot.ai.spring-ai.rag.enabled}
- * 
- * <p>SimpleVectorStore хранит данные in-memory, что означает:
- * <ul>
- *   <li>Быстрая работа для тестирования и небольших объемов</li>
- *   <li>Данные теряются при перезапуске</li>
- *   <li>Для production рекомендуется PGVector или Elasticsearch</li>
- * </ul>
+ *
+ * <p>SimpleVectorStore is in-memory: data is lost on restart; for production consider PGVector or Elasticsearch.
  */
 @ConfigurationProperties(prefix = "ai-bot.ai.spring-ai.rag")
 @Validated
@@ -25,33 +23,39 @@ import org.springframework.validation.annotation.Validated;
 @Setter
 public class RAGProperties {
 
-    /**
-     * Размер чанка в токенах при разбиении документа.
-     * Оптимальный размер для RAG обычно 500-1000 токенов.
-     */
-    @NotNull(message = "chunkSize обязателен")
-    @Min(value = 100, message = "chunkSize должен быть >= 100")
+    @NotNull(message = "chunkSize is required")
+    @Min(value = 100, message = "chunkSize must be >= 100")
     private Integer chunkSize;
 
-    /**
-     * Количество токенов перекрытия между чанками.
-     * Перекрытие помогает сохранить контекст на границах чанков.
-     */
-    @NotNull(message = "chunkOverlap обязателен")
-    @Min(value = 0, message = "chunkOverlap должен быть >= 0")
+    @NotNull(message = "chunkOverlap is required")
+    @Min(value = 0, message = "chunkOverlap must be >= 0")
     private Integer chunkOverlap;
 
-    /**
-     * Количество топ-K релевантных чанков для извлечения при поиске.
-     */
-    @NotNull(message = "topK обязателен")
-    @Min(value = 1, message = "topK должен быть >= 1")
+    @NotNull(message = "topK is required")
+    @Min(value = 1, message = "topK must be >= 1")
     private Integer topK;
 
-    /**
-     * Минимальный порог similarity для включения документа в результаты.
-     * Значение от 0.0 до 1.0, где 1.0 - полное совпадение.
-     */
-    @NotNull(message = "similarityThreshold обязателен")
+    @NotNull(message = "similarityThreshold is required")
     private Double similarityThreshold;
+
+    @Valid
+    @NestedConfigurationProperty
+    private RAGPrompts prompts = new RAGPrompts();
+
+    @Getter
+    @Setter
+    @Validated
+    public static class RAGPrompts {
+        /** Message when PDF text cannot be extracted. Format: %s = file name. */
+        @NotBlank(message = "documentExtractErrorPdf is required")
+        private String documentExtractErrorPdf;
+
+        /** Message when document text cannot be extracted. Format: %s = file name, %s = document type. */
+        @NotBlank(message = "documentExtractErrorDocument is required")
+        private String documentExtractErrorDocument;
+
+        /** RAG augmented prompt template. Format: %s = context text, %s = user question. */
+        @NotBlank(message = "augmentedPromptTemplate is required")
+        private String augmentedPromptTemplate;
+    }
 }

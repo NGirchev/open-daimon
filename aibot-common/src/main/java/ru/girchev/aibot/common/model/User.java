@@ -57,7 +57,7 @@ public class User extends AbstractEntity<Long> implements IUserObject {
     private Boolean isAdmin;
     
     /**
-     * Текущая активная роль ассистента
+     * Current active assistant role
      */
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "current_assistant_role_id")

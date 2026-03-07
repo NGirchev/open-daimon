@@ -34,7 +34,7 @@ import static ru.girchev.aibot.common.ai.LlmParamNames.*;
 public class AIUtils {
 
     /**
-     * Имя класса ожидаемой ошибки пустого стрима (ретрай), чтобы не печатать длинный стек.
+     * Class name of expected empty-stream exception (retry), to avoid printing long stack trace.
      */
     private static final String OPENROUTER_EMPTY_STREAM_EXCEPTION_CLASS =
             "ru.girchev.aibot.ai.springai.retry.OpenRouterEmptyStreamException";
@@ -42,8 +42,8 @@ public class AIUtils {
     private static final int EXTRACT_TEXT_EMPTY_LOG_LIMIT = 3;
 
     /**
-     * Проверяет, есть ли в цепочке причин OpenRouterEmptyStreamException (ожидаемая ошибка ретрая).
-     * Используется, чтобы логировать такие ошибки без стека и не забивать лог.
+     * Checks whether the cause chain contains OpenRouterEmptyStreamException (expected retry error).
+     * Used to log such errors without stack trace and avoid log noise.
      */
     public static boolean isOpenRouterEmptyStreamInChain(Throwable t) {
         while (t != null) {
@@ -56,8 +56,8 @@ public class AIUtils {
     }
 
     /**
-     * Ошибки, для которых не нужно печатать полный стектрейс (реактивный/HTTP), чтобы не забивать лог.
-     * true: OpenRouterEmptyStreamException или WebClientResponseException в цепочке cause.
+     * Errors for which full stack trace should not be printed (reactive/HTTP), to avoid log noise.
+     * true: OpenRouterEmptyStreamException or WebClientResponseException in cause chain.
      */
     public static boolean shouldLogWithoutStacktrace(Throwable t) {
         while (t != null) {
@@ -76,7 +76,7 @@ public class AIUtils {
     }
 
     /**
-     * Сообщение корневой причины для краткого лога.
+     * Root cause message for brief logging.
      */
     public static String getRootCauseMessage(Throwable t) {
         if (t == null) {
@@ -92,10 +92,10 @@ public class AIUtils {
     }
 
     /**
-     * Извлекает сообщение из AIResponse.
+     * Extracts message from AIResponse.
      *
-     * @param aiResponse ответ от AI провайдера
-     * @return Optional с текстом сообщения
+     * @param aiResponse response from AI provider
+     * @return Optional with message text
      */
     public static Optional<String> retrieveMessage(AIResponse aiResponse) {
         if (aiResponse == null) {
@@ -117,10 +117,10 @@ public class AIUtils {
     }
 
     /**
-     * Извлекает полезные данные из AIResponse.
+     * Extracts useful data from AIResponse.
      *
-     * @param aiResponse ответ от AI провайдера
-     * @return Map с полезными данными или null, если нет полезных данных
+     * @param aiResponse response from AI provider
+     * @return Map with useful data or null if none
      */
     public static Map<String, Object> extractUsefulData(AIResponse aiResponse) {
         if (aiResponse == null) {
@@ -215,7 +215,7 @@ public class AIUtils {
 
                 answer = Optional.ofNullable(content);
 
-                // Если content пустой, логируем предупреждение
+                // If content is empty, log warning
                 if (content == null || content.isEmpty()) {
                     log.warn("Content is empty in response");
                 }
@@ -239,16 +239,16 @@ public class AIUtils {
     }
 
     /**
-     * Извлекает полезные данные из ответа AI провайдера.
-     * Сохраняет только данные, которых нет в таблице message:
-     * - usage.prompt_tokens - реальное количество токенов в промпте (у нас только оценка)
-     * - usage.completion_tokens - реальное количество токенов в ответе (у нас только оценка)
-     * - usage.total_tokens - общее количество токенов (у нас только оценка)
-     * - finish_reason - причина завершения (stop, length, content_filter и т.д.)
-     * - model - реальная модель, которая использовалась (может отличаться от запрошенной)
+     * Extracts useful data from AI provider response.
+     * Keeps only data not stored in message table:
+     * - usage.prompt_tokens - actual prompt token count (we only have estimate)
+     * - usage.completion_tokens - actual completion token count (we only have estimate)
+     * - usage.total_tokens - total token count (we only have estimate)
+     * - finish_reason - completion reason (stop, length, content_filter, etc.)
+     * - model - actual model used (may differ from requested)
      *
-     * @param aiRawResponse сырой ответ от AI провайдера
-     * @return Map с полезными данными или null, если нет полезных данных
+     * @param aiRawResponse raw response from AI provider
+     * @return Map with useful data or null if none
      */
 
     public static Map<String, Object> extractUsefulData(Map<String, Object> aiRawResponse) {
@@ -265,12 +265,12 @@ public class AIUtils {
         Map<String, Object> usefulData = new HashMap<>();
         boolean hasUsefulData = false;
 
-        // Извлекаем usage данные (реальные токены от провайдера)
+        // Extract usage data (actual tokens from provider)
         Object usageObj = aiRawResponse.get(USAGE);
         log.debug("Usage object: type={}, value={}", usageObj != null ? usageObj.getClass() : "null", usageObj);
         if (usageObj != null) {
             try {
-                // Пытаемся преобразовать в Map, если это не Map напрямую
+                // Try to convert to Map if not already a Map
                 Map<String, Object> usage;
                 if (usageObj instanceof Map) {
                     @SuppressWarnings("unchecked")
@@ -307,14 +307,14 @@ public class AIUtils {
             log.warn("Usage data not found in response");
         }
 
-        // Извлекаем finish_reason из корня Map (для Spring AI) или из первого choice (для OpenRouter/DeepSeek)
+        // Extract finish_reason from root Map (Spring AI) or from first choice (OpenRouter/DeepSeek)
         Object finishReasonObj = aiRawResponse.get(FINISH_REASON);
         if (finishReasonObj != null) {
             usefulData.put(FINISH_REASON, finishReasonObj);
             hasUsefulData = true;
             log.debug("Extracted finish_reason from root: {}", finishReasonObj);
         } else {
-            // Fallback: извлекаем finish_reason из первого choice (для обратной совместимости с OpenRouter/DeepSeek)
+            // Fallback: extract finish_reason from first choice (for OpenRouter/DeepSeek compatibility)
             Object choicesObj = aiRawResponse.get(CHOICES);
             if (choicesObj != null) {
                 try {
@@ -351,7 +351,7 @@ public class AIUtils {
             }
         }
 
-        // Извлекаем реальную модель, которая использовалась (может отличаться от запрошенной)
+        // Extract actual model used (may differ from requested)
         Object modelObj = aiRawResponse.get(MODEL);
         if (modelObj != null) {
             String actualModel = modelObj.toString();
@@ -375,71 +375,71 @@ public class AIUtils {
     }
 
     /**
-     * Обрабатывает streaming ответ от AI, разбивая его по абзацам (двойные переносы строк \n\n)
-     * и отправляя посимвольно (с корректной обработкой emoji через codePoints).
+     * Processes streaming response from AI, splitting by paragraphs (double newlines \n\n)
+     * and sending character-by-character (with correct emoji handling via codePoints).
      *
-     * @param responseFlux поток ответов от AI
-     * @param listener     обработчик для каждого символа
-     * @return итоговый ChatResponse с полным текстом и метаданными
-     * @throws WebClientException если произошла ошибка при обработке стрима
+     * @param responseFlux flux of responses from AI
+     * @param listener     handler for each character
+     * @return final ChatResponse with full text and metadata
+     * @throws WebClientException if an error occurs while processing the stream
      */
     public static ChatResponse processStreamingResponseByParagraphs(
             Flux<ChatResponse> responseFlux,
             Consumer<String> listener
     ) throws WebClientException {
-        // Дефолтный таймаут: 10 минут (600 секунд), дефолтный лимит: 4096 символов
+        // Default timeout: 10 minutes (600 seconds), default limit: 4096 characters
         return processStreamingResponseByParagraphs(responseFlux, 4096, listener, Duration.ofMinutes(10));
     }
 
     /**
-     * Обрабатывает streaming ответ от AI, разбивая его по абзацам (двойные переносы строк \n\n)
-     * и отправляя посимвольно (с корректной обработкой emoji через codePoints).
+     * Processes streaming response from AI, splitting by paragraphs (double newlines \n\n)
+     * and sending character-by-character (with correct emoji handling via codePoints).
      *
-     * @param responseFlux поток ответов от AI
-     * @param maxMessageLength максимальная длина сообщения (символов). При превышении сообщение разбивается по границам абзацев.
-     * @param listener     обработчик для каждого символа
-     * @return итоговый ChatResponse с полным текстом и метаданными
-     * @throws WebClientException если произошла ошибка при обработке стрима
+     * @param responseFlux flux of responses from AI
+     * @param maxMessageLength maximum message length (characters). When exceeded, message is split at paragraph boundaries.
+     * @param listener     handler for each character
+     * @return final ChatResponse with full text and metadata
+     * @throws WebClientException if an error occurs while processing the stream
      */
     public static ChatResponse processStreamingResponseByParagraphs(
             Flux<ChatResponse> responseFlux,
             int maxMessageLength,
             Consumer<String> listener
     ) throws WebClientException {
-        // Дефолтный таймаут: 10 минут (600 секунд)
+        // Default timeout: 10 minutes (600 seconds)
         return processStreamingResponseByParagraphs(responseFlux, maxMessageLength, listener, Duration.ofMinutes(10));
     }
 
     /**
-     * Обрабатывает streaming ответ от AI, разбивая его по абзацам (двойные переносы строк \n\n)
-     * и отправляя посимвольно (с корректной обработкой emoji через codePoints).
+     * Processes streaming response from AI, splitting by paragraphs (double newlines \n\n)
+     * and sending character-by-character (with correct emoji handling via codePoints).
      *
-     * @param responseFlux поток ответов от AI
-     * @param listener     обработчик для каждого символа
-     * @param timeout      таймаут ожидания завершения стрима
-     * @return итоговый ChatResponse с полным текстом и метаданными
-     * @throws WebClientException если произошла ошибка при обработке стрима
+     * @param responseFlux flux of responses from AI
+     * @param listener     handler for each character
+     * @param timeout      timeout for stream completion
+     * @return final ChatResponse with full text and metadata
+     * @throws WebClientException if an error occurs while processing the stream
      */
     public static ChatResponse processStreamingResponseByParagraphs(
             Flux<ChatResponse> responseFlux,
             Consumer<String> listener,
             Duration timeout
     ) throws WebClientException {
-        // Дефолтный лимит: 4096 символов
+        // Default limit: 4096 characters
         return processStreamingResponseByParagraphs(responseFlux, 4096, listener, timeout);
     }
 
     /**
-     * Обрабатывает streaming ответ от AI, разбивая его по абзацам (двойные переносы строк \n\n)
-     * и отправляя посимвольно (с корректной обработкой emoji через codePoints).
-     * Если блок превышает maxMessageLength, он разбивается по границам абзацев.
+     * Processes streaming response from AI, splitting by paragraphs (double newlines \n\n)
+     * and sending character-by-character (with correct emoji handling via codePoints).
+     * If a block exceeds maxMessageLength, it is split at paragraph boundaries.
      *
-     * @param responseFlux поток ответов от AI
-     * @param maxMessageLength максимальная длина сообщения (символов). При превышении сообщение разбивается по границам абзацев.
-     * @param listener     обработчик для каждого символа
-     * @param timeout      таймаут ожидания завершения стрима
-     * @return итоговый ChatResponse с полным текстом и метаданными
-     * @throws WebClientException если произошла ошибка при обработке стрима
+     * @param responseFlux flux of responses from AI
+     * @param maxMessageLength maximum message length (characters). When exceeded, message is split at paragraph boundaries.
+     * @param listener     handler for each character
+     * @param timeout      timeout for stream completion
+     * @return final ChatResponse with full text and metadata
+     * @throws WebClientException if an error occurs while processing the stream
      */
     public static ChatResponse processStreamingResponseByParagraphs(
             Flux<ChatResponse> responseFlux,
@@ -458,7 +458,7 @@ public class AIUtils {
         final int MIN_PARAGRAPH_LENGTH = 300;
 
         try {
-            // Используем ОДИН поток chatResponse() - из него извлекаем и текст, и метаданные
+            // Use single chatResponse() flux - we extract both text and metadata from it
             responseFlux
                     .doOnError(error -> {
                         if (shouldLogWithoutStacktrace(error)) {
@@ -476,24 +476,24 @@ public class AIUtils {
                     .filter(Optional::isPresent)
                     .doOnNext(ignored -> chunksWithNonEmptyText.incrementAndGet())
                     .map(Optional::get)
-                    // concurrency=1, prefetch=1 — не запрашивать у источника много чанков сразу, иначе стрим буферизуется и все сообщения в Telegram приходят разом
+                    // concurrency=1, prefetch=1 — do not request many chunks at once from source, or stream buffers and all Telegram messages arrive at once
                     .flatMap(chunk -> {
                         try {
-                            // Объединяем хвост с новым чанком
+                            // Append tail to new chunk
                             String text = tail.get() + chunk;
 
-                            // Разбиваем на абзацы по двойным переносам строк
+                            // Split into paragraphs by double newlines
                             String[] paragraphs = text.split("\n\n", -1);
 
-                            // Проверяем, заканчивается ли текст на \n\n
+                            // Check if text ends with \n\n
                             boolean endsWithParagraph = text.endsWith("\n\n");
 
                             if (endsWithParagraph) {
-                                // Текст заканчивается разделителем - обрабатываем все параграфы
+                                // Text ends with separator - process all paragraphs
                                 tail.set("");
                                 return Flux.fromArray(paragraphs);
                             } else {
-                                // Последний кусок может быть незавершённым абзацем - оставляем в хвосте
+                                // Last piece may be incomplete paragraph - keep in tail
                                 tail.set(paragraphs[paragraphs.length - 1]);
                                 return Flux.fromArray(Arrays.copyOfRange(paragraphs, 0, paragraphs.length - 1));
                             }
@@ -502,46 +502,46 @@ public class AIUtils {
                             return Flux.empty();
                         }
                     }, 1, 1)
-                    // Фильтруем пустые абзацы
+                    // Filter empty paragraphs
                     .filter(paragraph -> !paragraph.trim().isEmpty())
-                    // Обрабатываем параграфы с учётом минимальной длины (prefetch 1 — не буферизовать)
+                    // Process paragraphs with minimum length (prefetch 1 — do not buffer)
                     .flatMap(paragraph -> {
                         String trimmed = paragraph.trim();
 
-                        // Если параграф короткий (< 100 символов), накапливаем его
+                        // If paragraph is short (< MIN_PARAGRAPH_LENGTH), accumulate it
                         if (trimmed.length() < MIN_PARAGRAPH_LENGTH) {
                             String toSend = accumulatedShortParagraphs.get();
                             toSend = toSend.isEmpty() ? trimmed : toSend + "\n\n" + trimmed;
                             accumulatedShortParagraphs.set(toSend);
 
-                            // Если накопленный текст достиг минимальной длины, отправляем его
+                            // When accumulated text reaches minimum length, send it
                             if (toSend.length() >= MIN_PARAGRAPH_LENGTH) {
                                 accumulatedShortParagraphs.set("");
                                 return Flux.just(toSend);
                             }
                             return Flux.empty();
                         } else {
-                            // Параграф достаточно длинный
+                            // Paragraph is long enough
                             String accumulated = accumulatedShortParagraphs.get();
                             if (!accumulated.isEmpty()) {
-                                // Отправляем накопленные короткие параграфы вместе с текущим
+                                // Send accumulated short paragraphs together with current one
                                 accumulatedShortParagraphs.set("");
                                 return Flux.just(accumulated + "\n\n" + trimmed);
                             }
                             return Flux.just(trimmed);
                         }
                     }, 1, 1)
-                    // Разбиваем блоки по лимиту maxMessageLength (prefetch 1 — не буферизовать)
+                    // Split blocks by maxMessageLength limit (prefetch 1 — do not buffer)
                     .flatMap(block -> {
                         String blockToProcess = overflowBuffer.get() + block;
                         overflowBuffer.set("");
                         
-                        // Если блок не превышает лимит, отправляем его целиком
+                        // If block does not exceed limit, send it as-is
                         if (blockToProcess.length() <= maxMessageLength) {
                             return Flux.just(blockToProcess);
                         }
                         
-                        // Блок превышает лимит - разбиваем по абзацам
+                        // Block exceeds limit - split by paragraphs
                         List<String> parts = new ArrayList<>();
                         String[] paragraphs = blockToProcess.split("\n\n", -1);
                         StringBuilder currentPart = new StringBuilder();
@@ -551,16 +551,16 @@ public class AIUtils {
                                     ? paragraph 
                                     : currentPart + "\n\n" + paragraph;
                             
-                            // Если добавление абзаца не превышает лимит, добавляем его
+                            // If adding paragraph does not exceed limit, add it
                             if (paragraphWithSeparator.length() <= maxMessageLength) {
                                 currentPart = new StringBuilder(paragraphWithSeparator);
                             } else {
-                                // Текущая часть готова к отправке
+                                // Current part is ready to send
                                 if (!currentPart.isEmpty()) {
                                     parts.add(currentPart.toString());
                                     currentPart = new StringBuilder(paragraph);
                                 } else {
-                                    // Даже один абзац превышает лимит - находим место разрыва по границам предложений
+                                    // Even single paragraph exceeds limit - find split point at sentence boundaries
                                     int splitPoint = findSplitPoint(paragraph, maxMessageLength);
                                     parts.add(paragraph.substring(0, splitPoint));
                                     overflowBuffer.set(paragraph.substring(splitPoint));
@@ -568,12 +568,12 @@ public class AIUtils {
                             }
                         }
                         
-                        // Добавляем оставшуюся часть, если она есть
+                        // Add remaining part if any
                         if (!currentPart.isEmpty()) {
                             if (currentPart.length() <= maxMessageLength) {
                                 parts.add(currentPart.toString());
                             } else {
-                                // Последняя часть тоже превышает лимит - находим место разрыва
+                                // Last part also exceeds limit - find split point
                                 int splitPoint = findSplitPoint(currentPart.toString(), maxMessageLength);
                                 parts.add(currentPart.substring(0, splitPoint));
                                 overflowBuffer.set(currentPart.substring(splitPoint));
@@ -582,36 +582,36 @@ public class AIUtils {
                         
                         return parts.isEmpty() ? Flux.empty() : Flux.fromIterable(parts);
                     }, 1, 1)
-                    // Отправляем каждый блок целиком
+                    // Send each block as a whole
                     .doOnNext(block -> {
                         fullResponse.updateAndGet(current -> current + block + "\n\n");
                         listener.accept(block + "\n\n");
                     })
                     .blockLast(timeout);
 
-            // Получаем последний ChatResponse для метаданных
+            // Get last ChatResponse for metadata
             ChatResponse finalResponse = lastResponse.get();
 
-            // Обрабатываем оставшийся хвост и overflow buffer
+            // Process remaining tail and overflow buffer
             String remainingTail = tail.get().trim();
             String overflow = overflowBuffer.get();
             String finalTail = overflow.isEmpty() ? remainingTail : (remainingTail.isEmpty() ? overflow : remainingTail + "\n\n" + overflow);
             
             if (!finalTail.isEmpty()) {
-                // Проверяем длину финального хвоста с учетом лимита
+                // Check final tail length against limit
                 String accumulated = accumulatedShortParagraphs.get().trim();
                 String combined = accumulated.isEmpty() ? finalTail : accumulated + "\n\n" + finalTail;
                 
-                // Если комбинированный текст превышает лимит, разбиваем его
+                // If combined text exceeds limit, split it
                 if (combined.length() > maxMessageLength) {
-                    // Отправляем накопленные короткие параграфы отдельно, если они есть
+                    // Send accumulated short paragraphs separately if any
                     if (!accumulated.isEmpty()) {
                         fullResponse.updateAndGet(current -> current + accumulated);
                         listener.accept(accumulated);
                         accumulatedShortParagraphs.set("");
                     }
                     
-                    // Разбиваем финальный хвост по абзацам
+                    // Split final tail by paragraphs
                     String[] paragraphs = finalTail.split("\n\n", -1);
                     StringBuilder currentPart = new StringBuilder();
                     
@@ -629,12 +629,12 @@ public class AIUtils {
                                 listener.accept(currentPartStr);
                                 currentPart = new StringBuilder(paragraph);
                             } else {
-                                // Даже один абзац превышает лимит - находим место разрыва
+                                // Even single paragraph exceeds limit - find split point
                                 if (paragraph.length() > maxMessageLength) {
                                     int splitPoint = findSplitPoint(paragraph, maxMessageLength);
                                     fullResponse.updateAndGet(current -> current + paragraph.substring(0, splitPoint));
                                     listener.accept(paragraph.substring(0, splitPoint));
-                                    // Остаток добавляем к следующей части
+                                    // Add remainder to next part
                                     String remainder = paragraph.substring(splitPoint);
                                     if (!remainder.isEmpty()) {
                                         currentPart = new StringBuilder(remainder);
@@ -646,28 +646,28 @@ public class AIUtils {
                         }
                     }
                     
-                    // Отправляем последнюю часть
+                    // Send last part
                     if (!currentPart.isEmpty()) {
                         String currentPartStr = currentPart.toString();
                         if (currentPartStr.length() <= maxMessageLength) {
                             fullResponse.updateAndGet(current -> current + currentPartStr);
                             listener.accept(currentPartStr);
                         } else {
-                            // Последняя часть превышает лимит - находим место разрыва
+                            // Last part exceeds limit - find split point
                             int splitPoint = findSplitPoint(currentPartStr, maxMessageLength);
                             String partToSend = currentPartStr.substring(0, splitPoint);
                             fullResponse.updateAndGet(current -> current + partToSend);
                             listener.accept(partToSend);
-                            // Остаток теряется (это финальная часть)
+                            // Remainder is dropped (this is the final part)
                         }
                     }
                 } else {
-                    // Комбинированный текст помещается в лимит
+                    // Combined text fits within limit
                     if (finalTail.length() < MIN_PARAGRAPH_LENGTH && !accumulated.isEmpty()) {
-                        // Хвост короткий, добавляем к накопленным
+                        // Tail is short, add to accumulated
                         accumulatedShortParagraphs.set(combined);
                     } else {
-                        // Отправляем комбинированный текст
+                        // Send combined text
                         if (!accumulated.isEmpty()) {
                             accumulatedShortParagraphs.set("");
                         }
@@ -676,7 +676,7 @@ public class AIUtils {
                     }
                 }
             } else {
-                // Отправляем накопленные короткие параграфы, если остались
+                // Send accumulated short paragraphs if any remain
                 String accumulated = accumulatedShortParagraphs.get().trim();
                 if (!accumulated.isEmpty()) {
                     fullResponse.updateAndGet(current -> current + accumulated);
@@ -684,17 +684,17 @@ public class AIUtils {
                 }
             }
             
-            // Отправляем накопленные короткие параграфы, если остались (на случай если они не были отправлены выше)
+            // Send accumulated short paragraphs if any remain (in case they were not sent above)
             String accumulated = accumulatedShortParagraphs.get().trim();
             if (!accumulated.isEmpty()) {
                 fullResponse.updateAndGet(current -> current + accumulated);
                 listener.accept(accumulated);
             }
 
-            // Получаем финальный текст
+            // Get final text
             String finalText = fullResponse.get().trim();
 
-            // Если получили данные из стрима, возвращаем их
+            // If we got data from stream, return it
             if (!finalText.isEmpty() && finalResponse != null) {
                 AssistantMessage fullMessage = new AssistantMessage(finalText);
                 Generation generation = new Generation(fullMessage);
@@ -705,7 +705,7 @@ public class AIUtils {
                         .build();
             }
 
-            // Если данных нет, но есть finalResponse, возвращаем его (пустой контент — логируем диагностику)
+            // If no data but we have finalResponse, return it (empty content — log diagnostics)
             if (finalResponse != null) {
                 String finishReason = extractFinishReason(finalResponse);
                 log.debug(
@@ -716,7 +716,7 @@ public class AIUtils {
                 return finalResponse;
             }
 
-            // Если ничего не получили, это будет обработано в catch блоке
+            // If we got nothing, it will be handled in catch block
             throw new RuntimeException("No data received from streaming response");
 
         } catch (Exception e) {
@@ -730,31 +730,31 @@ public class AIUtils {
     }
 
     /**
-     * Обрабатывает streaming ответ от AI, отправляя каждый символ отдельно
-     * (с корректной обработкой emoji через codePoints).
+     * Processes streaming response from AI, sending each character separately
+     * (with correct emoji handling via codePoints).
      *
-     * @param responseFlux поток ответов от AI
-     * @param listener     обработчик для каждого символа
-     * @return итоговый ChatResponse с полным текстом и метаданными
-     * @throws WebClientException если произошла ошибка при обработке стрима
+     * @param responseFlux flux of responses from AI
+     * @param listener     handler for each character
+     * @return final ChatResponse with full text and metadata
+     * @throws WebClientException if an error occurs while processing the stream
      */
     public static ChatResponse processStreamingResponse(
             Flux<ChatResponse> responseFlux,
             Consumer<String> listener
     ) throws WebClientException {
-        // Дефолтный таймаут: 10 минут (600 секунд)
+        // Default timeout: 10 minutes (600 seconds)
         return processStreamingResponse(responseFlux, listener, Duration.ofMinutes(10));
     }
 
     /**
-     * Обрабатывает streaming ответ от AI, отправляя каждый символ отдельно
-     * (с корректной обработкой emoji через codePoints).
+     * Processes streaming response from AI, sending each character separately
+     * (with correct emoji handling via codePoints).
      *
-     * @param responseFlux поток ответов от AI
-     * @param listener     обработчик для каждого символа
-     * @param timeout      таймаут ожидания завершения стрима
-     * @return итоговый ChatResponse с полным текстом и метаданными
-     * @throws WebClientException если произошла ошибка при обработке стрима
+     * @param responseFlux flux of responses from AI
+     * @param listener     handler for each character
+     * @param timeout      timeout for stream completion
+     * @return final ChatResponse with full text and metadata
+     * @throws WebClientException if an error occurs while processing the stream
      */
     public static ChatResponse processStreamingResponse(
             Flux<ChatResponse> responseFlux,
@@ -765,25 +765,25 @@ public class AIUtils {
         StringBuilder fullResponse = new StringBuilder();
 
         try {
-            // Используем ОДИН поток chatResponse() - из него извлекаем и текст, и метаданные
+            // Use single chatResponse() flux - we extract both text and metadata from it
             responseFlux
                     .doOnNext(lastResponse::set)
                     .map(AIUtils::extractText)
                     .filter(Optional::isPresent)
                     .map(Optional::get)
                     .doOnNext(fullResponse::append)
-                    // режем каждый chunk на символы (codepoints, не ломает эмодзи)
+                    // Split each chunk into characters (codePoints, does not break emoji)
                     .flatMap(chunk -> Flux.fromStream(chunk.codePoints().mapToObj(cp -> new String(Character.toChars(cp)))))
                     .doOnNext(listener)
                     .blockLast(timeout);
 
-            // Получаем последний ChatResponse для метаданных
+            // Get last ChatResponse for metadata
             ChatResponse finalResponse = lastResponse.get();
 
-            // Получаем финальный текст
+            // Get final text
             String finalText = fullResponse.toString().trim();
 
-            // Если получили данные из стрима, возвращаем их
+            // If we got data from stream, return it
             if (!finalText.isEmpty() && finalResponse != null) {
                 AssistantMessage fullMessage = new AssistantMessage(finalText);
                 Generation generation = new Generation(fullMessage);
@@ -794,7 +794,7 @@ public class AIUtils {
                         .build();
             }
 
-            // Если данных нет, но есть finalResponse, возвращаем его (пустой контент — логируем диагностику)
+            // If no data but we have finalResponse, return it (empty content — log diagnostics)
             if (finalResponse != null) {
                 if (finalText.isEmpty()) {
                     String finishReason = extractFinishReason(finalResponse);
@@ -803,7 +803,7 @@ public class AIUtils {
                 return finalResponse;
             }
 
-            // Если ничего не получили, это будет обработано в catch блоке
+            // If we got nothing, it will be handled in catch block
             throw new RuntimeException("No data received from streaming response");
 
         } catch (Exception e) {
@@ -827,7 +827,7 @@ public class AIUtils {
                 log.debug(
                         "extractText empty: resultNull={}, outputNull={}, textNull={}, textLength={}",
                         resultNull, outputNull, text == null, text != null ? text.length() : 0);
-                // Диагностика причины пустого контента при стриминге (например OpenRouter): логируем первые разы
+                // Diagnose cause of empty content when streaming (e.g. OpenRouter): log first few times
                 if (output != null && extractTextEmptyLogCount.incrementAndGet() <= EXTRACT_TEXT_EMPTY_LOG_LIMIT) {
                     String outputClass = output.getClass().getName();
                     String getContentHint = "";
@@ -856,40 +856,40 @@ public class AIUtils {
     }
 
     /**
-     * Конвертирует Markdown разметку в HTML теги для Telegram Bot API.
-     * Поддерживает: жирный курсив (***текст***), жирный (**текст**), курсив (*текст*),
-     * код (`текст`), зачеркнутый (~~текст~~).
-     * Также экранирует HTML символы для безопасной отправки.
+     * Converts Markdown to HTML tags for Telegram Bot API.
+     * Supports: bold italic (***text***), bold (**text**), italic (*text*),
+     * code (`text`), strikethrough (~~text~~).
+     * Also escapes HTML characters for safe sending.
      *
-     * @param text исходный текст с Markdown разметкой
-     * @return текст с HTML тегами, готовый для отправки с parse_mode="HTML"
+     * @param text source text with Markdown
+     * @return text with HTML tags, ready for parse_mode="HTML"
      */
     public static String convertMarkdownToHtml(String text) {
         if (text == null || text.isEmpty()) {
             return text;
         }
 
-        // Сначала экранируем HTML символы
+        // Escape HTML characters first
         String escaped = text
-                .replace("&", "&amp;")  // Сначала &, чтобы не экранировать уже экранированные символы
+                .replace("&", "&amp;")  // & first so we don't double-escape
                 .replace("<", "&lt;")
                 .replace(">", "&gt;");
 
-        // Конвертируем Markdown в HTML (важен порядок - сначала тройные звездочки)
-        // ***текст*** -> <b><i>текст</i></b> (жирный курсив)
+        // Convert Markdown to HTML (order matters - triple stars first)
+        // ***text*** -> <b><i>text</i></b> (bold italic)
         String html = escaped.replaceAll("\\*\\*\\*(.+?)\\*\\*\\*", "<b><i>$1</i></b>");
 
-        // **текст** -> <b>текст</b> (жирный)
+        // **text** -> <b>text</b> (bold)
         html = html.replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>");
 
-        // *текст* -> <i>текст</i> (курсив)
-        // После обработки тройных и двойных звездочек, оставшиеся одинарные - это курсив
+        // *text* -> <i>text</i> (italic)
+        // After triple and double stars, remaining single stars are italic
         html = html.replaceAll("\\*([^*]+?)\\*", "<i>$1</i>");
 
-        // `текст` -> <code>текст</code> (код)
+        // `text` -> <code>text</code> (code)
         html = html.replaceAll("`(.+?)`", "<code>$1</code>");
 
-        // ~~текст~~ -> <s>текст</s> (зачеркнутый)
+        // ~~text~~ -> <s>text</s> (strikethrough)
         html = html.replaceAll("~~(.+?)~~", "<s>$1</s>");
 
         return html;
@@ -934,10 +934,10 @@ public class AIUtils {
         }
 
         try {
-            // Проверяем наличие result
+            // Check result presence
             chatResponse.getResult();
 
-            // Извлекаем content
+            // Extract content
             String content = null;
             try {
                 content = chatResponse.getResult().getOutput().getText();
@@ -945,7 +945,7 @@ public class AIUtils {
                 log.debug("Could not extract content from ChatResponse: {}", e.getMessage());
             }
 
-            // Если content пустой, извлекаем finishReason для определения причины и логируем диагностику
+            // If content is empty, extract finishReason to determine cause and log diagnostics
             if (content == null || content.isEmpty()) {
                 String finishReason = extractFinishReason(chatResponse);
                 logEmptyContentDiagnostics(chatResponse, finishReason, "extractError");
@@ -973,8 +973,8 @@ public class AIUtils {
     }
 
     /**
-     * Логирует диагностику при пустом контенте ответа (DEBUG).
-     * WARN-диагноз для OpenRouter пустого стрима печатается на уровне SSE в WebClientLogCustomizer.
+     * Logs diagnostics when response content is empty (DEBUG).
+     * WARN diagnostic for OpenRouter empty stream is printed at SSE level in WebClientLogCustomizer.
      */
     public static void logEmptyContentDiagnostics(ChatResponse chatResponse, String finishReason, String context) {
         if (chatResponse == null) {
@@ -1023,29 +1023,29 @@ public class AIUtils {
     }
 
     /**
-     * Находит оптимальное место для разрыва текста, чтобы не резать посередине предложения или слова.
-     * Ищет последнюю границу предложения (точка, восклицательный знак, вопросительный знак с пробелом после)
-     * или последний пробел перед лимитом.
+     * Finds optimal split point for text so we don't cut in the middle of sentence or word.
+     * Looks for last sentence boundary (period, exclamation, question mark with space after)
+     * or last space before limit.
      *
-     * @param text текст для разрыва
-     * @param maxLength максимальная длина (лимит)
-     * @return позиция разрыва (индекс символа после границы)
+     * @param text text to split
+     * @param maxLength maximum length (limit)
+     * @return split position (index of character after boundary)
      */
     private static int findSplitPoint(String text, int maxLength) {
         if (text == null || text.length() <= maxLength) {
             return text != null ? text.length() : 0;
         }
         
-        // Ищем последнюю границу предложения перед лимитом (точка, восклицательный знак, вопросительный знак + пробел)
-        // Ищем в обратном направлении от лимита, но не дальше чем на 200 символов назад (чтобы не искать слишком далеко)
+        // Look for last sentence boundary before limit (period, exclamation, question mark + space)
+        // Search backwards from limit, but no more than 200 chars (to avoid searching too far)
         int searchStart = Math.max(0, maxLength - 200);
         int bestSplit = maxLength;
         
-        // Паттерны для границ предложений: точка/восклицательный/вопросительный знак + пробел или конец строки
+        // Sentence boundary patterns: . ! ? followed by space or end of line
         for (int i = maxLength - 1; i >= searchStart; i--) {
             if (i < text.length()) {
                 char c = text.charAt(i);
-                // Проверяем границы предложений: . ! ? с пробелом или концом строки после
+                // Check sentence boundaries: . ! ? with space or end of line after
                 if ((c == '.' || c == '!' || c == '?') && (i + 1 >= text.length() || Character.isWhitespace(text.charAt(i + 1)))) {
                     bestSplit = i + 1;
                     break;
@@ -1053,7 +1053,7 @@ public class AIUtils {
             }
         }
         
-        // Если не нашли границу предложения, ищем последний пробел перед лимитом
+        // If no sentence boundary found, look for last space before limit
         if (bestSplit == maxLength) {
             for (int i = maxLength - 1; i >= searchStart; i--) {
                 if (i < text.length() && Character.isWhitespace(text.charAt(i))) {
@@ -1063,8 +1063,8 @@ public class AIUtils {
             }
         }
         
-        // Если даже пробел не найден, возвращаем лимит (обрезаем по лимиту)
-        // Но убеждаемся, что не возвращаем 0
+        // If not even a space found, return limit (cut at limit)
+        // But ensure we don't return 0
         return Math.max(1, bestSplit);
     }
 

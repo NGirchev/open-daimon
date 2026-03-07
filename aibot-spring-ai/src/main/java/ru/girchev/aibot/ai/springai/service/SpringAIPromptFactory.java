@@ -55,18 +55,17 @@ public class SpringAIPromptFactory {
         var promptBuilder = chatClient.prompt();
         promptBuilder.options(buildChatOptions(modelConfig, resolvedModelName, body, chatOptions));
 
-        // Добавляем MessageChatMemoryAdvisor, который добавит историю из ChatMemory
-        // ВАЖНО: MessageChatMemoryAdvisor добавляет историю ПЕРЕД System сообщениями (известный баг Spring AI #4170)
-        // Поэтому добавляем MessageOrderingAdvisor после него для исправления порядка: System -> История -> User
+        // Add MessageChatMemoryAdvisor to inject history from ChatMemory
+        // IMPORTANT: MessageChatMemoryAdvisor adds history BEFORE System messages (known Spring AI #4170 bug)
+        // So we add MessageOrderingAdvisor after it to fix order: System -> History -> User
         if (useChatMemoryAdvisor && conversationId != null) {
             promptBuilder
                     .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                     .advisors(a -> a.param(CONVERSATION_ID, conversationId))
-                    .advisors(new MessageOrderingAdvisor()); // Переупорядочивает сообщения: System первыми
+                    .advisors(new MessageOrderingAdvisor()); // Reorder: System first
         }
 
-        // Добавляем System сообщение (если есть) - Spring AI гарантирует, что System сообщения
-        // всегда будут в начале промпта, даже если история добавляется через advisor
+        // Add System message (if any) — Spring AI ensures System messages are always at the start of prompt
         if (messages != null && !messages.isEmpty()) {
             if (useChatMemoryAdvisor) {
                 for (Message message : messages) {
@@ -84,22 +83,20 @@ public class SpringAIPromptFactory {
             log.info("Web tools NOT added to prompt (webEnabled=false). Serper/fetch_url will not be available. Only VIP users get WEB capability in DefaultAICommandFactory.");
         }
 
-        // Наконец, добавляем User сообщение - оно будет последним
+        // Finally add User message — it will be last
         if (messages != null && !messages.isEmpty()) {
             if (useChatMemoryAdvisor) {
-                // В режиме ChatMemory: MessageChatMemoryAdvisor автоматически добавит историю из ChatMemory
-                // между System и User сообщениями.
-                // ВАЖНО: Добавляем только ПОСЛЕДНЕЕ User сообщение из списка, чтобы избежать дублирования.
-                // MessageChatMemoryAdvisor уже добавил историю из ChatMemory, нам нужно добавить только текущее новое сообщение.
+                // With ChatMemory: MessageChatMemoryAdvisor adds history from ChatMemory between System and User.
+                // IMPORTANT: Add only the LAST User message to avoid duplication; advisor already added history.
                 UserMessage lastUserMessage = null;
                 for (Message message : messages) {
                     if (message instanceof UserMessage userMessage) {
-                        lastUserMessage = userMessage; // Сохраняем последнее User сообщение
+                        lastUserMessage = userMessage; // Keep last User message
                     }
                 }
                 if (lastUserMessage != null) {
                     final UserMessage userMsg = lastUserMessage;
-                    // Добавляем последнее User сообщение целиком (текст + медиа/вложения) для поддержки фото в режиме ChatMemory (local).
+                    // Add last User message with media for photo support in ChatMemory (local).
                     if (userMsg.getMedia() != null && !userMsg.getMedia().isEmpty()) {
                         promptBuilder.user(u -> u.text(userMsg.getText())
                                 .media(userMsg.getMedia().toArray(new Media[0])));
@@ -107,9 +104,9 @@ public class SpringAIPromptFactory {
                         promptBuilder.user(userMsg.getText());
                     }
                 }
-                // Игнорируем AssistantMessage - они уже в ChatMemory
+                // Ignore AssistantMessage — already in ChatMemory
             } else {
-                // В ручном режиме передаем всю историю как есть
+                // In manual mode pass full history as-is
                 promptBuilder.messages(messages);
             }
         }
@@ -125,7 +122,7 @@ public class SpringAIPromptFactory {
     ) {
         Map<String, Object> safeOverrides = body != null ? body : Collections.emptyMap();
         
-        // Используем значения из chatOptions, если их нет в body
+        // Use chatOptions values when missing in body
         Double temperature = getDouble(safeOverrides, TEMPERATURE);
         if (temperature == null && chatOptions != null) {
             temperature = chatOptions.temp();
@@ -163,8 +160,7 @@ public class SpringAIPromptFactory {
             return optionsBuilder.build();
         }
 
-        // Ollama: не передаём think — часть версий/моделей возвращает 400 на этот параметр.
-        // При необходимости включить thinking для qwen3/deepseek-r1 настрой через options в конфиге модели.
+        // Ollama: do not pass think — some versions/models return 400 for this param. Enable via options in model config if needed.
         return OllamaChatOptions.builder()
                 .model(modelName)
                 .frequencyPenalty(getDouble(safeOverrides, FREQUENCY_PENALTY))

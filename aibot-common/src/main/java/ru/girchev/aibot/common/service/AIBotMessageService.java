@@ -14,8 +14,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Сервис для работы с сообщениями в диалогах.
- * Заменяет UserRequestService и ServiceResponseService.
+ * Service for working with messages in dialogs.
+ * Replaces UserRequestService and ServiceResponseService.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -28,10 +28,10 @@ public class AIBotMessageService {
     private final TokenCounter tokenCounter;
 
     /**
-     * Сохраняет USER сообщение
-     * Автоматически получает или создает активный thread и роль для пользователя
+     * Saves USER message.
+     * Automatically gets or creates active thread and role for user.
      *
-     * @param assistantRoleContent опциональное содержание роли ассистента (если null, используется дефолтная)
+     * @param assistantRoleContent optional assistant role content (if null, default is used)
      */
     @Transactional
     public AIBotMessage saveUserMessage(
@@ -41,7 +41,7 @@ public class AIBotMessageService {
             String assistantRoleContent,
             Map<String, Object> metadata) {
 
-        // Получаем или создаем роль ассистента для пользователя
+        // Get or create assistant role for user
         String roleContent = assistantRoleContent != null
                 ? assistantRoleContent
                 : coreCommonProperties.getAssistantRole();
@@ -51,7 +51,7 @@ public class AIBotMessageService {
     }
 
     /**
-     * Сохраняет USER сообщение с готовой ролью ассистента (без вложений).
+     * Saves USER message with ready assistant role (no attachments).
      */
     @Transactional
     public AIBotMessage saveUserMessage(
@@ -64,11 +64,11 @@ public class AIBotMessageService {
     }
 
     /**
-     * Сохраняет USER сообщение с готовой ролью ассистента
-     * Используется специфичными сервисами (TelegramMessageService, RestMessageService)
-     * для переиспользования общей логики сохранения сообщений
+     * Saves USER message with ready assistant role.
+     * Used by specific services (TelegramMessageService, RestMessageService)
+     * to reuse common message-saving logic.
      *
-     * @param attachmentRefs опциональные ссылки на вложения (storageKey, expiresAt, mimeType, filename)
+     * @param attachmentRefs optional attachment refs (storageKey, expiresAt, mimeType, filename)
      */
     @Transactional
     public AIBotMessage saveUserMessage(
@@ -86,10 +86,10 @@ public class AIBotMessageService {
                     "Сообщение слишком длинное: примерно " + estimatedTokens + " токенов. Лимит: " + maxAllowed + ". Сократите сообщение.");
         }
 
-        // Увеличиваем счетчик использования роли
+        // Increment role usage counter
         assistantRoleService.incrementUsage(assistantRole);
 
-        // Получаем или создаем активный thread для пользователя
+        // Get or create active thread for user
         ConversationThread thread = conversationThreadService.getOrCreateThread(user);
 
         AIBotMessage message = new AIBotMessage();
@@ -112,10 +112,10 @@ public class AIBotMessageService {
     }
 
     /**
-     * Сохраняет ASSISTANT сообщение (ответ от AI)
-     * Автоматически получает или создает активный thread и роль для пользователя
+     * Saves ASSISTANT message (AI response).
+     * Automatically gets or creates active thread and role for user.
      *
-     * @param assistantRoleContent опциональное содержание роли ассистента (если null, используется дефолтная)
+     * @param assistantRoleContent optional assistant role content (if null, default is used)
      */
     @Transactional
     public AIBotMessage saveAssistantMessage(
@@ -126,7 +126,7 @@ public class AIBotMessageService {
             Integer processingTimeMs,
             Map<String, Object> responseDataMap) {
 
-        // Получаем или создаем роль ассистента для пользователя
+        // Get or create assistant role for user
         String roleContent = assistantRoleContent != null
                 ? assistantRoleContent
                 : coreCommonProperties.getAssistantRole();
@@ -136,8 +136,8 @@ public class AIBotMessageService {
     }
 
     /**
-     * Сохраняет ASSISTANT сообщение с готовой ролью ассистента
-     * Используется специфичными сервисами для переиспользования общей логики
+     * Saves ASSISTANT message with ready assistant role.
+     * Used by specific services to reuse common logic.
      */
     @Transactional
     public AIBotMessage saveAssistantMessage(
@@ -148,7 +148,7 @@ public class AIBotMessageService {
             Integer processingTimeMs,
             Map<String, Object> responseDataMap) {
 
-        // Получаем или создаем активный thread для пользователя
+        // Get or create active thread for user
         ConversationThread thread = conversationThreadService.getOrCreateThread(user);
 
         AIBotMessage message = new AIBotMessage();
@@ -171,10 +171,10 @@ public class AIBotMessageService {
     }
 
     /**
-     * Сохраняет ASSISTANT сообщение с ошибкой
-     * Автоматически получает или создает активный thread и роль для пользователя
+     * Saves ASSISTANT message with error.
+     * Automatically gets or creates active thread and role for user.
      *
-     * @param assistantRoleContent опциональное содержание роли ассистента (если null, используется дефолтная)
+     * @param assistantRoleContent optional assistant role content (if null, default is used)
      */
     @Transactional
     public AIBotMessage saveAssistantErrorMessage(
@@ -184,7 +184,7 @@ public class AIBotMessageService {
             String assistantRoleContent,
             String errorData) {
 
-        // Получаем или создаем роль ассистента для пользователя
+        // Get or create assistant role for user
         String roleContent = assistantRoleContent != null
                 ? assistantRoleContent
                 : coreCommonProperties.getAssistantRole();
@@ -194,8 +194,8 @@ public class AIBotMessageService {
     }
 
     /**
-     * Сохраняет ASSISTANT сообщение с ошибкой и готовой ролью ассистента
-     * Используется специфичными сервисами для переиспользования общей логики
+     * Saves ASSISTANT message with error and ready assistant role.
+     * Used by specific services to reuse common logic.
      */
     @Transactional
     public AIBotMessage saveAssistantErrorMessage(
@@ -205,40 +205,40 @@ public class AIBotMessageService {
             AssistantRole assistantRole,
             String errorData) {
 
-        // Получаем или создаем активный thread для пользователя
+        // Get or create active thread for user
         ConversationThread thread = conversationThreadService.getOrCreateThread(user);
 
         AIBotMessage message = new AIBotMessage();
         message.setUser(user);
         message.setRole(MessageRole.ASSISTANT);
-        message.setContent(""); // Пустое содержимое для ошибок
+        message.setContent(""); // Empty content for errors
         message.setServiceName(serviceName);
         message.setErrorMessage(errorMessage);
         message.setThread(thread);
         message.setAssistantRole(assistantRole);
         message.setStatus(ResponseStatus.ERROR);
-        message.setTokenCount(0); // Для ошибок токенов нет
+        message.setTokenCount(0); // No tokens for errors
 
         if (errorData != null && !errorData.trim().isEmpty() && !errorData.equals("{}")) {
             Map<String, Object> dataMap = new HashMap<>();
             dataMap.put("data", errorData);
             message.setResponseData(dataMap);
         }
-        // Если errorData null или пустой, responseData остается null
+        // If errorData is null or empty, responseData stays null
 
         return saveMessageWithSequence(message, thread, false, null);
     }
 
     /**
-     * Сохраняет SYSTEM сообщение (system prompt, summary и т.д.)
-     * Автоматически получает или создает активный thread для пользователя
+     * Saves SYSTEM message (system prompt, summary, etc.).
+     * Automatically gets or creates active thread for user.
      */
     @Transactional
     public AIBotMessage saveSystemMessage(
             User user,
             String content) {
 
-        // Получаем или создаем активный thread для пользователя
+        // Get or create active thread for user
         ConversationThread thread = conversationThreadService.getOrCreateThread(user);
 
         AIBotMessage message = new AIBotMessage();
@@ -248,14 +248,14 @@ public class AIBotMessageService {
         message.setThread(thread);
         message.setTokenCount(tokenCounter.estimateTokens(content));
 
-        // SYSTEM сообщения обычно не имеют sequenceNumber или имеют 0
+        // SYSTEM messages usually have no sequenceNumber or have 0
         message.setSequenceNumber(0);
 
         return messageRepository.save(message);
     }
 
     /**
-     * Обновляет статус сообщения
+     * Updates message status.
      */
     @Transactional
     public AIBotMessage updateMessageStatus(AIBotMessage message, ResponseStatus status) {
@@ -264,7 +264,7 @@ public class AIBotMessageService {
     }
 
     /**
-     * Вычисляет следующий sequenceNumber для сообщения в thread
+     * Calculates next sequenceNumber for message in thread.
      */
     private Integer calculateNextSequenceNumber(ConversationThread thread) {
         Optional<AIBotMessage> lastMessage = messageRepository.findLastByThread(thread);
@@ -274,13 +274,13 @@ public class AIBotMessageService {
     }
 
     /**
-     * Сохраняет сообщение с установкой sequenceNumber и опциональным обновлением счетчиков thread
+     * Saves message with sequenceNumber and optional thread counter updates.
      *
-     * @param message        сообщение для сохранения
-     * @param thread         thread, к которому относится сообщение
-     * @param updateCounters нужно ли обновлять счетчики thread
-     * @param content        содержимое сообщения (для обновления title thread, может быть null)
-     * @return сохраненное сообщение
+     * @param message        message to save
+     * @param thread         thread the message belongs to
+     * @param updateCounters whether to update thread counters
+     * @param content        message content (for thread title update, may be null)
+     * @return saved message
      */
     private AIBotMessage saveMessageWithSequence(
             AIBotMessage message,
@@ -288,17 +288,17 @@ public class AIBotMessageService {
             boolean updateCounters,
             String content) {
 
-        // Устанавливаем sequenceNumber
+        // Set sequenceNumber
         Integer nextSequence = calculateNextSequenceNumber(thread);
         message.setSequenceNumber(nextSequence);
 
-        // Сохраняем сообщение
+        // Save message
         AIBotMessage savedMessage = messageRepository.save(message);
 
-        // Обновляем счетчики thread после сохранения сообщения (если нужно)
+        // Update thread counters after saving message (if needed)
         if (updateCounters) {
             conversationThreadService.updateThreadCounters(thread);
-            // Обновляем title thread на основе первого сообщения (если нужно)
+            // Update thread title from first message (if needed)
             if (content != null) {
                 conversationThreadService.updateThreadTitleIfNeeded(thread, content);
             }

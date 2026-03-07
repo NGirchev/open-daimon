@@ -22,7 +22,7 @@ public record ChatAICommand(
         List<Attachment> attachments) implements AICommand {
 
     /**
-     * Конструктор без attachments для обратной совместимости.
+     * Constructor without attachments for backward compatibility.
      */
     public ChatAICommand(Set<ModelCapabilities> modelCapabilities, double temp, int maxTokens,
                          String systemRole, String userRole, boolean stream,
@@ -39,7 +39,7 @@ public record ChatAICommand(
     }
 
     /**
-     * Проверяет, есть ли вложения с изображениями.
+     * Checks if there are image attachments.
      */
     public boolean hasImageAttachments() {
         return attachments != null && attachments.stream()

@@ -13,10 +13,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Entity для хранения сообщений в диалоге.
- * Объединяет функциональность UserRequest и ServiceResponse.
- * Соответствует Spring AI Message концепции.
- * Использует JPA Inheritance SINGLE_TABLE для поддержки модульных наследников (если понадобятся в будущем).
+ * Entity for storing messages in a dialog.
+ * Combines UserRequest and ServiceResponse functionality.
+ * Aligns with Spring AI Message concept.
+ * Uses JPA Inheritance SINGLE_TABLE for modular subclasses (if needed in future).
  */
 @Entity(name = "Message")
 @Table(name = "message", indexes = {
@@ -40,111 +40,111 @@ public class AIBotMessage extends AbstractEntity<Long> {
     private Long id;
     
     /**
-     * Пользователь, отправивший/получивший сообщение
+     * User who sent/received the message
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
     
     /**
-     * Роль сообщения (USER, ASSISTANT, SYSTEM)
+     * Message role (USER, ASSISTANT, SYSTEM)
      */
     @Column(name = "role", nullable = false)
     @Enumerated(EnumType.STRING)
     private MessageRole role;
     
     /**
-     * Содержимое сообщения
+     * Message content
      */
     @Column(name = "content", nullable = false, columnDefinition = "TEXT")
     private String content;
     
     /**
-     * Conversation thread, к которому относится это сообщение
+     * Conversation thread this message belongs to
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "thread_id")
     private ConversationThread thread;
     
     /**
-     * Порядковый номер сообщения в диалоге (1, 2, 3, 4...)
+     * Sequence number of message in dialog (1, 2, 3, 4...)
      */
     @Column(name = "sequence_number")
     private Integer sequenceNumber;
     
     /**
-     * Количество токенов в сообщении (опционально, для точного подсчета)
+     * Token count in message (optional, for accurate count)
      */
     @Column(name = "token_count")
     private Integer tokenCount;
     
     /**
-     * Роль ассистента, использованная для данного сообщения (для USER и ASSISTANT)
+     * Assistant role used for this message (for USER and ASSISTANT)
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assistant_role_id")
     private AssistantRole assistantRole;
     
     /**
-     * Тип запроса (для USER сообщений)
+     * Request type (for USER messages)
      */
     @Column(name = "request_type")
     @Enumerated(EnumType.STRING)
     private RequestType requestType;
     
     /**
-     * Название сервиса AI, который обработал запрос (для ASSISTANT сообщений)
+     * AI service name that processed the request (for ASSISTANT messages)
      */
     @Column(name = "service_name")
     private String serviceName;
     
     /**
-     * Статус обработки (для ASSISTANT сообщений)
+     * Processing status (for ASSISTANT messages)
      */
     @Enumerated(EnumType.STRING)
     @Column(name = "status")
     private ResponseStatus status;
     
     /**
-     * Время обработки в миллисекундах (для ASSISTANT сообщений)
+     * Processing time in milliseconds (for ASSISTANT messages)
      */
     @Column(name = "processing_time_ms")
     private Integer processingTimeMs;
     
     /**
-     * Сообщение об ошибке (для ASSISTANT сообщений с ошибкой)
+     * Error message (for ASSISTANT messages with error)
      */
     @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
     
     /**
-     * Дополнительные данные ответа в формате JSON (для ASSISTANT сообщений)
+     * Additional response data in JSON format (for ASSISTANT messages)
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "response_data", columnDefinition = "jsonb")
     private Map<String, Object> responseData;
     
     /**
-     * Метаданные сообщения в формате JSON.
-     * Хранит специфичные поля для разных типов пользователей:
-     * - Для Telegram: session_id (дублируется для удобства запросов)
-     * - Для REST: client_ip, user_agent, endpoint
+     * Message metadata in JSON format.
+     * Holds type-specific fields for different user types:
+     * - For Telegram: session_id (duplicated for query convenience)
+     * - For REST: client_ip, user_agent, endpoint
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private Map<String, Object> metadata;
     
     /**
-     * Ссылки на вложения (файлы в MinIO) с временем истечения.
-     * Формат: список мап с ключами storageKey, expiresAt (ISO-8601), mimeType, filename.
-     * Используется для подтягивания изображений в контекст до истечения TTL.
+     * Attachment refs (files in MinIO) with expiry time.
+     * Format: list of maps with keys storageKey, expiresAt (ISO-8601), mimeType, filename.
+     * Used to load images into context before TTL expires.
      */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "attachments", columnDefinition = "jsonb")
     private List<Map<String, Object>> attachments;
     
     /**
-     * Дата создания сообщения
+     * Message creation date
      */
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
@@ -157,7 +157,7 @@ public class AIBotMessage extends AbstractEntity<Long> {
         if (status == null && role == MessageRole.ASSISTANT) {
             status = ResponseStatus.PENDING;
         }
-        // responseData и metadata остаются null, если не установлены явно
+        // responseData and metadata stay null if not set explicitly
     }
 }
 

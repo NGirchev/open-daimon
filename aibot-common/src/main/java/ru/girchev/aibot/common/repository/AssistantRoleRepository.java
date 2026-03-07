@@ -16,44 +16,44 @@ import java.util.Optional;
 public interface AssistantRoleRepository extends JpaRepository<AssistantRole, Long> {
     
     /**
-     * Находит активную роль для пользователя
+     * Finds active role for user.
      */
     @Query("SELECT ar FROM AssistantRole ar WHERE ar.user = :user AND ar.isActive = true")
     Optional<AssistantRole> findActiveByUser(@Param("user") User user);
     
     /**
-     * Находит все роли пользователя отсортированные по версии
+     * Finds all user roles sorted by version.
      */
     @Query("SELECT ar FROM AssistantRole ar WHERE ar.user = :user ORDER BY ar.version DESC")
     List<AssistantRole> findAllByUserOrderByVersionDesc(@Param("user") User user);
     
     /**
-     * Находит роль по пользователю и версии
+     * Finds role by user and version.
      */
     @Query("SELECT ar FROM AssistantRole ar WHERE ar.user = :user AND ar.version = :version")
     Optional<AssistantRole> findByUserAndVersion(@Param("user") User user, @Param("version") Integer version);
     
     /**
-     * Находит роль по пользователю и хэшу содержания
+     * Finds role by user and content hash.
      */
     @Query("SELECT ar FROM AssistantRole ar WHERE ar.user = :user AND ar.contentHash = :contentHash")
     Optional<AssistantRole> findByUserAndContentHash(@Param("user") User user, @Param("contentHash") String contentHash);
     
     /**
-     * Получает максимальную версию роли для пользователя
+     * Gets max role version for user.
      */
     @Query("SELECT COALESCE(MAX(ar.version), 0) FROM AssistantRole ar WHERE ar.user = :user")
     Integer findMaxVersionByUser(@Param("user") User user);
     
     /**
-     * Деактивирует все роли пользователя
+     * Deactivates all user roles.
      */
     @Modifying
     @Query("UPDATE AssistantRole ar SET ar.isActive = false WHERE ar.user = :user")
     void deactivateAllByUser(@Param("user") User user);
     
     /**
-     * Находит неиспользуемые роли (не активные и без запросов за указанный период)
+     * Finds unused roles (inactive and no requests in given period).
      */
     @Query("SELECT ar FROM AssistantRole ar WHERE ar.isActive = false " +
            "AND ar.usageCount = 0 " +
@@ -61,7 +61,7 @@ public interface AssistantRoleRepository extends JpaRepository<AssistantRole, Lo
     List<AssistantRole> findUnusedRoles(@Param("thresholdDate") OffsetDateTime thresholdDate);
     
     /**
-     * Находит роли с низким использованием
+     * Finds low-usage roles.
      */
     @Query("SELECT ar FROM AssistantRole ar WHERE ar.isActive = false " +
            "AND ar.usageCount > 0 " +

@@ -14,10 +14,10 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * Настройки обновления списка моделей OpenRouter и ранжирования (refresh, ranking).
- * Фильтр по бесплатным моделям задаётся в filters (например, include-model-ids).
+ * Settings for OpenRouter model list refresh and ranking.
+ * Free-model filter is configured in filters (e.g. include-model-ids).
  *
- * Важно: без дефолтов в коде, всё задаётся в application.yml.
+ * Important: no defaults in code, everything is set in application.yml.
  */
 @ConfigurationProperties(prefix = "ai-bot.ai.spring-ai.openrouter-auto-rotation.models")
 @Validated
@@ -26,9 +26,9 @@ import java.util.List;
 public class OpenRouterModelsProperties {
 
     /**
-     * Включить/выключить фоновое обновление списка моделей с OpenRouter и ранжирование.
+     * Enable/disable background refresh of OpenRouter model list and ranking.
      */
-    @NotNull(message = "enabled обязателен")
+    @NotNull(message = "enabled is required")
     private Boolean enabled;
 
     @Valid
@@ -56,8 +56,8 @@ public class OpenRouterModelsProperties {
         private String key;
 
         /**
-         * Base URL OpenRouter API. Пример: https://openrouter.ai/api
-         * Также допустимо передать полный URL до /v1/chat/completions — будет нормализован.
+         * OpenRouter API base URL. Example: https://openrouter.ai/api
+         * Full URL up to /v1/chat/completions is also allowed and will be normalized.
          */
         private String url;
     }
@@ -66,33 +66,33 @@ public class OpenRouterModelsProperties {
     @Setter
     public static class Ranking {
         /**
-         * Включить ранжирование по ошибкам/латентности на основе РЕАЛЬНЫХ запросов.
+         * Enable ranking by errors/latency based on real requests.
          */
-        @NotNull(message = "ranking.enabled обязателен")
+        @NotNull(message = "ranking.enabled is required")
         private Boolean enabled;
 
         /**
-         * Максимальное число попыток (моделей) при retry для одного боевого запроса.
+         * Maximum number of attempts (models) on retry for a single request.
          */
-        @NotNull(message = "ranking.retryMaxAttempts обязателен")
+        @NotNull(message = "ranking.retryMaxAttempts is required")
         private Integer retryMaxAttempts;
 
         /**
-         * EWMA alpha для latency (0..1). Ближе к 1 = быстрее реагирует на изменения.
+         * EWMA alpha for latency (0..1). Closer to 1 = faster reaction to changes.
          */
-        @NotNull(message = "ranking.latencyEwmaAlpha обязателен")
+        @NotNull(message = "ranking.latencyEwmaAlpha is required")
         private Double latencyEwmaAlpha;
 
         /**
-         * cooldown после 429 (лимиты/перегруз).
+         * Cooldown after 429 (rate limit/overload).
          */
-        @NotNull(message = "ranking.cooldown429 обязателен")
+        @NotNull(message = "ranking.cooldown429 is required")
         private Duration cooldown429;
 
         /**
-         * cooldown после 5xx (ошибки провайдера/маршрутизации).
+         * Cooldown after 5xx (provider/routing errors).
          */
-        @NotNull(message = "ranking.cooldown5xx обязателен")
+        @NotNull(message = "ranking.cooldown5xx is required")
         private Duration cooldown5xx;
     }
 
@@ -100,28 +100,27 @@ public class OpenRouterModelsProperties {
     @Setter
     public static class Filters {
         /**
-         * Allowlist: если задан, то будут использоваться только модели из списка.
+         * Allowlist: if set, only models from this list are used.
          */
         private List<String> includeModelIds;
 
         /**
-         * Allowlist по подстрокам: если задан, то будут использоваться только модели,
-         * id которых содержит любой из этих фрагментов.
+         * Allowlist by substrings: if set, only models whose id contains any of these fragments are used.
          */
         private List<String> includeContains;
 
         /**
-         * Явный blacklist моделей, которые не подходят для нашего пайплайна (например, возвращают 400 из-за формата messages).
+         * Explicit blacklist of models unsuitable for our pipeline (e.g. return 400 due to messages format).
          */
         private List<String> excludeModelIds;
 
         /**
-         * Исключить модели, id которых содержит любой из этих фрагментов.
+         * Exclude models whose id contains any of these fragments.
          */
         private List<String> excludeContains;
     }
 
-    @AssertTrue(message = "При enabled=true должны быть заданы api.key, api.url, refresh-initial-delay и refresh-interval (оба > 0)")
+    @AssertTrue(message = "When enabled=true, api.key, api.url, refresh-initial-delay and refresh-interval (both > 0) must be set")
     public boolean isValidWhenEnabled() {
         return !Boolean.TRUE.equals(enabled)
                 || (api != null
@@ -135,7 +134,7 @@ public class OpenRouterModelsProperties {
                 && !refreshInterval.isNegative());
     }
 
-    @AssertTrue(message = "При enabled=true и ranking.enabled=true должны быть заданы ranking.* и они должны быть валидными")
+    @AssertTrue(message = "When enabled=true and ranking.enabled=true, ranking.* must be set and valid")
     public boolean isValidRankingWhenEnabled() {
         if (!Boolean.TRUE.equals(enabled)) {
             return true;

@@ -5,15 +5,15 @@ import org.jetbrains.annotations.NotNull;
 import java.util.Objects;
 
 /**
- * Модель вложения для передачи в AI провайдера.
- * Используется для multimodal запросов (изображения, PDF и т.д.).
+ * Attachment model for passing to AI provider.
+ * Used for multimodal requests (images, PDF, etc.).
  *
- * @param key уникальный ключ вложения (например, ключ в хранилище)
- * @param mimeType MIME-тип файла (image/png, image/jpeg, application/pdf и т.д.)
- * @param filename оригинальное имя файла
- * @param size размер файла в байтах
- * @param type тип вложения (IMAGE, PDF)
- * @param data бинарные данные файла
+ * @param key unique attachment key (e.g. storage key)
+ * @param mimeType file MIME type (image/png, image/jpeg, application/pdf, etc.)
+ * @param filename original file name
+ * @param size file size in bytes
+ * @param type attachment type (IMAGE, PDF)
+ * @param data file binary data
  */
 public record Attachment(
         String key,
@@ -25,25 +25,25 @@ public record Attachment(
 ) {
     
     /**
-     * Проверяет, является ли вложение изображением.
+     * Checks if attachment is an image.
      */
     public boolean isImage() {
         return type == AttachmentType.IMAGE;
     }
     
     /**
-     * Проверяет, является ли вложение PDF документом.
+     * Checks if attachment is a PDF document.
      */
     public boolean isPdf() {
         return type == AttachmentType.PDF && mimeType != null && mimeType.contains("pdf");
     }
     
     /**
-     * Проверяет, является ли вложение документом (PDF, DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT, RTF, ODT, ODS, ODP, CSV, HTML, MD, JSON, XML, EPUB и т.д.).
+     * Checks if attachment is a document (PDF, DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT, RTF, ODT, ODS, ODP, CSV, HTML, MD, JSON, XML, EPUB, etc.).
      */
     public boolean isDocument() {
         if (mimeType == null) {
-            // Проверяем по расширению файла
+            // Check by file extension
             if (filename != null) {
                 String name = filename.toLowerCase();
                 return name.endsWith(".pdf") || name.endsWith(".docx") || name.endsWith(".doc") ||

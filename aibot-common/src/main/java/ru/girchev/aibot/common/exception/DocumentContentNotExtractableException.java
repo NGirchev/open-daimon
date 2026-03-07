@@ -1,8 +1,8 @@
 package ru.girchev.aibot.common.exception;
 
 /**
- * Исключение при невозможности извлечь текст из приложенного документа (PDF, DOCX и др.).
- * Например: image-only PDF, пустые страницы. Сообщение предназначено для показа пользователю.
+ * Thrown when text cannot be extracted from an attached document (PDF, DOCX, etc.).
+ * E.g. image-only PDF, empty pages. The message is intended for display to the user.
  */
 public class DocumentContentNotExtractableException extends RuntimeException {
 

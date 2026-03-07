@@ -27,14 +27,14 @@ public class TelegramWhitelistInitializer {
     public void initWhitelistExceptions() {
         Set<Long> whitelistExceptions = telegramProperties.getWhitelistExceptionsSet();
         
-        log.info("Инициализация whitelist исключений. Получен список: {}", whitelistExceptions);
-        
+        log.info("Initializing whitelist exceptions. Got list: {}", whitelistExceptions);
+
         if (whitelistExceptions == null || whitelistExceptions.isEmpty()) {
-            log.info("Список исключений для whitelist пуст, пропускаем инициализацию");
+            log.info("Whitelist exceptions list is empty, skipping initialization");
             return;
         }
 
-        log.info("Добавление исключений из конфигурации в whitelist: {}", whitelistExceptions);
+        log.info("Adding exceptions from config to whitelist: {}", whitelistExceptions);
         
         int addedCount = 0;
         int skippedCount = 0;
@@ -45,13 +45,13 @@ public class TelegramWhitelistInitializer {
                 // Вызываем через прокси, чтобы транзакция работала корректно
                 whitelistService.addToWhitelist(userId);
                 addedCount++;
-                log.info("Пользователь {} добавлен в whitelist из конфигурации", userId);
+                log.info("User {} added to whitelist from config", userId);
             } else {
                 skippedCount++;
-                log.debug("Пользователь {} уже в whitelist, пропускаем", userId);
+                log.debug("User {} already in whitelist, skipping", userId);
             }
         }
-        
-        log.info("Инициализация whitelist исключений завершена. Добавлено: {}, пропущено: {}", addedCount, skippedCount);
+
+        log.info("Whitelist exceptions initialization completed. Added: {}, skipped: {}", addedCount, skippedCount);
     }
 }

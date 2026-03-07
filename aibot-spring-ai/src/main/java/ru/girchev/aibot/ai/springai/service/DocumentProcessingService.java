@@ -16,17 +16,16 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Сервис для обработки документов (PDF, DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT и др.) через ETL Pipeline.
- * 
- * <p>ETL Pipeline:
+ * Service for processing documents (PDF, DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT, etc.) via ETL pipeline.
+ *
+ * <p>ETL pipeline:
  * <ol>
- *   <li><b>Extract:</b> Читаем документ с помощью PagePdfDocumentReader (PDF) или TikaDocumentReader (все остальные форматы)</li>
- *   <li><b>Transform:</b> Разбиваем на чанки с помощью TokenTextSplitter</li>
- *   <li><b>Load:</b> Сохраняем в VectorStore с embeddings</li>
+ *   <li><b>Extract:</b> PagePdfDocumentReader (PDF) or TikaDocumentReader (other formats)</li>
+ *   <li><b>Transform:</b> TokenTextSplitter for chunking</li>
+ *   <li><b>Load:</b> VectorStore with embeddings</li>
  * </ol>
- * 
- * <p>Каждый обработанный документ получает уникальный documentId,
- * который сохраняется в metadata чанков для последующей фильтрации при поиске.
+ *
+ * <p>Each processed document gets a unique documentId stored in chunk metadata for search filtering.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -36,32 +35,31 @@ public class DocumentProcessingService {
     private final RAGProperties ragProperties;
 
     /**
-     * Обрабатывает PDF документ через PagePdfDocumentReader (PDFBox) и сохраняет чанки в VectorStore.
-     * 
-     * <p><b>Важно:</b> PDF обрабатывается через специализированный PagePdfDocumentReader (PDFBox),
-     * а не через TikaDocumentReader, для лучшего качества извлечения текста из PDF.
-     * 
-     * @param pdfData байты PDF документа
-     * @param originalName оригинальное имя файла (для metadata)
-     * @return documentId для последующего поиска по этому документу
+     * Processes PDF via PagePdfDocumentReader (PDFBox) and stores chunks in VectorStore.
+     *
+     * <p>PDF uses PagePdfDocumentReader (PDFBox) rather than Tika for better text extraction.
+     *
+     * @param pdfData PDF bytes
+     * @param originalName original file name (for metadata)
+     * @return documentId for later search
      */
     public String processPdf(byte[] pdfData, String originalName) {
         String documentId = UUID.randomUUID().toString();
         
         log.info("Processing PDF '{}' with documentId={} (using PagePdfDocumentReader/PDFBox)", originalName, documentId);
         
-        // 1. Extract: Читаем PDF через PagePdfDocumentReader (использует Apache PDFBox)
+        // 1. Extract: read PDF via PagePdfDocumentReader (Apache PDFBox)
         PagePdfDocumentReader reader = new PagePdfDocumentReader(
                 new ByteArrayResource(pdfData),
                 PdfDocumentReaderConfig.builder()
-                        .withPagesPerDocument(1) // Каждая страница как отдельный Document
+                        .withPagesPerDocument(1) // One page per Document
                         .build()
         );
         List<Document> documents = reader.read();
         logExtractedText(originalName, "PDF", documents);
         log.debug("Extracted {} pages from PDF", documents.size());
 
-        // 2. Transform: Разбиваем на чанки
+        // 2. Transform: split into chunks
         TokenTextSplitter splitter = new TokenTextSplitter(
                 ragProperties.getChunkSize(),
                 ragProperties.getChunkOverlap(),
@@ -73,21 +71,19 @@ public class DocumentProcessingService {
         log.debug("Split into {} chunks", chunks.size());
 
         if (chunks.isEmpty()) {
-            String msg = String.format(
-                    "Не удалось извлечь текст из файла \"%s\". Файл может быть скан-копией или изображением. Загрузите PDF с текстовым слоем или вставьте текст в сообщение.",
-                    originalName);
+            String msg = String.format(ragProperties.getPrompts().getDocumentExtractErrorPdf(), originalName);
             log.warn("PDF '{}' produced no text chunks (e.g. image-only or empty pages). Throwing.", originalName);
             throw new DocumentContentNotExtractableException(msg);
         }
         
-        // 3. Добавляем metadata
+        // 3. Add metadata
         chunks.forEach(doc -> {
             doc.getMetadata().put("documentId", documentId);
             doc.getMetadata().put("originalName", originalName);
             doc.getMetadata().put("type", "pdf");
         });
-        
-        // 4. Load: Сохраняем в VectorStore (автоматически генерируются embeddings)
+
+        // 4. Load: save to VectorStore (embeddings generated automatically)
         vectorStore.add(chunks);
         
         log.info("Processed PDF '{}': {} chunks saved with documentId={}", 
@@ -97,26 +93,26 @@ public class DocumentProcessingService {
     }
 
     /**
-     * Обрабатывает документ через TikaDocumentReader (DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT и др.)
-     * и сохраняет чанки в VectorStore.
-     * 
-     * @param documentData байты документа
-     * @param originalName оригинальное имя файла (для metadata)
-     * @param documentType тип документа (docx, doc, xls, xlsx, ppt, pptx, txt и т.д.)
-     * @return documentId для последующего поиска по этому документу
+     * Processes document via TikaDocumentReader (DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT, etc.)
+     * and stores chunks in VectorStore.
+     *
+     * @param documentData document bytes
+     * @param originalName original file name (for metadata)
+     * @param documentType document type (docx, doc, xls, xlsx, ppt, pptx, txt, etc.)
+     * @return documentId for later search
      */
     public String processWithTika(byte[] documentData, String originalName, String documentType) {
         String documentId = UUID.randomUUID().toString();
         
         log.info("Processing document '{}' (type: {}) with documentId={}", originalName, documentType, documentId);
         
-        // 1. Extract: Читаем документ через TikaDocumentReader
+        // 1. Extract: read document via TikaDocumentReader
         TikaDocumentReader reader = new TikaDocumentReader(new ByteArrayResource(documentData));
         List<Document> documents = reader.read();
         logExtractedText(originalName, documentType, documents);
         log.debug("Extracted {} document(s) from {}", documents.size(), documentType);
 
-        // 2. Transform: Разбиваем на чанки
+        // 2. Transform: split into chunks
         TokenTextSplitter splitter = new TokenTextSplitter(
                 ragProperties.getChunkSize(),
                 ragProperties.getChunkOverlap(),
@@ -128,24 +124,22 @@ public class DocumentProcessingService {
         log.debug("Split into {} chunks", chunks.size());
 
         if (chunks.isEmpty()) {
-            String msg = String.format(
-                    "Не удалось извлечь текст из файла \"%s\" (тип: %s). Файл может быть скан-копией или изображением. Загрузите документ с текстовым слоем или вставьте текст в сообщение.",
-                    originalName, documentType);
+            String msg = String.format(ragProperties.getPrompts().getDocumentExtractErrorDocument(), originalName, documentType);
             log.warn("Document '{}' (type: {}) produced no text chunks. Throwing.", originalName, documentType);
             throw new DocumentContentNotExtractableException(msg);
         }
-        
-        // 3. Добавляем metadata
+
+        // 3. Add metadata
         chunks.forEach(doc -> {
             doc.getMetadata().put("documentId", documentId);
             doc.getMetadata().put("originalName", originalName);
             doc.getMetadata().put("type", documentType);
         });
         
-        // 4. Load: Сохраняем в VectorStore (автоматически генерируются embeddings)
+        // 4. Load: save to VectorStore (embeddings generated automatically)
         vectorStore.add(chunks);
-        
-        log.info("Processed document '{}' (type: {}): {} chunks saved with documentId={}", 
+
+        log.info("Processed document '{}' (type: {}): {} chunks saved with documentId={}",
                 originalName, documentType, chunks.size(), documentId);
         
         return documentId;
@@ -154,7 +148,7 @@ public class DocumentProcessingService {
     private static final int EXTRACTED_TEXT_SAMPLE_MAX_LEN = 300;
 
     /**
-     * Логирует объём и образец извлечённого текста (для диагностики пустых/картинковых PDF).
+     * Logs size and sample of extracted text (for diagnosing empty/image-only PDFs).
      */
     private void logExtractedText(String originalName, String documentType, List<Document> documents) {
         int totalChars = 0;
@@ -181,9 +175,9 @@ public class DocumentProcessingService {
     }
 
     /**
-     * Удаляет все чанки документа из VectorStore.
-     * 
-     * @param documentId идентификатор документа
+     * Deletes all chunks of the document from VectorStore.
+     *
+     * @param documentId document identifier
      */
     public void deleteDocument(String documentId) {
         log.info("Deleting document with documentId={}", documentId);

@@ -1,16 +1,16 @@
 package ru.girchev.aibot.common.model;
 
 /**
- * Типы поддерживаемых вложений.
+ * Supported attachment types.
  */
 public enum AttachmentType {
     /**
-     * Изображения: JPEG, PNG, GIF, WEBP
+     * Images: JPEG, PNG, GIF, WEBP
      */
     IMAGE,
     
     /**
-     * PDF документы
+     * PDF documents
      */
     PDF
 }

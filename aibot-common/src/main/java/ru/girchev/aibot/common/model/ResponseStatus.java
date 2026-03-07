@@ -1,21 +1,21 @@
 package ru.girchev.aibot.common.model;
 
 /**
- * Перечисление возможных статусов ответа сервиса.
+ * Enumeration of possible service response statuses.
  */
 public enum ResponseStatus {
     /**
-     * Ответ создан, но еще не отправлен пользователю
+     * Response created but not yet sent to user
      */
     PENDING,
     
     /**
-     * Ответ успешно отправлен пользователю
+     * Response successfully sent to user
      */
     SUCCESS,
     
     /**
-     * Произошла ошибка при обработке запроса или отправке ответа
+     * Error occurred while processing request or sending response
      */
     ERROR
 } 

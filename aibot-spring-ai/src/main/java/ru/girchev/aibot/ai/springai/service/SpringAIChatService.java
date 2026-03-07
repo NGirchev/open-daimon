@@ -66,13 +66,13 @@ public class SpringAIChatService {
         StringBuilder reasoningAccumulator = new StringBuilder();
         Flux<ChatResponse> chatResponseFlux = promptBuilder.stream().chatResponse()
                 .doOnNext(cr -> {
-                    // Логируем только первый чанк - начало стрима
+                    // Log only first chunk — stream start
                     if (firstChunk.compareAndSet(true, false) && cr != null) {
                         log.info("Spring AI stream started - first chunk received");
                     }
                     log.trace("Spring AI stream chunk received: {}", cr);
 
-                    // Извлекаем reasoning из метаданных (для OpenRouter и других провайдеров)
+                    // Extract reasoning from metadata (OpenRouter and other providers)
                     // if (cr != null) {
                     //     try {
                     //         var result = cr.getResult();
@@ -95,7 +95,7 @@ public class SpringAIChatService {
                 })
                 .doOnComplete(() -> log.info("Spring AI stream completed"))
                 .doFinally(signalType -> {
-                    // Логируем накопленный reasoning в одну строку
+                    // Log accumulated reasoning on one line
                     String reasoningText = reasoningAccumulator.toString();
                     if (!reasoningText.isEmpty()) {
                         log.info("OpenRouter reasoning: {}", normalizeReasoningForLog(reasoningText));
@@ -225,8 +225,7 @@ public class SpringAIChatService {
     }
 
     /**
-     * Нормализует текст reasoning для однострочного лога: убирает переносы строк и множественные пробелы,
-     * чтобы в логе не появлялись пустые строки.
+     * Normalizes reasoning text for single-line log: strips newlines and multiple spaces.
      */
     private String normalizeReasoningForLog(String s) {
         if (s == null) {
@@ -236,7 +235,7 @@ public class SpringAIChatService {
     }
 
     /**
-     * Логирует списком все ключи и непустые значения из метаданных (для отладки).
+     * Logs all keys and non-empty values from metadata (for debugging).
      */
     private void logNonEmptyMetadataTextData(ChatGenerationMetadata metadata) {
         if (metadata == null) {

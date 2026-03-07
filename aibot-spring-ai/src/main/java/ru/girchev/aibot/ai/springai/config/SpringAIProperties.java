@@ -23,19 +23,19 @@ public class SpringAIProperties {
     private OpenRouterAutoRotation openrouterAutoRotation = new OpenRouterAutoRotation();
 
     /**
-     * Атрибуция приложения для OpenRouter (дашборд: столбец App).
-     * HTTP-Referer и X-Title передаются в запросах к OpenRouter.
+     * Application attribution for OpenRouter (dashboard: App column).
+     * HTTP-Referer and X-Title are sent in requests to OpenRouter.
      */
     private OpenRouterApp openrouterApp = new OpenRouterApp();
 
     private HttpLogs httpLogs = new HttpLogs();
     
     /**
-     * Размер окна истории сообщений для ChatMemory (количество последних сообщений).
-     * Используется в SummarizingChatMemory для определения, когда нужно запускать суммаризацию.
+     * ChatMemory history window size (number of recent messages).
+     * Used by SummarizingChatMemory to determine when to trigger summarization.
      */
-    @NotNull(message = "historyWindowSize обязателен")
-    @Min(value = 1, message = "historyWindowSize должен быть >= 1")
+    @NotNull(message = "historyWindowSize is required")
+    @Min(value = 1, message = "historyWindowSize must be >= 1")
     private Integer historyWindowSize;
     
     private Serper serper = new Serper();
@@ -45,9 +45,9 @@ public class SpringAIProperties {
     @Getter
     @Setter
     public static class OpenRouterApp {
-        /** URL приложения (HTTP-Referer). Опционально. */
+        /** Application URL (HTTP-Referer). Optional. */
         private String siteUrl;
-        /** Название приложения в дашборде OpenRouter (X-Title). Опционально. */
+        /** Application name in OpenRouter dashboard (X-Title). Optional. */
         private String title;
     }
 
@@ -55,8 +55,8 @@ public class SpringAIProperties {
     @Setter
     public static class OpenRouterAutoRotation {
         /**
-         * Максимальное количество попыток при AUTO-ротации OpenRouter моделей.
-         * Значение 2 = 1 retry (первая попытка + одна дополнительная).
+         * Maximum number of attempts for OpenRouter model AUTO-rotation.
+         * Value 2 = 1 retry (first attempt + one additional).
          */
         @Min(value = 1, message = "maxAttempts must be >= 1")
         private Integer maxAttempts = 2;
@@ -73,7 +73,7 @@ public class SpringAIProperties {
             @NotBlank(message = "API key for Serper cannot be blank")
             private String key;
             
-            @NotBlank(message = "URL API Serper не может быть пустым")
+            @NotBlank(message = "Serper API URL cannot be blank")
             private String url;
         }
     }
@@ -89,8 +89,8 @@ public class SpringAIProperties {
     @Setter
     public static class HttpLogs {
         /**
-         * Логирует стек вызова "кто сделал AI HTTP запрос" (один раз на старте).
-         * По умолчанию выключено, т.к. выглядит как исключение в логах и шумит.
+         * Log call stack of "who made the AI HTTP request" (once at startup).
+         * Disabled by default as it looks like an exception in logs and is noisy.
          */
         private Boolean callsiteStacktraceEnabled = false;
     }
@@ -101,19 +101,19 @@ public class SpringAIProperties {
     @Setter
     public static class Timeouts {
         /**
-         * Таймаут ответа для HTTP запросов к AI провайдерам (в секундах).
-         * Применяется к WebClient для Ollama и OpenAI/OpenRouter.
+         * Response timeout for HTTP requests to AI providers (seconds).
+         * Applied to WebClient for Ollama and OpenAI/OpenRouter.
          */
-        @NotNull(message = "responseTimeoutSeconds обязателен")
-        @Min(value = 1, message = "responseTimeoutSeconds должен быть >= 1")
+        @NotNull(message = "responseTimeoutSeconds is required")
+        @Min(value = 1, message = "responseTimeoutSeconds must be >= 1")
         private Integer responseTimeoutSeconds;
         
         /**
-         * Таймаут для обработки стриминга (в секундах).
-         * Максимальное время ожидания завершения стрима.
+         * Timeout for stream processing (seconds).
+         * Maximum time to wait for stream completion.
          */
-        @NotNull(message = "streamTimeoutSeconds обязателен")
-        @Min(value = 1, message = "streamTimeoutSeconds должен быть >= 1")
+        @NotNull(message = "streamTimeoutSeconds is required")
+        @Min(value = 1, message = "streamTimeoutSeconds must be >= 1")
         private Integer streamTimeoutSeconds;
     }
 } 

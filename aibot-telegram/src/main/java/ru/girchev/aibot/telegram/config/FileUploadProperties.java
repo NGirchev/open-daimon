@@ -10,9 +10,9 @@ import org.springframework.validation.annotation.Validated;
 import java.util.Set;
 
 /**
- * Конфигурация загрузки файлов в Telegram боте.
- * 
- * Все значения обязательны и должны быть указаны в application.yml.
+ * File upload configuration for Telegram bot.
+ *
+ * All values are required and must be specified in application.yml.
  */
 @Validated
 @Getter
@@ -21,46 +21,46 @@ import java.util.Set;
 public class FileUploadProperties {
 
     /**
-     * Включить обработку файлов (feature flag).
+     * Enable file processing (feature flag).
      */
-    @NotNull(message = "enabled обязателен")
+    @NotNull(message = "enabled is required")
     private Boolean enabled;
 
     /**
-     * Максимальный размер файла в мегабайтах (лимит Telegram API = 20MB).
+     * Maximum file size in megabytes (Telegram API limit = 20MB).
      */
-    @NotNull(message = "maxFileSizeMb обязателен")
-    @Min(value = 1, message = "maxFileSizeMb должен быть >= 1")
+    @NotNull(message = "maxFileSizeMb is required")
+    @Min(value = 1, message = "maxFileSizeMb must be >= 1")
     private Integer maxFileSizeMb;
 
     /**
-     * Поддерживаемые типы изображений (через запятую: jpeg,png,gif,webp).
+     * Supported image types (comma-separated: jpeg,png,gif,webp).
      */
-    @NotNull(message = "supportedImageTypes обязателен")
+    @NotNull(message = "supportedImageTypes is required")
     private String supportedImageTypes;
 
     /**
-     * Поддерживаемые типы документов (через запятую: pdf).
+     * Supported document types (comma-separated: pdf).
      */
-    @NotNull(message = "supportedDocumentTypes обязателен")
+    @NotNull(message = "supportedDocumentTypes is required")
     private String supportedDocumentTypes;
 
     /**
-     * Получить Set поддерживаемых типов изображений.
+     * Get set of supported image types.
      */
     public Set<String> getSupportedImageTypesSet() {
         return Set.of(supportedImageTypes.toLowerCase().split(","));
     }
 
     /**
-     * Получить Set поддерживаемых типов документов.
+     * Get set of supported document types.
      */
     public Set<String> getSupportedDocumentTypesSet() {
         return Set.of(supportedDocumentTypes.toLowerCase().split(","));
     }
 
     /**
-     * Проверить, поддерживается ли MIME тип как изображение.
+     * Check if MIME type is supported as image.
      */
     public boolean isSupportedImageType(String mimeType) {
         if (mimeType == null) return false;
@@ -70,7 +70,7 @@ public class FileUploadProperties {
     }
 
     /**
-     * Проверить, поддерживается ли MIME тип как документ.
+     * Check if MIME type is supported as document.
      */
     public boolean isSupportedDocumentType(String mimeType) {
         if (mimeType == null) return false;
@@ -80,7 +80,7 @@ public class FileUploadProperties {
     }
 
     /**
-     * Получить максимальный размер файла в байтах.
+     * Get maximum file size in bytes.
      */
     public long getMaxFileSizeBytes() {
         return maxFileSizeMb * 1024L * 1024L;

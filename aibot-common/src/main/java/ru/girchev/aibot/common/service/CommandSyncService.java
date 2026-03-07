@@ -64,13 +64,13 @@ public class CommandSyncService {
     }
 
     /**
-     * Создает семафор для пользователя в зависимости от его приоритета.
-     * Администраторы получают 4 разрешения (4 параллельных запроса).
-     * VIP пользователи получают 3 разрешения (3 параллельных запроса).
-     * Остальные пользователи получают 2 разрешения (2 параллельных запроса).
+     * Creates semaphore for user based on priority.
+     * Admins get 4 permits (4 concurrent requests).
+     * VIP users get 3 permits (3 concurrent requests).
+     * Other users get 2 permits (2 concurrent requests).
      *
-     * @param userId идентификатор пользователя
-     * @return семафор с соответствующим количеством разрешений
+     * @param userId user identifier
+     * @return semaphore with corresponding number of permits
      */
     protected Semaphore createSemaphoreForUser(Long userId) {
         UserPriority priority = userPriorityService.getUserPriority(userId);
@@ -80,7 +80,7 @@ public class CommandSyncService {
             default -> 2;
         };
         log.debug("Creating semaphore for user {} with priority {} and {} permits", userId, priority, permits);
-        return new Semaphore(permits, true); // fair = true для честного распределения
+        return new Semaphore(permits, true); // fair = true for fair distribution
     }
 
     private <T extends ICommandType, C extends ICommand<T>> String getPrefix(C command) {

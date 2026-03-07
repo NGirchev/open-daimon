@@ -24,11 +24,11 @@ import static ru.girchev.aibot.common.ai.ModelCapabilities.*;
 import static ru.girchev.aibot.common.ai.command.AICommand.*;
 
 /**
- * Фабрика для создания AI команд с поддержкой conversation history.
- * Использует ContextBuilderService для построения контекста с историей диалога.
+ * Factory for creating AI commands with conversation history support.
+ * Uses ContextBuilderService to build context with dialog history.
  * <p>
- * Поддерживает команды, если в metadata есть threadKey.
- * Если threadKey отсутствует, используется DefaultAiCommandFactory (fallback).
+ * Supports commands when metadata contains threadKey.
+ * When threadKey is absent, DefaultAiCommandFactory is used (fallback).
  */
 @RequiredArgsConstructor
 @Slf4j
@@ -47,7 +47,7 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
     }
 
     /**
-     * Поддерживает команды с conversation history (если в metadata есть threadKey)
+     * Supports commands with conversation history (when metadata has threadKey)
      */
     @Override
     public boolean supports(ICommand<?> input, Map<String, String> metadata) {
@@ -78,16 +78,16 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
             ConversationThread thread = threadService.findByThreadKey(threadKey)
                     .orElseThrow(() -> new IllegalStateException("Thread not found: " + threadKey));
 
-            // Проверяем необходимость суммаризации ДО построения контекста
-            // Фабрика работает только когда manual-conversation-history.enabled=true (не Spring AI),
-            // поэтому здесь всегда нужно проверять суммаризацию
+            // Check if summarization is needed BEFORE building context
+            // Factory runs only when manual-conversation-history.enabled=true (not Spring AI),
+            // so we always need to check summarization here
             if (summarizationService.shouldTriggerSummarization(thread)) {
                 log.info("Thread {} reached summarization threshold, triggering async summary before building context",
                         thread.getThreadKey());
                 summarizationService.summarizeThreadAsync(thread);
             }
 
-            // Строим контекст с историей (content может быть String или List of content parts для multimodal)
+            // Build context with history (content may be String or List of content parts for multimodal)
             List<Map<String, Object>> messages = contextBuilder.buildContext(
                     thread,
                     userText,
@@ -96,11 +96,11 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
 
             log.debug("Built context with {} messages for thread {}", messages.size(), threadKey);
 
-            // Передаем messages через body
-            // ВАЖНО: В текущей реализации SpringAIGateway.generateResponse(AICommand command) 
-            // body.messages НЕ используется - messages создаются только из chatOptions.
-            // Это означает, что история из ConversationContextBuilderService не попадает в запрос
-            // через этот путь. История должна передаваться через другой механизм (например, Spring AI ChatMemory).
+            // Pass messages via body
+            // IMPORTANT: In current implementation SpringAIGateway.generateResponse(AICommand command)
+            // body.messages is NOT used - messages are created only from chatOptions.
+            // So history from ConversationContextBuilderService does not reach the request
+            // via this path. History must be passed through another mechanism (e.g. Spring AI ChatMemory).
             Map<String, Object> body = new HashMap<>();
             body.put(MESSAGES, messages);
 
@@ -110,11 +110,11 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
                     ? command.attachments() 
                     : List.of();
 
-            // Динамически определяем modelTypes - добавляем VISION если есть изображения
+            // Determine modelTypes dynamically - add VISION if there are images
             Set<ModelCapabilities> modelCapabilities = determineModelTypes(attachments);
 
             // TODO add vip/regular logic
-            // Температура 0.35 для бытового ассистента (рекомендуемый диапазон: 0.3-0.4)
+            // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
             return new ChatAICommand(
                     modelCapabilities,
                     0.35,
@@ -134,8 +134,8 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
     }
 
     /**
-     * Определяет ModelTypes для команды.
-     * Добавляет VISION если есть image attachments.
+     * Determines ModelTypes for the command.
+     * Adds VISION if there are image attachments.
      */
     private Set<ModelCapabilities> determineModelTypes(List<Attachment> attachments) {
         boolean hasImages = attachments.stream()

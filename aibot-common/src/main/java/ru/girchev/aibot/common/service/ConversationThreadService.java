@@ -17,10 +17,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Сервис для управления conversation threads (беседами с AI).
- * Базовый сервис в aibot-common, используется напрямую в handlers.
- * 
- * Бин создается в CoreAutoConfig (не используется @Service для явного контроля).
+ * Service for managing conversation threads (AI conversations).
+ * Base service in aibot-common, used directly in handlers.
+ *
+ * Bean is created in CoreAutoConfig (no @Service for explicit control).
  */
 @RequiredArgsConstructor
 @Slf4j
@@ -33,7 +33,7 @@ public class ConversationThreadService {
     private static final Duration THREAD_INACTIVITY_TIMEOUT = Duration.ofHours(24);
     
     /**
-     * Получает или создает активный thread для пользователя
+     * Gets or creates active thread for user.
      */
     public ConversationThread getOrCreateThread(User user) {
         return threadRepository.findMostRecentActiveThread(user)
@@ -42,7 +42,7 @@ public class ConversationThreadService {
     }
     
     /**
-     * Создает новый thread
+     * Creates new thread.
      */
     public ConversationThread createNewThread(User user) {
         ConversationThread thread = new ConversationThread();
@@ -59,11 +59,11 @@ public class ConversationThreadService {
     }
     
     /**
-     * Устанавливает title для thread на основе первого сообщения (если title еще не установлен)
+     * Sets thread title from first message (if title not set yet).
      */
     public void updateThreadTitleIfNeeded(ConversationThread thread, String firstUserMessage) {
         if (thread.getTitle() == null || thread.getTitle().isEmpty()) {
-            // Берем первые 50 символов первого сообщения как title
+            // Use first 50 chars of first message as title
             String title = firstUserMessage.length() > 50 
                 ? firstUserMessage.substring(0, 47) + "..." 
                 : firstUserMessage;
@@ -74,15 +74,15 @@ public class ConversationThreadService {
     }
     
     /**
-     * Обновляет счетчики thread на основе всех его сообщений
-     * Вызывается после сохранения Message
+     * Updates thread counters from all its messages.
+     * Called after saving Message.
      */
     public void updateThreadCounters(ConversationThread thread) {
-        // Подсчитываем общее количество сообщений и токенов из всех Message
+        // Count total messages and tokens from all Messages
         Integer messageCount = messageRepository.countByThread(thread);
         int totalMessages = messageCount != null ? messageCount : 0;
         
-        // Подсчитываем токены из всех Message
+        // Sum tokens from all Messages
         List<AIBotMessage> messages = messageRepository
             .findByThreadOrderBySequenceNumberAsc(thread);
         long totalTokens = messages.stream()
@@ -99,7 +99,7 @@ public class ConversationThreadService {
     }
     
     /**
-     * Закрывает thread (помечает как неактивный)
+     * Closes thread (marks as inactive).
      */
     public void closeThread(ConversationThread thread) {
         thread.setIsActive(false);
@@ -109,7 +109,7 @@ public class ConversationThreadService {
     }
     
     /**
-     * Проверяет, активен ли thread (по времени последней активности)
+     * Checks if thread is still active (by last activity time).
      */
     private boolean isThreadStillActive(ConversationThread thread) {
         if (!thread.getIsActive()) {
@@ -118,7 +118,7 @@ public class ConversationThreadService {
         
         OffsetDateTime lastActivity = thread.getLastActivityAt();
         if (lastActivity == null) {
-            return true; // Новый thread
+            return true; // New thread
         }
         
         Duration inactivity = Duration.between(lastActivity, OffsetDateTime.now());
@@ -126,13 +126,13 @@ public class ConversationThreadService {
     }
     
     /**
-     * Обновляет summary и memory bullets для thread.
-     * Также сохраняет текущее количество сообщений для отслеживания новых сообщений после суммаризации.
+     * Updates summary and memory bullets for thread.
+     * Also saves current message count to track new messages after summarization.
      */
     public void updateThreadSummary(ConversationThread thread, String summary, List<String> memoryBullets) {
         thread.setSummary(summary);
         thread.setMemoryBullets(memoryBullets != null ? memoryBullets : new ArrayList<>());
-        // Сохраняем текущее количество сообщений на момент суммаризации
+        // Save current message count at summarization time
         thread.setMessagesAtLastSummarization(thread.getTotalMessages());
         threadRepository.save(thread);
         log.info("Updated summary for thread {} (messages at summarization: {})", 
@@ -140,17 +140,17 @@ public class ConversationThreadService {
     }
     
     /**
-     * Находит thread по ключу
+     * Finds thread by key.
      */
     public Optional<ConversationThread> findByThreadKey(String threadKey) {
         return threadRepository.findByThreadKey(threadKey);
     }
     
     /**
-     * Активирует thread для пользователя (закрывает текущий активный и активирует выбранный)
+     * Activates thread for user (closes current active and activates selected).
      */
     public ConversationThread activateThread(User user, ConversationThread threadToActivate) {
-        // Закрываем текущий активный thread (если есть)
+        // Close current active thread (if any)
         threadRepository.findMostRecentActiveThread(user)
             .ifPresent(currentThread -> {
                 if (!currentThread.getId().equals(threadToActivate.getId())) {
@@ -158,10 +158,10 @@ public class ConversationThreadService {
                 }
             });
         
-        // Активируем выбранный thread
+        // Activate selected thread
         threadToActivate.setIsActive(true);
         threadToActivate.setLastActivityAt(OffsetDateTime.now());
-        threadToActivate.setClosedAt(null); // Очищаем дату закрытия, если была
+        threadToActivate.setClosedAt(null); // Clear close date if set
         threadRepository.save(threadToActivate);
         
         log.info("Activated conversation thread {} for user {}", threadToActivate.getThreadKey(), user.getId());

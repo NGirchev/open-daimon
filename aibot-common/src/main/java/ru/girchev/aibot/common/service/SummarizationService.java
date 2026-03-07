@@ -23,11 +23,11 @@ import static ru.girchev.aibot.common.ai.ModelCapabilities.*;
 import static ru.girchev.aibot.common.service.AIUtils.retrieveMessage;
 
 /**
- * Сервис для автоматической summarization (сводки) длинных диалогов.
- * Когда диалог становится слишком длинным, автоматически создает сводку старых сообщений
- * и сохраняет ключевые факты в memory bullets.
+ * Service for automatic summarization of long conversations.
+ * When a conversation gets too long, creates a summary of older messages
+ * and stores key facts in memory bullets.
  * <p>
- * Бин создается в CoreAutoConfig (не используется @Service для явного контроля).
+ * Bean is created in CoreAutoConfig (no @Service for explicit control).
  */
 @RequiredArgsConstructor
 @Slf4j
@@ -39,31 +39,15 @@ public class SummarizationService {
     private final CoreCommonProperties coreCommonProperties;
     private final ObjectMapper objectMapper;
     
-    // Синхронизация суммаризации по threadKey для предотвращения параллельных вызовов
+    // Sync by threadKey to prevent concurrent summarization
     private final Set<String> ongoingSummarizations = ConcurrentHashMap.newKeySet();
 
-    /** Число повторных попыток при невалидном (не-JSON) ответе модели. */
+    /** Max retries when model response is not valid JSON. */
     private static final int SUMMARIZATION_PARSE_MAX_RETRIES = 3;
 
-    private static final String SUMMARIZATION_PROMPT = """
-            Ты — ассистент, который создает краткие сводки диалогов.
-            
-            Проанализируй следующий диалог и создай:
-            1. Краткую сводку (2-3 абзаца) основных тем и решений
-            2. Список из 5-10 ключевых фактов/решений (bullet points)
-            
-            Формат ответа (строго JSON), не должно быть ```json {}```:
-            {
-              "summary": "краткая сводка диалога",
-              "memory_bullets": ["факт 1", "факт 2", "факт 3", ...]
-            }
-            
-            Диалог:
-            """;
-
     /**
-     * Проверяет, нужно ли запустить summarization по объему токенов.
-     * Используется для не-Spring AI провайдеров (ConversationHistoryAICommandFactory).
+     * Whether to trigger summarization based on token usage.
+     * Used for non-Spring AI providers (ConversationHistoryAICommandFactory).
      */
     public boolean shouldTriggerSummarization(ConversationThread thread) {
         Long totalTokens = thread.getTotalTokens();
@@ -85,15 +69,15 @@ public class SummarizationService {
     }
 
     /**
-     * Создает или обновляет сводку для thread
-     * Вызывается асинхронно, когда thread превышает token budget
+     * Creates or updates the summary for the thread.
+     * Called asynchronously when the thread exceeds token budget.
      */
     @Async("summarizationTaskExecutor")
     @Transactional
     public CompletableFuture<Void> summarizeThreadAsync(ConversationThread thread) {
         String threadKey = thread.getThreadKey();
 
-        // Синхронизация по threadKey для предотвращения параллельных вызовов
+        // Sync by threadKey to prevent concurrent summarization
         if (!ongoingSummarizations.add(threadKey)) {
             log.debug("Summarization already in progress for thread {}, skipping", threadKey);
             return CompletableFuture.completedFuture(null);
@@ -102,7 +86,7 @@ public class SummarizationService {
         try {
             log.info("Starting summarization for thread {}", threadKey);
 
-            // 1. Загружаем все сообщения из thread
+            // 1. Load all messages from thread
             List<AIBotMessage> messages = messageRepository
                     .findByThreadOrderBySequenceNumberAsc(thread);
 
@@ -111,7 +95,7 @@ public class SummarizationService {
                 return CompletableFuture.completedFuture(null);
             }
 
-            // Асинхронный метод - загружаем все сообщения, фильтруем по keepRecentMessages
+            // Async path: load all messages, filter by keepRecentMessages
             int keepRecentMessages = coreCommonProperties.getSummarization().getKeepRecentMessages();
             List<AIBotMessage> messagesToSummarize = filterMessagesForSummarization(messages, keepRecentMessages, thread.getThreadKey());
 
@@ -133,15 +117,15 @@ public class SummarizationService {
     }
 
     /**
-     * Синхронный метод для суммаризации thread.
-     * Принимает сообщения как параметр (не загружает из БД).
-     * Используется в SummarizingChatMemory для Spring AI.
+     * Synchronous summarization for a thread.
+     * Takes messages as parameter (does not load from DB).
+     * Used by SummarizingChatMemory for Spring AI.
      */
     @Transactional
     public void summarizeThread(ConversationThread thread, List<AIBotMessage> messages) {
         String threadKey = thread.getThreadKey();
 
-        // Синхронизация по threadKey для предотвращения параллельных вызовов
+        // Sync by threadKey to prevent concurrent summarization
         if (!ongoingSummarizations.add(threadKey)) {
             log.debug("Summarization already in progress for thread {}, skipping", threadKey);
             return;
@@ -155,7 +139,7 @@ public class SummarizationService {
                 return;
             }
 
-            // Синхронный метод - сообщения уже отфильтрованы вызывающим кодом, не фильтруем
+            // Sync path: messages already filtered by caller
             performSummarization(thread, messages);
 
             log.info("Successfully completed synchronous summarization for thread {}", threadKey);
@@ -168,15 +152,15 @@ public class SummarizationService {
     }
 
     /**
-     * Фильтрует сообщения для суммаризации, оставляя последние N сообщений нетронутыми.
-     * 
-     * @param messages все сообщения
-     * @param keepRecentMessages количество последних сообщений, которые нужно оставить
-     * @param threadKey ключ потока для логирования
-     * @return отфильтрованный список сообщений для суммаризации (пустой список, если нечего суммаризировать)
+     * Filters messages for summarization, leaving the last N messages untouched.
+     *
+     * @param messages all messages
+     * @param keepRecentMessages number of recent messages to keep
+     * @param threadKey thread key for logging
+     * @return filtered list of messages to summarize (empty if nothing to summarize)
      */
     private List<AIBotMessage> filterMessagesForSummarization(List<AIBotMessage> messages, int keepRecentMessages, String threadKey) {
-        // Если сообщений очень мало (<= 2), не суммаризируем вообще
+        // Too few messages (<= 2): do not summarize
         if (messages.size() <= 2) {
             log.info("Not enough messages to summarize for thread {} (only {} messages, need at least 3)",
                     threadKey, messages.size());
@@ -185,14 +169,12 @@ public class SummarizationService {
         
         int actualKeepMessages;
         if (messages.size() <= keepRecentMessages) {
-            // Если сообщений меньше или равно keepRecentMessages, оставляем все
             actualKeepMessages = messages.size();
         } else {
-            // Если сообщений больше keepRecentMessages, оставляем keepRecentMessages
             actualKeepMessages = keepRecentMessages;
         }
-        
-        // Вычисляем количество сообщений для суммаризации
+
+        // How many messages to summarize
         int messagesToSummarizeCount = messages.size() - actualKeepMessages;
 
         if (messagesToSummarizeCount <= 0) {
@@ -209,9 +191,9 @@ public class SummarizationService {
     }
 
     /**
-     * Общая логика суммаризации для синхронного и асинхронного методов.
-     * Суммаризирует ВСЕ переданные сообщения без дополнительной фильтрации.
-     * Вызывающий код должен передавать только те сообщения, которые нужно суммаризировать.
+     * Shared summarization logic for sync and async paths.
+     * Summarizes ALL passed messages without extra filtering.
+     * Caller must pass only the messages to summarize.
      */
     private void performSummarization(ConversationThread thread, List<AIBotMessage> messages) {
         if (messages.isEmpty()) {
@@ -221,27 +203,25 @@ public class SummarizationService {
 
         log.debug("Summarizing {} messages for thread {}", messages.size(), thread.getThreadKey());
 
-        // Формируем текст диалога для summarization из Message
-        // Если есть предыдущая суммаризация, добавляем её в начало контекста
+        // Build dialog text for summarization from messages
         StringBuilder dialogText = new StringBuilder();
-        
-        // Добавляем предыдущую суммаризацию, если она есть
+
         if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
-            dialogText.append("=== Предыдущая суммаризация диалога ===\n");
+            dialogText.append("=== Previous conversation summary ===\n");
             dialogText.append(thread.getSummary()).append("\n\n");
-            
+
             if (thread.getMemoryBullets() != null && !thread.getMemoryBullets().isEmpty()) {
-                dialogText.append("Ключевые моменты из предыдущей беседы:\n");
-                thread.getMemoryBullets().forEach(bullet -> 
+                dialogText.append("Key points from previous conversation:\n");
+                thread.getMemoryBullets().forEach(bullet ->
                     dialogText.append("• ").append(bullet).append("\n")
                 );
                 dialogText.append("\n");
             }
-            
-            dialogText.append("=== Продолжение диалога ===\n\n");
+
+            dialogText.append("=== Conversation continuation ===\n\n");
         }
-        
-        // Добавляем все переданные сообщения для суммаризации
+
+        // Append all messages to summarize
         for (AIBotMessage message : messages) {
             if (message.getRole() == MessageRole.USER) {
                 dialogText.append("USER: ").append(message.getContent()).append("\n\n");
@@ -251,13 +231,14 @@ public class SummarizationService {
         }
         String dialogTextStr = dialogText.toString();
 
-        // Вызываем AI для создания сводки
+        // Call AI to create summary
+        String summarizationPrompt = coreCommonProperties.getSummarization().getPrompt();
         ChatAICommand summaryCommand = new ChatAICommand(
-                Set.of(SUMMARIZATION), // Можно использовать более дешевую модель
-                0.3, // Низкая температура для детерминизма
+                Set.of(SUMMARIZATION),
+                0.3,
                 2000,
-                SUMMARIZATION_PROMPT, // systemRole
-                dialogTextStr // userRole
+                summarizationPrompt,
+                dialogTextStr
         );
 
         AIGateway aiGateway = aiGatewayRegistry
@@ -289,7 +270,7 @@ public class SummarizationService {
             throw new RuntimeException("Summarization failed: no valid result", lastError);
         }
 
-        // Обновляем thread
+        // Update thread
         String combinedSummary = combineWithExistingSummary(thread.getSummary(), result.summary());
         List<String> combinedBullets = combineWithExistingBullets(
                 thread.getMemoryBullets(), result.memoryBullets());
@@ -301,7 +282,7 @@ public class SummarizationService {
     }
 
     private SummaryResult parseSummaryResponse(String response) {
-        // Извлекаем JSON из markdown-блока или из обёрнутого текста (модель могла добавить преамбулу)
+        // Extract JSON from markdown block or wrapped text (model may have added preamble)
         String jsonContent = extractJsonFromMarkdown(response);
         jsonContent = extractJsonObjectIfNeeded(jsonContent);
 
@@ -319,7 +300,7 @@ public class SummarizationService {
     }
 
     /**
-     * Пытается извлечь один JSON-объект из строки (текст до/после JSON от модели).
+     * Tries to extract a single JSON object from the string (text before/after JSON from model).
      */
     private String extractJsonObjectIfNeeded(String s) {
         if (s == null || s.isEmpty()) {
@@ -350,8 +331,8 @@ public class SummarizationService {
     }
 
     /**
-     * Извлекает JSON из markdown-блока, если он обёрнут в ```json
-     * Если markdown-блок не найден, возвращает исходную строку
+     * Extracts JSON from markdown block if wrapped in ```json.
+     * If no markdown block found, returns the original string.
      */
     private String extractJsonFromMarkdown(String response) {
         if (response == null || response.trim().isEmpty()) {
@@ -360,16 +341,16 @@ public class SummarizationService {
         
         String trimmed = response.trim();
         
-        // Проверяем, начинается ли строка с ```json или ```
+        // Check if string starts with ```json or ```
         if (trimmed.startsWith("```json")) {
-            // Удаляем ```json в начале и ``` в конце
+            // Remove ```json at start and ``` at end
             String content = trimmed.substring("```json".length());
             int endIndex = content.lastIndexOf("```");
             if (endIndex != -1) {
                 return content.substring(0, endIndex).trim();
             }
         } else if (trimmed.startsWith("```")) {
-            // Удаляем ``` в начале и ``` в конце (без указания языка)
+            // Remove ``` at start and end (no language tag)
             String content = trimmed.substring("```".length());
             int endIndex = content.lastIndexOf("```");
             if (endIndex != -1) {
@@ -377,7 +358,7 @@ public class SummarizationService {
             }
         }
         
-        // Если markdown-блок не найден, возвращаем исходную строку
+        // No markdown block found, return original string
         return response;
     }
 
@@ -386,15 +367,15 @@ public class SummarizationService {
             return newSummary;
         }
 
-        // Инкрементальное обновление: добавляем новую сводку к существующей
-        return existing + "\n\n---\n\nПродолжение:\n" + newSummary;
+        // Incremental update: append new summary to existing
+        return existing + "\n\n---\n\nContinuation:\n" + newSummary;
     }
 
     private List<String> combineWithExistingBullets(List<String> existing, List<String> newBullets) {
         List<String> combined = new ArrayList<>(existing != null ? existing : new ArrayList<>());
         combined.addAll(newBullets);
 
-        // Ограничиваем количество bullets (например, последние 20)
+        // Cap number of bullets (e.g. last 20)
         if (combined.size() > 20) {
             return combined.subList(combined.size() - 20, combined.size());
         }

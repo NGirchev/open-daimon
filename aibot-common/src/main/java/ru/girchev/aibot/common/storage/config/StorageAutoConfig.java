@@ -10,9 +10,9 @@ import ru.girchev.aibot.common.storage.service.FileStorageService;
 import ru.girchev.aibot.common.storage.service.MinioFileStorageService;
 
 /**
- * Автоконфигурация для файлового хранилища.
- * 
- * Активируется при ai-bot.common.storage.enabled=true
+ * Auto-configuration for file storage.
+ *
+ * Activated when ai-bot.common.storage.enabled=true
  */
 @Slf4j
 @AutoConfiguration

@@ -9,9 +9,8 @@ import lombok.ToString;
 import java.time.OffsetDateTime;
 
 /**
- * Entity для хранения ролей ассистента с версионированием.
- * Каждый пользователь может иметь несколько версий роли,
- * одна из которых является активной (текущей).
+ * Entity for assistant roles with versioning.
+ * Each user can have multiple role versions, one of which is active (current).
  */
 @Entity
 @Table(name = "assistant_role", indexes = {
@@ -30,50 +29,50 @@ public class AssistantRole extends AbstractEntity<Long> {
     private Long id;
     
     /**
-     * Пользователь, которому принадлежит эта роль
+     * User who owns this role.
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
     
     /**
-     * Содержание роли (системный промпт)
+     * Role content (system prompt).
      */
     @Column(name = "content", nullable = false, columnDefinition = "TEXT")
     private String content;
     
     /**
-     * Хэш содержания для быстрого поиска дубликатов
+     * Content hash for fast duplicate lookup.
      */
     @Column(name = "content_hash", nullable = false)
     private String contentHash;
     
     /**
-     * Версия роли для данного пользователя
+     * Role version for this user.
      */
     @Column(name = "version", nullable = false)
     private Integer version;
     
     /**
-     * Признак активной (текущей) роли пользователя
+     * Whether this is user's active (current) role.
      */
     @Column(name = "is_active", nullable = false)
     private Boolean isActive;
     
     /**
-     * Дата создания роли
+     * Role creation date.
      */
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
     
     /**
-     * Дата последнего использования роли
+     * Last role usage date.
      */
     @Column(name = "last_used_at")
     private OffsetDateTime lastUsedAt;
     
     /**
-     * Количество запросов, использующих эту роль
+     * Number of requests using this role.
      */
     @Column(name = "usage_count", nullable = false)
     private Long usageCount;
@@ -88,14 +87,14 @@ public class AssistantRole extends AbstractEntity<Long> {
         if (isActive == null) {
             isActive = false;
         }
-        // Вычисляем хэш содержания
+        // Compute content hash
         if (content != null && contentHash == null) {
             contentHash = String.valueOf(content.hashCode());
         }
     }
     
     /**
-     * Увеличивает счетчик использования роли
+     * Increments role usage counter.
      */
     public void incrementUsageCount() {
         this.usageCount++;

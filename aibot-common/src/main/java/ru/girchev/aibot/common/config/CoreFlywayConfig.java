@@ -7,8 +7,8 @@ import org.springframework.context.annotation.Configuration;
 import javax.sql.DataSource;
 
 /**
- * Конфигурация Flyway для базовых миграций (core модуль)
- * Эти миграции выполняются всегда, так как содержат базовые таблицы
+ * Flyway configuration for base migrations (core module).
+ * These migrations run always as they define base tables.
  */
 @Configuration
 public class CoreFlywayConfig {
