@@ -3,8 +3,6 @@ server:
 
 ai-bot:
   common:
-    openrouter-free-models:
-      enabled: false
     bulkhead:
       enabled: true
       instances:
@@ -22,12 +20,17 @@ ai-bot:
       telegram-id: ${ADMIN_TELEGRAM_ID:}
       rest-email: ${ADMIN_REST_EMAIL:}
     assistant-role: "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language."
-    conversation-context:
-      enabled: false # when we are using aibot-spring-ai we shouldn't use it
+    max-output-tokens: 1000
+    max-user-message-tokens: 4000
+    max-total-prompt-tokens: 32000
+    summarization:
       max-context-tokens: 8000
+      summary-trigger-threshold: 0.7
+      keep-recent-messages: 20
+    manual-conversation-history:
+      enabled: false
       max-response-tokens: 4000
       default-window-size: 20
-      summary-trigger-threshold: 0.7
       include-system-prompt: true
       token-estimation-chars-per-token: 4
   telegram:
@@ -52,6 +55,9 @@ ai-bot:
   ai:
     spring-ai:
       enabled: false
+      openrouter-auto-rotation:
+        models:
+          enabled: false
     gateway-mock:
       enabled: true
 

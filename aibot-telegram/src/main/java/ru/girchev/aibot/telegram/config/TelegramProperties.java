@@ -1,7 +1,10 @@
 package ru.girchev.aibot.telegram.config;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -65,7 +68,33 @@ public class TelegramProperties {
      * Настройки включения/выключения обработчиков команд
      */
     private Commands commands = new Commands();
-    
+
+    /**
+     * Таймаут чтения HTTP при long polling (секунды). Должен быть строго больше get-updates-timeout-seconds.
+     * Опционально; при отсутствии используются дефолты библиотеки telegrambots.
+     */
+    @Min(value = 1, message = "longPollingSocketTimeoutSeconds должен быть >= 1")
+    @Max(value = 100, message = "longPollingSocketTimeoutSeconds должен быть <= 100")
+    private Integer longPollingSocketTimeoutSeconds;
+
+    /**
+     * Параметр timeout для getUpdates (секунды). Максимум 50 по документации Telegram API.
+     * Опционально; при отсутствии используются дефолты библиотеки telegrambots.
+     */
+    @Min(value = 1, message = "getUpdatesTimeoutSeconds должен быть >= 1")
+    @Max(value = 50, message = "getUpdatesTimeoutSeconds должен быть <= 50")
+    private Integer getUpdatesTimeoutSeconds;
+
+    /**
+     * Максимальная длина сообщения для отправки в Telegram (символов).
+     * По умолчанию 4096 (лимит Telegram Bot API).
+     * При превышении лимита сообщение будет разбито на части по границам абзацев.
+     */
+    @NotNull(message = "maxMessageLength обязателен")
+    @Min(value = 100, message = "maxMessageLength должен быть >= 100")
+    @Max(value = 10000, message = "maxMessageLength должен быть <= 10000")
+    private Integer maxMessageLength;
+
     @Getter
     @Setter
     public static class Commands {
@@ -83,6 +112,26 @@ public class TelegramProperties {
          * Включить/выключить обработчик обычных сообщений
          */
         private boolean messageEnabled;
+
+        /**
+         * Включить/выключить обработчик команды /bugreport
+         */
+        private boolean bugreportEnabled;
+
+        /**
+         * Включить/выключить обработчик команды /newthread
+         */
+        private boolean newthreadEnabled;
+
+        /**
+         * Включить/выключить обработчик команды /history
+         */
+        private boolean historyEnabled;
+
+        /**
+         * Включить/выключить обработчик команды /threads
+         */
+        private boolean threadsEnabled;
     }
     
     @PostConstruct

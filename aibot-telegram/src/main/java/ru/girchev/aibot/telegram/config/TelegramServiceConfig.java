@@ -14,6 +14,7 @@ import ru.girchev.aibot.common.config.CoreCommonProperties;
 import ru.girchev.aibot.common.meter.AIBotMeterRegistry;
 import ru.girchev.aibot.common.service.AIBotMessageService;
 import ru.girchev.aibot.common.service.AssistantRoleService;
+import ru.girchev.aibot.common.storage.config.StorageProperties;
 import ru.girchev.aibot.common.storage.service.FileStorageService;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.handler.TelegramSupportedCommandProvider;
@@ -73,11 +74,13 @@ public class TelegramServiceConfig {
     public TelegramMessageService telegramMessageService(
             AIBotMessageService messageService,
             TelegramUserService telegramUserService,
-            CoreCommonProperties coreCommonProperties) {
+            CoreCommonProperties coreCommonProperties,
+            ObjectProvider<StorageProperties> storagePropertiesProvider) {
         return new TelegramMessageService(
                 messageService,
                 telegramUserService,
-                coreCommonProperties);
+                coreCommonProperties,
+                storagePropertiesProvider);
     }
 
     @Bean

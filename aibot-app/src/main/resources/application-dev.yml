@@ -3,30 +3,6 @@ server:
 
 ai-bot:
   common:
-    openrouter-free-models:
-      enabled: true
-      api:
-        key: ${OPENROUTER_KEY}
-        url: https://openrouter.ai/api
-      refresh-initial-delay: 10s
-      refresh-interval: 1h
-      filters:
-        include-model-ids:
-          - meta-llama/llama-3.3-70b-instruct:free
-          - mistralai/mistral-small-3.1-24b-instruct:free
-          - google/gemini-2.0-flash-exp:free
-          - google/gemma-3-27b-it:free
-          - openai/gpt-oss-120b:free
-          - openai/gpt-oss-20b:free
-          - qwen/qwen3-next-80b-a3b-instruct:free
-          - z-ai/glm-4.5-air:free
-          - tngtech/tng-r1t-chimera:free
-      ranking:
-        enabled: true
-        retry-max-attempts: 3
-        latency-ewma-alpha: 0.2
-        cooldown429: 10m
-        cooldown5xx: 5m
     bulkhead:
       enabled: true
       instances:
@@ -44,12 +20,17 @@ ai-bot:
       telegram-id: ${ADMIN_TELEGRAM_ID:}
       rest-email: ${ADMIN_REST_EMAIL:}
     assistant-role: "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language."
-    conversation-context:
-      enabled: false # when we are using aibot-spring-ai we shouldn't use it
+    max-output-tokens: 1000
+    max-user-message-tokens: 4000
+    max-total-prompt-tokens: 32000
+    summarization:
       max-context-tokens: 8000
+      summary-trigger-threshold: 0.7
+      keep-recent-messages: 20
+    manual-conversation-history:
+      enabled: false
       max-response-tokens: 4000
       default-window-size: 20
-      summary-trigger-threshold: 0.7
       include-system-prompt: true
       token-estimation-chars-per-token: 4
   telegram:
@@ -76,6 +57,30 @@ ai-bot:
       enabled: true
       openrouter-auto-rotation:
         max-attempts: 3
+        models:
+          enabled: true
+          api:
+            key: ${OPENROUTER_KEY}
+            url: https://openrouter.ai/api
+          refresh-initial-delay: 10s
+          refresh-interval: 1h
+          filters:
+            include-model-ids:
+              - meta-llama/llama-3.3-70b-instruct:free
+              - mistralai/mistral-small-3.1-24b-instruct:free
+              - google/gemini-2.0-flash-exp:free
+              - google/gemma-3-27b-it:free
+              - openai/gpt-oss-120b:free
+              - openai/gpt-oss-20b:free
+              - qwen/qwen3-next-80b-a3b-instruct:free
+              - z-ai/glm-4.5-air:free
+              - tngtech/tng-r1t-chimera:free
+          ranking:
+            enabled: true
+            retry-max-attempts: 3
+            latency-ewma-alpha: 0.2
+            cooldown429: 10m
+            cooldown5xx: 5m
       serper:
         api:
           url: "https://google.serper.dev/search"

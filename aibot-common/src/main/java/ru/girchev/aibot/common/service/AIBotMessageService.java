@@ -4,10 +4,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 import ru.girchev.aibot.common.config.CoreCommonProperties;
+import ru.girchev.aibot.common.exception.UserMessageTooLongException;
 import ru.girchev.aibot.common.model.*;
 import ru.girchev.aibot.common.repository.AIBotMessageRepository;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -45,13 +47,11 @@ public class AIBotMessageService {
                 : coreCommonProperties.getAssistantRole();
         AssistantRole assistantRole = assistantRoleService.getOrCreateDefaultRole(user, roleContent);
 
-        return saveUserMessage(user, content, requestType, assistantRole, metadata);
+        return saveUserMessage(user, content, requestType, assistantRole, metadata, null);
     }
 
     /**
-     * Сохраняет USER сообщение с готовой ролью ассистента
-     * Используется специфичными сервисами (TelegramMessageService, RestMessageService)
-     * для переиспользования общей логики сохранения сообщений
+     * Сохраняет USER сообщение с готовой ролью ассистента (без вложений).
      */
     @Transactional
     public AIBotMessage saveUserMessage(
@@ -60,6 +60,31 @@ public class AIBotMessageService {
             RequestType requestType,
             AssistantRole assistantRole,
             Map<String, Object> metadata) {
+        return saveUserMessage(user, content, requestType, assistantRole, metadata, null);
+    }
+
+    /**
+     * Сохраняет USER сообщение с готовой ролью ассистента
+     * Используется специфичными сервисами (TelegramMessageService, RestMessageService)
+     * для переиспользования общей логики сохранения сообщений
+     *
+     * @param attachmentRefs опциональные ссылки на вложения (storageKey, expiresAt, mimeType, filename)
+     */
+    @Transactional
+    public AIBotMessage saveUserMessage(
+            User user,
+            String content,
+            RequestType requestType,
+            AssistantRole assistantRole,
+            Map<String, Object> metadata,
+            List<Map<String, Object>> attachmentRefs) {
+
+        int estimatedTokens = tokenCounter.estimateTokens(content);
+        int maxAllowed = coreCommonProperties.getMaxUserMessageTokens();
+        if (estimatedTokens > maxAllowed) {
+            throw new UserMessageTooLongException(
+                    "Сообщение слишком длинное: примерно " + estimatedTokens + " токенов. Лимит: " + maxAllowed + ". Сократите сообщение.");
+        }
 
         // Увеличиваем счетчик использования роли
         assistantRoleService.incrementUsage(assistantRole);
@@ -78,6 +103,9 @@ public class AIBotMessageService {
 
         if (metadata != null) {
             message.setMetadata(metadata);
+        }
+        if (attachmentRefs != null && !attachmentRefs.isEmpty()) {
+            message.setAttachments(attachmentRefs);
         }
 
         return saveMessageWithSequence(message, thread, true, content);

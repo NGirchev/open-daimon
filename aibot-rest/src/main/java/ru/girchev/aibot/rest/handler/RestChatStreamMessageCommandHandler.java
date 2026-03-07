@@ -6,8 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatResponse;
 import reactor.core.publisher.Flux;
 import ru.girchev.aibot.bulkhead.exception.AccessDeniedException;
+import ru.girchev.aibot.common.exception.UserMessageTooLongException;
 import ru.girchev.aibot.common.ai.AIGateways;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 import ru.girchev.aibot.common.ai.command.AICommand;
 import ru.girchev.aibot.common.ai.factory.AICommandFactoryRegistry;
 import ru.girchev.aibot.common.ai.response.AIResponse;
@@ -56,7 +57,7 @@ public class RestChatStreamMessageCommandHandler implements
     @Override
     public Flux<String> handle(RestChatCommand command) {
         AIBotMessage userMessage = null;
-        Set<ModelType> modelTypes = Set.of();
+        Set<ModelCapabilities> modelCapabilities = Set.of();
         ConversationThread thread;
 
         try {
@@ -103,7 +104,7 @@ public class RestChatStreamMessageCommandHandler implements
             metadata.put(ROLE_FIELD, assistantRoleContentFromRole);
 
             AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
-            modelTypes = aiCommand.modelTypes();
+            modelCapabilities = aiCommand.modelCapabilities();
 
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()
@@ -115,7 +116,7 @@ public class RestChatStreamMessageCommandHandler implements
                 AtomicReference<ChatResponse> lastResponse = new AtomicReference<>(null);
                 StringBuilder fullResponse = new StringBuilder();
 
-                Set<ModelType> finalModelTypes = modelTypes;
+                Set<ModelCapabilities> finalModelCapabilities = modelCapabilities;
                 return aiStreamResponse.chatResponse()
                         .doOnNext(lastResponse::set)
                         .map(AIUtils::extractText)
@@ -125,8 +126,8 @@ public class RestChatStreamMessageCommandHandler implements
                         // режем каждый chunk на символы (codepoints, не ломает эмодзи)
                         .flatMap(chunk -> Flux.fromStream(chunk.codePoints().mapToObj(cp -> new String(Character.toChars(cp)))))
                         // Сохранение в БД выполняется только один раз в конце всего стрима (не для каждого chunk)
-                        .doOnComplete(() -> saveToDatabase(user, finalModelTypes, assistantRole, assistantRoleContent, startTime, fullResponse.toString(), lastResponse.get()))
-                        .doOnCancel(() -> saveToDatabase(user, finalModelTypes, assistantRole, assistantRoleContent, startTime, fullResponse.toString(), lastResponse.get()));
+                        .doOnComplete(() -> saveToDatabase(user, finalModelCapabilities, assistantRole, assistantRoleContent, startTime, fullResponse.toString(), lastResponse.get()))
+                        .doOnCancel(() -> saveToDatabase(user, finalModelCapabilities, assistantRole, assistantRoleContent, startTime, fullResponse.toString(), lastResponse.get()));
             } else {
                 throw new IllegalStateException("Expected streaming message");
             }
@@ -134,11 +135,18 @@ public class RestChatStreamMessageCommandHandler implements
             // Пробрасываем AccessDeniedException без оборачивания для правильной обработки в RestExceptionHandler
             log.warn("Доступ запрещен для пользователя: {}", e.getMessage());
             throw e;
+        } catch (UserMessageTooLongException e) {
+            log.warn("Сообщение превышает лимит токенов: {}", e.getMessage());
+            throw e;
         } catch (Exception e) {
-            log.error("Error processing REST API request", e);
+            if (AIUtils.shouldLogWithoutStacktrace(e)) {
+                log.error("Error processing REST API request: {}", AIUtils.getRootCauseMessage(e));
+            } else {
+                log.error("Error processing REST API request", e);
+            }
 
             // Создаем метаданные об ошибке и сериализуем их в JSON
-            Map<String, Object> errorMetadata = createErrorMetadata(modelTypes.isEmpty() ? Set.of(ModelType.CHAT) : modelTypes, e);
+            Map<String, Object> errorMetadata = createErrorMetadata(modelCapabilities.isEmpty() ? Set.of(ModelCapabilities.CHAT) : modelCapabilities, e);
             String errorDataJson = serializeToJson(errorMetadata);
 
             // Сохраняем информацию об ошибке
@@ -151,7 +159,7 @@ public class RestChatStreamMessageCommandHandler implements
                 messageService.saveAssistantErrorMessage(
                         userMessage.getUser(),
                         errorMessage,
-                        modelTypes.toString(),
+                        modelCapabilities.toString(),
                         errorRoleContent,
                         errorDataJson);
             }
@@ -161,7 +169,7 @@ public class RestChatStreamMessageCommandHandler implements
     }
 
     private void saveToDatabase(RestUser user,
-                                Set<ModelType> modelTypes,
+                                Set<ModelCapabilities> modelCapabilities,
                                 AssistantRole assistantRole,
                                 String assistantRoleContentFromRole,
                                 long startTime,
@@ -178,7 +186,7 @@ public class RestChatStreamMessageCommandHandler implements
             messageService.saveAssistantErrorMessage(
                     user,
                     errorMessage,
-                    modelTypes.toString(),
+                    modelCapabilities.toString(),
                     assistantRole,
                     usefulResponseData != null && !usefulResponseData.isEmpty()
                             ? usefulResponseData.toString()
@@ -196,7 +204,7 @@ public class RestChatStreamMessageCommandHandler implements
         AIBotMessage assistantMessage = messageService.saveAssistantMessage(
                 user,
                 fullMessage,
-                modelTypes.toString(),
+                modelCapabilities.toString(),
                 assistantRoleContentFromRole,
                 (int) processingTime,
                 usefulResponseData);
@@ -208,9 +216,9 @@ public class RestChatStreamMessageCommandHandler implements
     /**
      * Создает метаданные для ошибки
      */
-    private Map<String, Object> createErrorMetadata(Set<ModelType> modelTypes, Exception error) {
+    private Map<String, Object> createErrorMetadata(Set<ModelCapabilities> modelCapabilities, Exception error) {
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("model", modelTypes.toString());
+        metadata.put("model", modelCapabilities.toString());
         metadata.put("errorType", error.getClass().getSimpleName());
         metadata.put("errorMessage", error.getMessage());
         metadata.put("timestamp", System.currentTimeMillis());

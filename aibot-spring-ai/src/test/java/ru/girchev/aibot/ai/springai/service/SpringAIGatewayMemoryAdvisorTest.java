@@ -12,15 +12,15 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.OllamaChatModel;
 import ru.girchev.aibot.ai.springai.config.SpringAIModelConfig;
 import ru.girchev.aibot.ai.springai.config.SpringAIProperties;
-import ru.girchev.aibot.common.ai.ModelType;
-import ru.girchev.aibot.common.ai.command.AIBotChatOptions;
+import ru.girchev.aibot.ai.springai.rag.FileRAGService;
+import ru.girchev.aibot.ai.springai.retry.SpringAIModelRegistry;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 import ru.girchev.aibot.common.ai.command.AICommand;
 import ru.girchev.aibot.common.ai.command.ChatAICommand;
 import ru.girchev.aibot.common.service.AIGatewayRegistry;
@@ -55,7 +55,10 @@ class SpringAIGatewayMemoryAdvisorTest {
     
     @Mock
     private SpringAIModelType springAIModelType;
-    
+
+    @Mock
+    private SpringAIModelRegistry springAIModelRegistry;
+
     @Mock
     private SpringAIChatService chatService;
     
@@ -91,7 +94,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         
         // Создаем реальный SpringAIChatService
         @SuppressWarnings("unchecked")
-        org.springframework.beans.factory.ObjectProvider<ru.girchev.aibot.common.openrouter.metrics.OpenRouterStreamMetricsTracker> objectProvider = 
+        org.springframework.beans.factory.ObjectProvider<ru.girchev.aibot.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker> objectProvider =
                 mock(org.springframework.beans.factory.ObjectProvider.class);
         lenient().when(objectProvider.getIfAvailable()).thenReturn(null);
         realChatService = new SpringAIChatService(
@@ -102,28 +105,36 @@ class SpringAIGatewayMemoryAdvisorTest {
         // Настраиваем модель
         modelConfig = new SpringAIModelConfig();
         modelConfig.setName("test-model");
-        modelConfig.setCapabilities(List.of(ModelType.CHAT));
+        modelConfig.setCapabilities(List.of(ModelCapabilities.CHAT));
         modelConfig.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
         modelConfig.setPriority(1);
         
         lenient().when(springAIModelType.getByCapabilities(any()))
                 .thenReturn(Optional.of(modelConfig));
-        lenient().when(springAIModelType.getByCapabilities(eq(Set.of(ModelType.AUTO))))
+        lenient().when(springAIModelType.getByCapabilities(eq(Set.of(ModelCapabilities.AUTO))))
                 .thenReturn(Optional.of(modelConfig));
-        
+        lenient().when(springAIModelRegistry.getCandidatesByCapabilities(any(), any()))
+                .thenReturn(List.of(modelConfig));
+        lenient().when(springAIModelRegistry.getByModelName(any())).thenReturn(Optional.of(modelConfig));
+
         // Создаем SpringAIGateway (RAG выключен - передаем null/empty providers)
         @SuppressWarnings("unchecked")
         org.springframework.beans.factory.ObjectProvider<DocumentProcessingService> docProvider = 
                 mock(org.springframework.beans.factory.ObjectProvider.class);
         @SuppressWarnings("unchecked")
-        org.springframework.beans.factory.ObjectProvider<RAGService> ragProvider = 
+        org.springframework.beans.factory.ObjectProvider<FileRAGService> ragProvider =
                 mock(org.springframework.beans.factory.ObjectProvider.class);
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<ChatMemory> chatMemoryProvider =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(chatMemoryProvider.getIfAvailable()).thenReturn(chatMemory);
         
         springAIGateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
-                springAIModelType,
+                springAIModelRegistry,
                 realChatService,
+                chatMemoryProvider,
                 null, // ragProperties - RAG disabled
                 docProvider,
                 ragProvider
@@ -154,7 +165,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, threadKey);
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelType.CHAT),
+                Set.of(ModelCapabilities.CHAT),
                 0.7,
                 1000,
                 systemRole,
@@ -202,7 +213,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, threadKey);
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelType.CHAT),
+                Set.of(ModelCapabilities.CHAT),
                 0.7,
                 1000,
                 systemRole,
@@ -340,7 +351,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, threadKey);
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelType.CHAT),
+                Set.of(ModelCapabilities.CHAT),
                 0.7,
                 1000,
                 systemRole,
@@ -457,7 +468,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, threadKey);
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelType.CHAT),
+                Set.of(ModelCapabilities.CHAT),
                 0.7,
                 1000,
                 systemRole,

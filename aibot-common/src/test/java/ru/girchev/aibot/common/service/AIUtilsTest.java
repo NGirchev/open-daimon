@@ -82,6 +82,7 @@ class AIUtilsTest {
         // Act
         ChatResponse result = AIUtils.processStreamingResponseByParagraphs(
                 responseFlux,
+                4096,
                 receivedParagraphs::add
         );
         
@@ -136,6 +137,7 @@ class AIUtilsTest {
         // Act
         ChatResponse result = AIUtils.processStreamingResponseByParagraphs(
                 responseFlux,
+                4096,
                 receivedParagraphs::add
         );
         
@@ -174,6 +176,7 @@ class AIUtilsTest {
         // Act
         AIUtils.processStreamingResponseByParagraphs(
                 responseFlux,
+                4096,
                 receivedBlocks::add
         );
 
@@ -197,6 +200,7 @@ class AIUtilsTest {
         // Act
         AIUtils.processStreamingResponseByParagraphs(
                 responseFlux,
+                4096,
                 receivedBlocks::add
         );
 
@@ -220,6 +224,7 @@ class AIUtilsTest {
         // Act
         AIUtils.processStreamingResponseByParagraphs(
                 responseFlux,
+                4096,
                 receivedBlocks::add
         );
 
@@ -239,6 +244,7 @@ class AIUtilsTest {
         // Act
         AIUtils.processStreamingResponseByParagraphs(
                 responseFlux,
+                4096,
                 receivedBlocks::add
         );
 
@@ -265,6 +271,7 @@ class AIUtilsTest {
         // Act
         AIUtils.processStreamingResponseByParagraphs(
                 responseFlux,
+                4096,
                 receivedBlocks::add
         );
 

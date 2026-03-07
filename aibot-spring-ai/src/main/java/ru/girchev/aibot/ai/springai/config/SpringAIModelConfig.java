@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 
 import java.util.List;
 
@@ -18,7 +18,7 @@ public class SpringAIModelConfig {
     private String name;
     
     @NotEmpty(message = "List of capabilities cannot be empty")
-    private List<ModelType> capabilities;
+    private List<ModelCapabilities> capabilities;
     
     @NotNull(message = "Provider type is required")
     private ProviderType providerType;
@@ -30,6 +30,14 @@ public class SpringAIModelConfig {
     public enum ProviderType {
         OLLAMA,
         OPENAI
+    }
+
+    /**
+     * Модель бесплатная (бесплатный тир OpenRouter и т.п.), если в capabilities есть FREE.
+     * FREE в yml добавлять только для реально бесплатных моделей; для openrouter/auto — не добавлять.
+     */
+    public boolean isFree() {
+        return capabilities != null && capabilities.contains(ModelCapabilities.FREE);
     }
 }
 

@@ -42,27 +42,27 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestPropertySource(properties = {
         // Отключаем автоконфигурацию Spring AI (OpenAI, Ollama и т.д.)
         "spring.autoconfigure.exclude=" +
-                "org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
-                "org.springframework.ai.ollama.OllamaAutoConfiguration," +
                 "ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig",
         "ai-bot.telegram.enabled=true",
         "ai-bot.telegram.token=test-token",
         "ai-bot.telegram.username=test-bot",
         "ai-bot.telegram.start-message=Тестовое приветственное сообщение",
+        "ai-bot.telegram.max-message-length=4096",
         "ai-bot.common.bulkhead.enabled=true",
         "ai-bot.common.assistant-role=Ты полезный ассистент",
-        "ai-bot.common.conversation-context.enabled=false",
-        "ai-bot.common.conversation-context.max-context-tokens=8000",
-        "ai-bot.common.conversation-context.max-response-tokens=4000",
-        "ai-bot.common.conversation-context.default-window-size=20",
-        "ai-bot.common.conversation-context.summary-trigger-threshold=0.7",
-        "ai-bot.common.conversation-context.include-system-prompt=true",
-        "ai-bot.common.conversation-context.token-estimation-chars-per-token=4",
+        "ai-bot.common.summarization.max-context-tokens=8000",
+        "ai-bot.common.summarization.summary-trigger-threshold=0.7",
+        "ai-bot.common.summarization.keep-recent-messages=20",
+        "ai-bot.common.manual-conversation-history.enabled=false",
+        "ai-bot.common.manual-conversation-history.max-response-tokens=4000",
+        "ai-bot.common.manual-conversation-history.default-window-size=20",
+        "ai-bot.common.manual-conversation-history.include-system-prompt=true",
+        "ai-bot.common.manual-conversation-history.token-estimation-chars-per-token=4",
         "ai-bot.telegram.commands.start-enabled=true",
         "ai-bot.telegram.commands.role-enabled=true",
         "ai-bot.telegram.commands.message-enabled=true",

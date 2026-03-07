@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import ru.girchev.aibot.bulkhead.exception.AccessDeniedException;
+import ru.girchev.aibot.common.exception.UserMessageTooLongException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -48,6 +49,23 @@ public class RestExceptionHandler {
         // Для обычных REST API запросов возвращаем plain text
         log.debug("Returning plain text response for REST API request");
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(e.getMessage());
+    }
+
+    @ExceptionHandler(UserMessageTooLongException.class)
+    public ResponseEntity<Object> handleUserMessageTooLongException(UserMessageTooLongException e, HttpServletRequest request) {
+        log.warn("Сообщение превышает лимит токенов: {}", e.getMessage());
+        String acceptHeader = request.getHeader("Accept");
+        boolean isJson = acceptHeader != null && acceptHeader.contains("application/json");
+        if (isJson) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", e.getMessage());
+            response.put("status", HttpStatus.BAD_REQUEST.value());
+            return ResponseEntity
+                    .status(HttpStatus.BAD_REQUEST)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(response);
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)

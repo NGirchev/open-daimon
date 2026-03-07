@@ -8,7 +8,6 @@ import org.springframework.ai.chat.model.ChatResponse;
 import ru.girchev.aibot.common.ai.AIGateways;
 
 import java.util.Map;
-import java.util.Optional;
 
 @Getter
 @Accessors(fluent = true)

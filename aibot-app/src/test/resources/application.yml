@@ -6,9 +6,18 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+# Лимиты в стиле прода: учёт истории и саммаризации (summarization + manual-conversation-history из основного application.yml).
+# Промпт = system + история + текущее ≤ max-total-prompt-tokens; ответ = reasoning + текст ≤ max-output-tokens.
 ai-bot:
   telegram:
     enabled: true
   common:
-    openrouter-free-models:
-      enabled: false
+    max-output-tokens: 4000      # место на ответ (reasoning + текст); 1000 было мало
+    max-reasoning-tokens: 1500  # бюджет на reasoning, остальное — текст ответа
+    max-user-message-tokens: 4000
+    max-total-prompt-tokens: 32000
+  ai:
+    spring-ai:
+      openrouter-auto-rotation:
+        models:
+          enabled: false

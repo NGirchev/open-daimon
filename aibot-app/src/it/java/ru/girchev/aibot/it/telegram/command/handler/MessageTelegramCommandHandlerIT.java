@@ -37,6 +37,7 @@ import ru.girchev.aibot.telegram.command.TelegramCommandType;
 import ru.girchev.aibot.telegram.command.handler.impl.MessageTelegramCommandHandler;
 import ru.girchev.aibot.telegram.config.TelegramFlywayConfig;
 import ru.girchev.aibot.telegram.config.TelegramJpaConfig;
+import ru.girchev.aibot.common.storage.config.StorageProperties;
 import ru.girchev.aibot.telegram.config.TelegramProperties;
 import ru.girchev.aibot.telegram.model.TelegramUser;
 import ru.girchev.aibot.telegram.repository.TelegramUserRepository;
@@ -76,28 +77,28 @@ import org.mockito.ArgumentCaptor;
         "ai-bot.telegram.token=test-token",
         "ai-bot.telegram.username=test-bot",
         "ai-bot.telegram.start-message=Тестовое приветственное сообщение",
+        "ai-bot.telegram.max-message-length=4096",
         // ВАЖНО: отключаем автозагрузку TelegramAutoConfig (иначе TelegramBotRegistrar зарегистрирует бота на ApplicationReadyEvent)
         // Отключаем автоконфигурацию Spring AI (OpenAI, Ollama и т.д.)
         "spring.autoconfigure.exclude=" +
                 "ru.girchev.aibot.telegram.config.TelegramAutoConfig," +
-                "org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
-                "org.springframework.ai.ollama.OllamaAutoConfiguration," +
                 "ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig",
         "ai-bot.telegram.enabled=true",
         "ai-bot.common.bulkhead.enabled=true",
         "ai-bot.common.assistant-role=Ты полезный ассистент",
-        "ai-bot.common.conversation-context.enabled=false",
-        "ai-bot.common.conversation-context.max-context-tokens=8000",
-        "ai-bot.common.conversation-context.max-response-tokens=4000",
-        "ai-bot.common.conversation-context.default-window-size=20",
-        "ai-bot.common.conversation-context.summary-trigger-threshold=0.7",
-        "ai-bot.common.conversation-context.include-system-prompt=true",
-        "ai-bot.common.conversation-context.token-estimation-chars-per-token=4",
+        "ai-bot.common.summarization.max-context-tokens=8000",
+        "ai-bot.common.summarization.summary-trigger-threshold=0.7",
+        "ai-bot.common.summarization.keep-recent-messages=20",
+        "ai-bot.common.manual-conversation-history.enabled=false",
+        "ai-bot.common.manual-conversation-history.max-response-tokens=4000",
+        "ai-bot.common.manual-conversation-history.default-window-size=20",
+        "ai-bot.common.manual-conversation-history.include-system-prompt=true",
+        "ai-bot.common.manual-conversation-history.token-estimation-chars-per-token=4",
         "ai-bot.ai.openrouter.enabled=false",
         "ai-bot.ai.deepseek.enabled=false",
         "ai-bot.ai.spring-ai.enabled=false",
@@ -227,11 +228,25 @@ class MessageTelegramCommandHandlerIT {
 
         @Bean
         @Primary
+        public ObjectProvider<StorageProperties> storagePropertiesProvider() {
+            ObjectProvider<StorageProperties> provider = mock(ObjectProvider.class);
+            when(provider.getIfAvailable()).thenReturn(null);
+            return provider;
+        }
+
+        @Bean
+        @Primary
         public TelegramMessageService telegramMessageService(
                 AIBotMessageService messageService,
                 TelegramUserService telegramUserService,
-                CoreCommonProperties coreCommonProperties) {
-            return new TelegramMessageService(messageService, telegramUserService, coreCommonProperties);
+                CoreCommonProperties coreCommonProperties,
+                ObjectProvider<StorageProperties> storagePropertiesProvider) {
+            return new TelegramMessageService(
+                    messageService,
+                    telegramUserService,
+                    coreCommonProperties,
+                    storagePropertiesProvider
+            );
         }
 
         @Bean
@@ -256,7 +271,8 @@ class MessageTelegramCommandHandlerIT {
                 TelegramMessageService telegramMessageService,
                 AIGatewayRegistry aiGatewayRegistry,
                 AIBotMessageService messageService,
-                AICommandFactoryRegistry aiCommandFactoryRegistry) {
+                AICommandFactoryRegistry aiCommandFactoryRegistry,
+                TelegramProperties telegramProperties) {
             return new MessageTelegramCommandHandler(
                     telegramBotProvider,
                     typingIndicatorService,
@@ -265,7 +281,8 @@ class MessageTelegramCommandHandlerIT {
                     telegramMessageService,
                     aiGatewayRegistry,
                     messageService,
-                    aiCommandFactoryRegistry);
+                    aiCommandFactoryRegistry,
+                    telegramProperties);
         }
     }
 

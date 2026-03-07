@@ -14,7 +14,6 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 @SpringBootConfiguration
 @EnableAutoConfiguration(excludeName = {
         "ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig",
-        "org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration",
         "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration",
         "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration",
         "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration",

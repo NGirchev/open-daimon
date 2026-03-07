@@ -8,6 +8,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.girchev.aibot.bulkhead.exception.AccessDeniedException;
 import ru.girchev.aibot.common.command.ICommandHandler;
+import ru.girchev.aibot.common.service.AIUtils;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.command.TelegramCommand;
 import ru.girchev.aibot.telegram.command.TelegramCommandType;
@@ -50,7 +51,11 @@ public abstract class AbstractTelegramCommandHandlerWithResponseSend implements
                 log.error("Error processing message: {}", e.getMessage(), e);
                 sendErrorMessage(command.telegramId(), e.getMessage());
             } catch (Exception e) {
-                log.error("Error processing message: {}", e.getMessage(), e);
+                if (AIUtils.shouldLogWithoutStacktrace(e)) {
+                    log.error("Error processing message: {}", AIUtils.getRootCauseMessage(e));
+                } else {
+                    log.error("Error processing message: {}", e.getMessage(), e);
+                }
                 sendErrorMessage(command.telegramId(), "Произошла ошибка при обработке сообщения");
             }
         } finally {

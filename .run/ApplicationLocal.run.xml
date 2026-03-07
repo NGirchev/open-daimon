@@ -5,6 +5,7 @@
     </envs>
     <option name="MAIN_CLASS_NAME" value="ru.girchev.aibot.Application" />
     <module name="aibot-app" />
+    <shortenClasspath name="ARGS_FILE" />
     <extension name="coverage">
       <pattern>
         <option name="PATTERN" value="ru.girchev.aibot.test.*" />

@@ -1,228 +1,99 @@
-# Логика ретраев и ротации моделей OpenRouter
+# OpenRouter: ретрай и ротация моделей
+
+## Для AI / быстрый контекст (не пересказывать код заново)
+
+**Цепочка вызовов (stream):**  
+`MessageTelegramCommandHandler` → `SpringAIGateway.generateResponse()` → `SpringAIChatService.streamChat()` (аннотирован `@RotateOpenRouterModels(stream=true)`) → аспект `OpenRouterModelRotationAspect.rotateModels()` → `streamWithRetry()`.
+
+**Кандидаты:** берутся в аспекте из `OpenRouterRotationRegistry.getCandidatesByCapabilities(command.modelCapabilities(), preferred)`. Реализация — `SpringAIModelRegistry`: модели из yml + free-модели из OpenRouter API. Список обрезается по `maxAttempts`. Если `getCandidatesByCapabilities` вернул пусто и есть `modelConfig` — подставляется один кандидат `[modelConfig]`.
+
+**Почему ретрай может не произойти:**
+- **Один кандидат:** у команды capabilities = `{AUTO}` (например `DefaultAICommandFactory` для ADMIN). В реестре только `openrouter/auto` имеет AUTO → один кандидат → при ошибке стрима `index + 1 >= candidates.size()`, ретрай не делается.
+- Для REGULAR/VIP capabilities (CHAT, CHAT+TOOL_CALLING+WEB и т.д.) кандидатов обычно несколько (openrouter/auto, gemma3:1b, free-модели) — ретрай возможен.
+
+**Где рождается ошибка пустого стрима:**  
+`WebClientLogCustomizer` (фильтр WebClient) в `logAndBufferErrorsIfNeeded` оборачивает тело ответа (Flux&lt;DataBuffer&gt;) в `handle()`. При признаках «пустой стрим» (usage есть, finish_reason есть, nonEmptyContentChunks=0, диагноз «reasoning-only» или «стрим завершился по лимиту») вызывается `sink.error(new OpenRouterEmptyStreamException(diagnosis))`. Ошибка идёт по цепочке: DataBuffer → парсер SSE Spring AI → Flux&lt;ChatResponse&gt; → до аспекта.
+
+**Обработка в аспекте (stream):**  
+`streamWithRetry()` возвращает `SpringAIStreamResponse(Flux.defer(...).onErrorResume(...))`. При ошибке из inner flux срабатывает `onErrorResume`: если `isRetryable(error)` (в т.ч. OpenRouterEmptyStreamException в cause chain) и есть следующий кандидат — рекурсивно `streamWithRetry(..., index+1)`; иначе — `Flux.error(nextError)`.
+
+**Логи ретрая (искать в логах):**
+- Переключение: `OpenRouter stream retry: switching from model=... to next candidate model=...`
+- Нет кандидатов для ретрая: `OpenRouter stream retry: no more candidates (current=..., totalCandidates=...), cannot retry`
+- Нет кандидатов вообще: `OpenRouter stream retry: no candidates available`
+- Один кандидат при старте: `OpenRouter model rotation: only 1 candidate(s), retry on stream error will not switch model`
+
+**Ключевые классы:**  
+`OpenRouterModelRotationAspect`, `OpenRouterRotationRegistry` / `SpringAIModelRegistry`, `WebClientLogCustomizer` (sink.error(OpenRouterEmptyStreamException)), `OpenRouterEmptyStreamException`, `SpringAIChatService.streamChat`, `DefaultAICommandFactory` (capabilities по приоритету пользователя).
+
+---
 
 ## Обзор
 
-Система автоматической ротации и ретраев для OpenRouter free-моделей реализована через AOP аспект `OpenRouterModelRotationAspect`, который перехватывает вызовы методов, помеченных аннотацией `@RotateOpenRouterModels`.
+Ретрай и ротация моделей OpenRouter реализованы через AOP-аспект `OpenRouterModelRotationAspect`, перехватывающий методы с аннотацией `@RotateOpenRouterModels`. Для stream-запросов ошибка может прийти из стрима (в т.ч. `OpenRouterEmptyStreamException` при пустом/reasoning-only ответе); аспект обрабатывает её в `onErrorResume` и при наличии кандидатов переключается на следующую модель.
 
 ## Компоненты
 
-### 1. `@RotateOpenRouterModels`
-Аннотация для маркировки методов, которые должны использовать автоматическую ротацию моделей:
-- `stream()` - флаг для стриминговых запросов (по умолчанию `false`)
+### Аннотация `@RotateOpenRouterModels`
 
-**Использование:**
-```java
-@RotateOpenRouterModels
-public AIResponse callChat(...) { ... }
+- `stream` — `true` для стриминговых вызовов (`streamChat`), иначе синхронный `callChat`.
+- Вешается на методы `SpringAIChatService`: `streamChat(...)`, `callChat(...)`.
 
-@RotateOpenRouterModels(stream = true)
-public AIResponse streamChat(...) { ... }
-```
+### Аспект `OpenRouterModelRotationAspect`
 
-### 2. `OpenRouterModelRotationAspect`
-AOP аспект, реализующий логику ротации и ретраев.
+- **Вход:** из аргументов метода достаёт `SpringAIModelConfig` и `AICommand`.
+- **Кандидаты:** `OpenRouterRotationRegistry.getCandidatesByCapabilities(command.modelCapabilities(), modelConfig.getName())`. Реализация — `SpringAIModelRegistry` (модели из yml + free из OpenRouter API). Список обрезается по `maxAttempts`. Если реестр вернул пусто — подставляется один кандидат `[modelConfig]`.
+- **Синхронный путь:** `callWithRetry` — цикл по кандидатам, `pjp.proceed(replaceModelConfig(args, candidate))`, при retryable-ошибке переход к следующему.
+- **Стрим:** `streamWithRetry(pjp, baseArgs, candidates, 0)` возвращает `SpringAIStreamResponse(Flux.defer(...).onErrorResume(...))`. При ошибке: если retryable и есть следующий кандидат — рекурсия `streamWithRetry(..., index+1)`; иначе — проброс ошибки.
 
-## Условия активации ротации
+### Откуда берётся ошибка «пустой стрим»
 
-Ротация активируется только в следующих случаях:
+- **Класс:** `OpenRouterEmptyStreamException` (пакет `retry`).
+- **Место:** `WebClientLogCustomizer.logAndBufferErrorsIfNeeded` — для OpenRouter SSE оборачивает тело ответа (`Flux<DataBuffer>`) в `handle()`. В конце обработки буфера проверяется: есть usage и finish_reason, но `chunksWithNonEmptyContent == 0`. Если диагноз «reasoning-only» или «стрим завершился по лимиту генерации» — вызывается `sink.error(new OpenRouterEmptyStreamException(diagnosis))`.
+- Ошибка всплывает по цепочке до `Flux<ChatResponse>`, который обёрнут аспектом в `onErrorResume`, поэтому ретрай возможен только если аспект реально получил несколько кандидатов.
 
-1. **Free-модели OpenRouter** - если имя модели содержит `:free`
-2. **AUTO-модели с max_price=0** - если:
-   - Модель имеет тип `OPENAI` и capabilities содержат `ModelType.AUTO`
-   - В `body` установлен `max_price=0` (или `options.max_price=0`)
+## Retryable-ошибки
 
-Во всех остальных случаях аспект пропускает вызов без изменений.
+- **OpenRouterEmptyStreamException** (в любой причине в цепочке cause) — да, ретрай.
+- **WebClientResponseException:** 429, 402, 5xx — да; 404 — да (в т.ч. data policy; тело не проверяется); 400 с «Conversation roles must alternate» — да; остальные 4xx — нет.
+- Ошибки без WebClientResponseException (таймауты, сеть и т.д.) — считаются retryable.
 
-## Процесс ротации
+## Кандидаты и почему ретрай может не сработать
 
-### 1. Определение кандидатов
+- Кандидаты определяются по `command.modelCapabilities()` из фабрики команд. В проекте используется **DefaultAICommandFactory** (не ConversationHistoryAICommandFactory).
+- **ADMIN:** capabilities = `{AUTO}`. В реестре только `openrouter/auto` имеет AUTO → один кандидат → при ошибке стрима ретрай невозможен (нет «следующей» модели).
+- **REGULAR:** `{CHAT}`. Подходят openrouter/auto, gemma3:1b, free-модели с CHAT → несколько кандидатов, ретрай возможен.
+- **VIP:** `{CHAT, MODERATION, TOOL_CALLING, WEB}` — несколько моделей могут подходить, ретрай возможен.
 
-Кандидаты определяются через `OpenRouterFreeModelResolver.candidatesForModel()`:
+Если нужен ретрай при AUTO, в аспекте можно добавить fallback: при единственном кандидате с AUTO дополнительно запрашивать кандидатов по `ModelCapabilities.CHAT` и объединять списки (см. план в .cursor/plans при необходимости).
 
-- Для `openrouter/auto` - возвращается ранжированный список всех free-моделей
-- Для конкретной free-модели (например, `meta-llama/llama-3.2-3b-instruct:free`) - возвращается список с приоритетом на запрошенную модель
-- Для обычных моделей - возвращается единственный кандидат (сама модель)
+## Логирование ретрая
 
-**Ранжирование моделей:**
-1. **Score** (основной критерий):
-   - Базовый score: 100.0
-   - Штраф за latency: `-ewmaLatencyMs / 200.0`
-   - Штрафы за ошибки:
-     - 429 (rate limit): -30.0
-     - 4xx (клиентские ошибки): -120.0
-     - 5xx (серверные ошибки): -50.0
-   - Cooldown: если модель в cooldown, score = -10_000.0 (исключается)
-
-2. **Дополнительные критерии** (при равном score):
-   - Предпочтение моделям, которые уже успешно работали (lastStatus == 200)
-   - Предпочтение моделям с поддержкой tools (toolsSupported)
-   - Лексикографический порядок имени модели
-
-3. **Ограничение количества:**
-   - Максимальное количество кандидатов ограничено `maxAttempts` из конфигурации
-   - По умолчанию: 1 (если ранжирование выключено) или значение из `ai-bot.ai.spring-ai.openrouter-auto-rotation.max-attempts`
-
-### 2. Синхронные запросы (`callWithRetry`)
-
-```java
-for (String modelId : candidates) {
-    try {
-        // Заменяем модель в аргументах
-        Object[] args = replaceModelConfig(baseArgs, modelConfig, modelId);
-        Object result = pjp.proceed(args);
-        
-        // Записываем успех
-        recordSuccessIfPossible(modelId, latencyMs);
-        return result;
-    } catch (Exception e) {
-        // Записываем неудачу
-        recordFailureIfPossible(modelId, e, latencyMs);
-        
-        if (!isRetryable(e)) {
-            throw e; // Неретраируемая ошибка - прерываем цикл
-        }
-        
-        // Пробуем следующую модель
-        log.warn("Retrying with next model...");
-    }
-}
-```
-
-### 3. Стриминговые запросы (`streamAttempt`)
-
-Использует реактивный подход с `Flux.onErrorResume()`:
-
-```java
-Flux.defer(() -> {
-    // Пробуем текущую модель
-    return pjp.proceed(args).chatResponse();
-})
-.onErrorResume(error -> {
-    if (!isRetryable(error) || index + 1 >= candidates.size()) {
-        return Flux.error(error); // Прерываем ретраи
-    }
-    // Рекурсивно пробуем следующую модель
-    return streamAttempt(pjp, baseArgs, modelConfig, candidates, index + 1);
-});
-```
-
-## Retryable ошибки
-
-Ошибка считается ретраируемой, если:
-
-1. **HTTP статусы:**
-   - `429` (Too Many Requests) - rate limiting
-   - `500-599` (Server Errors) - временные проблемы сервера
-   - `400` (Bad Request) - только если тело ответа содержит `"Conversation roles must alternate"` (специфичная валидация некоторых free-провайдеров)
-
-2. **Транспортные ошибки:**
-   - Timeouts
-   - Network errors
-   - Все остальные исключения (кроме `WebClientResponseException`)
-
-**Неретраируемые ошибки:**
-- `400` без специфичного сообщения (обычно означает несовместимость формата запроса)
-- `401`, `403` (проблемы авторизации)
-- Другие `4xx` ошибки
-
-## Метрики и ранжирование
-
-### Запись успеха (`recordSuccess`)
-- Обновляет `lastStatus = 200`
-- Обновляет EWMA latency: `ewma = current * (1 - alpha) + sample * alpha`
-- Сбрасывает cooldown: `cooldownUntilEpochMs = 0`
-
-### Запись неудачи (`recordFailure`)
-- Обновляет `lastStatus` (HTTP статус ошибки)
-- Обновляет EWMA latency
-- Устанавливает cooldown для определенных ошибок:
-  - `429`: cooldown из `ranking.cooldown-429` (по умолчанию из конфигурации)
-  - `5xx`: cooldown из `ranking.cooldown-5xx`
-
-**Cooldown** - период времени, в течение которого модель исключается из кандидатов (score = -10_000).
+- **Список кандидатов при старте:** `OpenRouter model rotation candidates (maxAttempts={}): [список имён]`
+- **Один кандидат:** `OpenRouter model rotation: only N candidate(s), retry on stream error will not switch model`
+- **Ошибка при попытке:** `OpenRouter stream retry: error caught. model=..., retryable=..., attempt=X of Y, reason=...`
+- **Переключение модели при ретрае:** `OpenRouter stream retry: switching from model=... to next candidate model=... (next attempt X of Y). reason=...`
+- **Нет следующих кандидатов:** `OpenRouter stream retry: no more candidates after attempt X of Y (current=...), cannot retry. reason=...`
+- **Нет кандидатов вообще (крайний случай):** `OpenRouter stream retry: no candidates available (index=..., totalCandidates=...)`
+- **Ошибка не retryable (stream):** `OpenRouter stream error not retryable. model=..., reason=...` (DEBUG)
 
 ## Конфигурация
-
-### Свойства Spring AI
 
 ```yaml
 ai-bot:
   ai:
     spring-ai:
       openrouter-auto-rotation:
-        max-attempts: 3  # Максимальное количество попыток ретрая
+        max-attempts: 3   # макс. число кандидатов (попыток); по умолчанию в коде 2
+        models:
+          enabled: true
+          # ...
 ```
 
-### Свойства OpenRouter Free Models
+## Связанные классы
 
-```yaml
-ai-bot:
-  common:
-    openrouter-free-models:
-      enabled: true
-      ranking:
-        enabled: true
-        retry-max-attempts: 3
-        latency-ewma-alpha: 0.2
-        cooldown-429: PT5M      # 5 минут для rate limit
-        cooldown-5xx: PT10M    # 10 минут для серверных ошибок
-      filters:
-        include-model-ids: []   # Белый список моделей
-        exclude-model-ids: []   # Черный список моделей
-        include-contains: []    # Модели, содержащие строку
-        exclude-contains: []    # Исключить модели, содержащие строку
-```
-
-## Примеры использования
-
-### Пример 1: Простой запрос с AUTO-моделью
-
-```java
-// В body: { "max_price": 0 }
-// Модель: openrouter/auto
-// Результат: автоматический выбор лучшей free-модели с ретраями
-```
-
-### Пример 2: Запрос к конкретной free-модели
-
-```java
-// Модель: meta-llama/llama-3.2-3b-instruct:free
-// Результат: сначала пробуется запрошенная модель, затем другие free-модели при ошибках
-```
-
-### Пример 3: Стриминговый запрос
-
-```java
-@RotateOpenRouterModels(stream = true)
-public AIResponse streamChat(...) {
-    // При ошибке стрима автоматически переключается на следующую модель
-    // без прерывания стрима для пользователя
-}
-```
-
-## Логирование
-
-Аспект логирует:
-- Список кандидатов для ротации: `OpenRouter auto model rotation candidates (maxAttempts={}): {}`
-- Предупреждения о ретраях: `Spring AI call failed for model={}, retrying next if available`
-- Обновления статистики моделей: `OpenRouter model stats updated (success/failure)`
-- Ранжирование кандидатов: `OpenRouter free model ranking: selected candidates`
-
-## Важные замечания
-
-1. **Производительность:** Ретраи увеличивают latency запроса. Используйте `maxAttempts` разумно (обычно 2-3).
-
-2. **Cooldown:** Модели в cooldown автоматически исключаются из кандидатов, что предотвращает бесконечные ретраи к недоступным моделям.
-
-3. **EWMA latency:** Используется для ранжирования моделей по скорости ответа. Модели с меньшей latency получают приоритет.
-
-4. **Специфичные ошибки:** Некоторые free-провайдеры имеют строгую валидацию формата сообщений. Ошибка `400` с сообщением о ролях считается ретраируемой, так как может быть модель-специфичной.
-
-5. **AUTO vs конкретная модель:** AUTO-ротация включается только при `max_price=0`, что явно указывает на желание использовать free-пул. В остальных случаях AUTO может означать другой механизм выбора модели.
-
-## Связанные компоненты
-
-- `OpenRouterFreeModelResolver` - резолвер и ранжирование моделей
-- `OpenRouterStreamMetricsTracker` - метрики для стриминговых запросов
-- `SpringAIChatService` - сервис, использующий аннотацию `@RotateOpenRouterModels`
-- `SpringAIProperties` - конфигурация Spring AI модуля
+- `SpringAIModelRegistry` — реализация `OpenRouterRotationRegistry`, хранит модели (yml + free из API), метод `getCandidatesByCapabilities`.
+- `WebClientLogCustomizer` — эмитит `OpenRouterEmptyStreamException` в теле SSE при пустом/reasoning-only стриме.
+- `OpenRouterStreamMetricsTracker` — метрики по стриму (doOnComplete/doOnError), не меняет распространение ошибки.
+- `SpringAIGateway` — вызывает `chatService.streamChat()` / `callChat()`, оттуда аспект.
+- `DefaultAICommandFactory` — задаёт `modelCapabilities()` в зависимости от приоритета пользователя (ADMIN/VIP/REGULAR).

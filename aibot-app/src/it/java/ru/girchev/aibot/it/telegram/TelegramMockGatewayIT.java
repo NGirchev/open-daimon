@@ -3,6 +3,7 @@ package ru.girchev.aibot.it.telegram;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +41,7 @@ import ru.girchev.aibot.telegram.command.TelegramCommandType;
 import ru.girchev.aibot.telegram.command.handler.impl.MessageTelegramCommandHandler;
 import ru.girchev.aibot.telegram.config.TelegramFlywayConfig;
 import ru.girchev.aibot.telegram.config.TelegramJpaConfig;
+import ru.girchev.aibot.common.storage.config.StorageProperties;
 import ru.girchev.aibot.telegram.config.TelegramProperties;
 import ru.girchev.aibot.telegram.repository.TelegramUserRepository;
 import ru.girchev.aibot.telegram.repository.TelegramUserSessionRepository;
@@ -55,6 +57,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(
         classes = ITTestConfiguration.class,
@@ -63,17 +67,14 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "spring.autoconfigure.exclude=" +
                         "ru.girchev.aibot.common.config.CoreAutoConfig," +
                         "ru.girchev.aibot.bulkhead.config.BulkHeadAutoConfig," +
-                        "ru.girchev.aibot.common.openrouter.OpenRouterFreeModelsAutoConfig," +
                         "ru.girchev.aibot.telegram.config.TelegramAutoConfig," +
                         "org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration," +
-                        "org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
                         "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
-                        "org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration," +
-                        "org.springframework.ai.ollama.OllamaAutoConfiguration"
+                        "org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration"
         }
 )
 @ActiveProfiles("integration-test")
@@ -107,8 +108,13 @@ class TelegramMockGatewayIT {
         }
 
         @Bean
-        public DefaultAICommandFactory defaultAICommandFactory(IUserPriorityService userPriorityService) {
-            return new DefaultAICommandFactory(userPriorityService);
+        public DefaultAICommandFactory defaultAICommandFactory(
+                IUserPriorityService userPriorityService,
+                CoreCommonProperties coreCommonProperties) {
+            return new DefaultAICommandFactory(
+                    userPriorityService,
+                    coreCommonProperties.getMaxOutputTokens(),
+                    coreCommonProperties.getMaxReasoningTokens());
         }
 
         @Bean
@@ -197,6 +203,7 @@ class TelegramMockGatewayIT {
             props.setStartMessage("Hello from integration test");
             props.setWhitelistExceptions("");
             props.setWhitelistChannelIdExceptions("");
+            props.setMaxMessageLength(4096);
             return props;
         }
 
@@ -218,12 +225,25 @@ class TelegramMockGatewayIT {
         }
 
         @Bean
+        public ObjectProvider<StorageProperties> storagePropertiesProvider() {
+            ObjectProvider<StorageProperties> provider = mock(ObjectProvider.class);
+            when(provider.getIfAvailable()).thenReturn(null);
+            return provider;
+        }
+
+        @Bean
         public TelegramMessageService telegramMessageService(
                 AIBotMessageService messageService,
                 TelegramUserService telegramUserService,
-                CoreCommonProperties coreCommonProperties
+                CoreCommonProperties coreCommonProperties,
+                ObjectProvider<StorageProperties> storagePropertiesProvider
         ) {
-            return new TelegramMessageService(messageService, telegramUserService, coreCommonProperties);
+            return new TelegramMessageService(
+                    messageService,
+                    telegramUserService,
+                    coreCommonProperties,
+                    storagePropertiesProvider
+            );
         }
 
         @Bean
@@ -237,7 +257,7 @@ class TelegramMockGatewayIT {
 
         @Bean
         public TypingIndicatorService typingIndicatorService(
-                org.springframework.beans.factory.ObjectProvider<TelegramBot> telegramBotProvider,
+                ObjectProvider<TelegramBot> telegramBotProvider,
                 ScheduledExecutorService typingIndicatorScheduledExecutor
         ) {
             return new TypingIndicatorService(telegramBotProvider, typingIndicatorScheduledExecutor);
@@ -258,14 +278,15 @@ class TelegramMockGatewayIT {
 
         @Bean
         public MessageTelegramCommandHandler messageTelegramCommandHandler(
-                org.springframework.beans.factory.ObjectProvider<TelegramBot> telegramBotProvider,
+                ObjectProvider<TelegramBot> telegramBotProvider,
                 TypingIndicatorService typingIndicatorService,
                 TelegramUserService telegramUserService,
                 TelegramUserSessionService telegramUserSessionService,
                 TelegramMessageService telegramMessageService,
                 AIGatewayRegistry aiGatewayRegistry,
                 AIBotMessageService messageService,
-                AICommandFactoryRegistry aiCommandFactoryRegistry
+                AICommandFactoryRegistry aiCommandFactoryRegistry,
+                TelegramProperties telegramProperties
         ) {
             return new MessageTelegramCommandHandler(
                     telegramBotProvider,
@@ -275,7 +296,8 @@ class TelegramMockGatewayIT {
                     telegramMessageService,
                     aiGatewayRegistry,
                     messageService,
-                    aiCommandFactoryRegistry
+                    aiCommandFactoryRegistry,
+                    telegramProperties
             );
         }
     }

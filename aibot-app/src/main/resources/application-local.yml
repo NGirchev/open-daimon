@@ -3,30 +3,6 @@ server:
 
 ai-bot:
   common:
-    openrouter-free-models:
-      enabled: true
-      api:
-        key: ${OPENROUTER_KEY}
-        url: https://openrouter.ai/api
-      refresh-initial-delay: 10s
-      refresh-interval: 10m
-      filters:
-        include-model-ids:
-          - meta-llama/llama-3.3-70b-instruct:free
-          - mistralai/mistral-small-3.1-24b-instruct:free
-          - google/gemini-2.0-flash-exp:free
-          - google/gemma-3-27b-it:free
-          - openai/gpt-oss-120b:free
-          - openai/gpt-oss-20b:free
-          - qwen/qwen3-next-80b-a3b-instruct:free
-          - z-ai/glm-4.5-air:free
-          - tngtech/tng-r1t-chimera:free
-      ranking:
-        enabled: true
-        retry-max-attempts: 3
-        latency-ewma-alpha: 0.2
-        cooldown429: 5m
-        cooldown5xx: 2m
     bulkhead:
       enabled: true
       instances:
@@ -44,12 +20,21 @@ ai-bot:
       telegram-id: ${ADMIN_TELEGRAM_ID:}
       rest-email: ${ADMIN_REST_EMAIL:}
     assistant-role: "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language."
-    conversation-context:
-      enabled: false # when we are using aibot-spring-ai we shouldn't use it
+    max-total-prompt-tokens: 32000
+    # Лимит токенов одного сообщения пользователя; при превышении можно отклонить с подсказкой сократить.
+    max-user-message-tokens: 4000
+    # Общий лимит токенов вывода (max_tokens): reasoning + ответ укладываются в этот лимит.
+    max-output-tokens: 4000
+    # Бюджет на reasoning (часть от общего; должен быть < max-output-tokens). Опционально.
+    max-reasoning-tokens: 1500
+    summarization:
       max-context-tokens: 8000
+      summary-trigger-threshold: 0.7
+      keep-recent-messages: 20
+    manual-conversation-history:
+      enabled: false
       max-response-tokens: 4000
       default-window-size: 20
-      summary-trigger-threshold: 0.7
       include-system-prompt: true
       token-estimation-chars-per-token: 4
   telegram:
@@ -58,7 +43,7 @@ ai-bot:
     token: ${TELEGRAM_TOKEN}
     whitelist-exceptions: ${WHITELIST_EXCEPTIONS:}
     whitelist-channel-id-exceptions: ${WHITELIST_CHANNEL_ID_EXCEPTIONS:}
-    start-message: "Привет! Я бот с интеграцией DeepSeek и OpenRouter. Задай мне любой вопрос, и я постараюсь на него ответить.\nДоступные команды:\n"
+    start-message: "Привет! Я бот с интеграцией OpenRouter. Задай мне любой вопрос, и я постараюсь на него ответить.\nДоступные команды:\n"
     commands:
       start-enabled: true
       role-enabled: true
@@ -76,6 +61,30 @@ ai-bot:
       enabled: true
       openrouter-auto-rotation:
         max-attempts: 3
+        models:
+          enabled: true
+          api:
+            key: ${OPENROUTER_KEY}
+            url: https://openrouter.ai/api
+          refresh-initial-delay: 1s
+          refresh-interval: 10m
+          filters:
+            include-model-ids:
+              - meta-llama/llama-3.3-70b-instruct:free
+              - mistralai/mistral-small-3.1-24b-instruct:free
+              - google/gemini-2.0-flash-exp:free
+              - google/gemma-3-27b-it:free
+              - openai/gpt-oss-120b:free
+              - openai/gpt-oss-20b:free
+              - qwen/qwen3-next-80b-a3b-instruct:free
+              - z-ai/glm-4.5-air:free
+              - tngtech/tng-r1t-chimera:free
+          ranking:
+            enabled: true
+            retry-max-attempts: 3
+            latency-ewma-alpha: 0.2
+            cooldown429: 5m
+            cooldown5xx: 2m
       serper:
         api:
           url: "https://google.serper.dev/search"
@@ -97,13 +106,15 @@ ai-bot:
               - VISION
             provider-type: OPENAI
             priority: 3
-          - name: "gemma3:1b"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - SUMMARIZATION
-            provider-type: OLLAMA
-            priority: 1
+#          - name: "gemma3:1b"
+#            capabilities:
+#              - AUTO
+#              - CHAT
+#              - TOOL_CALLING
+#              - SUMMARIZATION
+#              - EMBEDDING
+#            provider-type: OLLAMA
+#            priority: 1
 #          - name: "nomic-embed-text:v1.5"
 #            capabilities:
 #              - EMBEDDING
@@ -153,8 +164,9 @@ logging:
   level:
     root: INFO
     ru.girchev.aibot: INFO
-    ru.girchev.aibot.ai.springai.rest: DEBUG
-    ru.girchev.aibot.ai.springai.config: DEBUG
+    ru.girchev.aibot.ai.springai.rest: INFO
+    ru.girchev.aibot.ai.springai.rest.WebClientLogCustomizer: DEBUG
+    ru.girchev.aibot.ai.springai.config: INFO
     org.springframework.ai.chat.model.MessageAggregator: WARN
     reactor.core.publisher: WARN
     org.springframework.web.reactive.function.client: WARN

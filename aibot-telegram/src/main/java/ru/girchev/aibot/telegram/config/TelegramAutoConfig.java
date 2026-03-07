@@ -1,7 +1,7 @@
 package ru.girchev.aibot.telegram.config;
 
+import org.apache.http.client.config.RequestConfig;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.telegram.telegrambots.bots.DefaultBotOptions;
 import ru.girchev.aibot.bulkhead.config.BulkHeadAutoConfig;
 import ru.girchev.aibot.telegram.TelegramBot;
 import ru.girchev.aibot.telegram.service.TelegramBotMenuService;
@@ -41,7 +42,20 @@ public class TelegramAutoConfig {
                                    TelegramUserService userService,
                                    ObjectProvider<TelegramFileService> fileServiceProvider,
                                    ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
-        return new TelegramBot(properties, commandSyncService, userService, 
+        Integer socketTimeoutSec = properties.getLongPollingSocketTimeoutSeconds();
+        Integer getUpdatesTimeoutSec = properties.getGetUpdatesTimeoutSeconds();
+        DefaultBotOptions options = new DefaultBotOptions();
+        options.setGetUpdatesTimeout(getUpdatesTimeoutSec != null ? getUpdatesTimeoutSec : 50);
+        if (socketTimeoutSec != null) {
+            int socketTimeoutMs = socketTimeoutSec * 1000;
+            RequestConfig requestConfig = RequestConfig.custom()
+                    .setSocketTimeout(socketTimeoutMs)
+                    .setConnectTimeout(10_000)
+                    .setConnectionRequestTimeout(10_000)
+                    .build();
+            options.setRequestConfig(requestConfig);
+        }
+        return new TelegramBot(properties, options, commandSyncService, userService,
                 fileServiceProvider, fileUploadPropertiesProvider);
     }
 

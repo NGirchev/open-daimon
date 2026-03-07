@@ -45,7 +45,7 @@ export SERPER_KEY=your_serper_api_key
 mvn clean package -DskipTests
 ```
 
-2. **Создать `.env` файл** в корне проекта (см. `.env.example`):
+2. **Создать `.env` файл** в корне проекта:
 ```bash
 TELEGRAM_USERNAME=your_bot_username
 TELEGRAM_TOKEN=your_telegram_bot_token
@@ -164,7 +164,20 @@ mvn test -Dtest=repository.telegram.ru.girchev.aibot.common.TelegramUserReposito
 
 # Конкретный метод
 mvn test "-Dtest=repository.telegram.ru.girchev.aibot.common.TelegramUserRepositoryTest#whenSaveUser_thenUserIsSaved" -pl aibot-app
+
+# SpringAIGatewayIT (стриминг)
+mvn test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
 ```
+
+### Запуск тестов на Windows
+- Для **mvnw.cmd** нужна переменная **JAVA_HOME** (JDK 21). Часто путь: `C:\Users\<user>\.jdks\corretto-21.0.10` (IDEA) или из File → Project Structure → SDKs.
+- **PowerShell** из корня проекта:
+  ```powershell
+  $env:JAVA_HOME = "C:\Users\ngirc\.jdks\corretto-21.0.10"; cd c:\Work\IdeaProjects\ai-bot; .\mvnw.cmd test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
+  ```
+  (замените путь на свой JDK).
+- Если тест одного модуля падает с «Could not find artifact aibot-common», сначала: `.\mvnw.cmd install -DskipTests`, затем команду `test`.
+- **Из IntelliJ IDEA**: правый клик по `SpringAIGatewayIT` → Run 'SpringAIGatewayIT'.
 
 ### Интеграционные тесты
 Используются **Testcontainers** для PostgreSQL:
@@ -173,6 +186,7 @@ mvn test "-Dtest=repository.telegram.ru.girchev.aibot.common.TelegramUserReposit
 - После тестов контейнер удаляется
 - TelegramMockGatewayIntegrationTest - главный тест для проверки телеграм части
 - SpringAIGatewayOpenRouterIntegrationTest - главный тест для проверки spring ai части
+- SpringAIGatewayIT - тест стриминга (без Ollama, мок Flux с задержками)
 
 ## Мониторинг и отладка
 
@@ -209,6 +223,20 @@ mvn flyway:baseline
 - Проверь, что Docker запущен
 - Testcontainers автоматически поднимает PostgreSQL
 - Проверь логи: `docker logs ai-bot-postgres`
+
+### Проблема: «Could not find a valid Docker environment» / Status 400 (Windows)
+На Windows Docker Desktop по умолчанию отдаёт по npipe ответ 400, и Testcontainers не может работать. Нужно включить доступ к демону по TCP:
+
+1. **Docker Desktop** → Settings → General → включи **«Expose daemon on tcp://localhost:2375 without TLS»** → Apply & Restart.
+2. Перед запуском тестов задай переменную (PowerShell):
+   ```powershell
+   $env:DOCKER_HOST = "tcp://localhost:2375"
+   ```
+3. Запусти тесты:
+   ```powershell
+   .\mvnw.cmd verify -q
+   ```
+   Или в одной строке: `$env:DOCKER_HOST = "tcp://localhost:2375"; .\mvnw.cmd verify -q`
 
 ### Проблема: Модуль не видит зависимости
 ```bash

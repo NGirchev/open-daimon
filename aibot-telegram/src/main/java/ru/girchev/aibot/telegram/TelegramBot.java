@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.ObjectProvider;
+import org.telegram.telegrambots.bots.DefaultBotOptions;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.ActionType;
 import org.telegram.telegrambots.meta.api.methods.AnswerInlineQuery;
@@ -49,17 +50,22 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final ObjectProvider<TelegramFileService> fileServiceProvider;
     private final ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider;
 
-    public TelegramBot(TelegramProperties config, 
-                       CommandSyncService commandSyncService, 
+    public TelegramBot(TelegramProperties config,
+                       CommandSyncService commandSyncService,
                        TelegramUserService userService) {
-        this(config, commandSyncService, userService, null, null);
+        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null);
     }
 
-    public TelegramBot(TelegramProperties config, 
-                       CommandSyncService commandSyncService, 
+    /**
+     * Конструктор с DefaultBotOptions для настройки таймаутов long polling (socket timeout, getUpdates timeout).
+     */
+    public TelegramBot(TelegramProperties config,
+                       DefaultBotOptions botOptions,
+                       CommandSyncService commandSyncService,
                        TelegramUserService userService,
                        ObjectProvider<TelegramFileService> fileServiceProvider,
                        ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
+        super(botOptions, config.getToken());
         this.config = config;
         this.commandSyncService = commandSyncService;
         this.userService = userService;
@@ -93,6 +99,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             } else if (update.hasMessage() && update.getMessage().hasPhoto() && isFileUploadEnabled()) {
                 internalTelegramCommandWrap = mapToTelegramPhotoCommand(update);
             } else if (update.hasMessage() && update.getMessage().hasDocument() && isFileUploadEnabled()) {
+                log.info("Document message received, routing to mapToTelegramDocumentCommand");
                 internalTelegramCommandWrap = mapToTelegramDocumentCommand(update);
             } else {
                 log.warn("Unsupported message {}", update);
@@ -258,6 +265,9 @@ public class TelegramBot extends TelegramLongPollingBot {
                     userText + " [Ошибка загрузки документа: " + e.getMessage() + "]", true, new ArrayList<>());
         }
 
+        Attachment first = attachments.getFirst();
+        log.info("Document command created: attachmentsCount={}, userText='{}', firstAttachmentType={}, dataLength={}",
+                attachments.size(), userText, first != null ? first.type() : null, first != null && first.data() != null ? first.data().length : 0);
         return new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, 
                 userText, true, attachments);
     }

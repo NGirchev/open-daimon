@@ -8,9 +8,11 @@ import ru.girchev.aibot.common.ai.AIGateways;
 import ru.girchev.aibot.common.ai.command.AICommand;
 import ru.girchev.aibot.common.ai.factory.AICommandFactoryRegistry;
 import ru.girchev.aibot.common.ai.response.AIResponse;
-import ru.girchev.aibot.common.ai.ModelType;
+import ru.girchev.aibot.common.ai.ModelCapabilities;
 import ru.girchev.aibot.common.ai.response.SpringAIStreamResponse;
 import ru.girchev.aibot.common.command.ICommand;
+import ru.girchev.aibot.common.exception.DocumentContentNotExtractableException;
+import ru.girchev.aibot.common.exception.UserMessageTooLongException;
 import ru.girchev.aibot.common.model.*;
 import ru.girchev.aibot.common.service.*;
 import ru.girchev.aibot.telegram.TelegramBot;
@@ -19,12 +21,14 @@ import ru.girchev.aibot.telegram.command.TelegramCommandType;
 import ru.girchev.aibot.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import ru.girchev.aibot.telegram.model.TelegramUser;
 import ru.girchev.aibot.telegram.model.TelegramUserSession;
+import ru.girchev.aibot.telegram.config.TelegramProperties;
 import ru.girchev.aibot.telegram.service.TelegramMessageService;
 import ru.girchev.aibot.telegram.service.TelegramUserService;
 import ru.girchev.aibot.telegram.service.TelegramUserSessionService;
 import ru.girchev.aibot.telegram.service.TypingIndicatorService;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -42,6 +46,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     private final AIGatewayRegistry aiGatewayRegistry;
     private final AIBotMessageService messageService;
     private final AICommandFactoryRegistry aiCommandFactoryRegistry;
+    private final TelegramProperties telegramProperties;
 
     @SuppressWarnings("java:S107")
     public MessageTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
@@ -51,7 +56,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                                          TelegramMessageService telegramMessageService,
                                          AIGatewayRegistry aiGatewayRegistry,
                                          AIBotMessageService messageService,
-                                         AICommandFactoryRegistry aiCommandFactoryRegistry) {
+                                         AICommandFactoryRegistry aiCommandFactoryRegistry,
+                                         TelegramProperties telegramProperties) {
         super(telegramBotProvider, typingIndicatorService);
         this.telegramUserService = telegramUserService;
         this.telegramUserSessionService = telegramUserSessionService;
@@ -59,6 +65,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.messageService = messageService;
         this.aiCommandFactoryRegistry = aiCommandFactoryRegistry;
+        this.telegramProperties = telegramProperties;
     }
 
     @Override
@@ -75,7 +82,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     @Override
     public String handleInner(TelegramCommand command) {
         AIBotMessage userMessage = null;
-        Set<ModelType> modelTypes = Set.of();
+        Set<ModelCapabilities> modelCapabilities = Set.of();
         Message message = command.update().getMessage();
         ConversationThread thread;
 
@@ -89,11 +96,11 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             // Получаем или создаем сессию пользователя
             TelegramUserSession session = telegramUserSessionService.getOrCreateSession(telegramUser);
 
-            // Сохраняем запрос пользователя
+            // Сохраняем запрос пользователя (включая ссылки на вложения при наличии)
             // Thread и роль автоматически получаются или создаются внутри saveUserMessage
             userMessage = telegramMessageService.saveUserMessage(
                     telegramUser, session, command.userText(),
-                    RequestType.TEXT, null);
+                    RequestType.TEXT, null, command.attachments());
 
             // Получаем thread и роль из сохраненного сообщения для дальнейшего использования
             thread = userMessage.getThread();
@@ -114,8 +121,12 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             // Если нет - используется DefaultAiCommandFactory (fallback)
             Map<String, String> metadata = prepareMetadata(thread, assistantRoleContent, assistantRoleId, telegramUser);
 
+            List<Attachment> atts = command.attachments() != null ? command.attachments() : List.of();
+            String attachmentTypes = atts.stream().map(a -> a.type().toString()).toList().toString();
+            log.info("Creating AI command: threadKey={}, userText='{}', attachmentsCount={}, attachmentTypes={}",
+                    thread.getThreadKey(), command.userText(), atts.size(), attachmentTypes);
             AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
-            modelTypes = aiCommand.modelTypes();
+            modelCapabilities = aiCommand.modelCapabilities();
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()
                     .findFirst()
@@ -129,9 +140,13 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
 
             if (aiResponse.gatewaySource() == AIGateways.SPRINGAI && aiResponse instanceof SpringAIStreamResponse aiStreamResponse) {
                 alreadySentInStream = true;
-                Integer[] replyToMessageId = {message.getMessageId()};
-                ChatResponse chatResponse = AIUtils.processStreamingResponseByParagraphs(aiStreamResponse.chatResponse(),
+                Integer[] replyToMessageId = { message.getMessageId() };
+                int maxMessageLength = telegramProperties.getMaxMessageLength();
+                ChatResponse chatResponse = AIUtils.processStreamingResponseByParagraphs(
+                        aiStreamResponse.chatResponse(),
+                        maxMessageLength,
                         s -> {
+                            log.debug("Sending message: {}", s);
                             sendMessage(command.telegramId(), AIUtils.convertMarkdownToHtml(s), replyToMessageId[0]);
                             replyToMessageId[0] = null; // После первого сообщения reply-to не нужен
                         }
@@ -168,7 +183,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 var assistantMessage = telegramMessageService.saveAssistantMessage(
                         telegramUser,
                         responseText,
-                        modelTypes.toString(),
+                        modelCapabilities.toString(),
                         assistantRoleContent,
                         (int) processingTime,
                         usefulResponseData);
@@ -191,7 +206,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 telegramMessageService.saveAssistantErrorMessage(
                         telegramUser,
                         errorMessage,
-                        modelTypes.toString(),
+                        modelCapabilities.toString(),
                         assistantRoleContent,
                         usefulResponseData != null && !usefulResponseData.isEmpty()
                                 ? usefulResponseData.toString()
@@ -201,8 +216,51 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 sendErrorMessage(command.telegramId(), errorMessage, replyToMessageId);
                 return null;
             }
+        } catch (UserMessageTooLongException e) {
+            log.warn("Сообщение превышает лимит токенов: {}", e.getMessage());
+            Integer replyToMessageId = message != null ? message.getMessageId() : null;
+            sendErrorMessage(command.telegramId(), e.getMessage(), replyToMessageId);
+            return null;
+        } catch (DocumentContentNotExtractableException e) {
+            log.warn("Не удалось извлечь текст из документа: {}", e.getMessage());
+            Integer replyToMessageId = message != null ? message.getMessageId() : null;
+            if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
+                String errorRoleContent = userMessage.getAssistantRole() != null
+                        ? userMessage.getAssistantRole().getContent()
+                        : null;
+                telegramMessageService.saveAssistantErrorMessage(
+                        telegramUser,
+                        e.getMessage(),
+                        modelCapabilities.toString(),
+                        errorRoleContent,
+                        null);
+            }
+            sendErrorMessage(command.telegramId(), e.getMessage(), replyToMessageId);
+            return null;
         } catch (Exception e) {
-            log.error("Error processing message", e);
+            DocumentContentNotExtractableException docEx = findDocumentContentNotExtractable(e);
+            if (docEx != null) {
+                log.warn("Не удалось извлечь текст из документа: {}", docEx.getMessage());
+                Integer replyToMessageId = message != null ? message.getMessageId() : null;
+                if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
+                    String errorRoleContent = userMessage.getAssistantRole() != null
+                            ? userMessage.getAssistantRole().getContent()
+                            : null;
+                    telegramMessageService.saveAssistantErrorMessage(
+                            telegramUser,
+                            docEx.getMessage(),
+                            modelCapabilities.toString(),
+                            errorRoleContent,
+                            null);
+                }
+                sendErrorMessage(command.telegramId(), docEx.getMessage(), replyToMessageId);
+                return null;
+            }
+            if (AIUtils.shouldLogWithoutStacktrace(e)) {
+                log.error("Error processing message: {}", AIUtils.getRootCauseMessage(e));
+            } else {
+                log.error("Error processing message", e);
+            }
             if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
                 // Получаем роль из сохраненного сообщения для сохранения ошибки
                 String errorRoleContent = userMessage.getAssistantRole() != null
@@ -211,12 +269,22 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 telegramMessageService.saveAssistantErrorMessage(
                         telegramUser,
                         "Произошла ошибка при обработке запроса",
-                        modelTypes.toString(),
+                        modelCapabilities.toString(),
                         errorRoleContent,
                         null);
             }
             Integer replyToMessageId = message != null ? message.getMessageId() : null;
             sendErrorMessage(command.telegramId(), "Произошла ошибка при обработке запроса", replyToMessageId);
+        }
+        return null;
+    }
+
+    private static DocumentContentNotExtractableException findDocumentContentNotExtractable(Throwable t) {
+        while (t != null) {
+            if (t instanceof DocumentContentNotExtractableException e) {
+                return e;
+            }
+            t = t.getCause();
         }
         return null;
     }
