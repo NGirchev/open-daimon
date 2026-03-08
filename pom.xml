@@ -256,6 +256,19 @@
                     </configuration>
                 </plugin>
 
+                <!-- Run unit tests in parallel (2 classes at a time per module) to reduce total time -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.2.5</version>
+                    <configuration>
+                        <forkCount>1</forkCount>
+                        <reuseForks>true</reuseForks>
+                        <parallel>classes</parallel>
+                        <threadCount>2</threadCount>
+                    </configuration>
+                </plugin>
+
                 <!-- Flyway Maven Plugin: use same env vars as docker-compose (POSTGRES_*).
                      For local run: set POSTGRES_HOST=localhost, POSTGRES_PORT=5432, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD (e.g. in .env). -->
                 <plugin>
@@ -359,6 +372,10 @@
             </plugins>
         </pluginManagement>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+            </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>

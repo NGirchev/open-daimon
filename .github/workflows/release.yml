@@ -52,14 +52,15 @@ jobs:
           server-username: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           server-password: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
 
-      # Pinned to SHA for reproducibility; IDE may flag third-party actions as unknown
       - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --list-secret-keys --keyid-format LONG
 
       - name: Deploy to Maven Central
-        run: mvn -B clean deploy -P release,central -DskipTests
+        run: mvn -B clean deploy -P release,central -DskipTests -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}

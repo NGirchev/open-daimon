@@ -245,6 +245,10 @@
                         <include>**/*IT.java</include>
                     </includes>
                     <testSourceDirectory>src/it/java</testSourceDirectory>
+                    <forkCount>1</forkCount>
+                    <reuseForks>true</reuseForks>
+                    <parallel>classes</parallel>
+                    <threadCount>2</threadCount>
                 </configuration>
             </plugin>
         </plugins>
