@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <!-- @cursor: AI, follow this dependency structure in this pom.xml:
-     1. Project-specific modules (groupId starts with ru.girchev)
+     1. Project-specific modules (groupId starts with io.github.ngirchev)
      2. Spring dependencies (groupId starts with org.springframework)
      3. Database dependencies (e.g., jdbc, jpa, postgres, h2)
      4. Other utilities and libraries (e.g., logging, json, etc.)
@@ -12,7 +12,7 @@
 
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>ru.girchev</groupId>
+    <groupId>io.github.ngirchev</groupId>
     <artifactId>aibot-parent</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
@@ -101,7 +101,7 @@
             <dependency>
                 <groupId>io.github.ngirchev</groupId>
                 <artifactId>dotenv</artifactId>
-                <version>1.0.4</version>
+                <version>1.0.5</version>
             </dependency>
 
             <dependency>

@@ -40,7 +40,7 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 ### When creating new modules
 1. **Create pom.xml** with the correct dependency structure (see Code Style)
 2. **Add the module** to parent pom.xml in the `<modules>` section
-3. **Package structure:** `ru.girchev.aibot.<module-name>.<layer>`
+3. **Package structure:** `io.github.ngirchev.aibot.<module-name>.<layer>`
 4. **If entities are needed:** extend `User` or `Message` from `aibot-common`
 5. **Create a Flyway migration** in `aibot-app/src/main/resources/db/migration/`
 6. **Create a configuration class** for all beans of the module (e.g. `MyModuleConfig`)
@@ -230,7 +230,7 @@ message (base table, SINGLE_TABLE strategy)
 
 ### Dependency order in pom.xml
 **IMPORTANT:** Follow this order in EVERY pom.xml (see comments in files):
-1. Project-specific modules (groupId: `ru.girchev`)
+1. Project-specific modules (groupId: `io.github.ngirchev`)
 2. Spring dependencies (groupId: `org.springframework`)
 3. Database dependencies (jdbc, jpa, postgres, h2)
 4. Other utilities and libraries (logging, json, etc.)
@@ -242,7 +242,7 @@ message (base table, SINGLE_TABLE strategy)
 - **Java 21** with modern features
 - **Lombok** to reduce boilerplate (`@Getter`, `@Setter`, `@RequiredArgsConstructor`, `@Slf4j`)
 - **Functional patterns** where possible (Vavr is used)
-- **Package structure:** `ru.girchev.aibot.<module>.<layer>` (e.g. `ru.girchev.aibot.telegram.service`)
+- **Package structure:** `io.github.ngirchev.aibot.<module>.<layer>` (e.g. `io.github.ngirchev.aibot.telegram.service`)
 
 ### Entity guidelines
 - Base entities in `aibot-common` (`User`, `Message`)

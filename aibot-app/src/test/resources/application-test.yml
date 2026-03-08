@@ -6,7 +6,7 @@ spring:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
-      - ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig
+      - io.github.ngirchev.aibot.ai.springai.config.SpringAIAutoConfig
   ai:
     openai:
       api-key: mock-key

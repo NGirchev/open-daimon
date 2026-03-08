@@ -1,132 +1,267 @@
 # AI Bot Router
 
-Multi-module Java project for interacting with various AI services through different interfaces (Telegram, REST API, Web UI) with integration via Spring AI (OpenRouter, Ollama).
+[![Build Status](https://github.com/NGirchev/ai-bot/actions/workflows/maven.yml/badge.svg)](https://github.com/NGirchev/ai-bot/actions)
+[![Java 21](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk)](https://openjdk.org/)
+[![Spring Boot 3.3.3](https://img.shields.io/badge/Spring%20Boot-3.3.3-6DB33F?logo=springboot)](https://spring.io/projects/spring-boot)
+[![License](https://img.shields.io/github/license/NGirchev/ai-bot)](https://github.com/NGirchev/ai-bot/blob/master/LICENSE)
+
+Multi-module Java project for interacting with various AI services through different interfaces (Telegram, REST API, Web UI), with integration via Spring AI (OpenRouter, Ollama).
+
+## Table of contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Tech stack](#tech-stack)
+- [Modules](#modules)
+- [Quick start](#quick-start) — [Running the app (no Java experience)](#running-the-app-no-java-experience)
+- [Build and run](#build-and-run)
+- [Server deployment](#server-deployment)
+- [Useful links](#useful-links)
+- [Testing](#testing)
+- [Monitoring and debugging](#monitoring-and-debugging)
+- [Troubleshooting](#troubleshooting)
+- [Documentation](#documentation)
+- [Project structure](#project-structure)
+- [Additional commands](#additional-commands)
+- [License](#license)
+
+## Features
+
+- **Multiple interfaces**: Telegram bot, REST API, Web UI
+- **Spring AI integration**: OpenRouter, Ollama, chat memory, optional RAG
+- **Modular architecture**: enable only the modules you need
+- **Request prioritization**: bulkhead (ADMIN/VIP/REGULAR) and per-user concurrency
+- **Monitoring**: Prometheus, Grafana, Elasticsearch, Kibana
+
+## Requirements
+
+- **Java 21** (LTS)
+- **Maven 3.6+**
+- **Docker & Docker Compose** (for PostgreSQL, Prometheus, Grafana; optional Elasticsearch, Kibana)
 
 ## Tech stack
 
-- **Java 21** (LTS)
-- **Spring Boot 3.3.3**
+- **Java 21** (LTS), **Spring Boot 3.3.3**
 - **PostgreSQL 17.0** with Flyway migrations
-- **Docker & Docker Compose**
-- **Prometheus + Grafana** for monitoring
-- **Elasticsearch + Kibana** for logging
+- **Prometheus + Grafana** for metrics, **Elasticsearch + Kibana** for logging
+
+## Modules
+
+You can add only the modules you need. All modules use `groupId` `io.github.ngirchev`; set `aibot.version` in your POM or use a concrete version.
+
+### Module dependency graph
+
+```mermaid
+graph TD
+    common[aibot-common]
+    telegram[aibot-telegram] --> common
+    rest[aibot-rest] --> common
+    ui[aibot-ui] --> rest
+    springai[aibot-spring-ai] --> common
+    mock[aibot-gateway-mock] --> common
+```
+
+### Module overview
+
+| Module | Description | Depends on |
+|--------|-------------|------------|
+| `aibot-common` | Core: entities, services, request prioritization | — |
+| `aibot-telegram` | Telegram Bot interface | `aibot-common` |
+| `aibot-rest` | REST API (controllers, Swagger) | `aibot-common` |
+| `aibot-ui` | Web UI (Thymeleaf) | `aibot-rest` |
+| `aibot-spring-ai` | Spring AI (OpenRouter, Ollama, chat memory, RAG) | `aibot-common` |
+| `aibot-gateway-mock` | Mock AI provider for tests | `aibot-common` |
+
+### Example: Telegram bot + Spring AI
+
+Minimal setup for a Telegram bot with AI:
+
+```xml
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-telegram</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-spring-ai</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+```
+
+### Example: REST API + Web UI + Spring AI
+
+No Telegram; REST and browser UI only:
+
+```xml
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-ui</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-spring-ai</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+```
+
+### Example: All modules
+
+Use the assembled application module (includes Telegram, REST, UI, Spring AI, gateway-mock):
+
+```xml
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-app</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+```
 
 ## Quick start
 
-### Local run (for development)
+### Running the app (no Java experience)
 
-1. **Start infrastructure:**
+If you are new to Java, follow these steps. You will need a **terminal** (command line): on Windows use PowerShell or Command Prompt; on macOS/Linux use Terminal.
+
+**1. Install Java 21**
+
+The app runs on **Java** (a runtime). You need **Java 21** specifically.
+
+- **Windows / macOS / Linux:** download and install from [Eclipse Temurin (Adoptium)](https://adoptium.net/temurin/releases/?version=21&os=windows&arch=x64) — choose your OS and install the JDK 21.
+- After installation, open a **new** terminal and run: `java -version`. You should see something like `openjdk version "21.x.x"`.
+
+**2. Install Docker**
+
+The app uses **PostgreSQL** (a database). The easiest way is to run it in **Docker**.
+
+- Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose). Start Docker so it is running in the background.
+
+**3. Prepare configuration**
+
+- In the project folder, copy the example config: copy `.env.example` to a new file named `.env`.
+- Open `.env` in a text editor and set at least: `TELEGRAM_USERNAME`, `TELEGRAM_TOKEN`, `OPENROUTER_KEY`, `POSTGRES_PASSWORD`. Do not commit `.env` (it contains secrets).
+
+**4. Start the database**
+
+In the terminal, from the project folder:
+
 ```bash
 docker-compose up -d postgres prometheus grafana
 ```
 
-2. **Build the project:**
+**5. Build and run**
+
+- **If you have the source code** and want to build yourself: install [Maven](https://maven.apache.org/download.cgi) (build tool for Java). Then in the project folder run:
+  ```bash
+  mvn clean install
+  java -jar aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
+  ```
+- **If someone gave you a ready JAR file:** put the JAR in a folder, put your `.env` in the same folder (or set the same variables in the environment), then run:
+  ```bash
+  java -jar aibot-app-1.0-SNAPSHOT.jar
+  ```
+
+The app will start. You can open the Web UI or use the Telegram bot according to your configuration. For more options (e.g. run everything in Docker), see the sections below.
+
+### Environment variables
+
+Create a `.env` file in the project root (do **not** commit it; add `.env` to `.gitignore`). Use [.env.example](.env.example) as a template:
+
 ```bash
-mvn clean install
+cp .env.example .env
+# Edit .env and set TELEGRAM_USERNAME, TELEGRAM_TOKEN, OPENROUTER_KEY, POSTGRES_PASSWORD, etc.
 ```
+
+For local run without Docker Compose you can also `export` variables in the shell.
+
+### Local run (for development)
+
+1. **Start infrastructure:**
+   ```bash
+   docker-compose up -d postgres prometheus grafana
+   ```
+
+2. **Build the project:**
+   ```bash
+   mvn clean install
+   ```
 
 3. **Run the application:**
-```bash
-mvn spring-boot:run -pl aibot-app
-```
-
-4. **Set environment variables** (create `.env` or set in the system):
-```bash
-export TELEGRAM_USERNAME=your_bot_username
-export TELEGRAM_TOKEN=your_telegram_bot_token
-export OPENROUTER_KEY=your_openrouter_api_key
-export SERPER_KEY=your_serper_api_key
-```
+   ```bash
+   mvn spring-boot:run -pl aibot-app
+   ```
 
 ### Run with Docker Compose (recommended)
 
-1. **Build the project:**
-```bash
-mvn clean package -DskipTests
-```
+1. **Create `.env`** from [.env.example](.env.example) and set required values (see [Environment variables](#environment-variables) above).
 
-2. **Create `.env` file** in the project root:
-```bash
-TELEGRAM_USERNAME=your_bot_username
-TELEGRAM_TOKEN=your_telegram_bot_token
-OPENROUTER_KEY=your_openrouter_api_key
-SERPER_KEY=your_serper_api_key
-POSTGRES_PASSWORD=your_secure_password
-```
+2. **Build the project:**
+   ```bash
+   mvn clean package -DskipTests
+   ```
 
 3. **Start all services:**
-```bash
-docker-compose up -d
-```
-
-   **Or with image rebuild:**
-```bash
-docker-compose up -d --build
-```
+   ```bash
+   docker-compose up -d
+   ```
+   Or with image rebuild: `docker-compose up -d --build`
 
 4. **Check status:**
-```bash
-docker-compose ps
-docker-compose logs -f aibot-app
-```
+   ```bash
+   docker-compose ps
+   docker-compose logs -f aibot-app
+   ```
 
 ## Build and run
 
 ### Prerequisites
-```bash
-# Java 21
-java -version
 
-# Maven 3.11+
-mvn -version
-
-# Docker (for DB and monitoring)
-docker --version
-```
+- Java 21: `java -version`
+- Maven 3.6+: `mvn -version`
+- Docker (for DB and monitoring): `docker --version`
 
 ### Start infrastructure
-```bash
-# Start PostgreSQL, Prometheus, Grafana, Elasticsearch, Kibana
-docker-compose up -d
 
-# Check status
+```bash
+# PostgreSQL, Prometheus, Grafana, Elasticsearch, Kibana
+docker-compose up -d
 docker-compose ps
 ```
 
 ### Build project
+
 ```bash
-# Build all modules
 mvn clean install
-
-# Build without tests
-mvn clean install -DskipTests
-
-# Build a specific module
-mvn clean install -pl aibot-telegram
-
-# Build with dependencies
-mvn clean install -pl aibot-app -am
+mvn clean install -DskipTests              # without tests
+mvn clean install -pl aibot-telegram       # single module
+mvn clean install -pl aibot-app -am        # module and dependencies
 ```
 
 ### Run application
-```bash
-# From project root
-mvn spring-boot:run -pl aibot-app
 
-# Or via JAR
+**Option 1: Maven (development)**
+
+```bash
+mvn spring-boot:run -pl aibot-app
+```
+
+**Option 2: Run the built JAR**
+
+After `mvn clean install` (or `mvn clean package -pl aibot-app -am`), run the executable JAR. Set environment variables or use a `.env` file in the current directory (see [Environment variables](#environment-variables)).
+
+```bash
 java -jar aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
 ```
 
+JAR name follows the project version from the parent POM (e.g. `1.0-SNAPSHOT`). Use Java 21: `java -version`.
+
 ### DB migrations
+
 ```bash
-# Apply migrations
 mvn flyway:migrate
-
-# Migration info
 mvn flyway:info
-
-# Clean DB (use with caution!)
-mvn flyway:clean
+mvn flyway:clean   # use with caution
 ```
 
 ## Server deployment
@@ -137,33 +272,38 @@ Detailed production deployment guide: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 
 After starting the application:
 
-- **Swagger UI**: http://localhost:8080/swagger-ui/index.html
-- **Actuator Health**: http://localhost:8080/actuator/health
-- **Prometheus Metrics**: http://localhost:8080/actuator/prometheus
-- **Prometheus UI**: http://localhost:9090
-- **Grafana**: http://localhost:3000 (admin/admin123456)
-- **Kibana**: http://localhost:5601
+| Service        | URL |
+|----------------|-----|
+| Swagger UI     | http://localhost:8080/swagger-ui/index.html |
+| Actuator Health| http://localhost:8080/actuator/health |
+| Prometheus metrics | http://localhost:8080/actuator/prometheus |
+| Prometheus UI  | http://localhost:9090 |
+| Grafana        | http://localhost:3000 (admin/admin123456) |
+| Kibana         | http://localhost:5601 |
 
 ## Testing
 
 ### Run all tests
+
 ```bash
 mvn test
 ```
 
 ### Run tests for a specific module
+
 ```bash
 mvn test -pl aibot-common
 mvn test -pl aibot-telegram
 ```
 
 ### Run a specific test
+
 ```bash
 # Example from README
-mvn test -Dtest=repository.telegram.ru.girchev.aibot.common.TelegramUserRepositoryTest -pl aibot-app
+mvn test -Dtest=repository.telegram.io.github.ngirchev.aibot.common.TelegramUserRepositoryTest -pl aibot-app
 
 # Specific method
-mvn test "-Dtest=repository.telegram.ru.girchev.aibot.common.TelegramUserRepositoryTest#whenSaveUser_thenUserIsSaved" -pl aibot-app
+mvn test "-Dtest=repository.telegram.io.github.ngirchev.aibot.common.TelegramUserRepositoryTest#whenSaveUser_thenUserIsSaved" -pl aibot-app
 
 # SpringAIGatewayIT (streaming)
 mvn test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
@@ -208,6 +348,7 @@ Logs are sent to Elasticsearch via Metricbeat.
 ## Troubleshooting
 
 ### Flyway migrations not applying
+
 ```bash
 # Check status
 mvn flyway:info
@@ -239,6 +380,7 @@ On Windows, Docker Desktop may return 400 over npipe and Testcontainers cannot c
    Or in one line: `$env:DOCKER_HOST = "tcp://localhost:2375"; .\mvnw.cmd verify -q`
 
 ### Module cannot see dependencies
+
 ```bash
 # Rebuild with dependencies
 mvn clean install -am
@@ -255,12 +397,13 @@ File -> Invalidate Caches / Restart
 ## Documentation
 
 - **[AGENTS.md](AGENTS.md)** — Detailed documentation for AI agents (architecture, module structure, code style)
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — How to contribute (setup, code style, testing, PR requirements)
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** — Server deployment guide
 - **[MODULAR_MIGRATIONS.md](MODULAR_MIGRATIONS.md)** — Flyway modular migrations
 
 ## Project structure
 
-```
+```text
 ai-bot/
 ├── aibot-common/        # Core module with shared logic
 ├── aibot-telegram/      # Telegram Bot interface
@@ -271,14 +414,11 @@ ai-bot/
 └── aibot-app/           # Main application module
 ```
 
-## License
+## Additional commands
 
-MIT
+### Web UI for Ollama
 
-### Useful commands
-
-## Web UI for Ollama
-```
+```bash
 docker run -d \
   --name open-webui \
   -p 3000:8080 \
@@ -288,9 +428,19 @@ docker run -d \
   ghcr.io/open-webui/open-webui:main
 ```
 
-## Port forwarding (example)
-ssh -N -L 23750:/var/run/docker.sock user@your-server.local
+### Port forwarding (example)
 
-## Teardown and full bring-up
+```bash
+ssh -N -L 23750:/var/run/docker.sock user@your-server.local
+```
+
+### Teardown and full bring-up
+
+```bash
 docker-compose -H tcp://localhost:23750 down -v
 docker-compose -H tcp://localhost:23750 up -d
+```
+
+## License
+
+See [LICENSE](LICENSE) file for details.

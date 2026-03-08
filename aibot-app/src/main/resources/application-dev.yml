@@ -184,7 +184,7 @@ spring:
 logging:
   level:
     root: INFO
-    ru.girchev.aibot: INFO
+    io.github.ngirchev.aibot: INFO
     org.springframework.ai.chat.model.MessageAggregator: WARN
     reactor.core.publisher: WARN
     org.springframework.web.reactive.function.client: WARN

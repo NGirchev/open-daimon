@@ -5,7 +5,7 @@
             "type": "java",
             "name": "Application",
             "request": "launch",
-            "mainClass": "ru.girchev.aibot.Application",
+            "mainClass": "io.github.ngirchev.aibot.Application",
             "projectName": "ai-bot"
         },
         {
@@ -18,7 +18,7 @@
             "type": "java",
             "name": "Debug (Launch) - Main",
             "request": "launch",
-            "mainClass": "ru.girchev.aibot.AiBotApplication",
+            "mainClass": "io.github.ngirchev.aibot.AiBotApplication",
             "projectName": "ai-bot"
         },
         {

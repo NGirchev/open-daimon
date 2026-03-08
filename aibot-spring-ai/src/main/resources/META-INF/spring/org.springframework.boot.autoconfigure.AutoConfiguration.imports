@@ -1,2 +1,2 @@
-ru.girchev.aibot.ai.springai.config.SpringAIAutoConfig
-ru.girchev.aibot.ai.springai.config.RAGAutoConfig
+io.github.ngirchev.aibot.ai.springai.config.SpringAIAutoConfig
+io.github.ngirchev.aibot.ai.springai.config.RAGAutoConfig

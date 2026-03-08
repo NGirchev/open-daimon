@@ -87,5 +87,5 @@ spring:
 logging:
   level:
     root: INFO
-    ru.girchev.aibot: DEBUG
+    io.github.ngirchev.aibot: DEBUG
 
