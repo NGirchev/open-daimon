@@ -12,6 +12,7 @@ Multi-module Java project for interacting with various AI services through diffe
 - [Features](#features)
 - [Requirements](#requirements)
 - [Tech stack](#tech-stack)
+- [Modules](#modules)
 - [Quick start](#quick-start)
 - [Build and run](#build-and-run)
 - [Server deployment](#server-deployment)
@@ -43,6 +44,79 @@ Multi-module Java project for interacting with various AI services through diffe
 - **Java 21** (LTS), **Spring Boot 3.3.3**
 - **PostgreSQL 17.0** with Flyway migrations
 - **Prometheus + Grafana** for metrics, **Elasticsearch + Kibana** for logging
+
+## Modules
+
+You can add only the modules you need. All modules use `groupId` `io.github.ngirchev`; set `aibot.version` in your POM or use a concrete version.
+
+### Module dependency graph
+
+```mermaid
+graph TD
+    common[aibot-common]
+    telegram[aibot-telegram] --> common
+    rest[aibot-rest] --> common
+    ui[aibot-ui] --> rest
+    springai[aibot-spring-ai] --> common
+    mock[aibot-gateway-mock] --> common
+```
+
+### Module overview
+
+| Module | Description | Depends on |
+|--------|-------------|------------|
+| `aibot-common` | Core: entities, services, request prioritization | — |
+| `aibot-telegram` | Telegram Bot interface | `aibot-common` |
+| `aibot-rest` | REST API (controllers, Swagger) | `aibot-common` |
+| `aibot-ui` | Web UI (Thymeleaf) | `aibot-rest` |
+| `aibot-spring-ai` | Spring AI (OpenRouter, Ollama, chat memory, RAG) | `aibot-common` |
+| `aibot-gateway-mock` | Mock AI provider for tests | `aibot-common` |
+
+### Example: Telegram bot + Spring AI
+
+Minimal setup for a Telegram bot with AI:
+
+```xml
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-telegram</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-spring-ai</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+```
+
+### Example: REST API + Web UI + Spring AI
+
+No Telegram; REST and browser UI only:
+
+```xml
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-ui</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-spring-ai</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+```
+
+### Example: All modules
+
+Use the assembled application module (includes Telegram, REST, UI, Spring AI, gateway-mock):
+
+```xml
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>aibot-app</artifactId>
+    <version>${aibot.version}</version>
+</dependency>
+```
 
 ## Quick start
 
