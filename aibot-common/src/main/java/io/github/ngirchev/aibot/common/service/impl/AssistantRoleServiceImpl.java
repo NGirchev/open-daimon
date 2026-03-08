@@ -2,6 +2,7 @@ package io.github.ngirchev.aibot.common.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.annotation.Transactional;
 import io.github.ngirchev.aibot.common.model.AssistantRole;
 import io.github.ngirchev.aibot.common.model.User;
@@ -18,8 +19,10 @@ import java.util.Optional;
 @Slf4j
 @RequiredArgsConstructor
 public class AssistantRoleServiceImpl implements AssistantRoleService {
-    
+
     private final AssistantRoleRepository assistantRoleRepository;
+    /** Self-reference for transactional proxy (avoids bypassing @Transactional on internal calls). */
+    private final ObjectProvider<AssistantRoleService> selfProvider;
     
     @Override
     @Transactional(readOnly = true)
@@ -82,22 +85,22 @@ public class AssistantRoleServiceImpl implements AssistantRoleService {
     @Transactional
     public AssistantRole updateActiveRole(User user, String content) {
         log.debug("Updating active role for user: {}", user.getId());
-        
-        // Get current active role
-        Optional<AssistantRole> currentActiveRole = getActiveRole(user);
-        
+
+        // Get current active role (via proxy so @Transactional(readOnly) is applied)
+        Optional<AssistantRole> currentActiveRole = selfProvider.getObject().getActiveRole(user);
+
         // If content unchanged, return current role
         if (currentActiveRole.isPresent() && currentActiveRole.get().getContent().equals(content)) {
             log.debug("Role content unchanged for user: {}", user.getId());
             return currentActiveRole.get();
         }
-        
-        // Create or get role with new content
-        AssistantRole role = createOrGetRole(user, content);
-        
-        // Activate new role
-        setActiveRole(role);
-        
+
+        // Create or get role with new content (via proxy)
+        AssistantRole role = selfProvider.getObject().createOrGetRole(user, content);
+
+        // Activate new role (via proxy)
+        selfProvider.getObject().setActiveRole(role);
+
         return role;
     }
     
@@ -153,18 +156,18 @@ public class AssistantRoleServiceImpl implements AssistantRoleService {
     @Transactional
     public AssistantRole getOrCreateDefaultRole(User user, String defaultContent) {
         log.debug("Getting or creating default role for user: {}", user.getId());
-        
-        // Check if there is an active role
-        Optional<AssistantRole> activeRole = getActiveRole(user);
-        
+
+        // Check if there is an active role (via proxy)
+        Optional<AssistantRole> activeRole = selfProvider.getObject().getActiveRole(user);
+
         if (activeRole.isPresent()) {
             return activeRole.get();
         }
-        
-        // Create role with default content
-        AssistantRole role = createOrGetRole(user, defaultContent);
-        setActiveRole(role);
-        
+
+        // Create role with default content (via proxy)
+        AssistantRole role = selfProvider.getObject().createOrGetRole(user, defaultContent);
+        selfProvider.getObject().setActiveRole(role);
+
         log.info("Created default role for user: {}", user.getId());
         return role;
     }

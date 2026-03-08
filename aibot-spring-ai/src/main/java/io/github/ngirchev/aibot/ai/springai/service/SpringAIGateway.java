@@ -103,72 +103,7 @@ public class SpringAIGateway implements AIGateway {
             if (command.options() instanceof AIBotChatOptions chatOptions) {
                 List<Message> messages = createMessages(chatOptions.body());
                 log.info("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole());
-                
-                // IMPORTANT: body MESSAGES may contain history from ConversationHistoryAICommandFactory
-                // only when ai-bot.common.manual-conversation-history.enabled=true.
-                // For local profile (enabled=false) ConversationHistoryAICommandFactory is off,
-                // so body.messages is empty and DefaultAICommandFactory is used.
-                // When enabled=true, ConversationHistoryAICommandFactory adds history + current User request to body.messages.
-                // So we must check for duplicates before adding system/user messages.
-                
-                // Current system/user must always be added (as before), but without duplicates
-                // if ConversationHistoryAICommandFactory already put them in messages.
-                if (StringUtils.hasText(chatOptions.systemRole())) {
-                    String systemRole = chatOptions.systemRole();
-                    boolean alreadyPresent = messages.stream()
-                            .filter(SystemMessage.class::isInstance)
-                            .map(SystemMessage.class::cast)
-                            .anyMatch(m -> systemRole.equals(m.getText()));
-                    if (!alreadyPresent) {
-                        // System message should be first in the prompt.
-                        messages.addFirst(new SystemMessage(systemRole));
-                    }
-                }
-                if (StringUtils.hasText(chatOptions.userRole())) {
-                    String userRole = chatOptions.userRole();
-                    // Check if User message with same text already exists in list
-                    boolean alreadyPresent = messages.stream()
-                            .filter(UserMessage.class::isInstance)
-                            .map(UserMessage.class::cast)
-                            .anyMatch(m -> userRole.equals(m.getText()));
-                    List<Attachment> attachments = (command instanceof ChatAICommand chatCommand) 
-                            ? chatCommand.attachments() 
-                            : List.of();
-                    log.info("Gateway: addingUserMessage={}, attachmentsCount={}, commandIsChatAICommand={}",
-                            !alreadyPresent, attachments != null ? attachments.size() : 0, command instanceof ChatAICommand);
-                    if (!alreadyPresent) {
-                        // Mutable list for possible image-attachments from PDF fallback
-                        List<Attachment> mutableAttachments = new ArrayList<>(attachments);
-                        
-                        // Count original IMAGE attachments before RAG processing
-                        long originalImageCount = attachments.stream()
-                                .filter(att -> att.type() == AttachmentType.IMAGE)
-                                .count();
-                        
-                        // RAG: process PDF attachments
-                        List<String> pdfAsImageFilenames = new ArrayList<>();
-                        String finalUserRole = processRagIfEnabled(userRole, mutableAttachments, pdfAsImageFilenames);
-                        
-                            // Extra system prompt with attachment context
-                        String attachmentContext = buildAttachmentContextMessage((int) originalImageCount, pdfAsImageFilenames);
-                        if (attachmentContext != null) {
-                            SystemMessage attachmentSystemMessage = new SystemMessage(attachmentContext);
-                            messages.add(attachmentSystemMessage);
-                            
-                            // Persist attachment system message to ChatMemory so that with Spring AI ChatMemory
-                            // (manual-conversation-history.enabled=false) attachment context is available in later turns.
-                            ChatMemory chatMemory = chatMemoryProvider != null ? chatMemoryProvider.getIfAvailable() : null;
-                            if (chatMemory != null && command != null && command.metadata() != null) {
-                                Object threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
-                                if (threadKey != null) {
-                                    chatMemory.add(String.valueOf(threadKey), attachmentSystemMessage);
-                                }
-                            }
-                        }
-                        
-                        messages.add(createUserMessage(finalUserRole, mutableAttachments));
-                    }
-                }
+                addSystemAndUserMessagesIfNeeded(messages, chatOptions, command);
 
                 List<SpringAIModelConfig> candidates = springAIModelRegistry.getCandidatesByCapabilities(command.modelCapabilities(), null);
                 if (candidates.isEmpty()) {
@@ -375,6 +310,50 @@ public class SpringAIGateway implements AIGateway {
         );
     }
 
+    private void addSystemAndUserMessagesIfNeeded(List<Message> messages, AIBotChatOptions chatOptions, AICommand command) {
+        if (StringUtils.hasText(chatOptions.systemRole())) {
+            String systemRole = chatOptions.systemRole();
+            boolean alreadyPresent = messages.stream()
+                    .filter(SystemMessage.class::isInstance)
+                    .map(SystemMessage.class::cast)
+                    .anyMatch(m -> systemRole.equals(m.getText()));
+            if (!alreadyPresent) {
+                messages.addFirst(new SystemMessage(systemRole));
+            }
+        }
+        if (!StringUtils.hasText(chatOptions.userRole())) {
+            return;
+        }
+        String userRole = chatOptions.userRole();
+        boolean userAlreadyPresent = messages.stream()
+                .filter(UserMessage.class::isInstance)
+                .map(UserMessage.class::cast)
+                .anyMatch(m -> userRole.equals(m.getText()));
+        List<Attachment> attachments = command instanceof ChatAICommand chatCommand ? chatCommand.attachments() : List.of();
+        log.info("Gateway: addingUserMessage={}, attachmentsCount={}, commandIsChatAICommand={}",
+                !userAlreadyPresent, attachments != null ? attachments.size() : 0, command instanceof ChatAICommand);
+        if (userAlreadyPresent) {
+            return;
+        }
+        List<Attachment> mutableAttachments = new ArrayList<>(attachments);
+        long originalImageCount = attachments.stream().filter(att -> att.type() == AttachmentType.IMAGE).count();
+        List<String> pdfAsImageFilenames = new ArrayList<>();
+        String finalUserRole = processRagIfEnabled(userRole, mutableAttachments, pdfAsImageFilenames);
+        String attachmentContext = buildAttachmentContextMessage((int) originalImageCount, pdfAsImageFilenames);
+        if (attachmentContext != null) {
+            SystemMessage attachmentSystemMessage = new SystemMessage(attachmentContext);
+            messages.add(attachmentSystemMessage);
+            ChatMemory chatMemory = chatMemoryProvider != null ? chatMemoryProvider.getIfAvailable() : null;
+            if (chatMemory != null && command != null && command.metadata() != null) {
+                Object threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
+                if (threadKey != null) {
+                    chatMemory.add(String.valueOf(threadKey), attachmentSystemMessage);
+                }
+            }
+        }
+        messages.add(createUserMessage(finalUserRole, mutableAttachments));
+    }
+
     /**
      * Extracts model name from body.
      * Model may be in key MODEL or in OPTIONS.MODEL.
@@ -449,68 +428,14 @@ public class SpringAIGateway implements AIGateway {
         }
 
         log.info("Processing {} document attachment(s) for RAG", documentAttachments.size());
-        
-        // Process documents and collect context
         List<Document> allRelevantChunks = new ArrayList<>();
-        
         for (Attachment documentAttachment : documentAttachments) {
             try {
-                String mimeType = documentAttachment.mimeType() != null 
-                        ? documentAttachment.mimeType().toLowerCase() 
-                        : "";
-                // 1. Process document via ETL pipeline
-                String documentType = extractDocumentType(mimeType, documentAttachment.filename());
-                int dataLength = documentAttachment.data() != null ? documentAttachment.data().length : 0;
-                log.info("processRagIfEnabled: processing document filename={}, mimeType={}, dataLength={}, documentType={}",
-                        documentAttachment.filename(), mimeType, dataLength, documentType);
-                if (documentType == null) {
-                    log.warn("Unsupported document type for RAG: {}", mimeType);
-                    continue;
-                }
-
-                String documentId;
-                // PDF is processed via PagePdfDocumentReader (PDFBox) for better quality
-                if ("pdf".equalsIgnoreCase(documentType)) {
-                    try {
-                        documentId = documentProcessingService.processPdf(
-                                documentAttachment.data(), 
-                                documentAttachment.filename()
-                        );
-                    } catch (DocumentContentNotExtractableException e) {
-                        // PDF has no text layer (scan/certificate) - use vision fallback
-                        log.info("PDF '{}' has no text layer, rendering pages as images for vision model", documentAttachment.filename());
-                        List<Attachment> imageAttachments = renderPdfToImageAttachments(
-                                documentAttachment.data(), 
-                                documentAttachment.filename()
-                        );
-                        attachments.addAll(imageAttachments);
-                        pdfAsImageFilenames.add(documentAttachment.filename());
-                        log.info("Added {} image attachment(s) from PDF '{}' for vision model", 
-                                imageAttachments.size(), documentAttachment.filename());
-                        // Skip RAG for this document, continue with next
-                        continue;
-                    }
-                } else {
-                    // All other formats via TikaDocumentReader (DOCX, DOC, XLS, XLSX, PPT, PPTX, TXT, etc.)
-                    documentId = documentProcessingService.processWithTika(
-                            documentAttachment.data(), 
-                            documentAttachment.filename(),
-                            documentType
-                    );
-                }
-                
-                // 2. Find relevant context
-                List<Document> relevantChunks = fileRagService.findRelevantContext(userQuery, documentId);
-                allRelevantChunks.addAll(relevantChunks);
-                log.info("processRagIfEnabled: documentId={}, relevantChunks={}", documentId, relevantChunks.size());
-                log.debug("Found {} relevant chunks from '{}'", relevantChunks.size(), documentAttachment.filename());
+                processOneDocumentForRag(documentAttachment, userQuery, documentProcessingService, fileRagService, allRelevantChunks, attachments, pdfAsImageFilenames);
+            } catch (DocumentContentNotExtractableException e) {
+                throw e;
             } catch (Exception e) {
-                // Document has no extractable text - rethrow and do not call model
-                if (e instanceof DocumentContentNotExtractableException docEx) {
-                    throw docEx;
-                }
                 log.error("Failed to process document '{}': {}", documentAttachment.filename(), e.getMessage(), e);
-                // Continue with remaining documents
             }
         }
         
@@ -518,13 +443,43 @@ public class SpringAIGateway implements AIGateway {
             log.info("No relevant context found in documents");
             return userQuery;
         }
-        
-        // 3. Build augmented prompt
         String augmentedPrompt = fileRagService.createAugmentedPrompt(userQuery, allRelevantChunks);
         log.info("Created augmented prompt with {} relevant chunks from {} document(s)", 
                 allRelevantChunks.size(), documentAttachments.size());
         
         return augmentedPrompt;
+    }
+
+    private void processOneDocumentForRag(Attachment documentAttachment, String userQuery,
+            DocumentProcessingService documentProcessingService, FileRAGService fileRagService,
+            List<Document> allRelevantChunks, List<Attachment> attachments, List<String> pdfAsImageFilenames) {
+        String mimeType = documentAttachment.mimeType() != null ? documentAttachment.mimeType().toLowerCase() : "";
+        String documentType = extractDocumentType(mimeType, documentAttachment.filename());
+        log.info("processRagIfEnabled: processing document filename={}, mimeType={}, dataLength={}, documentType={}",
+                documentAttachment.filename(), mimeType, documentAttachment.data() != null ? documentAttachment.data().length : 0, documentType);
+        if (documentType == null) {
+            log.warn("Unsupported document type for RAG: {}", mimeType);
+            return;
+        }
+        String documentId;
+        if ("pdf".equalsIgnoreCase(documentType)) {
+            try {
+                documentId = documentProcessingService.processPdf(documentAttachment.data(), documentAttachment.filename());
+            } catch (DocumentContentNotExtractableException e) {
+                log.info("PDF '{}' has no text layer, rendering pages as images for vision model", documentAttachment.filename());
+                List<Attachment> imageAttachments = renderPdfToImageAttachments(documentAttachment.data(), documentAttachment.filename());
+                attachments.addAll(imageAttachments);
+                pdfAsImageFilenames.add(documentAttachment.filename());
+                log.info("Added {} image attachment(s) from PDF '{}' for vision model", imageAttachments.size(), documentAttachment.filename());
+                return;
+            }
+        } else {
+            documentId = documentProcessingService.processWithTika(documentAttachment.data(), documentAttachment.filename(), documentType);
+        }
+        List<Document> relevantChunks = fileRagService.findRelevantContext(userQuery, documentId);
+        allRelevantChunks.addAll(relevantChunks);
+        log.info("processRagIfEnabled: documentId={}, relevantChunks={}", documentId, relevantChunks.size());
+        log.debug("Found {} relevant chunks from '{}'", relevantChunks.size(), documentAttachment.filename());
     }
 
     /**
@@ -628,46 +583,37 @@ public class SpringAIGateway implements AIGateway {
     private String buildAttachmentContextMessage(int originalImageCount, List<String> pdfAsImageFilenames) {
         boolean hasImages = originalImageCount > 0;
         boolean hasPdfAsImages = !pdfAsImageFilenames.isEmpty();
-        
         if (!hasImages && !hasPdfAsImages) {
             return null;
         }
-        
         StringBuilder context = new StringBuilder();
-        
-        // PDF documents represented as images
-        if (hasPdfAsImages) {
-            if (pdfAsImageFilenames.size() == 1) {
-                context.append("User attached PDF document \"")
-                        .append(pdfAsImageFilenames.get(0))
-                        .append("\" represented as images.");
-            } else {
-                context.append("User attached PDF documents ");
-                for (int i = 0; i < pdfAsImageFilenames.size(); i++) {
-                    if (i > 0) {
-                        context.append(", ");
-                    }
-                    context.append("\"").append(pdfAsImageFilenames.get(i)).append("\"");
-                }
-                context.append(", represented as images.");
-            }
-        }
-        
-        // Regular images
-        if (hasImages) {
-            if (hasPdfAsImages) {
-                context.append("\n");
-            }
-            if (originalImageCount == 1) {
-                context.append("User attached an image.");
-            } else {
-                context.append("User attached images (")
-                        .append(originalImageCount)
-                        .append(").");
-            }
-        }
-        
+        appendPdfContext(context, pdfAsImageFilenames);
+        appendImagesContext(context, originalImageCount, hasPdfAsImages);
         return context.toString();
+    }
+
+    private static void appendPdfContext(StringBuilder context, List<String> pdfAsImageFilenames) {
+        if (pdfAsImageFilenames.isEmpty()) return;
+        if (pdfAsImageFilenames.size() == 1) {
+            context.append("User attached PDF document \"").append(pdfAsImageFilenames.get(0)).append("\" represented as images.");
+        } else {
+            context.append("User attached PDF documents ");
+            for (int i = 0; i < pdfAsImageFilenames.size(); i++) {
+                if (i > 0) context.append(", ");
+                context.append("\"").append(pdfAsImageFilenames.get(i)).append("\"");
+            }
+            context.append(", represented as images.");
+        }
+    }
+
+    private static void appendImagesContext(StringBuilder context, int originalImageCount, boolean hasPdfAsImages) {
+        if (originalImageCount <= 0) return;
+        if (hasPdfAsImages) context.append("\n");
+        if (originalImageCount == 1) {
+            context.append("User attached an image.");
+        } else {
+            context.append("User attached images (").append(originalImageCount).append(").");
+        }
     }
 
     /**

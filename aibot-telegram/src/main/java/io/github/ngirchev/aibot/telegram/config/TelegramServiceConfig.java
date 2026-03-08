@@ -75,12 +75,14 @@ public class TelegramServiceConfig {
             AIBotMessageService messageService,
             TelegramUserService telegramUserService,
             CoreCommonProperties coreCommonProperties,
-            ObjectProvider<StorageProperties> storagePropertiesProvider) {
+            ObjectProvider<StorageProperties> storagePropertiesProvider,
+            ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider) {
         return new TelegramMessageService(
                 messageService,
                 telegramUserService,
                 coreCommonProperties,
-                storagePropertiesProvider);
+                storagePropertiesProvider,
+                telegramMessageServiceSelfProvider);
     }
 
     @Bean

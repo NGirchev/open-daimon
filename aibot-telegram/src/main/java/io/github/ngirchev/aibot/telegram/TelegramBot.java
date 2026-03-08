@@ -94,46 +94,58 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
-        TelegramCommand internalTelegramCommandWrap = null;
+        TelegramCommand command = mapUpdateToCommand(update);
+        if (command == null) return;
         try {
-            if (update.hasCallbackQuery()) {
-                internalTelegramCommandWrap = mapToTelegramCommand(update);
-            } else if (update.hasMessage() && update.getMessage().hasText()) {
-                internalTelegramCommandWrap = mapToTelegramTextCommand(update);
-            } else if (update.hasMessage() && update.getMessage().hasPhoto() && isFileUploadEnabled()) {
-                internalTelegramCommandWrap = mapToTelegramPhotoCommand(update);
-            } else if (update.hasMessage() && update.getMessage().hasDocument() && isFileUploadEnabled()) {
-                log.info("Document message received, routing to mapToTelegramDocumentCommand");
-                internalTelegramCommandWrap = mapToTelegramDocumentCommand(update);
-            } else {
-                log.warn("Unsupported message {}", update);
-                return;
-            }
-
-            commandSyncService.syncAndHandle(internalTelegramCommandWrap);
+            commandSyncService.syncAndHandle(command);
         } catch (Exception e) {
             log.error("Internal error with handling message", e);
-            try {
-                if (internalTelegramCommandWrap != null) {
-                    Integer replyToMessageId = null;
-                    if (update.hasMessage() && update.getMessage() != null) {
-                        replyToMessageId = update.getMessage().getMessageId();
-                    } else if (update.hasCallbackQuery()) {
-                        var maybeMessage = update.getCallbackQuery().getMessage();
-                        if (maybeMessage instanceof Message message) {
-                            replyToMessageId = message.getMessageId();
-                        }
-                    }
-                    String errMsg = messageLocalizationService != null
-                            ? messageLocalizationService.getMessage("common.error.unexpected", internalTelegramCommandWrap.languageCode())
-                            : "An unexpected error occurred";
-                    sendErrorMessage(internalTelegramCommandWrap.telegramId(), errMsg, replyToMessageId);
-                }
-            } catch (TelegramApiException ex) {
-                log.error("Exception on sending response to telegram", ex);
-                throw new RuntimeException(ex);
+            sendErrorReplyIfPossible(update, command);
+        }
+    }
+
+    private TelegramCommand mapUpdateToCommand(Update update) {
+        if (update.hasCallbackQuery()) {
+            return mapToTelegramCommand(update);
+        }
+        if (update.hasMessage() && update.getMessage().hasText()) {
+            return mapToTelegramTextCommand(update);
+        }
+        if (update.hasMessage() && update.getMessage().hasPhoto() && isFileUploadEnabled()) {
+            return mapToTelegramPhotoCommand(update);
+        }
+        if (update.hasMessage() && update.getMessage().hasDocument() && isFileUploadEnabled()) {
+            log.info("Document message received, routing to mapToTelegramDocumentCommand");
+            return mapToTelegramDocumentCommand(update);
+        }
+        log.warn("Unsupported message {}", update);
+        return null;
+    }
+
+    private void sendErrorReplyIfPossible(Update update, TelegramCommand command) {
+        try {
+            Integer replyToMessageId = getReplyToMessageId(update);
+            String errMsg = messageLocalizationService != null
+                    ? messageLocalizationService.getMessage("common.error.unexpected", command.languageCode())
+                    : "An unexpected error occurred";
+            sendErrorMessage(command.telegramId(), errMsg, replyToMessageId);
+        } catch (TelegramApiException ex) {
+            log.error("Exception on sending response to telegram", ex);
+            throw new RuntimeException(ex);
+        }
+    }
+
+    private static Integer getReplyToMessageId(Update update) {
+        if (update.hasMessage() && update.getMessage() != null) {
+            return update.getMessage().getMessageId();
+        }
+        if (update.hasCallbackQuery()) {
+            var maybeMessage = update.getCallbackQuery().getMessage();
+            if (maybeMessage instanceof Message message) {
+                return message.getMessageId();
             }
         }
+        return null;
     }
 
     /**

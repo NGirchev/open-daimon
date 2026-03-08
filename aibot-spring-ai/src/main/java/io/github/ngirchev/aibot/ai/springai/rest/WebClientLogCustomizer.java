@@ -132,36 +132,38 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
         String[] lines = combined.split("\n", -1);
         carry.set(lines[lines.length - 1]);
         for (int i = 0; i < lines.length - 1; i++) {
-            String trimmed = lines[i].trim();
-            if (!trimmed.startsWith("data:")) {
-                continue;
-            }
-            String data = trimmed.substring("data:".length()).trim();
-            if (data.isBlank() || data.equals("[DONE]")) {
-                continue;
-            }
-            try {
-                JsonNode root = objectMapper.readTree(data);
-                putAllNonEmptyFields(root, "", rawMetadata, "choices");
+            processOneSseLine(lines[i].trim(), rawMetadata, reasoningBuffer);
+        }
+    }
 
-                JsonNode delta = root.path("choices").path(0).path("delta");
-                if (!delta.isMissingNode()) {
-                    if (log.isDebugEnabled()) {
-                        appendIfText(delta.get("reasoning"), reasoningBuffer);
-                        appendIfText(delta.get("reasoningContent"), reasoningBuffer);
-                        appendIfText(delta.get("reasoning_content"), reasoningBuffer);
-                        JsonNode details = delta.get("reasoning_details");
-                        if (details != null && details.isArray()) {
-                            for (JsonNode rd : details) {
-                                if (rd != null && "reasoning.summary".equals(rd.path("type").asText())) {
-                                    appendIfText(rd.get("summary"), reasoningBuffer);
-                                }
-                            }
-                        }
-                    }
-                    putAllNonEmptyFields(delta, "delta.", rawMetadata, null);
+    private void processOneSseLine(String trimmed, Map<String, String> rawMetadata, StringBuilder reasoningBuffer) {
+        if (!trimmed.startsWith("data:")) return;
+        String data = trimmed.substring("data:".length()).trim();
+        if (data.isBlank() || data.equals("[DONE]")) return;
+        try {
+            JsonNode root = objectMapper.readTree(data);
+            putAllNonEmptyFields(root, "", rawMetadata, "choices");
+            JsonNode delta = root.path("choices").path(0).path("delta");
+            if (!delta.isMissingNode()) {
+                appendReasoningFromDelta(delta, reasoningBuffer);
+                putAllNonEmptyFields(delta, "delta.", rawMetadata, null);
+            }
+        } catch (Exception ignored) {
+            // skip malformed SSE line
+        }
+    }
+
+    private void appendReasoningFromDelta(JsonNode delta, StringBuilder reasoningBuffer) {
+        if (!log.isDebugEnabled()) return;
+        appendIfText(delta.get("reasoning"), reasoningBuffer);
+        appendIfText(delta.get("reasoningContent"), reasoningBuffer);
+        appendIfText(delta.get("reasoning_content"), reasoningBuffer);
+        JsonNode details = delta.get("reasoning_details");
+        if (details != null && details.isArray()) {
+            for (JsonNode rd : details) {
+                if (rd != null && "reasoning.summary".equals(rd.path("type").asText())) {
+                    appendIfText(rd.get("summary"), reasoningBuffer);
                 }
-            } catch (Exception ignored) {
             }
         }
     }
@@ -171,36 +173,30 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
      * @param excludeKey root field name to exclude (e.g. "choices"), or null
      */
     private void putAllNonEmptyFields(JsonNode node, String keyPrefix, Map<String, String> out, String excludeKey) {
-        if (node == null || !node.isObject()) {
-            return;
-        }
+        if (node == null || !node.isObject()) return;
         node.fields().forEachRemaining(entry -> {
             String fieldName = entry.getKey();
-            if (excludeKey != null && excludeKey.equals(fieldName)) {
-                return;
-            }
-            String key = keyPrefix + fieldName;
+            if (excludeKey != null && excludeKey.equals(fieldName)) return;
             JsonNode value = entry.getValue();
-            if (value == null) {
-                return;
-            }
-            String str;
-            if (value.isTextual()) {
-                str = value.asText();
-            } else if (value.isNumber() || value.isBoolean()) {
-                str = value.asText();
-            } else if (value.isArray() || value.isObject()) {
-                str = value.toString();
-            } else {
-                str = value.asText();
-            }
+            if (value == null) return;
+            String str = jsonNodeValueToString(value);
             if (!str.isEmpty() && !str.equals("null")) {
                 if (str.length() > MAX_METADATA_VALUE_LENGTH) {
                     str = str.substring(0, MAX_METADATA_VALUE_LENGTH) + "...";
                 }
-                out.put(key, str);
+                out.put(keyPrefix + fieldName, str);
             }
         });
+    }
+
+    private static String jsonNodeValueToString(JsonNode value) {
+        if (value.isTextual() || value.isNumber() || value.isBoolean()) {
+            return value.asText();
+        }
+        if (value.isArray() || value.isObject()) {
+            return value.toString();
+        }
+        return value.asText();
     }
 
     private void appendIfText(JsonNode node, StringBuilder buffer) {

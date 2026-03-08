@@ -157,7 +157,7 @@ public class AIUtils {
                     throw new UnsupportedOperationException("Can't handle this class: " + aiResponse.getClass());
                 }
             }
-            case DEEPSEEK, OPENROUTER, MOCK -> extractError(aiResponse.toMap());
+            case DEEPSEEK, OPENROUTER, MOCK -> extractErrorFromMap(aiResponse.toMap());
         };
     }
 
@@ -264,104 +264,9 @@ public class AIUtils {
                 aiRawResponse.get(CHOICES));
 
         Map<String, Object> usefulData = new HashMap<>();
-        boolean hasUsefulData = false;
-
-        // Extract usage data (actual tokens from provider)
-        Object usageObj = aiRawResponse.get(USAGE);
-        log.debug("Usage object: type={}, value={}", usageObj != null ? usageObj.getClass() : "null", usageObj);
-        if (usageObj != null) {
-            try {
-                // Try to convert to Map if not already a Map
-                Map<String, Object> usage;
-                if (usageObj instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> usageMap = (Map<String, Object>) usageObj;
-                    usage = usageMap;
-                } else {
-                    log.warn("Usage is not a Map, skipping. Type: {}", usageObj.getClass());
-                    usage = null;
-                }
-
-                if (usage != null) {
-                    Object promptTokens = usage.get(PROMPT_TOKENS);
-                    Object completionTokens = usage.get(COMPLETION_TOKENS);
-                    Object totalTokens = usage.get(TOTAL_TOKENS);
-
-
-                    if (promptTokens != null) {
-                        usefulData.put(PROMPT_TOKENS, promptTokens);
-                        hasUsefulData = true;
-                    }
-                    if (completionTokens != null) {
-                        usefulData.put(COMPLETION_TOKENS, completionTokens);
-                        hasUsefulData = true;
-                    }
-                    if (totalTokens != null) {
-                        usefulData.put(TOTAL_TOKENS, totalTokens);
-                        hasUsefulData = true;
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error extracting usage data: {}", e.getMessage(), e);
-            }
-        } else {
-            log.warn("Usage data not found in response");
-        }
-
-        // Extract finish_reason from root Map (Spring AI) or from first choice (OpenRouter/DeepSeek)
-        Object finishReasonObj = aiRawResponse.get(FINISH_REASON);
-        if (finishReasonObj != null) {
-            usefulData.put(FINISH_REASON, finishReasonObj);
-            hasUsefulData = true;
-            log.debug("Extracted finish_reason from root: {}", finishReasonObj);
-        } else {
-            // Fallback: extract finish_reason from first choice (for OpenRouter/DeepSeek compatibility)
-            Object choicesObj = aiRawResponse.get(CHOICES);
-            if (choicesObj != null) {
-                try {
-                    if (choicesObj instanceof List) {
-                        @SuppressWarnings("unchecked")
-                        List<?> choices = (List<?>) choicesObj;
-                        if (!choices.isEmpty()) {
-                            Object firstChoiceObj = choices.getFirst();
-                            if (firstChoiceObj instanceof Map) {
-                                @SuppressWarnings("unchecked")
-                                Map<String, Object> firstChoice = (Map<String, Object>) firstChoiceObj;
-                                Object finishReason = firstChoice.get(FINISH_REASON);
-                                if (finishReason != null) {
-                                    usefulData.put(FINISH_REASON, finishReason);
-                                    hasUsefulData = true;
-                                    log.debug("Extracted finish_reason from choices[0]: {}", finishReason);
-                                } else {
-                                    log.debug("finish_reason not found in first choice. Available keys: {}", firstChoice.keySet());
-                                }
-                            } else {
-                                log.debug("First choice is not a Map. Type: {}", firstChoiceObj.getClass());
-                            }
-                        } else {
-                            log.debug("Choices list is empty");
-                        }
-                    } else {
-                        log.debug("Choices is not a List. Type: {}", choicesObj.getClass());
-                    }
-                } catch (Exception e) {
-                    log.error("Error extracting finish_reason from choices: {}", e.getMessage(), e);
-                }
-            } else {
-                log.debug("finish_reason not found in root and choices not found in response");
-            }
-        }
-
-        // Extract actual model used (may differ from requested)
-        Object modelObj = aiRawResponse.get(MODEL);
-        if (modelObj != null) {
-            String actualModel = modelObj.toString();
-            usefulData.put(ACTUAL_MODEL, actualModel);
-            hasUsefulData = true;
-            log.debug("Extracted actual_model: {}", actualModel);
-        } else {
-            log.debug("Model not found in response");
-        }
+        boolean hasUsefulData = putUsageIntoMap(aiRawResponse.get(USAGE), usefulData);
+        hasUsefulData = extractFinishReasonFromChoices(aiRawResponse, usefulData) || hasUsefulData;
+        hasUsefulData = putModelIntoMap(aiRawResponse.get(MODEL), usefulData) || hasUsefulData;
 
         if (hasUsefulData) {
             log.debug("Extracted useful data: {}", usefulData);
@@ -373,6 +278,84 @@ public class AIUtils {
         }
 
         return hasUsefulData ? usefulData : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean putUsageIntoMap(Object usageObj, Map<String, Object> usefulData) {
+        log.debug("Usage object: type={}, value={}", usageObj != null ? usageObj.getClass() : "null", usageObj);
+        if (usageObj == null) {
+            log.warn("Usage data not found in response");
+            return false;
+        }
+        try {
+            Map<String, Object> usage = usageObj instanceof Map
+                    ? (Map<String, Object>) usageObj
+                    : null;
+            if (usage == null) {
+                log.warn("Usage is not a Map, skipping. Type: {}", usageObj.getClass());
+                return false;
+            }
+            boolean added = false;
+            if (usage.get(PROMPT_TOKENS) != null) {
+                usefulData.put(PROMPT_TOKENS, usage.get(PROMPT_TOKENS));
+                added = true;
+            }
+            if (usage.get(COMPLETION_TOKENS) != null) {
+                usefulData.put(COMPLETION_TOKENS, usage.get(COMPLETION_TOKENS));
+                added = true;
+            }
+            if (usage.get(TOTAL_TOKENS) != null) {
+                usefulData.put(TOTAL_TOKENS, usage.get(TOTAL_TOKENS));
+                added = true;
+            }
+            return added;
+        } catch (Exception e) {
+            log.error("Error extracting usage data: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static boolean extractFinishReasonFromChoices(Map<String, Object> aiRawResponse, Map<String, Object> usefulData) {
+        Object finishReasonObj = aiRawResponse.get(FINISH_REASON);
+        if (finishReasonObj != null) {
+            usefulData.put(FINISH_REASON, finishReasonObj);
+            log.debug("Extracted finish_reason from root: {}", finishReasonObj);
+            return true;
+        }
+        Object choicesObj = aiRawResponse.get(CHOICES);
+        if (choicesObj == null || !(choicesObj instanceof List<?> choices) || choices.isEmpty()) {
+            log.debug("finish_reason not found in root and choices not found in response");
+            return false;
+        }
+        try {
+            Object firstChoiceObj = choices.getFirst();
+            if (!(firstChoiceObj instanceof Map<?, ?> firstChoice)) {
+                log.debug("First choice is not a Map. Type: {}", firstChoiceObj.getClass());
+                return false;
+            }
+            Object finishReason = ((Map<String, Object>) firstChoice).get(FINISH_REASON);
+            if (finishReason != null) {
+                usefulData.put(FINISH_REASON, finishReason);
+                log.debug("Extracted finish_reason from choices[0]: {}", finishReason);
+                return true;
+            }
+            log.debug("finish_reason not found in first choice. Available keys: {}", firstChoice.keySet());
+        } catch (Exception e) {
+            log.error("Error extracting finish_reason from choices: {}", e.getMessage(), e);
+        }
+        return false;
+    }
+
+    private static boolean putModelIntoMap(Object modelObj, Map<String, Object> usefulData) {
+        if (modelObj == null) {
+            log.debug("Model not found in response");
+            return false;
+        }
+        String actualModel = modelObj.toString();
+        usefulData.put(ACTUAL_MODEL, actualModel);
+        log.debug("Extracted actual_model: {}", actualModel);
+        return true;
     }
 
     /**
@@ -597,94 +580,8 @@ public class AIUtils {
             String remainingTail = tail.get().trim();
             String overflow = overflowBuffer.get();
             String finalTail = overflow.isEmpty() ? remainingTail : (remainingTail.isEmpty() ? overflow : remainingTail + "\n\n" + overflow);
-            
-            if (!finalTail.isEmpty()) {
-                // Check final tail length against limit
-                String accumulated = accumulatedShortParagraphs.get().trim();
-                String combined = accumulated.isEmpty() ? finalTail : accumulated + "\n\n" + finalTail;
-                
-                // If combined text exceeds limit, split it
-                if (combined.length() > maxMessageLength) {
-                    // Send accumulated short paragraphs separately if any
-                    if (!accumulated.isEmpty()) {
-                        fullResponse.updateAndGet(current -> current + accumulated);
-                        listener.accept(accumulated);
-                        accumulatedShortParagraphs.set("");
-                    }
-                    
-                    // Split final tail by paragraphs
-                    String[] paragraphs = finalTail.split("\n\n", -1);
-                    StringBuilder currentPart = new StringBuilder();
-                    
-                    for (String paragraph : paragraphs) {
-                        String paragraphWithSeparator = currentPart.isEmpty()
-                                ? paragraph 
-                                : currentPart + "\n\n" + paragraph;
-                        
-                        if (paragraphWithSeparator.length() <= maxMessageLength) {
-                            currentPart = new StringBuilder(paragraphWithSeparator);
-                        } else {
-                            if (!currentPart.isEmpty()) {
-                                String currentPartStr = currentPart.toString();
-                                fullResponse.updateAndGet(current -> current + currentPartStr);
-                                listener.accept(currentPartStr);
-                                currentPart = new StringBuilder(paragraph);
-                            } else {
-                                // Even single paragraph exceeds limit - find split point
-                                if (paragraph.length() > maxMessageLength) {
-                                    int splitPoint = findSplitPoint(paragraph, maxMessageLength);
-                                    fullResponse.updateAndGet(current -> current + paragraph.substring(0, splitPoint));
-                                    listener.accept(paragraph.substring(0, splitPoint));
-                                    // Add remainder to next part
-                                    String remainder = paragraph.substring(splitPoint);
-                                    if (!remainder.isEmpty()) {
-                                        currentPart = new StringBuilder(remainder);
-                                    }
-                                } else {
-                                    currentPart = new StringBuilder(paragraph);
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Send last part
-                    if (!currentPart.isEmpty()) {
-                        String currentPartStr = currentPart.toString();
-                        if (currentPartStr.length() <= maxMessageLength) {
-                            fullResponse.updateAndGet(current -> current + currentPartStr);
-                            listener.accept(currentPartStr);
-                        } else {
-                            // Last part exceeds limit - find split point
-                            int splitPoint = findSplitPoint(currentPartStr, maxMessageLength);
-                            String partToSend = currentPartStr.substring(0, splitPoint);
-                            fullResponse.updateAndGet(current -> current + partToSend);
-                            listener.accept(partToSend);
-                            // Remainder is dropped (this is the final part)
-                        }
-                    }
-                } else {
-                    // Combined text fits within limit
-                    if (finalTail.length() < MIN_PARAGRAPH_LENGTH && !accumulated.isEmpty()) {
-                        // Tail is short, add to accumulated
-                        accumulatedShortParagraphs.set(combined);
-                    } else {
-                        // Send combined text
-                        if (!accumulated.isEmpty()) {
-                            accumulatedShortParagraphs.set("");
-                        }
-                        fullResponse.updateAndGet(current -> current + combined);
-                        listener.accept(combined);
-                    }
-                }
-            } else {
-                // Send accumulated short paragraphs if any remain
-                String accumulated = accumulatedShortParagraphs.get().trim();
-                if (!accumulated.isEmpty()) {
-                    fullResponse.updateAndGet(current -> current + accumulated);
-                    listener.accept(accumulated);
-                }
-            }
-            
+            processFinalTailAndAccumulated(finalTail, accumulatedShortParagraphs, fullResponse, listener, maxMessageLength, MIN_PARAGRAPH_LENGTH);
+
             // Send accumulated short paragraphs if any remain (in case they were not sent above)
             String accumulated = accumulatedShortParagraphs.get().trim();
             if (!accumulated.isEmpty()) {
@@ -821,38 +718,44 @@ public class AIUtils {
         try {
             Optional<String> result = Optional.ofNullable(response.getResult().getOutput().getText()).filter(StringUtils::hasLength);
             if (result.isEmpty()) {
-                boolean resultNull = response == null || response.getResult() == null;
-                boolean outputNull = !resultNull && response.getResult().getOutput() == null;
-                Object output = !resultNull && !outputNull ? response.getResult().getOutput() : null;
-                String text = output != null ? response.getResult().getOutput().getText() : null;
-                log.debug(
-                        "extractText empty: resultNull={}, outputNull={}, textNull={}, textLength={}",
-                        resultNull, outputNull, text == null, text != null ? text.length() : 0);
-                // Diagnose cause of empty content when streaming (e.g. OpenRouter): log first few times
-                if (output != null && extractTextEmptyLogCount.incrementAndGet() <= EXTRACT_TEXT_EMPTY_LOG_LIMIT) {
-                    String outputClass = output.getClass().getName();
-                    String getContentHint = "";
-                    try {
-                        Method m = output.getClass().getMethod("getContent");
-                        Object content = m.invoke(output);
-                        if (content == null) {
-                            getContentHint = ", getContent()=null";
-                        } else {
-                            int len = content instanceof CharSequence cs ? cs.length() : -1;
-                            getContentHint = ", getContent()=" + content.getClass().getSimpleName() + "(len=" + len + ")";
-                        }
-                    } catch (Exception ignored) {
-                        getContentHint = ", getContent() not available";
-                    }
-                    log.debug(
-                            "extractText empty diagnostic [{}]: outputClass={}, getText() null/empty{}",
-                            extractTextEmptyLogCount.get(), outputClass, getContentHint);
-                }
+                logExtractTextEmptyDiagnostic(response);
             }
             return result;
         } catch (Exception e) {
             log.debug("Could not extract content from stream chunk: {}", e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    private static void logExtractTextEmptyDiagnostic(ChatResponse response) {
+        boolean resultNull = response == null || response.getResult() == null;
+        boolean outputNull = !resultNull && response.getResult().getOutput() == null;
+        Object output = !resultNull && !outputNull ? response.getResult().getOutput() : null;
+        String text = output != null ? response.getResult().getOutput().getText() : null;
+        log.debug(
+                "extractText empty: resultNull={}, outputNull={}, textNull={}, textLength={}",
+                resultNull, outputNull, text == null, text != null ? text.length() : 0);
+        if (output == null || extractTextEmptyLogCount.incrementAndGet() > EXTRACT_TEXT_EMPTY_LOG_LIMIT) {
+            return;
+        }
+        String outputClass = output.getClass().getName();
+        String getContentHint = getContentHintForDiagnostic(output);
+        log.debug(
+                "extractText empty diagnostic [{}]: outputClass={}, getText() null/empty{}",
+                extractTextEmptyLogCount.get(), outputClass, getContentHint);
+    }
+
+    private static String getContentHintForDiagnostic(Object output) {
+        try {
+            Method m = output.getClass().getMethod("getContent");
+            Object content = m.invoke(output);
+            if (content == null) {
+                return ", getContent()=null";
+            }
+            int len = content instanceof CharSequence cs ? cs.length() : -1;
+            return ", getContent()=" + content.getClass().getSimpleName() + "(len=" + len + ")";
+        } catch (Exception ignored) {
+            return ", getContent() not available";
         }
     }
 
@@ -869,63 +772,53 @@ public class AIUtils {
         if (text == null || text.isEmpty()) {
             return text;
         }
-
-        // Escape HTML characters first
         String escaped = text
-                .replace("&", "&amp;")  // & first so we don't double-escape
+                .replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;");
+        return applyMarkdownReplacements(escaped);
+    }
 
-        // Convert Markdown to HTML (order matters - triple stars first)
-        // ***text*** -> <b><i>text</i></b> (bold italic)
+    private static String applyMarkdownReplacements(String escaped) {
         String html = escaped.replaceAll("\\*\\*\\*(.+?)\\*\\*\\*", "<b><i>$1</i></b>");
-
-        // **text** -> <b>text</b> (bold)
         html = html.replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>");
-
-        // *text* -> <i>text</i> (italic)
-        // After triple and double stars, remaining single stars are italic
         html = html.replaceAll("\\*([^*]+?)\\*", "<i>$1</i>");
-
-        // `text` -> <code>text</code> (code)
         html = html.replaceAll("`(.+?)`", "<code>$1</code>");
-
-        // ~~text~~ -> <s>text</s> (strikethrough)
         html = html.replaceAll("~~(.+?)~~", "<s>$1</s>");
-
         return html;
     }
 
-    private Optional<String> extractError(Map<String, Object> responseMap) {
+    private static Optional<String> extractErrorFromMap(Map<String, Object> responseMap) {
         if (responseMap == null) {
             return Optional.of("Response is null");
         }
-
         Object choicesObj = responseMap.get(CHOICES);
-        if (choicesObj instanceof List<?> choices) {
-            if (choices.isEmpty()) {
-                return Optional.of("Response contains empty choices list");
-            }
-
-            Object firstChoiceObj = choices.getFirst();
-            if (firstChoiceObj instanceof Map<?, ?> firstChoice) {
-                Object finishReasonObj = firstChoice.get(FINISH_REASON);
-                String finishReason = finishReasonObj != null ? finishReasonObj.toString() : null;
-
-                Object messageObj = firstChoice.get(MESSAGE);
-                if (messageObj instanceof Map<?, ?> message) {
-                    Object contentObj = message.get(CONTENT);
-                    String content = contentObj != null ? contentObj.toString() : null;
-
-                    if (content == null || content.isEmpty()) {
-                        return Optional.of(getEmptyContentReasonText(finishReason));
-                    }
-                }
-            }
-        } else if (choicesObj == null) {
+        if (choicesObj == null) {
             return Optional.of("Response does not contain choices field");
         }
-
+        if (!(choicesObj instanceof List<?> choices)) {
+            return Optional.empty();
+        }
+        if (choices.isEmpty()) {
+            return Optional.of("Response contains empty choices list");
+        }
+        Object firstChoiceObj = choices.getFirst();
+        if (!(firstChoiceObj instanceof Map<?, ?> firstChoice)) {
+            return Optional.empty();
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstChoiceMap = (Map<String, Object>) firstChoice;
+        Object finishReasonObj = firstChoiceMap.get(FINISH_REASON);
+        String finishReason = finishReasonObj != null ? finishReasonObj.toString() : null;
+        Object messageObj = firstChoiceMap.get(MESSAGE);
+        if (!(messageObj instanceof Map<?, ?> message)) {
+            return Optional.empty();
+        }
+        Object contentObj = ((Map<?, ?>) message).get(CONTENT);
+        String content = contentObj != null ? contentObj.toString() : null;
+        if (content == null || content.isEmpty()) {
+            return Optional.of(getEmptyContentReasonText(finishReason));
+        }
         return Optional.empty();
     }
 
@@ -1024,6 +917,90 @@ public class AIUtils {
     }
 
     /**
+     * Processes final tail and accumulated short paragraphs: sends or merges with tail, respects maxMessageLength.
+     */
+    private static void processFinalTailAndAccumulated(
+            String finalTail,
+            AtomicReference<String> accumulatedShortParagraphs,
+            AtomicReference<String> fullResponse,
+            Consumer<String> listener,
+            int maxMessageLength,
+            int minParagraphLength) {
+        if (!finalTail.isEmpty()) {
+            String accumulated = accumulatedShortParagraphs.get().trim();
+            String combined = accumulated.isEmpty() ? finalTail : accumulated + "\n\n" + finalTail;
+            if (combined.length() > maxMessageLength) {
+                if (!accumulated.isEmpty()) {
+                    fullResponse.updateAndGet(current -> current + accumulated);
+                    listener.accept(accumulated);
+                    accumulatedShortParagraphs.set("");
+                }
+                sendFinalTailSplitByParagraphs(finalTail, fullResponse, listener, maxMessageLength);
+            } else {
+                if (finalTail.length() < minParagraphLength && !accumulated.isEmpty()) {
+                    accumulatedShortParagraphs.set(combined);
+                } else {
+                    if (!accumulated.isEmpty()) {
+                        accumulatedShortParagraphs.set("");
+                    }
+                    fullResponse.updateAndGet(current -> current + combined);
+                    listener.accept(combined);
+                }
+            }
+        } else {
+            String accumulated = accumulatedShortParagraphs.get().trim();
+            if (!accumulated.isEmpty()) {
+                fullResponse.updateAndGet(current -> current + accumulated);
+                listener.accept(accumulated);
+            }
+        }
+    }
+
+    private static void sendFinalTailSplitByParagraphs(
+            String finalTail,
+            AtomicReference<String> fullResponse,
+            Consumer<String> listener,
+            int maxMessageLength) {
+        String[] paragraphs = finalTail.split("\n\n", -1);
+        StringBuilder currentPart = new StringBuilder();
+        for (String paragraph : paragraphs) {
+            String paragraphWithSeparator = currentPart.isEmpty() ? paragraph : currentPart + "\n\n" + paragraph;
+            if (paragraphWithSeparator.length() <= maxMessageLength) {
+                currentPart = new StringBuilder(paragraphWithSeparator);
+            } else {
+                if (!currentPart.isEmpty()) {
+                    String currentPartStr = currentPart.toString();
+                    fullResponse.updateAndGet(current -> current + currentPartStr);
+                    listener.accept(currentPartStr);
+                    currentPart = new StringBuilder(paragraph);
+                } else {
+                    if (paragraph.length() > maxMessageLength) {
+                        int splitPoint = findSplitPoint(paragraph, maxMessageLength);
+                        fullResponse.updateAndGet(current -> current + paragraph.substring(0, splitPoint));
+                        listener.accept(paragraph.substring(0, splitPoint));
+                        String remainder = paragraph.substring(splitPoint);
+                        currentPart = remainder.isEmpty() ? new StringBuilder() : new StringBuilder(remainder);
+                    } else {
+                        currentPart = new StringBuilder(paragraph);
+                    }
+                }
+            }
+        }
+        if (!currentPart.isEmpty()) {
+            String currentPartStr = currentPart.toString();
+            if (currentPartStr.length() <= maxMessageLength) {
+                fullResponse.updateAndGet(current -> current + currentPartStr);
+                listener.accept(currentPartStr);
+            } else {
+                int splitPoint = findSplitPoint(currentPartStr, maxMessageLength);
+                String partToSend = currentPartStr.substring(0, splitPoint);
+                fullResponse.updateAndGet(current -> current + partToSend);
+                listener.accept(partToSend);
+            }
+        }
+    }
+
+    /**
      * Finds optimal split point for text so we don't cut in the middle of sentence or word.
      * Looks for last sentence boundary (period, exclamation, question mark with space after)
      * or last space before limit.
@@ -1036,37 +1013,32 @@ public class AIUtils {
         if (text == null || text.length() <= maxLength) {
             return text != null ? text.length() : 0;
         }
-        
-        // Look for last sentence boundary before limit (period, exclamation, question mark + space)
-        // Search backwards from limit, but no more than 200 chars (to avoid searching too far)
         int searchStart = Math.max(0, maxLength - 200);
-        int bestSplit = maxLength;
-        
-        // Sentence boundary patterns: . ! ? followed by space or end of line
-        for (int i = maxLength - 1; i >= searchStart; i--) {
-            if (i < text.length()) {
-                char c = text.charAt(i);
-                // Check sentence boundaries: . ! ? with space or end of line after
-                if ((c == '.' || c == '!' || c == '?') && (i + 1 >= text.length() || Character.isWhitespace(text.charAt(i + 1)))) {
-                    bestSplit = i + 1;
-                    break;
-                }
-            }
-        }
-        
-        // If no sentence boundary found, look for last space before limit
+        int bestSplit = findSentenceBoundaryBackward(text, maxLength, searchStart);
         if (bestSplit == maxLength) {
-            for (int i = maxLength - 1; i >= searchStart; i--) {
-                if (i < text.length() && Character.isWhitespace(text.charAt(i))) {
-                    bestSplit = i + 1;
-                    break;
-                }
+            bestSplit = findLastSpaceBackward(text, maxLength, searchStart);
+        }
+        return Math.max(1, bestSplit);
+    }
+
+    private static int findSentenceBoundaryBackward(String text, int maxLength, int searchStart) {
+        for (int i = maxLength - 1; i >= searchStart; i--) {
+            if (i >= text.length()) continue;
+            char c = text.charAt(i);
+            if ((c == '.' || c == '!' || c == '?') && (i + 1 >= text.length() || Character.isWhitespace(text.charAt(i + 1)))) {
+                return i + 1;
             }
         }
-        
-        // If not even a space found, return limit (cut at limit)
-        // But ensure we don't return 0
-        return Math.max(1, bestSplit);
+        return maxLength;
+    }
+
+    private static int findLastSpaceBackward(String text, int maxLength, int searchStart) {
+        for (int i = maxLength - 1; i >= searchStart; i--) {
+            if (i < text.length() && Character.isWhitespace(text.charAt(i))) {
+                return i + 1;
+            }
+        }
+        return maxLength;
     }
 
     public record ChatResponseMetadata(String id, Usage usage, String model, int responseCalls,

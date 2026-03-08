@@ -33,6 +33,8 @@ public class TelegramMessageService {
     private final TelegramUserService telegramUserService;
     private final CoreCommonProperties coreCommonProperties;
     private final ObjectProvider<StorageProperties> storagePropertiesProvider;
+    /** Self-reference for transactional proxy (avoids bypassing @Transactional on internal calls). */
+    private final ObjectProvider<TelegramMessageService> selfProvider;
     
     /**
      * Saves USER message from Telegram user with session and conversation thread.
@@ -141,7 +143,7 @@ public class TelegramMessageService {
             String serviceName,
             String assistantRoleContent,
             Integer processingTimeMs) {
-        return saveAssistantMessage(telegramUser, content, serviceName, assistantRoleContent, processingTimeMs, null);
+        return selfProvider.getObject().saveAssistantMessage(telegramUser, content, serviceName, assistantRoleContent, processingTimeMs, null);
     }
     
     /**

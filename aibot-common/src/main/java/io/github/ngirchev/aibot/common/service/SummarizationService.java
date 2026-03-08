@@ -204,28 +204,27 @@ public class SummarizationService {
             log.warn(NO_MESSAGES_TO_SUMMARIZE_FOR_THREAD, thread.getThreadKey());
             return;
         }
-
         log.debug("Summarizing {} messages for thread {}", messages.size(), thread.getThreadKey());
+        String dialogTextStr = buildDialogTextForSummarization(thread, messages);
+        SummaryResult result = callAiAndParseSummaryResult(dialogTextStr);
+        String combinedSummary = combineWithExistingSummary(thread.getSummary(), result.summary());
+        List<String> combinedBullets = combineWithExistingBullets(thread.getMemoryBullets(), result.memoryBullets());
+        threadService.updateThreadSummary(thread, combinedSummary, combinedBullets);
+        log.info("Successfully summarized {} messages for thread {}", messages.size(), thread.getThreadKey());
+    }
 
-        // Build dialog text for summarization from messages
+    private String buildDialogTextForSummarization(ConversationThread thread, List<AIBotMessage> messages) {
         StringBuilder dialogText = new StringBuilder();
-
         if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
             dialogText.append("=== Previous conversation summary ===\n");
             dialogText.append(thread.getSummary()).append("\n\n");
-
             if (thread.getMemoryBullets() != null && !thread.getMemoryBullets().isEmpty()) {
                 dialogText.append("Key points from previous conversation:\n");
-                thread.getMemoryBullets().forEach(bullet ->
-                    dialogText.append("• ").append(bullet).append("\n")
-                );
+                thread.getMemoryBullets().forEach(bullet -> dialogText.append("• ").append(bullet).append("\n"));
                 dialogText.append("\n");
             }
-
             dialogText.append("=== Conversation continuation ===\n\n");
         }
-
-        // Append all messages to summarize
         for (AIBotMessage message : messages) {
             if (message.getRole() == MessageRole.USER) {
                 dialogText.append("USER: ").append(message.getContent()).append("\n\n");
@@ -233,56 +232,32 @@ public class SummarizationService {
                 dialogText.append("ASSISTANT: ").append(message.getContent()).append("\n\n");
             }
         }
-        String dialogTextStr = dialogText.toString();
+        return dialogText.toString();
+    }
 
-        // Call AI to create summary
+    private SummaryResult callAiAndParseSummaryResult(String dialogTextStr) {
         String summarizationPrompt = coreCommonProperties.getSummarization().getPrompt();
         ChatAICommand summaryCommand = new ChatAICommand(
-                Set.of(SUMMARIZATION),
-                0.3,
-                2000,
-                summarizationPrompt,
-                dialogTextStr
-        );
-
-        AIGateway aiGateway = aiGatewayRegistry
-                .getSupportedAiGateways(summaryCommand)
-                .stream()
+                Set.of(SUMMARIZATION), 0.3, 2000, summarizationPrompt, dialogTextStr);
+        AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(summaryCommand).stream()
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("No AI gateway for summarization"));
-
-        SummaryResult result = null;
         RuntimeException lastError = null;
         for (int attempt = 1; attempt <= SUMMARIZATION_PARSE_MAX_RETRIES; attempt++) {
             String summaryResponse = retrieveMessage(aiGateway.generateResponse(summaryCommand))
                     .orElseThrow(() -> new RuntimeException("Response is empty"));
             try {
-                result = parseSummaryResponse(summaryResponse);
-                break;
+                return parseSummaryResponse(summaryResponse);
             } catch (RuntimeException e) {
                 lastError = e;
-                log.warn("Summarization response is not valid JSON (attempt {}/{}), retrying",
-                        attempt, SUMMARIZATION_PARSE_MAX_RETRIES, e);
+                log.warn("Summarization response is not valid JSON (attempt {}/{}), retrying", attempt, SUMMARIZATION_PARSE_MAX_RETRIES, e);
                 if (attempt == SUMMARIZATION_PARSE_MAX_RETRIES) {
                     throw new RuntimeException("Summarization failed after " + SUMMARIZATION_PARSE_MAX_RETRIES
                             + " attempts: model did not return valid JSON", lastError);
                 }
             }
         }
-
-        if (result == null) {
-            throw new RuntimeException("Summarization failed: no valid result", lastError);
-        }
-
-        // Update thread
-        String combinedSummary = combineWithExistingSummary(thread.getSummary(), result.summary());
-        List<String> combinedBullets = combineWithExistingBullets(
-                thread.getMemoryBullets(), result.memoryBullets());
-
-        threadService.updateThreadSummary(thread, combinedSummary, combinedBullets);
-
-        log.info("Successfully summarized {} messages for thread {}",
-                messages.size(), thread.getThreadKey());
+        throw new RuntimeException("Summarization failed: no valid result", lastError);
     }
 
     private SummaryResult parseSummaryResponse(String response) {

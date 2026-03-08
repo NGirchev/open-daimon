@@ -57,95 +57,108 @@ public class ConversationContextBuilderService {
      * @return list of messages: each Map contains "role" and "content" (String or List of parts)
      */
     public List<Map<String, Object>> buildContext(
-            ConversationThread thread, 
+            ConversationThread thread,
             String currentUserMessage,
             AssistantRole assistantRole) {
-        
         List<Map<String, Object>> context = new ArrayList<>();
         CoreCommonProperties.ManualConversationHistoryProperties historyConfig = coreCommonProperties.getManualConversationHistory();
         int promptBudget = coreCommonProperties.getMaxTotalPromptTokens() - historyConfig.getMaxResponseTokens();
         int remainingTokens = promptBudget;
 
-        // 1. Add system prompt from AssistantRole (required)
-        if (historyConfig.getIncludeSystemPrompt() && assistantRole != null) {
-            String systemPrompt = assistantRole.getContent();
-            int systemTokens = tokenCounter.estimateTokens(systemPrompt);
-            context.add(Map.of(ROLE, "system", CONTENT, systemPrompt));
-            remainingTokens -= systemTokens;
-            log.debug("Added system prompt from AssistantRole {}: {} tokens", 
-                assistantRole.getId(), systemTokens);
-        }
-        
-        // 2. Add summary (if present)
-        if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
-            String summaryContent = "Summary of previous conversation:\n" + thread.getSummary();
-            if (thread.getMemoryBullets() != null && !thread.getMemoryBullets().isEmpty()) {
-                summaryContent += "\n\nKey points:\n" + 
-                    String.join("\n", thread.getMemoryBullets());
-            }
-            int summaryTokens = tokenCounter.estimateTokens(summaryContent);
-            context.add(Map.of(ROLE, "system", CONTENT, summaryContent));
-            remainingTokens -= summaryTokens;
-            log.debug("Added summary: {} tokens", summaryTokens);
-        }
-        
-        // 3. Load history from Message (already sorted by sequence_number)
+        remainingTokens = addSystemPromptIfNeeded(assistantRole, historyConfig, context, remainingTokens);
+        remainingTokens = addSummaryIfPresent(thread, context, remainingTokens);
+
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
         FileStorageService fileStorage = fileStorageServiceProvider.getIfAvailable();
-        
-        // 4. Add messages until we hit the limit
-        List<Map<String, Object>> historyMessages = new ArrayList<>();
+        List<Map<String, Object>> historyMessages = buildHistoryMessages(
+                messages, currentUserMessage, historyConfig, remainingTokens, fileStorage);
         int historyTokens = 0;
+        for (Map<String, Object> m : historyMessages) {
+            int tok = tokenCounter.estimateTokens(contentFromMessageMap(m));
+            historyTokens += tok;
+            remainingTokens -= tok;
+        }
+        context.addAll(historyMessages);
+        log.info("Added {} history messages ({} tokens), remaining budget: {}",
+                historyMessages.size(), historyTokens, remainingTokens);
+
+        int currentTokens = tokenCounter.estimateTokens(currentUserMessage);
+        remainingTokens -= currentTokens;
+        log.info("Final context: {} messages (current user message will be added by gateway with attachments), ~{} tokens used, ~{} tokens remaining for response",
+                context.size(), promptBudget - remainingTokens, remainingTokens);
+        return context;
+    }
+
+    private int addSystemPromptIfNeeded(
+            AssistantRole assistantRole,
+            CoreCommonProperties.ManualConversationHistoryProperties historyConfig,
+            List<Map<String, Object>> context,
+            int remainingTokens) {
+        if (!historyConfig.getIncludeSystemPrompt() || assistantRole == null) {
+            return remainingTokens;
+        }
+        String systemPrompt = assistantRole.getContent();
+        int systemTokens = tokenCounter.estimateTokens(systemPrompt);
+        context.add(Map.of(ROLE, "system", CONTENT, systemPrompt));
+        log.debug("Added system prompt from AssistantRole {}: {} tokens", assistantRole.getId(), systemTokens);
+        return remainingTokens - systemTokens;
+    }
+
+    private int addSummaryIfPresent(
+            ConversationThread thread,
+            List<Map<String, Object>> context,
+            int remainingTokens) {
+        if (thread.getSummary() == null || thread.getSummary().isEmpty()) {
+            return remainingTokens;
+        }
+        String summaryContent = "Summary of previous conversation:\n" + thread.getSummary();
+        if (thread.getMemoryBullets() != null && !thread.getMemoryBullets().isEmpty()) {
+            summaryContent += "\n\nKey points:\n" + String.join("\n", thread.getMemoryBullets());
+        }
+        int summaryTokens = tokenCounter.estimateTokens(summaryContent);
+        context.add(Map.of(ROLE, "system", CONTENT, summaryContent));
+        log.debug("Added summary: {} tokens", summaryTokens);
+        return remainingTokens - summaryTokens;
+    }
+
+    private static String contentFromMessageMap(Map<String, Object> m) {
+        Object c = m.get(CONTENT);
+        if (c instanceof String s) return s;
+        return c != null ? c.toString() : "";
+    }
+
+    private List<Map<String, Object>> buildHistoryMessages(
+            List<AIBotMessage> messages,
+            String currentUserMessage,
+            CoreCommonProperties.ManualConversationHistoryProperties historyConfig,
+            int remainingTokens,
+            FileStorageService fileStorage) {
+        List<Map<String, Object>> historyMessages = new ArrayList<>();
         int currentMessageTokens = tokenCounter.estimateTokens(currentUserMessage);
         OffsetDateTime now = OffsetDateTime.now();
-        
         for (AIBotMessage message : messages) {
-            if (message.getRole() == MessageRole.SYSTEM) {
-                continue;
-            }
-            
+            if (message.getRole() == MessageRole.SYSTEM) continue;
             String content = message.getContent();
             if (content == null || content.isEmpty()) {
                 log.warn("Skipping Message {} with null or empty content", message.getId());
                 continue;
             }
-            
             int messageTokens = tokenCounter.estimateTokens(content);
-            if (remainingTokens - messageTokens - currentMessageTokens <
-                historyConfig.getMaxResponseTokens()) {
+            if (remainingTokens - messageTokens - currentMessageTokens < historyConfig.getMaxResponseTokens()) {
                 log.debug("Token budget exceeded, stopping at {} messages", historyMessages.size());
                 break;
             }
-            
             String role = message.getRole() == MessageRole.USER ? "user" : "assistant";
             Object messageContent = content;
             if (message.getRole() == MessageRole.USER && fileStorage != null
                     && message.getAttachments() != null && !message.getAttachments().isEmpty()) {
                 Object withMedia = buildContentWithAttachments(content, message.getAttachments(), now, fileStorage);
-                if (withMedia != null) {
-                    messageContent = withMedia;
-                }
+                if (withMedia != null) messageContent = withMedia;
             }
             historyMessages.add(Map.of(ROLE, role, CONTENT, messageContent));
-            historyTokens += messageTokens;
             remainingTokens -= messageTokens;
         }
-        
-        context.addAll(historyMessages);
-        log.info("Added {} history messages ({} tokens), remaining budget: {}", 
-            historyMessages.size(), historyTokens, remainingTokens);
-        
-        // Current user request is NOT added to context: SpringAIGateway will add it via
-        // chatOptions.userRole() and createUserMessage(..., attachments) so the current message
-        // is sent with attachments (photos/documents). If we added it here as text, the gateway
-        // would consider it alreadyPresent and would not add the message with media.
-        int currentTokens = tokenCounter.estimateTokens(currentUserMessage);
-        remainingTokens -= currentTokens;
-        int budgetUsed = promptBudget - remainingTokens;
-        log.info("Final context: {} messages (current user message will be added by gateway with attachments), ~{} tokens used, ~{} tokens remaining for response",
-            context.size(), budgetUsed, remainingTokens);
-        
-        return context;
+        return historyMessages;
     }
     
     /**
@@ -161,32 +174,39 @@ public class ConversationContextBuilderService {
         parts.add(Map.of(TYPE, TEXT, TEXT, textContent != null ? textContent : ""));
         boolean hasImage = false;
         for (Map<String, Object> ref : attachments) {
-            String expiresAtStr = (String) ref.get("expiresAt");
-            if (expiresAtStr == null) continue;
-            OffsetDateTime expiresAt;
-            try {
-                expiresAt = OffsetDateTime.parse(expiresAtStr);
-            } catch (Exception e) {
-                log.debug("Invalid expiresAt in attachment ref: {}", expiresAtStr);
-                continue;
-            }
-            if (expiresAt.isBefore(now)) continue;
-            String mimeType = (String) ref.get("mimeType");
-            if (mimeType == null || !mimeType.toLowerCase().startsWith("image/")) continue;
-            String storageKey = (String) ref.get("storageKey");
-            if (storageKey == null || storageKey.isBlank()) continue;
-            try {
-                byte[] data = fileStorage.get(storageKey);
-                String b64 = Base64.getEncoder().encodeToString(data);
-                String dataUrl = "data:" + mimeType + ";base64," + b64;
-                parts.add(Map.of(TYPE, IMAGE_URL, IMAGE_URL, Map.of(URL, dataUrl)));
+            if (addImagePartIfValid(ref, now, fileStorage, parts)) {
                 hasImage = true;
-            } catch (Exception e) {
-                log.warn("Could not load attachment from storage key {}: {}", storageKey, e.getMessage());
             }
         }
-        if (!hasImage) return null;
-        return parts;
+        return hasImage ? parts : null;
+    }
+
+    private boolean addImagePartIfValid(
+            Map<String, Object> ref,
+            OffsetDateTime now,
+            FileStorageService fileStorage,
+            List<Map<String, Object>> parts) {
+        String expiresAtStr = (String) ref.get("expiresAt");
+        if (expiresAtStr == null) return false;
+        try {
+            if (OffsetDateTime.parse(expiresAtStr).isBefore(now)) return false;
+        } catch (Exception e) {
+            log.debug("Invalid expiresAt in attachment ref: {}", expiresAtStr);
+            return false;
+        }
+        String mimeType = (String) ref.get("mimeType");
+        if (mimeType == null || !mimeType.toLowerCase().startsWith("image/")) return false;
+        String storageKey = (String) ref.get("storageKey");
+        if (storageKey == null || storageKey.isBlank()) return false;
+        try {
+            byte[] data = fileStorage.get(storageKey);
+            String b64 = Base64.getEncoder().encodeToString(data);
+            parts.add(Map.of(TYPE, IMAGE_URL, IMAGE_URL, Map.of(URL, "data:" + mimeType + ";base64," + b64)));
+            return true;
+        } catch (Exception e) {
+            log.warn("Could not load attachment from storage key {}: {}", storageKey, e.getMessage());
+            return false;
+        }
     }
 }
 

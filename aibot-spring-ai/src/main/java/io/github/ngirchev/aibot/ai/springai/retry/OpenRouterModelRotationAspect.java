@@ -208,34 +208,28 @@ public class OpenRouterModelRotationAspect {
     }
 
     private boolean isRetryable(Throwable error) {
-        // Check full cause chain — OpenRouterEmptyStreamException may be wrapped in WebClientResponseException (200) or IllegalStateException
         for (Throwable t = error; t != null; t = t.getCause()) {
             if (t instanceof OpenRouterEmptyStreamException) {
                 return true;
             }
         }
         WebClientResponseException w = findWebClientResponseException(error);
-        if (w != null) {
-            int status = w.getStatusCode().value();
-            // 429 rate limit; 402 Payment Required (credits/quota); 5xx — rotate to next model.
-            if (status == 429 || status == 402 || (status >= 500 && status <= 599)) {
-                return true;
-            }
-            // 404 from OpenRouter (e.g. "No endpoints matching your data policy") — always rotate to next model. Response body not checked (may be consumed in stream).
-            if (status == 404) {
-                return true;
-            }
-            // Some free providers on OpenRouter have stricter messages format validation.
-            if (status == 400) {
-                String body = w.getResponseBodyAsString();
-                if (body != null && body.contains("Conversation roles must alternate")) {
-                    return true;
-                }
-            }
-            return false;
+        if (w == null) {
+            return true; // timeouts/transport errors: retry
         }
-        // timeouts/transport errors: retry
-        return true;
+        int status = w.getStatusCode().value();
+        if (isRetryableHttpStatus(status)) {
+            return true;
+        }
+        return status == 400 && isRetryable400Body(w.getResponseBodyAsString());
+    }
+
+    private static boolean isRetryableHttpStatus(int status) {
+        return status == 429 || status == 402 || status == 404 || (status >= 500 && status <= 599);
+    }
+
+    private static boolean isRetryable400Body(String body) {
+        return body != null && body.contains("Conversation roles must alternate");
     }
 
     /**

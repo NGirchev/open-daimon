@@ -61,14 +61,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
                 || !StringUtils.hasText(openRouterProperties.getApi().getKey())) {
             return;
         }
-        String baseUrl = openRouterProperties.getApi().getUrl().trim();
-        if (baseUrl.endsWith("/v1/chat/completions")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1/chat/completions".length());
-        } else if (baseUrl.endsWith("/v1")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - "/v1".length());
-        }
-        baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-
+        String baseUrl = normalizeOpenRouterBaseUrl(openRouterProperties.getApi().getUrl().trim());
         List<OpenRouterModelEntry> fetched = openRouterClient.fetchModels(baseUrl, openRouterProperties.getApi().getKey());
         if (fetched.isEmpty()) {
             return;
@@ -113,6 +106,16 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
 
         logExcludedAndAlreadyPresent(freeFromApi, freeFiltered, keysBeforeAdd);
         logRegistrySnapshot("after OpenRouter sync");
+    }
+
+    private static String normalizeOpenRouterBaseUrl(String url) {
+        if (url.endsWith("/v1/chat/completions")) {
+            return url.substring(0, url.length() - "/v1/chat/completions".length());
+        }
+        if (url.endsWith("/v1")) {
+            return url.substring(0, url.length() - "/v1".length());
+        }
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
     /**

@@ -72,13 +72,10 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
 
     @Override
     public boolean canHandle(ICommand<TelegramCommandType> command) {
-        if (!(command instanceof TelegramCommand)) {
-            return false;
-        }
+        if (!(command instanceof TelegramCommand)) return false;
         var commandType = command.commandType();
-        return commandType != null
-                && commandType.command() != null
-                && commandType.command().equals(TelegramCommand.MESSAGE);
+        if (commandType == null || commandType.command() == null) return false;
+        return commandType.command().equals(TelegramCommand.MESSAGE);
     }
 
     @Override

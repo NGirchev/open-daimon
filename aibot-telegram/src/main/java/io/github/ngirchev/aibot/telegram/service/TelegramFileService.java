@@ -244,51 +244,31 @@ public class TelegramFileService {
             case "image/svg+xml" -> ".svg";
             case "image/bmp" -> ".bmp";
             case "image/tiff" -> ".tiff";
-            default -> {
-                // Check by MIME type content
-                if (type.contains("wordprocessingml")) {
-                    yield ".docx";
-                } else if (type.contains("msword")) {
-                    yield ".doc";
-                } else if (type.contains("spreadsheetml")) {
-                    yield ".xlsx";
-                } else if (type.contains("ms-excel")) {
-                    yield ".xls";
-                } else if (type.contains("presentationml")) {
-                    yield ".pptx";
-                } else if (type.contains("ms-powerpoint")) {
-                    yield ".ppt";
-                } else if (type.contains("text/plain")) {
-                    yield ".txt";
-                } else if (type.contains("rtf")) {
-                    yield ".rtf";
-                } else if (type.contains("opendocument.text")) {
-                    yield ".odt";
-                } else if (type.contains("opendocument.spreadsheet")) {
-                    yield ".ods";
-                } else if (type.contains("opendocument.presentation")) {
-                    yield ".odp";
-                } else if (type.contains("csv")) {
-                    yield ".csv";
-                } else if (type.contains("text/html")) {
-                    yield ".html";
-                } else if (type.contains("markdown")) {
-                    yield ".md";
-                } else if (type.contains("json")) {
-                    yield ".json";
-                } else if (type.contains("xml")) {
-                    yield ".xml";
-                } else if (type.contains("epub")) {
-                    yield ".epub";
-                } else if (type.contains("svg")) {
-                    yield ".svg";
-                } else if (type.contains("bmp")) {
-                    yield ".bmp";
-                } else if (type.contains("tiff")) {
-                    yield ".tiff";
-                }
-                yield "";
-            }
+            default -> extensionFromMimeTypeContent(type);
         };
+    }
+
+    private static String extensionFromMimeTypeContent(String type) {
+        if (type.contains("wordprocessingml")) return ".docx";
+        if (type.contains("msword")) return ".doc";
+        if (type.contains("spreadsheetml")) return ".xlsx";
+        if (type.contains("ms-excel")) return ".xls";
+        if (type.contains("presentationml")) return ".pptx";
+        if (type.contains("ms-powerpoint")) return ".ppt";
+        if (type.contains("text/plain")) return ".txt";
+        if (type.contains("rtf")) return ".rtf";
+        if (type.contains("opendocument.text")) return ".odt";
+        if (type.contains("opendocument.spreadsheet")) return ".ods";
+        if (type.contains("opendocument.presentation")) return ".odp";
+        if (type.contains("csv")) return ".csv";
+        if (type.contains("text/html")) return ".html";
+        if (type.contains("markdown")) return ".md";
+        if (type.contains("json")) return ".json";
+        if (type.contains("xml")) return ".xml";
+        if (type.contains("epub")) return ".epub";
+        if (type.contains("svg")) return ".svg";
+        if (type.contains("bmp")) return ".bmp";
+        if (type.contains("tiff")) return ".tiff";
+        return "";
     }
 }

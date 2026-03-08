@@ -163,8 +163,10 @@ class TelegramMockGatewayIT {
         }
 
         @Bean
-        public AssistantRoleService assistantRoleService(AssistantRoleRepository assistantRoleRepository) {
-            return new AssistantRoleServiceImpl(assistantRoleRepository);
+        public AssistantRoleService assistantRoleService(
+                AssistantRoleRepository assistantRoleRepository,
+                ObjectProvider<AssistantRoleService> assistantRoleServiceSelfProvider) {
+            return new AssistantRoleServiceImpl(assistantRoleRepository, assistantRoleServiceSelfProvider);
         }
 
         @Bean
@@ -186,14 +188,16 @@ class TelegramMockGatewayIT {
                 ConversationThreadService conversationThreadService,
                 AssistantRoleService assistantRoleService,
                 CoreCommonProperties coreCommonProperties,
-                TokenCounter tokenCounter
+                TokenCounter tokenCounter,
+                ObjectProvider<AIBotMessageService> messageServiceSelfProvider
         ) {
             return new AIBotMessageService(
                     messageRepository,
                     conversationThreadService,
                     assistantRoleService,
                     coreCommonProperties,
-                    tokenCounter
+                    tokenCounter,
+                    messageServiceSelfProvider
             );
         }
 
@@ -251,13 +255,15 @@ class TelegramMockGatewayIT {
                 AIBotMessageService messageService,
                 TelegramUserService telegramUserService,
                 CoreCommonProperties coreCommonProperties,
-                ObjectProvider<StorageProperties> storagePropertiesProvider
+                ObjectProvider<StorageProperties> storagePropertiesProvider,
+                ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider
         ) {
             return new TelegramMessageService(
                     messageService,
                     telegramUserService,
                     coreCommonProperties,
-                    storagePropertiesProvider
+                    storagePropertiesProvider,
+                    telegramMessageServiceSelfProvider
             );
         }
 

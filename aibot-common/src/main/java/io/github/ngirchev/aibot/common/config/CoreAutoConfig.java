@@ -83,13 +83,15 @@ public class CoreAutoConfig {
             ConversationThreadService conversationThreadService,
             AssistantRoleService assistantRoleService,
             CoreCommonProperties coreCommonProperties,
-            TokenCounter tokenCounter) {
+            TokenCounter tokenCounter,
+            ObjectProvider<AIBotMessageService> messageServiceSelfProvider) {
         return new AIBotMessageService(
-                messageRepository, 
+                messageRepository,
                 conversationThreadService,
                 assistantRoleService,
                 coreCommonProperties,
-                tokenCounter);
+                tokenCounter,
+                messageServiceSelfProvider);
     }
 
     @Bean
@@ -119,8 +121,10 @@ public class CoreAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public AssistantRoleService assistantRoleService(AssistantRoleRepository assistantRoleRepository) {
-        return new AssistantRoleServiceImpl(assistantRoleRepository);
+    public AssistantRoleService assistantRoleService(
+            AssistantRoleRepository assistantRoleRepository,
+            ObjectProvider<AssistantRoleService> assistantRoleServiceSelfProvider) {
+        return new AssistantRoleServiceImpl(assistantRoleRepository, assistantRoleServiceSelfProvider);
     }
 
     @Bean

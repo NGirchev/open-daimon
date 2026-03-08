@@ -57,69 +57,59 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
     private ChatClientRequest reorderMessages(ChatClientRequest request) {
         Prompt prompt = request.prompt();
         List<Message> messages = prompt.getInstructions();
-        
         if (messages == null || messages.isEmpty()) {
             log.debug("No messages to reorder");
             return request;
         }
-        
-        // Split messages by type and find boundary between history and current messages
-        List<Message> systemMessagesFromHistory = new ArrayList<>(); // System from history (summary)
-        List<Message> systemMessagesCurrent = new ArrayList<>(); // Current System messages
+        int firstNonSystemIndex = findFirstNonSystemIndex(messages);
+        List<Message> systemMessagesFromHistory = new ArrayList<>();
+        List<Message> systemMessagesCurrent = new ArrayList<>();
         List<Message> nonSystemMessages = new ArrayList<>();
-        
-        // Find first non-System message — boundary between history and current messages
-        int firstNonSystemIndex = -1;
+        splitMessagesByType(messages, firstNonSystemIndex, systemMessagesFromHistory, systemMessagesCurrent, nonSystemMessages);
+        if ((systemMessagesFromHistory.isEmpty() && systemMessagesCurrent.isEmpty()) || nonSystemMessages.isEmpty()) {
+            log.debug("No reordering needed: systemMessagesFromHistory={}, systemMessagesCurrent={}, nonSystemMessages={}",
+                    systemMessagesFromHistory.size(), systemMessagesCurrent.size(), nonSystemMessages.size());
+            return request;
+        }
+        List<Message> reorderedMessages = buildReorderedMessages(systemMessagesCurrent, systemMessagesFromHistory, nonSystemMessages);
+        log.debug("Reordered messages: {} current system messages, {} system from history, then {} non-system messages",
+                systemMessagesCurrent.size(), systemMessagesFromHistory.size(), nonSystemMessages.size());
+        return request.mutate()
+                .prompt(prompt.mutate().messages(reorderedMessages).build())
+                .build();
+    }
+
+    private static int findFirstNonSystemIndex(List<Message> messages) {
         for (int i = 0; i < messages.size(); i++) {
             if (!(messages.get(i) instanceof SystemMessage)) {
-                firstNonSystemIndex = i;
-                break;
+                return i;
             }
         }
-        
-        // Split System messages: those before first non-System are from history, rest are current
+        return -1;
+    }
+
+    private static void splitMessagesByType(List<Message> messages, int firstNonSystemIndex,
+            List<Message> systemMessagesFromHistory, List<Message> systemMessagesCurrent, List<Message> nonSystemMessages) {
         for (int i = 0; i < messages.size(); i++) {
             Message message = messages.get(i);
             if (message instanceof SystemMessage) {
                 if (firstNonSystemIndex == -1 || i < firstNonSystemIndex) {
-                    // System messages before first non-System are from history (summary)
                     systemMessagesFromHistory.add(message);
                 } else {
-                    // System messages after first non-System are current
                     systemMessagesCurrent.add(message);
                 }
             } else {
                 nonSystemMessages.add(message);
             }
         }
-        
-        // If no System or no non-System messages, return as is
-        if ((systemMessagesFromHistory.isEmpty() && systemMessagesCurrent.isEmpty()) || nonSystemMessages.isEmpty()) {
-            log.debug("No reordering needed: systemMessagesFromHistory={}, systemMessagesCurrent={}, nonSystemMessages={}", 
-                    systemMessagesFromHistory.size(), systemMessagesCurrent.size(), nonSystemMessages.size());
-            return request;
-        }
-        
-        // Build correct order:
-        // 1. Current System messages first — added via promptBuilder.system()
-        // 2. System messages from history (summary) — added via MessageChatMemoryAdvisor
-        // 3. Other messages in original order (history + new user message)
-        List<Message> reorderedMessages = new ArrayList<>();
-        reorderedMessages.addAll(systemMessagesCurrent); // Current System first
-        reorderedMessages.addAll(systemMessagesFromHistory); // Summary from history second
-        reorderedMessages.addAll(nonSystemMessages); // Rest of messages
-        
-        log.debug("Reordered messages: {} current system messages, {} system from history, then {} non-system messages",
-                systemMessagesCurrent.size(), systemMessagesFromHistory.size(), nonSystemMessages.size());
-        
-        // Create new prompt with reordered messages
-        Prompt newPrompt = prompt.mutate()
-                .messages(reorderedMessages)
-                .build();
-        
-        // Create new request with new prompt
-        return request.mutate()
-                .prompt(newPrompt)
-                .build();
+    }
+
+    private static List<Message> buildReorderedMessages(
+            List<Message> systemMessagesCurrent, List<Message> systemMessagesFromHistory, List<Message> nonSystemMessages) {
+        List<Message> reordered = new ArrayList<>();
+        reordered.addAll(systemMessagesCurrent);
+        reordered.addAll(systemMessagesFromHistory);
+        reordered.addAll(nonSystemMessages);
+        return reordered;
     }
 }

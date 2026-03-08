@@ -45,9 +45,10 @@ public class RestChatStreamMessageCommandHandler implements
 
     @Override
     public boolean canHandle(ICommand<RestChatCommandType> command) {
-        return command instanceof RestChatCommand
-                && command.commandType() != null
-                && command.commandType() == RestChatCommandType.STREAM;
+        if (!(command instanceof RestChatCommand) || command.commandType() == null) {
+            return false;
+        }
+        return command.commandType() == RestChatCommandType.STREAM;
     }
 
     @Override

@@ -2,6 +2,7 @@ package io.github.ngirchev.aibot.common.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.annotation.Transactional;
 import io.github.ngirchev.aibot.common.config.CoreCommonProperties;
 import io.github.ngirchev.aibot.common.exception.UserMessageTooLongException;
@@ -26,6 +27,8 @@ public class AIBotMessageService {
     private final AssistantRoleService assistantRoleService;
     private final CoreCommonProperties coreCommonProperties;
     private final TokenCounter tokenCounter;
+    /** Self-reference for transactional proxy (avoids bypassing @Transactional on internal calls). */
+    private final ObjectProvider<AIBotMessageService> selfProvider;
 
     /**
      * Saves USER message.
@@ -47,7 +50,7 @@ public class AIBotMessageService {
                 : coreCommonProperties.getAssistantRole();
         AssistantRole assistantRole = assistantRoleService.getOrCreateDefaultRole(user, roleContent);
 
-        return saveUserMessage(user, content, requestType, assistantRole, metadata, null);
+        return selfProvider.getObject().saveUserMessage(user, content, requestType, assistantRole, metadata, null);
     }
 
     /**
@@ -60,7 +63,7 @@ public class AIBotMessageService {
             RequestType requestType,
             AssistantRole assistantRole,
             Map<String, Object> metadata) {
-        return saveUserMessage(user, content, requestType, assistantRole, metadata, null);
+        return selfProvider.getObject().saveUserMessage(user, content, requestType, assistantRole, metadata, null);
     }
 
     /**
@@ -131,7 +134,7 @@ public class AIBotMessageService {
                 : coreCommonProperties.getAssistantRole();
         AssistantRole assistantRole = assistantRoleService.getOrCreateDefaultRole(user, roleContent);
 
-        return saveAssistantMessage(user, content, serviceName, assistantRole, processingTimeMs, responseDataMap);
+        return selfProvider.getObject().saveAssistantMessage(user, content, serviceName, assistantRole, processingTimeMs, responseDataMap);
     }
 
     /**
@@ -189,7 +192,7 @@ public class AIBotMessageService {
                 : coreCommonProperties.getAssistantRole();
         AssistantRole assistantRole = assistantRoleService.getOrCreateDefaultRole(user, roleContent);
 
-        return saveAssistantErrorMessage(user, errorMessage, serviceName, assistantRole, errorData);
+        return selfProvider.getObject().saveAssistantErrorMessage(user, errorMessage, serviceName, assistantRole, errorData);
     }
 
     /**

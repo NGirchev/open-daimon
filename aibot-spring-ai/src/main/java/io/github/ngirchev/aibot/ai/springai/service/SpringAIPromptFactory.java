@@ -55,63 +55,58 @@ public class SpringAIPromptFactory {
         var promptBuilder = chatClient.prompt();
         promptBuilder.options(buildChatOptions(modelConfig, resolvedModelName, body, chatOptions));
 
-        // Add MessageChatMemoryAdvisor to inject history from ChatMemory
-        // IMPORTANT: MessageChatMemoryAdvisor adds history BEFORE System messages (known Spring AI #4170 bug)
-        // So we add MessageOrderingAdvisor after it to fix order: System -> History -> User
         if (useChatMemoryAdvisor && conversationId != null) {
             promptBuilder
                     .advisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                     .advisors(a -> a.param(CONVERSATION_ID, conversationId))
-                    .advisors(new MessageOrderingAdvisor()); // Reorder: System first
+                    .advisors(new MessageOrderingAdvisor());
         }
+        addSystemMessagesIfPresent(promptBuilder, messages);
+        addWebToolsIfEnabled(promptBuilder, webEnabled);
+        addUserOrAllMessages(promptBuilder, messages);
 
-        // Add System message (if any) — Spring AI ensures System messages are always at the start of prompt
-        if (messages != null && !messages.isEmpty()) {
-            if (useChatMemoryAdvisor) {
-                for (Message message : messages) {
-                    if (message instanceof SystemMessage systemMessage) {
-                        promptBuilder.system(systemMessage.getText());
-                    }
-                }
+        return promptBuilder;
+    }
+
+    private void addSystemMessagesIfPresent(ChatClient.ChatClientRequestSpec promptBuilder, List<Message> messages) {
+        if (messages == null || messages.isEmpty() || !useChatMemoryAdvisor) return;
+        for (Message message : messages) {
+            if (message instanceof SystemMessage systemMessage) {
+                promptBuilder.system(systemMessage.getText());
             }
         }
+    }
 
+    private void addWebToolsIfEnabled(ChatClient.ChatClientRequestSpec promptBuilder, boolean webEnabled) {
         if (webEnabled) {
             promptBuilder.tools(webTools);
             log.info("Web tools added to prompt (web_search, fetch_url). Model may invoke them.");
         } else {
             log.info("Web tools NOT added to prompt (webEnabled=false). Serper/fetch_url will not be available. Only VIP users get WEB capability in DefaultAICommandFactory.");
         }
+    }
 
-        // Finally add User message — it will be last
-        if (messages != null && !messages.isEmpty()) {
-            if (useChatMemoryAdvisor) {
-                // With ChatMemory: MessageChatMemoryAdvisor adds history from ChatMemory between System and User.
-                // IMPORTANT: Add only the LAST User message to avoid duplication; advisor already added history.
-                UserMessage lastUserMessage = null;
-                for (Message message : messages) {
-                    if (message instanceof UserMessage userMessage) {
-                        lastUserMessage = userMessage; // Keep last User message
-                    }
+    private void addUserOrAllMessages(ChatClient.ChatClientRequestSpec promptBuilder, List<Message> messages) {
+        if (messages == null || messages.isEmpty()) return;
+        if (useChatMemoryAdvisor) {
+            UserMessage lastUserMessage = null;
+            for (Message message : messages) {
+                if (message instanceof UserMessage userMessage) {
+                    lastUserMessage = userMessage;
                 }
-                if (lastUserMessage != null) {
-                    final UserMessage userMsg = lastUserMessage;
-                    // Add last User message with media for photo support in ChatMemory (local).
-                    if (userMsg.getMedia() != null && !userMsg.getMedia().isEmpty()) {
-                        promptBuilder.user(u -> u.text(userMsg.getText())
-                                .media(userMsg.getMedia().toArray(new Media[0])));
-                    } else {
-                        promptBuilder.user(userMsg.getText());
-                    }
-                }
-                // Ignore AssistantMessage — already in ChatMemory
-            } else {
-                // In manual mode pass full history as-is
-                promptBuilder.messages(messages);
             }
+            if (lastUserMessage != null) {
+                final UserMessage userMsg = lastUserMessage;
+                if (userMsg.getMedia() != null && !userMsg.getMedia().isEmpty()) {
+                    promptBuilder.user(u -> u.text(userMsg.getText())
+                            .media(userMsg.getMedia().toArray(new Media[0])));
+                } else {
+                    promptBuilder.user(userMsg.getText());
+                }
+            }
+        } else {
+            promptBuilder.messages(messages);
         }
-
-        return promptBuilder;
     }
 
     private ChatOptions buildChatOptions(

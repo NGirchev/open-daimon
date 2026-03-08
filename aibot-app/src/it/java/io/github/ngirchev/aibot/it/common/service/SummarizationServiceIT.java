@@ -155,8 +155,10 @@ class SummarizationServiceIT {
         }
 
         @Bean
-        public AssistantRoleService assistantRoleService(AssistantRoleRepository assistantRoleRepository) {
-            return new AssistantRoleServiceImpl(assistantRoleRepository);
+        public AssistantRoleService assistantRoleService(
+                AssistantRoleRepository assistantRoleRepository,
+                ObjectProvider<AssistantRoleService> assistantRoleServiceSelfProvider) {
+            return new AssistantRoleServiceImpl(assistantRoleRepository, assistantRoleServiceSelfProvider);
         }
 
         @Bean

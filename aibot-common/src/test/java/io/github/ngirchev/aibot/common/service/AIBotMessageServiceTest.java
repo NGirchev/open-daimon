@@ -7,6 +7,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.beans.factory.ObjectProvider;
 import io.github.ngirchev.aibot.common.config.CoreCommonProperties;
 import io.github.ngirchev.aibot.common.model.*;
 import io.github.ngirchev.aibot.common.repository.AIBotMessageRepository;
@@ -48,6 +49,9 @@ class AIBotMessageServiceTest {
     @Mock
     private ConversationThread thread;
 
+    @Mock
+    private ObjectProvider<AIBotMessageService> messageServiceSelfProvider;
+
     private TokenCounter tokenCounter;
     private AIBotMessageService messageService;
 
@@ -65,8 +69,10 @@ class AIBotMessageServiceTest {
                 conversationThreadService,
                 assistantRoleService,
                 coreCommonProperties,
-                tokenCounter
+                tokenCounter,
+                messageServiceSelfProvider
         );
+        when(messageServiceSelfProvider.getObject()).thenReturn(messageService);
 
         // Setup mocks for common cases
         when(assistantRole.getId()).thenReturn(1L);

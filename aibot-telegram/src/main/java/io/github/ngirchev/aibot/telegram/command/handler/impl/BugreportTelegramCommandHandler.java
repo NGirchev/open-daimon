@@ -45,13 +45,10 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
 
     @Override
     public boolean canHandle(ICommand<TelegramCommandType> command) {
-        if (!(command instanceof TelegramCommand)) {
-            return false;
-        }
+        if (!(command instanceof TelegramCommand)) return false;
         var commandType = command.commandType();
-        return commandType != null
-                && commandType.command() != null
-                && commandType.command().startsWith(TelegramCommand.BUGREPORT);
+        if (commandType == null || commandType.command() == null) return false;
+        return commandType.command().startsWith(TelegramCommand.BUGREPORT);
     }
 
     @Override

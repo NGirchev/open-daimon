@@ -46,14 +46,11 @@ public class HistoryTelegramCommandHandler extends AbstractTelegramCommandHandle
     
     @Override
     public boolean canHandle(ICommand<TelegramCommandType> command) {
-        if (!(command instanceof TelegramCommand telegramCommand)) {
-            return false;
-        }
+        if (!(command instanceof TelegramCommand telegramCommand)) return false;
         var commandType = command.commandType();
-        return commandType != null
-                && commandType.command() != null
-                && commandType.command().equals(TelegramCommand.HISTORY)
-                && !telegramCommand.update().hasCallbackQuery();
+        if (commandType == null || commandType.command() == null) return false;
+        if (telegramCommand.update().hasCallbackQuery()) return false;
+        return commandType.command().equals(TelegramCommand.HISTORY);
     }
     
     @Override
