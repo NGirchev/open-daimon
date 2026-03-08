@@ -1,10 +1,18 @@
 # Manual or tag-triggered release: build, sign with GPG, deploy to Maven Central.
 # Requires repository secrets: GPG_PRIVATE_KEY, GPG_PASSPHRASE, and Central Portal token (see CONTRIBUTING.md).
+#
+# Manual run: you can enter the release version (e.g. 1.0.0). If empty, version from pom.xml is used.
+# Tag run (e.g. push v1.0.0): version is taken from the tag (v1.0.0 -> 1.0.0).
 
 name: Release to Maven Central
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0). Leave empty to use version from pom.xml.'
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -16,6 +24,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Resolve release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.ref_name }}" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            VER=$(mvn -B help:evaluate -Dexpression=project.version -q -DforceStdout)
+            echo "version=${VER%-SNAPSHOT}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved version: $(cat $GITHUB_OUTPUT | grep '^version=' | cut -d= -f2-)"
+
+      - name: Set version in POM
+        if: steps.version.outputs.version != ''
+        run: mvn -B org.codehaus.mojo:versions-maven-plugin:2.16.2:set -DnewVersion=${{ steps.version.outputs.version }} -DgenerateBackupPoms=false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -31,7 +56,7 @@ jobs:
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@e89d40939c28e39f97cf32126055eeae86ba74ec
         with:
-          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Deploy to Maven Central
