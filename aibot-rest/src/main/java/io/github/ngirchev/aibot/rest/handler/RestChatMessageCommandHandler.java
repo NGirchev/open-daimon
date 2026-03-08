@@ -59,140 +59,114 @@ public class RestChatMessageCommandHandler implements
     public String handle(RestChatCommand command) {
         AIBotMessage userMessage = null;
         Set<ModelCapabilities> modelCapabilities = Set.of();
-        ConversationThread thread;
-        
         try {
-            String lang = command.request() != null && command.request().getLocale() != null
-                    ? command.request().getLocale().getLanguage() : "ru";
+            String lang = getRequestLanguage(command);
             RestUser user = restUserService.findById(command.userId())
                     .orElseThrow(() -> new RuntimeException(messageLocalizationService.getMessage("rest.user.not.found", lang, command.userId())));
-            
-            // Determine assistant role content: from request or from property
             String assistantRoleContent = command.chatRequestDto().assistantRole() != null
                     ? command.chatRequestDto().assistantRole()
-                    : null; // If null, service uses default from coreCommonProperties
-
-            // Save user request
-            // Thread and role are obtained or created inside saveUserMessage
+                    : null;
             userMessage = restMessageService.saveUserMessage(
                     user,
                     command.chatRequestDto().message(),
                     RequestType.TEXT,
                     assistantRoleContent,
                     command.request());
-            
-            // Get thread and role from saved message for further use
-            thread = userMessage.getThread();
+            ConversationThread thread = userMessage.getThread();
             AssistantRole assistantRole = userMessage.getAssistantRole();
             String assistantRoleContentFromRole = assistantRole.getContent();
-            Integer assistantRoleVersion = assistantRole.getVersion();
             Long assistantRoleId = assistantRole.getId();
-            
-            log.info("Using conversation thread: {} with AssistantRole {} (v{})", 
-                thread.getThreadKey(), assistantRoleId, assistantRoleVersion);
-
-            // Process request and get response
+            Integer assistantRoleVersion = assistantRole.getVersion();
+            log.info("Using conversation thread: {} with AssistantRole {} (v{})",
+                    thread.getThreadKey(), assistantRoleId, assistantRoleVersion);
             long startTime = System.currentTimeMillis();
-            
-            // Pass metadata required for context building
-            // RestConversationHistoryAiCommandFactory uses ContextBuilderService for context
-            // If metadata has threadKey - RestConversationHistoryAiCommandFactory is used
-            // Otherwise DefaultAiCommandFactory (fallback)
-            Map<String, String> metadata = new HashMap<>();
-            metadata.put(THREAD_KEY_FIELD, thread.getThreadKey());
-            metadata.put(ASSISTANT_ROLE_ID_FIELD, assistantRoleId.toString());
-            metadata.put(USER_ID_FIELD, user.getId().toString());
-            // For backward compatibility also pass role (for fallback to DefaultAiCommandFactory)
-            metadata.put(ROLE_FIELD, assistantRoleContentFromRole);
-            
+            Map<String, String> metadata = buildMetadata(thread, assistantRoleContentFromRole, assistantRoleId, user.getId());
             AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
             modelCapabilities = aiCommand.modelCapabilities();
-            
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()
                     .findFirst()
                     .orElseThrow(() -> new RuntimeException("No supported AI gateway found"));
             AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
-            
-            // Extract useful data from AI provider response BEFORE getting content
-            // Needed for error handling (e.g. when finish_reason = "length")
-            Map<String, Object> usefulResponseData = AIUtils.extractUsefulData(aiResponse);
-            
-            // Try to get content from response
-            Optional<String> responseOpt = retrieveMessage(aiResponse);
-            if (responseOpt.isEmpty()) {
-                // If content is empty, use error from AIResponse
-                String errorMessage = extractError(aiResponse)
-                        .orElse("Content is empty");
-                
-                // Save error to DB with finish_reason in response_data
-                messageService.saveAssistantErrorMessage(
-                        user,
-                        errorMessage,
-                        modelCapabilities.toString(),
-                        assistantRole,
-                        usefulResponseData != null && !usefulResponseData.isEmpty() 
-                                ? usefulResponseData.toString() 
-                                : null);
-                
-                throw new RuntimeException(errorMessage);
-            }
-            
-            String response = responseOpt.get();
-            long processingTime = System.currentTimeMillis() - startTime;
-
-            log.info("Gateway: [{}]. Model: [{}]", aiResponse.gatewaySource(), usefulResponseData.get("model"));
-
-            // Save service response
-            // Thread and role are obtained or created inside saveAssistantMessage
-            AIBotMessage assistantMessage = messageService.saveAssistantMessage(
-                    user,
-                    response,
-                    modelCapabilities.toString(),
-                    assistantRoleContentFromRole,
-                    (int) processingTime,
-                    usefulResponseData);
-
-            // Update response status to SUCCESS
-            messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
-
-            return response;
+            return processSuccessResponse(user, aiResponse, modelCapabilities, assistantRole, assistantRoleContentFromRole, startTime);
         } catch (AccessDeniedException e) {
-            // Re-throw AccessDeniedException without wrapping for proper handling in RestExceptionHandler
             log.warn("Access denied for user: {}", e.getMessage());
             throw e;
         } catch (UserMessageTooLongException e) {
             log.warn("Message exceeds token limit: {}", e.getMessage());
             throw e;
         } catch (Exception e) {
-            if (AIUtils.shouldLogWithoutStacktrace(e)) {
-                log.error("Error processing REST API request: {}", AIUtils.getRootCauseMessage(e));
-            } else {
-                log.error("Error processing REST API request", e);
-            }
+            throw handleProcessingError(command, userMessage, modelCapabilities, e);
+        }
+    }
 
-            // Create error metadata and serialize to JSON
-            Map<String, Object> errorMetadata = createErrorMetadata(modelCapabilities.isEmpty() ? Set.of(ModelCapabilities.CHAT) : modelCapabilities, e);
-            String errorDataJson = serializeToJson(errorMetadata);
+    private static String getRequestLanguage(RestChatCommand command) {
+        return command.request() != null && command.request().getLocale() != null
+                ? command.request().getLocale().getLanguage() : "ru";
+    }
 
-            String lang = command.request() != null && command.request().getLocale() != null
-                    ? command.request().getLocale().getLanguage() : "ru";
-            String errorMessage = messageLocalizationService.getMessage("rest.error.processing", lang, e.getMessage());
-            if (userMessage != null) {
-                // Get role from saved message for saving error
-                String errorRoleContent = userMessage.getAssistantRole() != null 
-                        ? userMessage.getAssistantRole().getContent() 
-                        : null;
-                messageService.saveAssistantErrorMessage(
+    private static Map<String, String> buildMetadata(ConversationThread thread, String assistantRoleContentFromRole,
+                                                     Long assistantRoleId, Long userId) {
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(THREAD_KEY_FIELD, thread.getThreadKey());
+        metadata.put(ASSISTANT_ROLE_ID_FIELD, assistantRoleId.toString());
+        metadata.put(USER_ID_FIELD, userId.toString());
+        metadata.put(ROLE_FIELD, assistantRoleContentFromRole);
+        return metadata;
+    }
+
+    private String processSuccessResponse(RestUser user, AIResponse aiResponse, Set<ModelCapabilities> modelCapabilities,
+                                          AssistantRole assistantRole, String assistantRoleContentFromRole, long startTime) {
+        Map<String, Object> usefulResponseData = AIUtils.extractUsefulData(aiResponse);
+        Optional<String> responseOpt = retrieveMessage(aiResponse);
+        if (responseOpt.isEmpty()) {
+            String errorMessage = extractError(aiResponse).orElse("Content is empty");
+            messageService.saveAssistantErrorMessage(
+                    user,
+                    errorMessage,
+                    modelCapabilities.toString(),
+                    assistantRole,
+                    usefulResponseData != null && !usefulResponseData.isEmpty() ? usefulResponseData.toString() : null);
+            throw new RuntimeException(errorMessage);
+        }
+        String response = responseOpt.get();
+        long processingTime = System.currentTimeMillis() - startTime;
+        log.info("Gateway: [{}]. Model: [{}]", aiResponse.gatewaySource(), usefulResponseData.get("model"));
+        AIBotMessage assistantMessage = messageService.saveAssistantMessage(
+                user,
+                response,
+                modelCapabilities.toString(),
+                assistantRoleContentFromRole,
+                (int) processingTime,
+                usefulResponseData);
+        messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
+        return response;
+    }
+
+    private RuntimeException handleProcessingError(RestChatCommand command, AIBotMessage userMessage,
+                                                    Set<ModelCapabilities> modelCapabilities, Exception e) {
+        if (AIUtils.shouldLogWithoutStacktrace(e)) {
+            log.error("Error processing REST API request: {}", AIUtils.getRootCauseMessage(e));
+        } else {
+            log.error("Error processing REST API request", e);
+        }
+        Set<ModelCapabilities> caps = modelCapabilities.isEmpty() ? Set.of(ModelCapabilities.CHAT) : modelCapabilities;
+        Map<String, Object> errorMetadata = createErrorMetadata(caps, e);
+        String errorDataJson = serializeToJson(errorMetadata);
+        String lang = getRequestLanguage(command);
+        String errorMessage = messageLocalizationService.getMessage("rest.error.processing", lang, e.getMessage());
+        if (userMessage != null) {
+            String errorRoleContent = userMessage.getAssistantRole() != null
+                    ? userMessage.getAssistantRole().getContent()
+                    : null;
+            messageService.saveAssistantErrorMessage(
                     userMessage.getUser(),
                     errorMessage,
                     modelCapabilities.toString(),
                     errorRoleContent,
                     errorDataJson);
-            }
-
-            throw new RuntimeException(errorMessage, e);
         }
+        return new RuntimeException(errorMessage, e);
     }
 
     /**

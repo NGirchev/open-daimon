@@ -218,6 +218,14 @@ public class TelegramFileService {
     private String getExtensionFromMimeType(String mimeType) {
         if (mimeType == null) return "";
         String type = mimeType.toLowerCase();
+        String exact = extensionForExactMimeType(type);
+        return exact != null ? exact : extensionFromMimeTypeContent(type);
+    }
+
+    /**
+     * Returns extension for exact MIME type match, or null if not in the known list.
+     */
+    private static String extensionForExactMimeType(String type) {
         return switch (type) {
             case "application/pdf" -> ".pdf";
             case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> ".docx";
@@ -244,7 +252,7 @@ public class TelegramFileService {
             case "image/svg+xml" -> ".svg";
             case "image/bmp" -> ".bmp";
             case "image/tiff" -> ".tiff";
-            default -> extensionFromMimeTypeContent(type);
+            default -> null;
         };
     }
 

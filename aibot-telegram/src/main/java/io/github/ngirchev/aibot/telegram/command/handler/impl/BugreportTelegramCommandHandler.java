@@ -17,6 +17,7 @@ import io.github.ngirchev.aibot.telegram.command.TelegramCommand;
 import io.github.ngirchev.aibot.telegram.command.TelegramCommandType;
 import io.github.ngirchev.aibot.common.service.MessageLocalizationService;
 import io.github.ngirchev.aibot.telegram.command.handler.AbstractTelegramCommandHandler;
+import io.github.ngirchev.aibot.telegram.model.TelegramUserSession;
 import io.github.ngirchev.aibot.telegram.service.TelegramUserService;
 import io.github.ngirchev.aibot.telegram.service.TypingIndicatorService;
 
@@ -54,50 +55,55 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
     @Override
     public void handleInner(TelegramCommand command) throws TelegramApiException {
         if (command.update().hasCallbackQuery()) {
-            CallbackQuery cq = command.update().getCallbackQuery();
-            String data = cq.getData();
-            var message = cq.getMessage();
-            Long chatId = message.getChatId();
-            var telegramBot = telegramBotProvider.getObject();
+            handleCallbackQuery(command.update().getCallbackQuery());
+        } else if (command.update().hasMessage()) {
+            handleBugreportMessage(command);
+        }
+    }
 
-            var userSession = telegramUserService.getOrCreateSession(cq.getFrom());
+    private void handleCallbackQuery(CallbackQuery cq) throws TelegramApiException {
+        String data = cq.getData();
+        var message = cq.getMessage();
+        Long chatId = message.getChatId();
+        var telegramBot = telegramBotProvider.getObject();
+        var userSession = telegramUserService.getOrCreateSession(cq.getFrom());
+        telegramBot.showTyping(chatId);
+        ackCallback(cq.getId());
+        switch (data) {
+            case "ERROR" -> telegramBot.execute(new SendMessage(chatId.toString(), "Enter error description"));
+            case "IMPROVEMENT" -> telegramBot.execute(new SendMessage(chatId.toString(), "Enter your suggestion"));
+            default -> telegramBot.execute(new SendMessage(chatId.toString(), "Unknown command: " + data));
+        }
+        telegramUserService.updateUserSession(userSession.getTelegramUser(), TelegramCommand.BUGREPORT + "/" + data);
+    }
 
-            telegramBot.showTyping(chatId);
-            ackCallback(cq.getId());
-
-            switch (data) {
-                case "ERROR" -> telegramBot.execute(new SendMessage(chatId.toString(), "Enter error description"));
-                case "IMPROVEMENT" ->
-                        telegramBot.execute(new SendMessage(chatId.toString(), "Enter your suggestion"));
-                default -> telegramBot.execute(new SendMessage(chatId.toString(), "Unknown command: " + data));
-            }
-            telegramUserService.updateUserSession(userSession.getTelegramUser(), TelegramCommand.BUGREPORT + "/" + data);
+    private void handleBugreportMessage(TelegramCommand command) throws TelegramApiException {
+        Message message = command.update().getMessage();
+        var userSession = telegramUserService.getOrCreateSession(message.getFrom());
+        if (!StringUtils.isBlank(userSession.getBotStatus())) {
+            handleBugreportStatusReply(command, userSession, message);
         } else {
-            if (command.update().hasMessage()) {
-                Message message = command.update().getMessage();
-                var userSession = telegramUserService.getOrCreateSession(message.getFrom());
+            telegramUserService.updateUserSession(userSession.getTelegramUser(), TelegramCommand.BUGREPORT);
+            sendMenu(command.telegramId());
+        }
+    }
 
-                if (!StringUtils.isBlank(userSession.getBotStatus())) {
-                    if (!userSession.getIsActive()) {
-                        // TODO find how to handle
-                        log.warn("We don't know what to do sessionIsActive[{}] and botStatus[{}]", userSession.getIsActive(), userSession.getBotStatus());
-                    }
-                    if ((TelegramCommand.BUGREPORT + "/ERROR").equals(userSession.getBotStatus())) {
-                        bugReportService.saveBug(userSession.getTelegramUser(), message.getText().strip());
-                        telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
-                        sendMessage(command.telegramId(), "Message saved");
-                    } else if ((TelegramCommand.BUGREPORT + "/IMPROVEMENT").equals(userSession.getBotStatus())) {
-                        bugReportService.saveImprovementProposal(userSession.getTelegramUser(), message.getText().strip());
-                        telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
-                        sendMessage(command.telegramId(), "Message saved");
-                    } else {
-                        throw new IllegalArgumentException();
-                    }
-                } else {
-                    telegramUserService.updateUserSession(userSession.getTelegramUser(), TelegramCommand.BUGREPORT);
-                    sendMenu(command.telegramId());
-                }
-            }
+    private void handleBugreportStatusReply(TelegramCommand command, TelegramUserSession userSession,
+                                            Message message) throws TelegramApiException {
+        if (!userSession.getIsActive()) {
+            log.warn("We don't know what to do sessionIsActive[{}] and botStatus[{}]", userSession.getIsActive(), userSession.getBotStatus());
+        }
+        String status = userSession.getBotStatus();
+        if ((TelegramCommand.BUGREPORT + "/ERROR").equals(status)) {
+            bugReportService.saveBug(userSession.getTelegramUser(), message.getText().strip());
+            telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
+            sendMessage(command.telegramId(), "Message saved");
+        } else if ((TelegramCommand.BUGREPORT + "/IMPROVEMENT").equals(status)) {
+            bugReportService.saveImprovementProposal(userSession.getTelegramUser(), message.getText().strip());
+            telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
+            sendMessage(command.telegramId(), "Message saved");
+        } else {
+            throw new IllegalArgumentException();
         }
     }
 

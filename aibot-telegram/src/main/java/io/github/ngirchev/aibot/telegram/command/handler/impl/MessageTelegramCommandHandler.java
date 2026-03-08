@@ -131,88 +131,13 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                     .findFirst()
                     .orElseThrow(() -> new RuntimeException("No supported AI gateway found for AI Command " + aiCommand));
             AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
+            ResponseContext ctx = extractResponseContext(aiResponse, command, message);
 
-            Map<String, Object> usefulResponseData;
-            Optional<String> responseTextOpt;
-            Optional<String> errorOpt;
-            boolean alreadySentInStream = false;
-
-            if (aiResponse.gatewaySource() == AIGateways.SPRINGAI && aiResponse instanceof SpringAIStreamResponse aiStreamResponse) {
-                alreadySentInStream = true;
-                Integer[] replyToMessageId = { message.getMessageId() };
-                int maxMessageLength = telegramProperties.getMaxMessageLength();
-                ChatResponse chatResponse = AIUtils.processStreamingResponseByParagraphs(
-                        aiStreamResponse.chatResponse(),
-                        maxMessageLength,
-                        s -> {
-                            log.debug("Sending message: {}", s);
-                            sendMessage(command.telegramId(), AIUtils.convertMarkdownToHtml(s), replyToMessageId[0]);
-                            replyToMessageId[0] = null; // After first message reply-to is not needed
-                        }
-                );
-
-                // Extract useful data from AI provider response BEFORE getting content
-                // Needed for error handling (e.g. when finish_reason = "length")
-                usefulResponseData = AIUtils.extractSpringAiUsefulData(chatResponse);
-
-                // Try to get content from response
-                responseTextOpt = AIUtils.extractText(chatResponse);
-                errorOpt = extractError(chatResponse);
+            if (ctx.responseTextOpt().isPresent()) {
+                saveAndSendSuccessResponse(command, telegramUser, message, aiResponse, ctx, modelCapabilities,
+                        assistantRoleContent, startTime);
             } else {
-                // Extract useful data from AI provider response BEFORE getting content
-                // Needed for error handling (e.g. when finish_reason = "length")
-                usefulResponseData = AIUtils.extractUsefulData(aiResponse);
-
-                // Try to get content from response
-                responseTextOpt = retrieveMessage(aiResponse);
-                errorOpt = extractError(aiResponse);
-            }
-
-            if (responseTextOpt.isPresent()) {
-                String responseText = responseTextOpt.get();
-                long processingTime = System.currentTimeMillis() - startTime;
-
-                String model = usefulResponseData != null && usefulResponseData.containsKey("model") 
-                    ? String.valueOf(usefulResponseData.get("model")) 
-                    : "unknown";
-                log.info("Gateway: [{}]. Model: [{}]", aiResponse.gatewaySource(), model);
-
-                // Save service response
-                // Thread and role are obtained or created inside saveAssistantMessage
-                var assistantMessage = telegramMessageService.saveAssistantMessage(
-                        telegramUser,
-                        responseText,
-                        modelCapabilities.toString(),
-                        assistantRoleContent,
-                        (int) processingTime,
-                        usefulResponseData);
-
-                // Send response to user with reply-to original message if not streaming
-                // Convert Markdown to HTML for proper formatting
-                if (!alreadySentInStream) {
-                    Integer replyToMessageId = message.getMessageId();
-                    String htmlFormattedText = AIUtils.convertMarkdownToHtml(responseText);
-                    sendMessage(command.telegramId(), htmlFormattedText, replyToMessageId);
-                }
-
-                // Update response status to SUCCESS
-                messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
-            } else {
-                // If content is empty, use error from AIResponse
-                String errorMessage = errorOpt.orElse("Content is empty");
-
-                // Save error to DB with finish_reason in response_data
-                telegramMessageService.saveAssistantErrorMessage(
-                        telegramUser,
-                        errorMessage,
-                        modelCapabilities.toString(),
-                        assistantRoleContent,
-                        usefulResponseData != null && !usefulResponseData.isEmpty()
-                                ? usefulResponseData.toString()
-                                : null);
-
-                Integer replyToMessageId = message.getMessageId();
-                sendErrorMessage(command.telegramId(), errorMessage, replyToMessageId);
+                sendEmptyContentError(command, telegramUser, message, ctx, modelCapabilities, assistantRoleContent);
                 return null;
             }
         } catch (UserMessageTooLongException e) {
@@ -289,6 +214,71 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             t = t.getCause();
         }
         return null;
+    }
+
+    private record ResponseContext(
+            Map<String, Object> usefulResponseData,
+            Optional<String> responseTextOpt,
+            Optional<String> errorOpt,
+            boolean alreadySentInStream
+    ) {}
+
+    private ResponseContext extractResponseContext(AIResponse aiResponse, TelegramCommand command, Message message) {
+        if (aiResponse.gatewaySource() == AIGateways.SPRINGAI && aiResponse instanceof SpringAIStreamResponse aiStreamResponse) {
+            Integer[] replyToMessageId = { message.getMessageId() };
+            int maxMessageLength = telegramProperties.getMaxMessageLength();
+            ChatResponse chatResponse = AIUtils.processStreamingResponseByParagraphs(
+                    aiStreamResponse.chatResponse(),
+                    maxMessageLength,
+                    s -> {
+                        log.debug("Sending message: {}", s);
+                        sendMessage(command.telegramId(), AIUtils.convertMarkdownToHtml(s), replyToMessageId[0]);
+                        replyToMessageId[0] = null;
+                    }
+            );
+            Map<String, Object> usefulResponseData = AIUtils.extractSpringAiUsefulData(chatResponse);
+            return new ResponseContext(usefulResponseData, AIUtils.extractText(chatResponse), extractError(chatResponse), true);
+        }
+        Map<String, Object> usefulResponseData = AIUtils.extractUsefulData(aiResponse);
+        return new ResponseContext(usefulResponseData, retrieveMessage(aiResponse), extractError(aiResponse), false);
+    }
+
+    private void saveAndSendSuccessResponse(TelegramCommand command, TelegramUser telegramUser, Message message,
+                                            AIResponse aiResponse, ResponseContext ctx,
+                                            Set<ModelCapabilities> modelCapabilities, String assistantRoleContent,
+                                            long startTime) {
+        String responseText = ctx.responseTextOpt().orElseThrow();
+        long processingTime = System.currentTimeMillis() - startTime;
+        String model = ctx.usefulResponseData() != null && ctx.usefulResponseData().containsKey("model")
+                ? String.valueOf(ctx.usefulResponseData().get("model"))
+                : "unknown";
+        log.info("Gateway: [{}]. Model: [{}]", aiResponse.gatewaySource(), model);
+        var assistantMessage = telegramMessageService.saveAssistantMessage(
+                telegramUser,
+                responseText,
+                modelCapabilities.toString(),
+                assistantRoleContent,
+                (int) processingTime,
+                ctx.usefulResponseData());
+        if (!ctx.alreadySentInStream()) {
+            sendMessage(command.telegramId(), AIUtils.convertMarkdownToHtml(responseText), message.getMessageId());
+        }
+        messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
+    }
+
+    private void sendEmptyContentError(TelegramCommand command, TelegramUser telegramUser, Message message,
+                                       ResponseContext ctx, Set<ModelCapabilities> modelCapabilities,
+                                       String assistantRoleContent) {
+        String errorMessage = ctx.errorOpt().orElse("Content is empty");
+        telegramMessageService.saveAssistantErrorMessage(
+                telegramUser,
+                errorMessage,
+                modelCapabilities.toString(),
+                assistantRoleContent,
+                ctx.usefulResponseData() != null && !ctx.usefulResponseData().isEmpty()
+                        ? ctx.usefulResponseData().toString()
+                        : null);
+        sendErrorMessage(command.telegramId(), errorMessage, message.getMessageId());
     }
 
     private Map<String, String> prepareMetadata(

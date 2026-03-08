@@ -47,7 +47,11 @@ public class HistoryTelegramCommandHandler extends AbstractTelegramCommandHandle
     @Override
     public boolean canHandle(ICommand<TelegramCommandType> command) {
         if (!(command instanceof TelegramCommand telegramCommand)) return false;
-        var commandType = command.commandType();
+        return isHistoryCommand(telegramCommand);
+    }
+
+    private static boolean isHistoryCommand(TelegramCommand telegramCommand) {
+        var commandType = telegramCommand.commandType();
         if (commandType == null || commandType.command() == null) return false;
         if (telegramCommand.update().hasCallbackQuery()) return false;
         return commandType.command().equals(TelegramCommand.HISTORY);
@@ -59,30 +63,24 @@ public class HistoryTelegramCommandHandler extends AbstractTelegramCommandHandle
         if (message == null) {
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for history command");
         }
-        
         TelegramUser user = userService.getOrCreateUser(message.getFrom());
-        
-        // Get active thread
         Optional<ConversationThread> threadOpt = threadRepository.findMostRecentActiveThread(user);
         if (threadOpt.isEmpty()) {
             return "❌ You have no active conversation. Start one by sending a message.";
         }
-        
         ConversationThread thread = threadOpt.get();
-        
-        // Load message history
         List<AIBotMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
-        
         if (messages.isEmpty()) {
             return "📝 Conversation history is empty.\n\nThread ID: `" + thread.getThreadKey().substring(0, 8) + "...`";
         }
-        
-        // Build history message
+        return buildHistoryText(thread, messages);
+    }
+
+    private static String buildHistoryText(ConversationThread thread, List<AIBotMessage> messages) {
         StringBuilder history = new StringBuilder();
         history.append("📜 Conversation history\n\n");
         history.append("Thread ID: `").append(thread.getThreadKey().substring(0, 8)).append("...`\n");
         history.append("Total messages: ").append(messages.size()).append("\n\n");
-        
         int messageCount = 0;
         AIBotMessage lastUserMessage = null;
         for (AIBotMessage msg : messages) {
@@ -91,16 +89,9 @@ public class HistoryTelegramCommandHandler extends AbstractTelegramCommandHandle
                 lastUserMessage = msg;
                 history.append("💬 ").append(messageCount).append(". ").append(msg.getContent()).append("\n");
             } else if (msg.getRole() == MessageRole.ASSISTANT && lastUserMessage != null) {
-                String responseText = msg.getContent();
-                // Limit response length for readability
-                if (responseText != null && responseText.length() > 200) {
-                    responseText = responseText.substring(0, 197) + "...";
-                }
-                history.append("🤖 ").append(responseText != null ? responseText : "⏳ Waiting for response...").append("\n\n");
+                appendAssistantLine(history, msg.getContent());
                 lastUserMessage = null;
             }
-            
-            // Limit messages for readability (last 10 turns = 20 messages)
             if (messageCount >= 10 && messages.size() > 20) {
                 int remaining = (messages.size() - messageCount * 2) / 2;
                 history.append("... and ").append(remaining).append(" more messages.\n");
@@ -108,13 +99,15 @@ public class HistoryTelegramCommandHandler extends AbstractTelegramCommandHandle
                 break;
             }
         }
-        
-        // If there is an unprocessed USER message
         if (lastUserMessage != null) {
             history.append("⏳ Waiting for response...\n\n");
         }
-        
         return history.toString();
+    }
+
+    private static void appendAssistantLine(StringBuilder history, String content) {
+        String responseText = content != null && content.length() > 200 ? content.substring(0, 197) + "..." : content;
+        history.append("🤖 ").append(responseText != null ? responseText : "⏳ Waiting for response...").append("\n\n");
     }
     
     @Override

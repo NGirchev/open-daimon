@@ -89,23 +89,26 @@ public class SpringAIPromptFactory {
     private void addUserOrAllMessages(ChatClient.ChatClientRequestSpec promptBuilder, List<Message> messages) {
         if (messages == null || messages.isEmpty()) return;
         if (useChatMemoryAdvisor) {
-            UserMessage lastUserMessage = null;
-            for (Message message : messages) {
-                if (message instanceof UserMessage userMessage) {
-                    lastUserMessage = userMessage;
-                }
-            }
-            if (lastUserMessage != null) {
-                final UserMessage userMsg = lastUserMessage;
-                if (userMsg.getMedia() != null && !userMsg.getMedia().isEmpty()) {
-                    promptBuilder.user(u -> u.text(userMsg.getText())
-                            .media(userMsg.getMedia().toArray(new Media[0])));
-                } else {
-                    promptBuilder.user(userMsg.getText());
-                }
-            }
+            addLastUserMessageToPrompt(promptBuilder, messages);
         } else {
             promptBuilder.messages(messages);
+        }
+    }
+
+    private void addLastUserMessageToPrompt(ChatClient.ChatClientRequestSpec promptBuilder, List<Message> messages) {
+        UserMessage lastUserMessage = null;
+        for (Message message : messages) {
+            if (message instanceof UserMessage userMessage) {
+                lastUserMessage = userMessage;
+            }
+        }
+        if (lastUserMessage == null) return;
+        final UserMessage lastUserMsg = lastUserMessage;
+        if (lastUserMsg.getMedia() != null && !lastUserMsg.getMedia().isEmpty()) {
+            promptBuilder.user(u -> u.text(lastUserMsg.getText())
+                    .media(lastUserMsg.getMedia().toArray(new Media[0])));
+        } else {
+            promptBuilder.user(lastUserMsg.getText());
         }
     }
 
@@ -183,16 +186,26 @@ public class SpringAIPromptFactory {
         if (maxPrice == null) {
             return null;
         }
+        Map<String, Object> normalizedMaxPrice = normalizeMaxPrice(maxPrice);
+        if (normalizedMaxPrice == null) {
+            return null;
+        }
+        Map<String, Object> extraBody = new HashMap<>();
+        extraBody.put(MAX_PRICE, normalizedMaxPrice);
+        return extraBody;
+    }
 
-        Map<String, Object> normalizedMaxPrice;
+    private Map<String, Object> normalizeMaxPrice(Object maxPrice) {
         if (maxPrice instanceof Map<?, ?> maxPriceMap) {
-            normalizedMaxPrice = new HashMap<>();
+            Map<String, Object> normalized = new HashMap<>();
             maxPriceMap.forEach((key, value) -> {
                 if (key != null) {
-                    normalizedMaxPrice.put(key.toString(), value);
+                    normalized.put(key.toString(), value);
                 }
             });
-        } else if (maxPrice instanceof Number || maxPrice instanceof String) {
+            return normalized;
+        }
+        if (maxPrice instanceof Number || maxPrice instanceof String) {
             Double maxPriceValue = maxPrice instanceof Number number
                     ? Double.valueOf(number.doubleValue())
                     : getDouble(Map.of(MAX_PRICE, maxPrice), MAX_PRICE);
@@ -200,19 +213,11 @@ public class SpringAIPromptFactory {
                 log.warn("Ignoring invalid max_price value: {}", maxPrice);
                 return null;
             }
-            normalizedMaxPrice = Map.of(
-                    "prompt", maxPriceValue,
-                    "completion", maxPriceValue
-            );
-        } else {
-            log.warn("Ignoring invalid max_price type: {}. OpenRouter expects an object.",
-                    maxPrice.getClass().getSimpleName());
-            return null;
+            return Map.of("prompt", maxPriceValue, "completion", maxPriceValue);
         }
-
-        Map<String, Object> extraBody = new HashMap<>();
-        extraBody.put(MAX_PRICE, normalizedMaxPrice);
-        return extraBody;
+        log.warn("Ignoring invalid max_price type: {}. OpenRouter expects an object.",
+                maxPrice.getClass().getSimpleName());
+        return null;
     }
 
     private boolean isOpenRouterAutoModel(String modelName) {

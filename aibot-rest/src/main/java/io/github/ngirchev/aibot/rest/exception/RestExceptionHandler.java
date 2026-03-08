@@ -71,12 +71,12 @@ public class RestExceptionHandler {
         String message = e.getEstimatedTokens() > 0 && e.getMaxAllowed() > 0
                 ? messageLocalizationService.getMessage("common.error.message.too.long", languageCode(request), e.getEstimatedTokens(), e.getMaxAllowed())
                 : e.getMessage();
-        String acceptHeader = request.getHeader("Accept");
-        boolean isJson = acceptHeader != null && acceptHeader.contains("application/json");
+        String acceptHeader = request.getHeader(HEADER_ACCEPT);
+        boolean isJson = acceptHeader != null && acceptHeader.contains(APPLICATION_JSON);
         if (isJson) {
             Map<String, Object> response = new HashMap<>();
-            response.put("message", message);
-            response.put("status", HttpStatus.BAD_REQUEST.value());
+            response.put(KEY_MESSAGE, message);
+            response.put(KEY_STATUS, HttpStatus.BAD_REQUEST.value());
             return ResponseEntity
                     .status(HttpStatus.BAD_REQUEST)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -89,12 +89,12 @@ public class RestExceptionHandler {
     public ResponseEntity<Object> handleAccessDeniedException(AccessDeniedException e, HttpServletRequest request) {
         log.warn("Access denied: {}", e.getMessage());
         String message = messageLocalizationService.getMessage("common.error.access.denied", languageCode(request));
-        String acceptHeader = request.getHeader("Accept");
-        boolean isAjaxRequest = acceptHeader != null && acceptHeader.contains("application/json");
+        String acceptHeader = request.getHeader(HEADER_ACCEPT);
+        boolean isAjaxRequest = acceptHeader != null && acceptHeader.contains(APPLICATION_JSON);
         if (isAjaxRequest) {
             Map<String, Object> response = new HashMap<>();
-            response.put("message", message);
-            response.put("status", HttpStatus.FORBIDDEN.value());
+            response.put(KEY_MESSAGE, message);
+            response.put(KEY_STATUS, HttpStatus.FORBIDDEN.value());
             return ResponseEntity
                     .status(HttpStatus.FORBIDDEN)
                     .contentType(MediaType.APPLICATION_JSON)

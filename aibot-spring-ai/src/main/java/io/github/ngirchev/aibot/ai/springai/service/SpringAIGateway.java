@@ -104,32 +104,7 @@ public class SpringAIGateway implements AIGateway {
                 List<Message> messages = createMessages(chatOptions.body());
                 log.info("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole());
                 addSystemAndUserMessagesIfNeeded(messages, chatOptions, command);
-
-                List<SpringAIModelConfig> candidates = springAIModelRegistry.getCandidatesByCapabilities(command.modelCapabilities(), null);
-                if (candidates.isEmpty()) {
-                    candidates = springAIModelRegistry.getCandidatesByCapabilities(Set.of(ModelCapabilities.AUTO), null);
-                }
-                SpringAIModelConfig modelConfig = candidates.isEmpty()
-                        ? null
-                        : candidates.getFirst();
-                if (modelConfig == null) {
-                    throw new RuntimeException("No model found for capabilities: " + command.modelCapabilities());
-                }
-
-                if (chatOptions.stream()) {
-                    return chatService.streamChat(
-                            modelConfig,
-                            command,
-                            chatOptions,
-                            messages);
-                } else {
-                    return chatService.callChat(
-                            modelConfig,
-                            command,
-                            chatOptions,
-                            messages
-                    );
-                }
+                return executeChatWithOptions(chatOptions, command, messages);
             } else {
                 throw new IllegalArgumentException();
             }
@@ -146,6 +121,21 @@ public class SpringAIGateway implements AIGateway {
             }
             throw new RuntimeException("Failed to generate response from Spring AI", e);
         }
+    }
+
+    private AIResponse executeChatWithOptions(AIBotChatOptions chatOptions, AICommand command, List<Message> messages) {
+        List<SpringAIModelConfig> candidates = springAIModelRegistry.getCandidatesByCapabilities(command.modelCapabilities(), null);
+        if (candidates.isEmpty()) {
+            candidates = springAIModelRegistry.getCandidatesByCapabilities(Set.of(ModelCapabilities.AUTO), null);
+        }
+        SpringAIModelConfig modelConfig = candidates.isEmpty() ? null : candidates.getFirst();
+        if (modelConfig == null) {
+            throw new RuntimeException("No model found for capabilities: " + command.modelCapabilities());
+        }
+        if (chatOptions.stream()) {
+            return chatService.streamChat(modelConfig, command, chatOptions, messages);
+        }
+        return chatService.callChat(modelConfig, command, chatOptions, messages);
     }
 
     @Override
@@ -339,19 +329,25 @@ public class SpringAIGateway implements AIGateway {
         long originalImageCount = attachments.stream().filter(att -> att.type() == AttachmentType.IMAGE).count();
         List<String> pdfAsImageFilenames = new ArrayList<>();
         String finalUserRole = processRagIfEnabled(userRole, mutableAttachments, pdfAsImageFilenames);
-        String attachmentContext = buildAttachmentContextMessage((int) originalImageCount, pdfAsImageFilenames);
-        if (attachmentContext != null) {
-            SystemMessage attachmentSystemMessage = new SystemMessage(attachmentContext);
-            messages.add(attachmentSystemMessage);
-            ChatMemory chatMemory = chatMemoryProvider != null ? chatMemoryProvider.getIfAvailable() : null;
-            if (chatMemory != null && command != null && command.metadata() != null) {
-                Object threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
-                if (threadKey != null) {
-                    chatMemory.add(String.valueOf(threadKey), attachmentSystemMessage);
-                }
+        addAttachmentContextToMessagesAndMemory(messages, (int) originalImageCount, pdfAsImageFilenames, command);
+        messages.add(createUserMessage(finalUserRole, mutableAttachments));
+    }
+
+    private void addAttachmentContextToMessagesAndMemory(List<Message> messages, int originalImageCount,
+                                                          List<String> pdfAsImageFilenames, AICommand command) {
+        String attachmentContext = buildAttachmentContextMessage(originalImageCount, pdfAsImageFilenames);
+        if (attachmentContext == null) {
+            return;
+        }
+        SystemMessage attachmentSystemMessage = new SystemMessage(attachmentContext);
+        messages.add(attachmentSystemMessage);
+        ChatMemory chatMemory = chatMemoryProvider != null ? chatMemoryProvider.getIfAvailable() : null;
+        if (chatMemory != null && command != null && command.metadata() != null) {
+            Object threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
+            if (threadKey != null) {
+                chatMemory.add(String.valueOf(threadKey), attachmentSystemMessage);
             }
         }
-        messages.add(createUserMessage(finalUserRole, mutableAttachments));
     }
 
     /**

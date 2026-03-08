@@ -137,28 +137,35 @@ public class ConversationContextBuilderService {
         int currentMessageTokens = tokenCounter.estimateTokens(currentUserMessage);
         OffsetDateTime now = OffsetDateTime.now();
         for (AIBotMessage message : messages) {
-            if (message.getRole() == MessageRole.SYSTEM) continue;
+            Map<String, Object> entry = toHistoryEntryOrNull(message, now, fileStorage);
+            if (entry == null) continue;
             String content = message.getContent();
-            if (content == null || content.isEmpty()) {
-                log.warn("Skipping Message {} with null or empty content", message.getId());
-                continue;
-            }
-            int messageTokens = tokenCounter.estimateTokens(content);
+            int messageTokens = tokenCounter.estimateTokens(content != null ? content : "");
             if (remainingTokens - messageTokens - currentMessageTokens < historyConfig.getMaxResponseTokens()) {
                 log.debug("Token budget exceeded, stopping at {} messages", historyMessages.size());
                 break;
             }
-            String role = message.getRole() == MessageRole.USER ? "user" : "assistant";
-            Object messageContent = content;
-            if (message.getRole() == MessageRole.USER && fileStorage != null
-                    && message.getAttachments() != null && !message.getAttachments().isEmpty()) {
-                Object withMedia = buildContentWithAttachments(content, message.getAttachments(), now, fileStorage);
-                if (withMedia != null) messageContent = withMedia;
-            }
-            historyMessages.add(Map.of(ROLE, role, CONTENT, messageContent));
+            historyMessages.add(entry);
             remainingTokens -= messageTokens;
         }
         return historyMessages;
+    }
+
+    private Map<String, Object> toHistoryEntryOrNull(AIBotMessage message, OffsetDateTime now, FileStorageService fileStorage) {
+        if (message.getRole() == MessageRole.SYSTEM) return null;
+        String content = message.getContent();
+        if (content == null || content.isEmpty()) {
+            log.warn("Skipping Message {} with null or empty content", message.getId());
+            return null;
+        }
+        String role = message.getRole() == MessageRole.USER ? "user" : "assistant";
+        Object messageContent = content;
+        if (message.getRole() == MessageRole.USER && fileStorage != null
+                && message.getAttachments() != null && !message.getAttachments().isEmpty()) {
+            Object withMedia = buildContentWithAttachments(content, message.getAttachments(), now, fileStorage);
+            if (withMedia != null) messageContent = withMedia;
+        }
+        return Map.of(ROLE, role, CONTENT, messageContent);
     }
     
     /**

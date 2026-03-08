@@ -516,56 +516,7 @@ public class AIUtils {
                         }
                     }, 1, 1)
                     // Split blocks by maxMessageLength limit (prefetch 1 — do not buffer)
-                    .flatMap(block -> {
-                        String blockToProcess = overflowBuffer.get() + block;
-                        overflowBuffer.set("");
-                        
-                        // If block does not exceed limit, send it as-is
-                        if (blockToProcess.length() <= maxMessageLength) {
-                            return Flux.just(blockToProcess);
-                        }
-                        
-                        // Block exceeds limit - split by paragraphs
-                        List<String> parts = new ArrayList<>();
-                        String[] paragraphs = blockToProcess.split("\n\n", -1);
-                        StringBuilder currentPart = new StringBuilder();
-                        
-                        for (String paragraph : paragraphs) {
-                            String paragraphWithSeparator = currentPart.isEmpty()
-                                    ? paragraph 
-                                    : currentPart + "\n\n" + paragraph;
-                            
-                            // If adding paragraph does not exceed limit, add it
-                            if (paragraphWithSeparator.length() <= maxMessageLength) {
-                                currentPart = new StringBuilder(paragraphWithSeparator);
-                            } else {
-                                // Current part is ready to send
-                                if (!currentPart.isEmpty()) {
-                                    parts.add(currentPart.toString());
-                                    currentPart = new StringBuilder(paragraph);
-                                } else {
-                                    // Even single paragraph exceeds limit - find split point at sentence boundaries
-                                    int splitPoint = findSplitPoint(paragraph, maxMessageLength);
-                                    parts.add(paragraph.substring(0, splitPoint));
-                                    overflowBuffer.set(paragraph.substring(splitPoint));
-                                }
-                            }
-                        }
-                        
-                        // Add remaining part if any
-                        if (!currentPart.isEmpty()) {
-                            if (currentPart.length() <= maxMessageLength) {
-                                parts.add(currentPart.toString());
-                            } else {
-                                // Last part also exceeds limit - find split point
-                                int splitPoint = findSplitPoint(currentPart.toString(), maxMessageLength);
-                                parts.add(currentPart.substring(0, splitPoint));
-                                overflowBuffer.set(currentPart.substring(splitPoint));
-                            }
-                        }
-                        
-                        return parts.isEmpty() ? Flux.empty() : Flux.fromIterable(parts);
-                    }, 1, 1)
+                    .flatMap(block -> splitBlockByMaxLength(block, overflowBuffer, maxMessageLength), 1, 1)
                     // Send each block as a whole
                     .doOnNext(block -> {
                         fullResponse.updateAndGet(current -> current + block + "\n\n");
@@ -917,6 +868,46 @@ public class AIUtils {
     }
 
     /**
+     * Splits a block (possibly with overflow from previous chunk) by maxMessageLength at paragraph boundaries.
+     * Updates overflowBuffer with any remainder.
+     */
+    private static Flux<String> splitBlockByMaxLength(String block, AtomicReference<String> overflowBuffer, int maxMessageLength) {
+        String blockToProcess = overflowBuffer.get() + block;
+        overflowBuffer.set("");
+        if (blockToProcess.length() <= maxMessageLength) {
+            return Flux.just(blockToProcess);
+        }
+        List<String> parts = new ArrayList<>();
+        String[] paragraphs = blockToProcess.split("\n\n", -1);
+        StringBuilder currentPart = new StringBuilder();
+        for (String paragraph : paragraphs) {
+            String paragraphWithSeparator = currentPart.isEmpty() ? paragraph : currentPart + "\n\n" + paragraph;
+            if (paragraphWithSeparator.length() <= maxMessageLength) {
+                currentPart = new StringBuilder(paragraphWithSeparator);
+            } else {
+                if (!currentPart.isEmpty()) {
+                    parts.add(currentPart.toString());
+                    currentPart = new StringBuilder(paragraph);
+                } else {
+                    int splitPoint = findSplitPoint(paragraph, maxMessageLength);
+                    parts.add(paragraph.substring(0, splitPoint));
+                    overflowBuffer.set(paragraph.substring(splitPoint));
+                }
+            }
+        }
+        if (!currentPart.isEmpty()) {
+            if (currentPart.length() <= maxMessageLength) {
+                parts.add(currentPart.toString());
+            } else {
+                int splitPoint = findSplitPoint(currentPart.toString(), maxMessageLength);
+                parts.add(currentPart.substring(0, splitPoint));
+                overflowBuffer.set(currentPart.substring(splitPoint));
+            }
+        }
+        return parts.isEmpty() ? Flux.empty() : Flux.fromIterable(parts);
+    }
+
+    /**
      * Processes final tail and accumulated short paragraphs: sends or merges with tail, respects maxMessageLength.
      */
     private static void processFinalTailAndAccumulated(
@@ -926,33 +917,39 @@ public class AIUtils {
             Consumer<String> listener,
             int maxMessageLength,
             int minParagraphLength) {
-        if (!finalTail.isEmpty()) {
-            String accumulated = accumulatedShortParagraphs.get().trim();
-            String combined = accumulated.isEmpty() ? finalTail : accumulated + "\n\n" + finalTail;
-            if (combined.length() > maxMessageLength) {
-                if (!accumulated.isEmpty()) {
-                    fullResponse.updateAndGet(current -> current + accumulated);
-                    listener.accept(accumulated);
-                    accumulatedShortParagraphs.set("");
-                }
-                sendFinalTailSplitByParagraphs(finalTail, fullResponse, listener, maxMessageLength);
-            } else {
-                if (finalTail.length() < minParagraphLength && !accumulated.isEmpty()) {
-                    accumulatedShortParagraphs.set(combined);
-                } else {
-                    if (!accumulated.isEmpty()) {
-                        accumulatedShortParagraphs.set("");
-                    }
-                    fullResponse.updateAndGet(current -> current + combined);
-                    listener.accept(combined);
-                }
-            }
-        } else {
-            String accumulated = accumulatedShortParagraphs.get().trim();
+        if (finalTail.isEmpty()) {
+            flushAccumulated(accumulatedShortParagraphs, fullResponse, listener);
+            return;
+        }
+        String accumulated = accumulatedShortParagraphs.get().trim();
+        String combined = accumulated.isEmpty() ? finalTail : accumulated + "\n\n" + finalTail;
+        if (combined.length() > maxMessageLength) {
             if (!accumulated.isEmpty()) {
                 fullResponse.updateAndGet(current -> current + accumulated);
                 listener.accept(accumulated);
+                accumulatedShortParagraphs.set("");
             }
+            sendFinalTailSplitByParagraphs(finalTail, fullResponse, listener, maxMessageLength);
+        } else {
+            if (finalTail.length() < minParagraphLength && !accumulated.isEmpty()) {
+                accumulatedShortParagraphs.set(combined);
+            } else {
+                if (!accumulated.isEmpty()) {
+                    accumulatedShortParagraphs.set("");
+                }
+                fullResponse.updateAndGet(current -> current + combined);
+                listener.accept(combined);
+            }
+        }
+    }
+
+    private static void flushAccumulated(AtomicReference<String> accumulatedShortParagraphs,
+                                         AtomicReference<String> fullResponse,
+                                         Consumer<String> listener) {
+        String accumulated = accumulatedShortParagraphs.get().trim();
+        if (!accumulated.isEmpty()) {
+            fullResponse.updateAndGet(current -> current + accumulated);
+            listener.accept(accumulated);
         }
     }
 
@@ -964,39 +961,46 @@ public class AIUtils {
         String[] paragraphs = finalTail.split("\n\n", -1);
         StringBuilder currentPart = new StringBuilder();
         for (String paragraph : paragraphs) {
-            String paragraphWithSeparator = currentPart.isEmpty() ? paragraph : currentPart + "\n\n" + paragraph;
-            if (paragraphWithSeparator.length() <= maxMessageLength) {
-                currentPart = new StringBuilder(paragraphWithSeparator);
-            } else {
-                if (!currentPart.isEmpty()) {
-                    String currentPartStr = currentPart.toString();
-                    fullResponse.updateAndGet(current -> current + currentPartStr);
-                    listener.accept(currentPartStr);
-                    currentPart = new StringBuilder(paragraph);
-                } else {
-                    if (paragraph.length() > maxMessageLength) {
-                        int splitPoint = findSplitPoint(paragraph, maxMessageLength);
-                        fullResponse.updateAndGet(current -> current + paragraph.substring(0, splitPoint));
-                        listener.accept(paragraph.substring(0, splitPoint));
-                        String remainder = paragraph.substring(splitPoint);
-                        currentPart = remainder.isEmpty() ? new StringBuilder() : new StringBuilder(remainder);
-                    } else {
-                        currentPart = new StringBuilder(paragraph);
-                    }
-                }
-            }
+            currentPart = appendParagraphToPart(currentPart, paragraph, fullResponse, listener, maxMessageLength);
+        }
+        flushRemainingPart(currentPart, fullResponse, listener, maxMessageLength);
+    }
+
+    private static StringBuilder appendParagraphToPart(StringBuilder currentPart, String paragraph,
+                                                       AtomicReference<String> fullResponse,
+                                                       Consumer<String> listener, int maxMessageLength) {
+        String paragraphWithSeparator = currentPart.isEmpty() ? paragraph : currentPart + "\n\n" + paragraph;
+        if (paragraphWithSeparator.length() <= maxMessageLength) {
+            return new StringBuilder(paragraphWithSeparator);
         }
         if (!currentPart.isEmpty()) {
             String currentPartStr = currentPart.toString();
-            if (currentPartStr.length() <= maxMessageLength) {
-                fullResponse.updateAndGet(current -> current + currentPartStr);
-                listener.accept(currentPartStr);
-            } else {
-                int splitPoint = findSplitPoint(currentPartStr, maxMessageLength);
-                String partToSend = currentPartStr.substring(0, splitPoint);
-                fullResponse.updateAndGet(current -> current + partToSend);
-                listener.accept(partToSend);
-            }
+            fullResponse.updateAndGet(current -> current + currentPartStr);
+            listener.accept(currentPartStr);
+            return new StringBuilder(paragraph);
+        }
+        if (paragraph.length() > maxMessageLength) {
+            int splitPoint = findSplitPoint(paragraph, maxMessageLength);
+            fullResponse.updateAndGet(current -> current + paragraph.substring(0, splitPoint));
+            listener.accept(paragraph.substring(0, splitPoint));
+            String remainder = paragraph.substring(splitPoint);
+            return remainder.isEmpty() ? new StringBuilder() : new StringBuilder(remainder);
+        }
+        return new StringBuilder(paragraph);
+    }
+
+    private static void flushRemainingPart(StringBuilder currentPart, AtomicReference<String> fullResponse,
+                                           Consumer<String> listener, int maxMessageLength) {
+        if (currentPart.isEmpty()) return;
+        String currentPartStr = currentPart.toString();
+        if (currentPartStr.length() <= maxMessageLength) {
+            fullResponse.updateAndGet(current -> current + currentPartStr);
+            listener.accept(currentPartStr);
+        } else {
+            int splitPoint = findSplitPoint(currentPartStr, maxMessageLength);
+            String partToSend = currentPartStr.substring(0, splitPoint);
+            fullResponse.updateAndGet(current -> current + partToSend);
+            listener.accept(partToSend);
         }
     }
 

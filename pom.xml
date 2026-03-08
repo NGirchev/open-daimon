@@ -69,6 +69,10 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
 
+        <!-- SonarCloud (CI / optional mvn sonar:sonar); local checks via IDE SonarLint -->
+        <sonar.organization>ngirchev</sonar.organization>
+        <sonar.projectKey>NGirchev_ai-bot</sonar.projectKey>
+
         <maven-plugin.version>3.11.0</maven-plugin.version>
 
         <spring-boot.version>3.3.3</spring-boot.version>

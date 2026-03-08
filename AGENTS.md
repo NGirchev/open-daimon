@@ -420,6 +420,11 @@ mvn test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
 - If running only module tests, build dependencies first: `.\mvnw.cmd install -DskipTests`, then the `test` command above.
 - From **IntelliJ IDEA:** right-click class `SpringAIGatewayIT` → Run 'SpringAIGatewayIT' (JAVA_HOME not needed; IDEA uses its own JDK).
 
+### Sonar
+
+- **Local checks:** Use the IDE plugin (e.g. SonarLint) — it runs rules on the current code without Maven or upload.
+- **CI:** The GitHub Actions workflow runs `mvn verify sonar:sonar` and uploads to SonarCloud.
+
 ### DB migrations
 ```bash
 # Run Flyway migrations manually
