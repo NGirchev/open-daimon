@@ -2,7 +2,6 @@
 
 [![Build Status](https://github.com/NGirchev/ai-bot/actions/workflows/maven.yml/badge.svg)](https://github.com/NGirchev/ai-bot/actions)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.ngirchev/aibot-parent)](https://central.sonatype.com/namespace/io.github.ngirchev)
-[![Codacy Badge](https://img.shields.io/badge/Codacy-Add%20project-2496ED?logo=codacy)](https://app.codacy.com/)
 [![OpenSSF Best Practices](https://api.securityscorecards.dev/projects/github.com/NGirchev/ai-bot/badge)](https://securityscorecards.dev/viewer/?uri=github.com/NGirchev/ai-bot)
 [![SonarCloud Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=alert_status)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
 [![SonarCloud Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=ncloc)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
