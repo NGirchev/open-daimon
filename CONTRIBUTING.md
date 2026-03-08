@@ -81,6 +81,31 @@ Before submitting a Pull Request, ensure:
 - **Do not commit** real credentials in `application.yml` or in code.
 - **Reporting vulnerabilities**: If you discover a security vulnerability, do not open a public issue. Report it privately via [GitHub Security Advisories](https://github.com/NGirchev/ai-bot/security/advisories/new) or contact the maintainers.
 
+## Releasing (maintainers)
+
+Releases are published to Maven Central. To run a release from GitHub Actions you need two repository secrets.
+
+### GitHub Actions secrets for GPG signing
+
+Add these in the repository: **Settings → Secrets and variables → Actions → New repository secret**.
+
+| Secret name       | Description | How to get the value |
+|-------------------|-------------|------------------------|
+| **GPG_PRIVATE_KEY** | GPG private key used to sign artifacts (armored ASCII). | Run locally: `gpg --export-secret-keys --armor YOUR_KEY_ID` and paste the full output (including `-----BEGIN PGP PRIVATE KEY BLOCK-----` and `-----END PGP PRIVATE KEY BLOCK-----`). Use the same key you use for Maven Central. |
+| **GPG_PASSPHRASE**  | Passphrase for that GPG key. | The passphrase you set when creating the key. Used by Maven GPG plugin during `deploy -P release`. |
+
+Also configure **Central Portal** credentials in GitHub secrets if the release workflow deploys from CI (e.g. `CENTRAL_TOKEN_USERNAME`, `CENTRAL_TOKEN_PASSWORD` from [Sonatype Central Portal](https://central.sonatype.com/) → User Token), or run `mvn deploy -P release` locally with `~/.m2/settings.xml` configured.
+
+### Manual release (local)
+
+```bash
+mvn -B release:prepare -Darguments="-DskipTests"
+git checkout v1.0.0   # use the tag created
+mvn clean deploy -P release -DskipTests
+git push origin master
+git push --tags
+```
+
 ## Documentation
 
 - **[AGENTS.md](AGENTS.md)** — Architecture, module structure, code style, and rules for contributors and AI agents.
