@@ -57,6 +57,27 @@ class CommandSyncServiceTest {
     }
 
     @Test
+    void createSemaphoreForUser_whenBlocked_usesDefaultPermits() {
+        Map<Long, UserPriority> priorities = new ConcurrentHashMap<>();
+        priorities.put(99L, UserPriority.BLOCKED);
+        IUserPriorityService userPriorityService = priorities::get;
+
+        BulkHeadProperties bulkHeadProperties = new BulkHeadProperties();
+        try (PriorityRequestExecutor requestExecutor = new PriorityRequestExecutor(userPriorityService, bulkHeadProperties)) {
+            requestExecutor.init();
+            CommandHandlerRegistry handlerRegistry = new CommandHandlerRegistry(List.of(new NoopHandler()));
+            CommandSyncService service = new CommandSyncService(
+                    new AIBotMeterRegistry(new SimpleMeterRegistry()),
+                    handlerRegistry,
+                    requestExecutor,
+                    userPriorityService
+            );
+
+            assertEquals(2, service.createSemaphoreForUser(99L).availablePermits());
+        }
+    }
+
+    @Test
     void syncAndHandle_shouldLimitParallelExecutionPerUserBySemaphore() throws Exception {
         Long userId = 42L;
         Map<Long, UserPriority> priorities = new ConcurrentHashMap<>();

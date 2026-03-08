@@ -1,15 +1,23 @@
 package io.github.ngirchev.aibot.common.service;
 
+import io.github.ngirchev.aibot.common.ai.AIGateways;
+import io.github.ngirchev.aibot.common.ai.response.MapResponse;
+import io.github.ngirchev.aibot.common.ai.response.SpringAIResponse;
+import io.github.ngirchev.aibot.common.exception.DocumentContentNotExtractableException;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
+import static io.github.ngirchev.aibot.common.ai.LlmParamNames.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class AIUtilsTest {
@@ -287,6 +295,312 @@ class AIUtilsTest {
         for (String block : receivedBlocks) {
             assertFalse(block.trim().equals("***"), "*** must not be a separate block");
         }
+    }
+
+    // --- Exception / root cause ---
+    @Test
+    void isOpenRouterEmptyStreamInChain_nullReturnsFalse() {
+        assertFalse(AIUtils.isOpenRouterEmptyStreamInChain(null));
+    }
+
+    @Test
+    void isOpenRouterEmptyStreamInChain_ordinaryExceptionReturnsFalse() {
+        assertFalse(AIUtils.isOpenRouterEmptyStreamInChain(new RuntimeException("test")));
+    }
+
+    @Test
+    void shouldLogWithoutStacktrace_webClientResponseExceptionReturnsTrue() {
+        Throwable t = WebClientResponseException.create(502, "Bad Gateway", null, null, null);
+        assertTrue(AIUtils.shouldLogWithoutStacktrace(t));
+    }
+
+    @Test
+    void shouldLogWithoutStacktrace_documentContentNotExtractableReturnsTrue() {
+        assertTrue(AIUtils.shouldLogWithoutStacktrace(new DocumentContentNotExtractableException("no text")));
+    }
+
+    @Test
+    void shouldLogWithoutStacktrace_ordinaryExceptionReturnsFalse() {
+        assertFalse(AIUtils.shouldLogWithoutStacktrace(new RuntimeException("test")));
+    }
+
+    @Test
+    void getRootCauseMessage_nullReturnsNull() {
+        assertEquals("null", AIUtils.getRootCauseMessage(null));
+    }
+
+    @Test
+    void getRootCauseMessage_singleExceptionReturnsMessage() {
+        assertEquals("test", AIUtils.getRootCauseMessage(new RuntimeException("test")));
+    }
+
+    @Test
+    void getRootCauseMessage_chainReturnsRootMessage() {
+        Throwable root = new IllegalStateException("root");
+        Throwable wrapped = new RuntimeException("wrap", root);
+        assertEquals("root", AIUtils.getRootCauseMessage(wrapped));
+    }
+
+    @Test
+    void getRootCauseMessage_nullMessageReturnsClassSimpleName() {
+        Throwable t = new RuntimeException();
+        assertEquals("RuntimeException", AIUtils.getRootCauseMessage(t));
+    }
+
+    // --- retrieveMessage(Map) ---
+    @Test
+    void retrieveMessage_mapNullReturnsEmpty() {
+        assertTrue(AIUtils.retrieveMessage((Map<String, Object>) null).isEmpty());
+    }
+
+    @Test
+    void retrieveMessage_mapNoChoicesReturnsEmpty() {
+        assertTrue(AIUtils.retrieveMessage(Map.of("other", "value")).isEmpty());
+    }
+
+    @Test
+    void retrieveMessage_mapEmptyChoicesReturnsEmpty() {
+        assertTrue(AIUtils.retrieveMessage(Map.of(CHOICES, List.<Map<String, Object>>of())).isEmpty());
+    }
+
+    @Test
+    void retrieveMessage_mapWithContentReturnsContent() {
+        Map<String, Object> message = Map.of(CONTENT, "Hello");
+        Map<String, Object> firstChoice = Map.of(MESSAGE, message);
+        Map<String, Object> response = Map.of(CHOICES, List.of(firstChoice));
+        assertEquals("Hello", AIUtils.retrieveMessage(response).orElseThrow());
+    }
+
+    @Test
+    void retrieveMessage_mapWithEmptyContentReturnsEmpty() {
+        Map<String, Object> message = Map.of(CONTENT, "");
+        Map<String, Object> firstChoice = Map.of(MESSAGE, message);
+        Map<String, Object> response = Map.of(CHOICES, List.of(firstChoice));
+        assertTrue(AIUtils.retrieveMessage(response).isEmpty());
+    }
+
+    // --- retrieveMessage(AIResponse) SpringAI ---
+    @Test
+    void retrieveMessage_springAIResponseWithTextReturnsText() {
+        ChatResponse chatResponse = createChatResponse("Hi");
+        SpringAIResponse springAIResponse = new SpringAIResponse(chatResponse);
+        assertEquals("Hi", AIUtils.retrieveMessage(springAIResponse).orElseThrow());
+    }
+
+    @Test
+    void retrieveMessage_springAIResponseEmptyReturnsEmpty() {
+        ChatResponse chatResponse = createChatResponse("");
+        SpringAIResponse springAIResponse = new SpringAIResponse(chatResponse);
+        assertTrue(AIUtils.retrieveMessage(springAIResponse).isEmpty());
+    }
+
+    @Test
+    void retrieveMessage_mapResponseWithContentReturnsContent() {
+        Map<String, Object> message = Map.of(CONTENT, "Answer");
+        Map<String, Object> firstChoice = Map.of(MESSAGE, message);
+        MapResponse mapResponse = new MapResponse(AIGateways.MOCK, Map.of(CHOICES, List.of(firstChoice)));
+        assertEquals("Answer", AIUtils.retrieveMessage(mapResponse).orElseThrow());
+    }
+
+    @Test
+    void retrieveMessage_aiResponseNullReturnsEmpty() {
+        assertTrue(AIUtils.retrieveMessage((io.github.ngirchev.aibot.common.ai.response.AIResponse) null).isEmpty());
+    }
+
+    // --- extractUsefulData(Map) ---
+    @Test
+    void extractUsefulData_mapNullReturnsNull() {
+        assertNull(AIUtils.extractUsefulData((Map<String, Object>) null));
+    }
+
+    @Test
+    void extractUsefulData_mapEmptyReturnsNull() {
+        assertNull(AIUtils.extractUsefulData(Map.of()));
+    }
+
+    @Test
+    void extractUsefulData_mapWithUsageAndModelReturnsMap() {
+        Map<String, Object> usage = Map.of(PROMPT_TOKENS, 10, COMPLETION_TOKENS, 20, TOTAL_TOKENS, 30);
+        Map<String, Object> response = Map.of(USAGE, usage, MODEL, "gpt-4", CHOICES, List.of(Map.of()));
+        Map<String, Object> result = AIUtils.extractUsefulData(response);
+        assertNotNull(result);
+        assertEquals(10, result.get(PROMPT_TOKENS));
+        assertEquals(20, result.get(COMPLETION_TOKENS));
+        assertEquals(30, result.get(TOTAL_TOKENS));
+        assertEquals("gpt-4", result.get(ACTUAL_MODEL));
+    }
+
+    @Test
+    void extractUsefulData_mapWithFinishReasonInChoicesReturnsMap() {
+        Map<String, Object> firstChoice = Map.of(FINISH_REASON, "stop", MESSAGE, Map.of(CONTENT, "ok"));
+        Map<String, Object> response = Map.of(CHOICES, List.of(firstChoice));
+        Map<String, Object> result = AIUtils.extractUsefulData(response);
+        assertNotNull(result);
+        assertEquals("stop", result.get(FINISH_REASON));
+    }
+
+    // --- extractError(Map) / extractError(ChatResponse) ---
+    @Test
+    void extractError_mapNullReturnsErrorPresent() {
+        assertTrue(AIUtils.extractError((io.github.ngirchev.aibot.common.ai.response.AIResponse) null).isEmpty());
+    }
+
+    @Test
+    void extractError_chatResponseNullReturnsErrorPresent() {
+        Optional<String> err = AIUtils.extractError((ChatResponse) null);
+        assertTrue(err.isPresent());
+        assertTrue(err.get().contains("null"));
+    }
+
+    @Test
+    void extractError_chatResponseWithContentReturnsEmpty() {
+        ChatResponse chatResponse = createChatResponse("Hello");
+        assertTrue(AIUtils.extractError(chatResponse).isEmpty());
+    }
+
+    @Test
+    void extractError_chatResponseEmptyContentReturnsError() {
+        ChatResponse chatResponse = createChatResponse("");
+        assertTrue(AIUtils.extractError(chatResponse).isPresent());
+    }
+
+    @Test
+    void extractFinishReason_fromChatResponse() {
+        ChatResponse chatResponse = createChatResponse("Hi");
+        assertNull(AIUtils.extractFinishReason(chatResponse));
+    }
+
+    // --- getEmptyContentReasonText ---
+    @Test
+    void getEmptyContentReasonText_nullOrBlankReturnsDefault() {
+        assertEquals(AIUtils.CONTENT_IS_EMPTY, AIUtils.getEmptyContentReasonText(null));
+        assertEquals(AIUtils.CONTENT_IS_EMPTY, AIUtils.getEmptyContentReasonText("   "));
+    }
+
+    @Test
+    void getEmptyContentReasonText_lengthReturnsTokenLimitMessage() {
+        String msg = AIUtils.getEmptyContentReasonText("length");
+        assertTrue(msg.contains("Token limit") && msg.contains("length"));
+    }
+
+    @Test
+    void getEmptyContentReasonText_contentFilterReturnsFilterMessage() {
+        String msg = AIUtils.getEmptyContentReasonText("content_filter");
+        assertTrue(msg.contains("filter") && msg.contains("content_filter"));
+    }
+
+    @Test
+    void getEmptyContentReasonText_stopReturnsUnexpectedMessage() {
+        assertTrue(AIUtils.getEmptyContentReasonText("stop").contains("unexpected"));
+    }
+
+    @Test
+    void getEmptyContentReasonText_unknownReasonReturnsWithReason() {
+        String msg = AIUtils.getEmptyContentReasonText("unknown");
+        assertTrue(msg.contains("unknown") && msg.contains("finish_reason"));
+    }
+
+    // --- convertMarkdownToHtml ---
+    @Test
+    void convertMarkdownToHtml_nullOrEmptyReturnsAsIs() {
+        assertNull(AIUtils.convertMarkdownToHtml(null));
+        assertEquals("", AIUtils.convertMarkdownToHtml(""));
+    }
+
+    @Test
+    void convertMarkdownToHtml_escapesHtml() {
+        assertEquals("&lt;tag&gt;", AIUtils.convertMarkdownToHtml("<tag>"));
+        assertTrue(AIUtils.convertMarkdownToHtml("a & b").contains("&amp;"));
+    }
+
+    @Test
+    void convertMarkdownToHtml_boldItalic() {
+        assertEquals("<b><i>x</i></b>", AIUtils.convertMarkdownToHtml("***x***"));
+    }
+
+    @Test
+    void convertMarkdownToHtml_boldAndCode() {
+        assertTrue(AIUtils.convertMarkdownToHtml("**bold**").contains("<b>"));
+        assertTrue(AIUtils.convertMarkdownToHtml("`code`").contains("<code>"));
+    }
+
+    // --- processStreamingResponse (char-by-char) ---
+    @Test
+    void processStreamingResponse_charByCharReturnsAggregated() {
+        Flux<ChatResponse> flux = Flux.just(
+                createChatResponse("Hel"),
+                createChatResponse("lo ")
+        );
+        List<String> chars = new ArrayList<>();
+        ChatResponse result = AIUtils.processStreamingResponse(flux, chars::add);
+        assertNotNull(result);
+        assertTrue(result.getResult().getOutput().getText().trim().equals("Hello"));
+        assertTrue(chars.size() > 1);
+    }
+
+    @Test
+    void processStreamingResponse_singleChunkReturnsSame() {
+        Flux<ChatResponse> flux = Flux.just(createChatResponse("Single"));
+        List<String> received = new ArrayList<>();
+        ChatResponse result = AIUtils.processStreamingResponse(flux, received::add);
+        assertNotNull(result);
+        assertEquals("Single", result.getResult().getOutput().getText().trim());
+    }
+
+    // --- extractText ---
+    @Test
+    void extractText_withTextReturnsOptional() {
+        ChatResponse response = createChatResponse("text");
+        assertEquals("text", AIUtils.extractText(response).orElseThrow());
+    }
+
+    @Test
+    void extractText_emptyReturnsEmpty() {
+        ChatResponse response = createChatResponse("");
+        assertTrue(AIUtils.extractText(response).isEmpty());
+    }
+
+    // --- extractUsefulData(AIResponse) SpringAI ---
+    @Test
+    void extractUsefulData_springAIResponseReturnsMap() {
+        ChatResponse chatResponse = createChatResponse("x");
+        SpringAIResponse springAIResponse = new SpringAIResponse(chatResponse);
+        Map<String, Object> result = AIUtils.extractUsefulData(springAIResponse);
+        assertNotNull(result);
+    }
+
+    @Test
+    void extractUsefulData_aiResponseNullReturnsNull() {
+        assertNull(AIUtils.extractUsefulData((io.github.ngirchev.aibot.common.ai.response.AIResponse) null));
+    }
+
+    @Test
+    void extractError_aiResponseSpringAIWithContentReturnsEmpty() {
+        SpringAIResponse springAIResponse = new SpringAIResponse(createChatResponse("ok"));
+        assertTrue(AIUtils.extractError(springAIResponse).isEmpty());
+    }
+
+    @Test
+    void logEmptyContentDiagnostics_doesNotThrow() {
+        assertDoesNotThrow(() ->
+                AIUtils.logEmptyContentDiagnostics(createChatResponse(""), null, "test"));
+    }
+
+    @Test
+    void isOpenRouterEmptyStreamInChain_otherExceptionReturnsFalse() {
+        assertFalse(AIUtils.isOpenRouterEmptyStreamInChain(new RuntimeException("other")));
+    }
+
+    @Test
+    void getRootCauseMessage_nullReturnsNullString() {
+        assertEquals("null", AIUtils.getRootCauseMessage(null));
+    }
+
+    @Test
+    void getRootCauseMessage_nullMessageReturnsClassName() {
+        RuntimeException e = new RuntimeException();
+        assertNotNull(AIUtils.getRootCauseMessage(e));
+        assertTrue(AIUtils.getRootCauseMessage(e).contains("RuntimeException"));
     }
 
     /**

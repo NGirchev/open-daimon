@@ -201,6 +201,21 @@ class AIBotMessageServiceTest {
     }
 
     @Test
+    void whenSaveAssistantMessageWithRoleContent_thenResolvesRoleAndDelegates() {
+        when(coreCommonProperties.getAssistantRole()).thenReturn("Default role");
+        when(assistantRoleService.getOrCreateDefaultRole(user, "Default role")).thenReturn(assistantRole);
+        String content = "Reply";
+
+        AIBotMessage saved = messageService.saveAssistantMessage(
+                user, content, "svc", (String) null, 50, null);
+
+        assertNotNull(saved);
+        verify(messageRepository).save(any(AIBotMessage.class));
+        verify(assistantRoleService).getOrCreateDefaultRole(user, "Default role");
+        verify(messageServiceSelfProvider).getObject();
+    }
+
+    @Test
     void whenSaveSystemMessage_thenTokenCountIsSet() {
         // Arrange
         String content = "You are a helpful assistant. Always be polite.";

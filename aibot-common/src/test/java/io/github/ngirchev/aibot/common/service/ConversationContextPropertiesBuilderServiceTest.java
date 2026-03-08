@@ -382,5 +382,55 @@ class ConversationContextPropertiesBuilderServiceTest {
         Object historyContent = userMessages.get(0).get("content");
         assertEquals("Old photo", historyContent);
     }
+
+    @Test
+    void whenHistoryContainsSystemMessage_thenSystemMessageIsSkipped() {
+        ConversationThread thread = createEmptyThread();
+        AssistantRole assistantRole = createAssistantRole("You are a helpful assistant.");
+        String currentMessage = "Hello";
+
+        AIBotMessage systemMsg = new AIBotMessage();
+        systemMsg.setId(0L);
+        systemMsg.setRole(MessageRole.SYSTEM);
+        systemMsg.setContent("System instruction");
+        systemMsg.setUser(user);
+        AIBotMessage userMsg = createUserMessage("User text");
+        AIBotMessage assistantMsg = createAssistantMessage("Assistant text");
+
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
+        when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
+                .thenReturn(List.of(systemMsg, userMsg, assistantMsg));
+        when(tokenCounter.estimateTokens(anyString())).thenReturn(5);
+
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
+                thread, currentMessage, assistantRole);
+
+        long systemFromHistory = result.stream().filter(m -> "system".equals(m.get("role"))).count();
+        assertEquals(1, systemFromHistory);
+        List<Map<String, Object>> userAndAssistant = result.stream()
+                .filter(m -> "user".equals(m.get("role")) || "assistant".equals(m.get("role")))
+                .toList();
+        assertEquals(2, userAndAssistant.size());
+    }
+
+    @Test
+    void whenAssistantRoleIsNull_thenNoSystemPromptAdded() {
+        ConversationThread thread = createEmptyThread();
+        String currentMessage = "Hi";
+
+        when(historyConfig.getIncludeSystemPrompt()).thenReturn(true);
+        when(historyConfig.getMaxResponseTokens()).thenReturn(4000);
+        when(coreCommonProperties.getMaxTotalPromptTokens()).thenReturn(32000);
+        when(messageRepository.findByThreadOrderBySequenceNumberAsc(any())).thenReturn(new ArrayList<>());
+        when(tokenCounter.estimateTokens(currentMessage)).thenReturn(2);
+
+        List<Map<String, Object>> result = conversationContextBuilderService.buildContext(
+                thread, currentMessage, null);
+
+        assertNotNull(result);
+        assertEquals(0, result.size());
+    }
 }
 
