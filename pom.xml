@@ -72,6 +72,8 @@
         <!-- SonarCloud (CI / optional mvn sonar:sonar); local checks via IDE SonarLint -->
         <sonar.organization>ngirchev</sonar.organization>
         <sonar.projectKey>NGirchev_ai-bot</sonar.projectKey>
+        <!-- Coverage: run mvn test (or verify) before sonar:sonar so that JaCoCo reports exist -->
+        <sonar.coverage.jacoco.xmlReportPaths>**/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
 
         <maven-plugin.version>3.11.0</maven-plugin.version>
 

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.telegram.telegrambots.meta.api.objects.User;
+import io.github.ngirchev.aibot.common.model.AssistantRole;
 import io.github.ngirchev.aibot.common.service.AssistantRoleService;
 import io.github.ngirchev.aibot.telegram.model.TelegramUser;
 import io.github.ngirchev.aibot.telegram.repository.TelegramUserRepository;
@@ -153,6 +154,49 @@ class TelegramUserServiceTest {
 
         verify(userRepository).findByTelegramId(123L);
         verify(userRepository).save(any(TelegramUser.class));
+    }
+
+    @Test
+    void whenGetOrCreateAssistantRole_userHasNoRole_thenCreatesViaAssistantRoleService() {
+        TelegramUser user = new TelegramUser();
+        user.setId(1L);
+        user.setTelegramId(100L);
+        user.setLanguageCode("en");
+        user.setCurrentAssistantRole(null);
+
+        when(userRepository.findByTelegramId(100L)).thenReturn(Optional.of(user));
+
+        AssistantRole role = new AssistantRole();
+        role.setId(5L);
+        role.setContent("You are helpful.");
+        when(assistantRoleService.getOrCreateDefaultRole(any(TelegramUser.class), any())).thenReturn(role);
+
+        AssistantRole result = userService.getOrCreateAssistantRole(user, "Default");
+
+        assertNotNull(result);
+        assertEquals(5L, result.getId());
+        verify(assistantRoleService).getOrCreateDefaultRole(any(TelegramUser.class), any());
+    }
+
+    @Test
+    void whenUpdateAssistantRole_thenUpdatesRoleAndSavesUser() {
+        org.telegram.telegrambots.meta.api.objects.User apiUser = new org.telegram.telegrambots.meta.api.objects.User(100L, "u", false);
+        TelegramUser user = new TelegramUser();
+        user.setId(1L);
+        user.setTelegramId(100L);
+        user.setLanguageCode("ru");
+
+        when(userRepository.findByTelegramId(100L)).thenReturn(Optional.of(user));
+        AssistantRole newRole = new AssistantRole();
+        newRole.setId(2L);
+        when(assistantRoleService.updateActiveRole(any(TelegramUser.class), any())).thenReturn(newRole);
+        when(userRepository.save(any(TelegramUser.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TelegramUser result = userService.updateAssistantRole(apiUser, "New role content");
+
+        assertNotNull(result);
+        verify(assistantRoleService).updateActiveRole(any(TelegramUser.class), any());
+        verify(userRepository).save(user);
     }
 }
  

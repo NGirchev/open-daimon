@@ -272,6 +272,36 @@ class SummarizationServiceTest {
         verify(threadService, never()).updateThreadSummary(any(), any(), any());
     }
 
+    @Test
+    void whenSummarizeThreadSyncWithMessages_thenUpdatesSummary() {
+        ConversationThread thread = createThread(1000L);
+        List<AIBotMessage> messages = List.of(
+            createUserMessage("Message 1"),
+            createAssistantMessage("Response 1"),
+            createUserMessage("Message 2"),
+            createAssistantMessage("Response 2"));
+
+        AIGateway mockGateway = mock(AIGateway.class);
+        when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(mockGateway));
+        when(mockGateway.generateResponse(any(AICommand.class)))
+            .thenReturn(responseWithContent("{\"summary\": \"Sync summary\", \"memory_bullets\": [\"Bullet 1\"]}"));
+
+        summarizationService.summarizeThread(thread, messages);
+
+        verify(mockGateway).generateResponse(any(AICommand.class));
+        verify(threadService).updateThreadSummary(eq(thread), eq("Sync summary"), anyList());
+    }
+
+    @Test
+    void whenSummarizeThreadSyncWithEmptyMessages_thenNoGatewayCall() {
+        ConversationThread thread = createThread(1000L);
+
+        summarizationService.summarizeThread(thread, List.of());
+
+        verify(aiGatewayRegistry, never()).getSupportedAiGateways(any());
+        verify(threadService, never()).updateThreadSummary(any(), any(), any());
+    }
+
     private static MapResponse responseWithContent(String content) {
         Map<String, Object> message = new HashMap<>();
         message.put("content", content);
