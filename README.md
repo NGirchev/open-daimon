@@ -13,7 +13,7 @@ Multi-module Java project for interacting with various AI services through diffe
 - [Requirements](#requirements)
 - [Tech stack](#tech-stack)
 - [Modules](#modules)
-- [Quick start](#quick-start)
+- [Quick start](#quick-start) — [Running the app (no Java experience)](#running-the-app-no-java-experience)
 - [Build and run](#build-and-run)
 - [Server deployment](#server-deployment)
 - [Useful links](#useful-links)
@@ -120,6 +120,50 @@ Use the assembled application module (includes Telegram, REST, UI, Spring AI, ga
 
 ## Quick start
 
+### Running the app (no Java experience)
+
+If you are new to Java, follow these steps. You will need a **terminal** (command line): on Windows use PowerShell or Command Prompt; on macOS/Linux use Terminal.
+
+**1. Install Java 21**
+
+The app runs on **Java** (a runtime). You need **Java 21** specifically.
+
+- **Windows / macOS / Linux:** download and install from [Eclipse Temurin (Adoptium)](https://adoptium.net/temurin/releases/?version=21&os=windows&arch=x64) — choose your OS and install the JDK 21.
+- After installation, open a **new** terminal and run: `java -version`. You should see something like `openjdk version "21.x.x"`.
+
+**2. Install Docker**
+
+The app uses **PostgreSQL** (a database). The easiest way is to run it in **Docker**.
+
+- Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose). Start Docker so it is running in the background.
+
+**3. Prepare configuration**
+
+- In the project folder, copy the example config: copy `.env.example` to a new file named `.env`.
+- Open `.env` in a text editor and set at least: `TELEGRAM_USERNAME`, `TELEGRAM_TOKEN`, `OPENROUTER_KEY`, `POSTGRES_PASSWORD`. Do not commit `.env` (it contains secrets).
+
+**4. Start the database**
+
+In the terminal, from the project folder:
+
+```bash
+docker-compose up -d postgres prometheus grafana
+```
+
+**5. Build and run**
+
+- **If you have the source code** and want to build yourself: install [Maven](https://maven.apache.org/download.cgi) (build tool for Java). Then in the project folder run:
+  ```bash
+  mvn clean install
+  java -jar aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
+  ```
+- **If someone gave you a ready JAR file:** put the JAR in a folder, put your `.env` in the same folder (or set the same variables in the environment), then run:
+  ```bash
+  java -jar aibot-app-1.0-SNAPSHOT.jar
+  ```
+
+The app will start. You can open the Web UI or use the Telegram bot according to your configuration. For more options (e.g. run everything in Docker), see the sections below.
+
 ### Environment variables
 
 Create a `.env` file in the project root (do **not** commit it; add `.env` to `.gitignore`). Use [.env.example](.env.example) as a template:
@@ -196,10 +240,21 @@ mvn clean install -pl aibot-app -am        # module and dependencies
 
 ### Run application
 
+**Option 1: Maven (development)**
+
 ```bash
 mvn spring-boot:run -pl aibot-app
-# Or: java -jar aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
 ```
+
+**Option 2: Run the built JAR**
+
+After `mvn clean install` (or `mvn clean package -pl aibot-app -am`), run the executable JAR. Set environment variables or use a `.env` file in the current directory (see [Environment variables](#environment-variables)).
+
+```bash
+java -jar aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
+```
+
+JAR name follows the project version from the parent POM (e.g. `1.0-SNAPSHOT`). Use Java 21: `java -version`.
 
 ### DB migrations
 
@@ -342,6 +397,7 @@ File -> Invalidate Caches / Restart
 ## Documentation
 
 - **[AGENTS.md](AGENTS.md)** — Detailed documentation for AI agents (architecture, module structure, code style)
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — How to contribute (setup, code style, testing, PR requirements)
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** — Server deployment guide
 - **[MODULAR_MIGRATIONS.md](MODULAR_MIGRATIONS.md)** — Flyway modular migrations
 
@@ -387,4 +443,4 @@ docker-compose -H tcp://localhost:23750 up -d
 
 ## License
 
-MIT.
+See [LICENSE](LICENSE) file for details.
