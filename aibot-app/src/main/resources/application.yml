@@ -168,19 +168,19 @@ ai-bot:
               - EMBEDDING
               - VISION
             provider-type: OPENAI
-            priority: 1
+            priority: 3
           - name: "qwen2.5:7b"
             capabilities:
               - CHAT
               - TOOL_CALLING
               - SUMMARIZATION
             provider-type: OLLAMA
-            priority: 3
+            priority: 1
           - name: "qwen3-embedding:8b"
             capabilities:
               - EMBEDDING
             provider-type: OLLAMA
-            priority: 3
+            priority: 1
           # Top 3 OpenRouter free models (explicit capabilities; others from include-model-ids get capabilities from API).
           - name: "meta-llama/llama-3.3-70b-instruct:free"
             capabilities:
@@ -192,7 +192,7 @@ ai-bot:
               - VISION
               - FREE
             provider-type: OPENAI
-            priority: 2
+            priority: 1
           - name: "google/gemini-2.0-flash-exp:free"
             capabilities:
               - CHAT
@@ -203,7 +203,7 @@ ai-bot:
               - VISION
               - FREE
             provider-type: OPENAI
-            priority: 2
+            priority: 1
           - name: "mistralai/mistral-small-3.1-24b-instruct:free"
             capabilities:
               - CHAT
@@ -214,7 +214,7 @@ ai-bot:
               - VISION
               - FREE
             provider-type: OPENAI
-            priority: 2
+            priority: 1
       rag:
         enabled: true
         chunk-size: 800
