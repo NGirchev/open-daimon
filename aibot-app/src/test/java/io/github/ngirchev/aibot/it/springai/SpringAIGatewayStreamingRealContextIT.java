@@ -108,14 +108,23 @@ class SpringAIGatewayStreamingRealContextIT {
     private SpringAIGateway springAIGateway;
 
     /**
+     * Noise floor: when buffered, sequential doOnNext calls differ by ~0.01 ms.
+     * With real progressive delivery (throttleBody 80 ms), gaps are ~80 ms.
+     * 5 ms separates the two cases with a 16× margin on each side.
+     */
+    private static final long GAP_NOISE_FLOOR_MS = 5;
+
+    /**
      * Real context, real WebClient → MockWebServer with SSE and throttleBody.
-     * If stream is buffered, chunks arrive in one go → span ≈ 0 → test fails.
+     * <p>
+     * Instead of checking total span (fragile in CI), we count how many
+     * inter-chunk gaps are above the noise floor. If buffered, ALL gaps ≈ 0;
+     * if progressive, at least one gap will be clearly above the noise floor.
      */
     @Test
     void whenStreamViaRealGateway_thenChunksArriveProgressivelyNotAllAtOnce() {
         int chunkDelayMs = 80;
         int numChunks = 5;
-        long minSpanMs = (numChunks - 1) * (chunkDelayMs - 20);
 
         StringBuilder sseBody = new StringBuilder();
         for (int i = 1; i <= numChunks; i++) {
@@ -156,16 +165,23 @@ class SpringAIGatewayStreamingRealContextIT {
         assertTrue(receiveTimeNanos.size() >= 2,
                 "Should receive at least 2 chunks, got " + receiveTimeNanos.size());
 
-        long firstTime = receiveTimeNanos.getFirst();
-        long lastTime = receiveTimeNanos.getLast();
-        long spanMs = (lastTime - firstTime) / 1_000_000;
+        int significantGaps = 0;
+        StringBuilder gapDetails = new StringBuilder();
+        for (int i = 1; i < receiveTimeNanos.size(); i++) {
+            long gapMs = (receiveTimeNanos.get(i) - receiveTimeNanos.get(i - 1)) / 1_000_000;
+            gapDetails.append(gapMs).append("ms ");
+            if (gapMs > GAP_NOISE_FLOOR_MS) {
+                significantGaps++;
+            }
+        }
 
-        log.info("Stream chunks: {}, spanMs: {} (min required: {})",
-                receiveTimeNanos.size(), spanMs, minSpanMs);
+        log.info("Stream chunks: {}, inter-chunk gaps: [{}], significant (>{} ms): {}",
+                receiveTimeNanos.size(), gapDetails.toString().trim(), GAP_NOISE_FLOOR_MS, significantGaps);
 
-        assertTrue(spanMs >= minSpanMs,
-                "Chunks must arrive progressively (span >= " + minSpanMs + " ms), but span was " + spanMs + " ms. " +
-                        "If all arrive at once, streaming is buffered somewhere in the chain.");
+        assertTrue(significantGaps >= 1,
+                "At least 1 inter-chunk gap must be > " + GAP_NOISE_FLOOR_MS + " ms (progressive delivery), " +
+                        "but found " + significantGaps + " significant gaps. Gaps: [" + gapDetails.toString().trim() + "]. " +
+                        "If 0, all chunks arrived in a single burst (stream is buffered).");
     }
 
     private Map<String, Object> createBodyWithMaxPrice() {
