@@ -49,6 +49,7 @@ import io.github.ngirchev.aibot.ai.springai.retry.OpenRouterModelStatsRecorder;
 import io.github.ngirchev.aibot.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker;
 import io.github.ngirchev.aibot.common.service.AIGatewayRegistry;
 import io.github.ngirchev.aibot.common.service.SummarizationService;
+import io.github.ngirchev.aibot.bulkhead.service.IUserPriorityService;
 
 @Slf4j
 @AutoConfiguration
@@ -182,7 +183,8 @@ public class SpringAIAutoConfig {
             ObjectProvider<ChatMemory> chatMemoryProvider,
             ObjectProvider<RAGProperties> ragPropertiesProvider,
             ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-            ObjectProvider<FileRAGService> ragServiceProvider
+            ObjectProvider<FileRAGService> ragServiceProvider,
+            ObjectProvider<IUserPriorityService> userPriorityServiceProvider
     ) {
         return new SpringAIGateway(
                 props,
@@ -192,7 +194,8 @@ public class SpringAIAutoConfig {
                 chatMemoryProvider,
                 ragPropertiesProvider.getIfAvailable(),
                 documentProcessingServiceProvider,
-                ragServiceProvider
+                ragServiceProvider,
+                userPriorityServiceProvider.getIfAvailable()
         );
     }
 

@@ -10,7 +10,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @ConfigurationProperties(prefix = "ai-bot.ai.spring-ai")
 @Validated
@@ -97,6 +99,13 @@ public class SpringAIProperties {
     
     private Timeouts timeouts = new Timeouts();
     
+    /**
+     * Model restrictions per user role.
+     * If empty or not configured - all models are available.
+     * If role has empty list - user has no access to AI.
+     */
+    private RoleModels roleModels = new RoleModels();
+    
     @Getter
     @Setter
     public static class Timeouts {
@@ -115,5 +124,36 @@ public class SpringAIProperties {
         @NotNull(message = "streamTimeoutSeconds is required")
         @Min(value = 1, message = "streamTimeoutSeconds must be >= 1")
         private Integer streamTimeoutSeconds;
+    }
+
+    @Getter
+    @Setter
+    public static class RoleModels {
+        private LevelModels admin = new LevelModels();
+        private LevelModels vip = new LevelModels();
+        private LevelModels regular = new LevelModels();
+
+        @Getter
+        @Setter
+        public static class LevelModels {
+            /**
+             * List of model names allowed for this role.
+             * Empty list = no access to AI.
+             * Null = all models available.
+             */
+            private Set<String> models = new HashSet<>();
+        }
+
+        public Set<String> getModelsForRole(String role) {
+            if (role == null) {
+                return null;
+            }
+            return switch (role.toUpperCase()) {
+                case "ADMIN" -> admin.getModels();
+                case "VIP" -> vip.getModels();
+                case "REGULAR" -> regular.getModels();
+                default -> null;
+            };
+        }
     }
 } 

@@ -89,7 +89,8 @@ class SpringAIGatewayTest {
                 chatMemoryProvider,
                 null,
                 docProvider,
-                ragProvider
+                ragProvider,
+                null
         );
     }
 

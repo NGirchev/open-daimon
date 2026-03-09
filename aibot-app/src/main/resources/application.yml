@@ -237,6 +237,21 @@ ai-bot:
             %s
 
             Question: %s
+
+      # Model restrictions per user role.
+      # Empty list for a role = no access to AI.
+      # Not configured = all models available.
+      role-models:
+        admin:
+          models:
+            - "openrouter/auto"
+            - "qwen2.5:7b"
+        vip:
+          models:
+            - "openrouter/auto"
+        regular:
+          models: []  # No AI access
+
     gateway-mock:
       enabled: false  # Disabled by default
 

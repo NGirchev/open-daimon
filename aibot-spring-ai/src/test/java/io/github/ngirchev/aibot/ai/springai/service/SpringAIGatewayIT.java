@@ -496,16 +496,17 @@ class SpringAIGatewayIT {
                 ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
                 ObjectProvider<io.github.ngirchev.aibot.ai.springai.rag.FileRAGService> fileRAGServiceProvider
         ) {
-            return new SpringAIGateway(
-                    springAIProperties,
-                    aiGatewayRegistry,
-                    springAIModelRegistry,
-                    springAIChatService,
-                    chatMemoryProvider,
-                    ragProperties,
-                    documentProcessingServiceProvider,
-                    fileRAGServiceProvider
-            );
+return new SpringAIGateway(
+                springAIProperties,
+                aiGatewayRegistry,
+                springAIModelRegistry,
+                springAIChatService,
+                chatMemoryProvider,
+                ragProperties,
+                documentProcessingServiceProvider,
+                fileRAGServiceProvider,
+                null
+        );
         }
     }
 }

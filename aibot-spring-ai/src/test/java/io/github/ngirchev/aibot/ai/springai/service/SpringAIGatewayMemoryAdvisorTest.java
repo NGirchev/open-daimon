@@ -137,7 +137,8 @@ class SpringAIGatewayMemoryAdvisorTest {
                 chatMemoryProvider,
                 null, // ragProperties - RAG disabled
                 docProvider,
-                ragProvider
+                ragProvider,
+                null // userPriorityService
         );
     }
 

@@ -35,6 +35,7 @@ import io.github.ngirchev.aibot.common.model.Attachment;
 import io.github.ngirchev.aibot.common.model.AttachmentType;
 import io.github.ngirchev.aibot.common.service.AIGateway;
 import io.github.ngirchev.aibot.common.service.AIGatewayRegistry;
+import io.github.ngirchev.aibot.bulkhead.service.IUserPriorityService;
 
 import java.net.MalformedURLException;
 import java.util.*;
@@ -46,6 +47,7 @@ import static io.github.ngirchev.aibot.common.ai.LlmParamNames.*;
 @Slf4j
 public class SpringAIGateway implements AIGateway {
 
+    private static final String USER_ID_FIELD = AICommand.USER_ID_FIELD;
     /** Content part keys (OpenAI/OpenRouter): content as array with type "text" / "image_url". */
     private static final String CONTENT_PART_TYPE = "type";
     private static final String CONTENT_PART_TEXT = "text";
@@ -58,6 +60,7 @@ public class SpringAIGateway implements AIGateway {
     private final SpringAIModelRegistry springAIModelRegistry;
     private final SpringAIChatService chatService;
     private final ObjectProvider<ChatMemory> chatMemoryProvider;
+    private final IUserPriorityService userPriorityService;
     
     // RAG components (optional - available only when ai-bot.ai.spring-ai.rag.enabled=true)
     private final RAGProperties ragProperties;
@@ -72,7 +75,8 @@ public class SpringAIGateway implements AIGateway {
             ObjectProvider<ChatMemory> chatMemoryProvider,
             RAGProperties ragProperties,
             ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-            ObjectProvider<FileRAGService> ragServiceProvider) {
+            ObjectProvider<FileRAGService> ragServiceProvider,
+            IUserPriorityService userPriorityService) {
         this.springAiProperties = springAiProperties;
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.springAIModelRegistry = springAIModelRegistry;
@@ -81,6 +85,7 @@ public class SpringAIGateway implements AIGateway {
         this.ragProperties = ragProperties;
         this.documentProcessingServiceProvider = documentProcessingServiceProvider;
         this.ragServiceProvider = ragServiceProvider;
+        this.userPriorityService = userPriorityService;
     }
 
     @PostConstruct
@@ -128,6 +133,34 @@ public class SpringAIGateway implements AIGateway {
         if (candidates.isEmpty()) {
             candidates = springAIModelRegistry.getCandidatesByCapabilities(Set.of(ModelCapabilities.AUTO), null);
         }
+        
+        // Filter candidates by user role
+        if (userPriorityService != null && !candidates.isEmpty()) {
+            String userIdStr = command.metadata() != null ? command.metadata().get(USER_ID_FIELD) : null;
+            if (userIdStr != null && !userIdStr.isBlank()) {
+                try {
+                    Long userId = Long.parseLong(userIdStr);
+                    io.github.ngirchev.aibot.bulkhead.model.UserPriority priority = userPriorityService.getUserPriority(userId);
+                    if (priority != null) {
+                        Set<String> allowedModels = springAiProperties.getRoleModels().getModelsForRole(priority.name());
+                        if (allowedModels != null && !allowedModels.isEmpty()) {
+                            candidates = candidates.stream()
+                                    .filter(c -> allowedModels.contains(c.getName()))
+                                    .toList();
+                            if (candidates.isEmpty()) {
+                                log.warn("No AI models available for user {} with priority {}", userId, priority);
+                                throw new RuntimeException("No AI models available for your role (" + priority.name() + ")");
+                            }
+                        }
+                    }
+                } catch (NumberFormatException e) {
+                    log.debug("Invalid userId format in command metadata: {}", userIdStr);
+                } catch (Exception e) {
+                    log.warn("Failed to get user priority for userId {}: {}", userIdStr, e.getMessage());
+                }
+            }
+        }
+        
         SpringAIModelConfig modelConfig = candidates.isEmpty() ? null : candidates.getFirst();
         if (modelConfig == null) {
             throw new RuntimeException("No model found for capabilities: " + command.modelCapabilities());
