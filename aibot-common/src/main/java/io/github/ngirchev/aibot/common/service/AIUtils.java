@@ -444,7 +444,7 @@ public class AIUtils {
         AtomicInteger totalChunks = new AtomicInteger(0);
         AtomicInteger chunksWithNonEmptyText = new AtomicInteger(0);
 
-        final int MIN_PARAGRAPH_LENGTH = 300;
+        final int minParagraphLength = maxMessageLength > 0 ? Math.min(300, maxMessageLength) : 300;
 
         try {
             // Use single chatResponse() flux - we extract both text and metadata from it
@@ -457,7 +457,7 @@ public class AIUtils {
                         }
                     })
                     .doOnNext(cr -> {
-                        log.debug("Received chunk: {}", cr);
+                        log.debug("Received chunk: {} {}", cr.getResult().getOutput().getText(), cr);
                         lastResponse.set(cr);
                         totalChunks.incrementAndGet();
                     })
@@ -465,18 +465,21 @@ public class AIUtils {
                     .filter(Optional::isPresent)
                     .doOnNext(ignored -> chunksWithNonEmptyText.incrementAndGet())
                     .map(Optional::get)
-                    // concurrency=1, prefetch=1 — do not request many chunks at once from source, or stream buffers and all Telegram messages arrive at once
-                    .flatMap(chunk -> splitChunkIntoParagraphs(chunk, tail), 1, 1)
-                    // Filter empty paragraphs
-                    .filter(paragraph -> !paragraph.trim().isEmpty())
-                    // Process paragraphs with minimum length (prefetch 1 — do not buffer)
-                    .flatMap(paragraph -> processParagraphByMinLength(paragraph.trim(), accumulatedShortParagraphs, MIN_PARAGRAPH_LENGTH), 1, 1)
-                    // Split blocks by maxMessageLength limit (prefetch 1 — do not buffer)
-                    .flatMap(block -> splitBlockByMaxLength(block, overflowBuffer, maxMessageLength), 1, 1)
+                    // maxMessageLength=0: pass each chunk through as-is, no paragraph buffering
+                    .transform(chunks -> maxMessageLength == 0 ? chunks : chunks
+                            // concurrency=1, prefetch=1 — do not request many chunks at once from source, or stream buffers and all Telegram messages arrive at once
+                            .flatMap(chunk -> splitChunkIntoParagraphs(chunk, tail, maxMessageLength), 1, 1)
+                            // Filter empty paragraphs
+                            .filter(paragraph -> !paragraph.trim().isEmpty())
+                            // Process paragraphs with minimum length (prefetch 1 — do not buffer)
+                            .flatMap(paragraph -> processParagraphByMinLength(paragraph.trim(), accumulatedShortParagraphs, minParagraphLength), 1, 1)
+                            // Split blocks by maxMessageLength limit (prefetch 1 — do not buffer)
+                            .flatMap(block -> splitBlockByMaxLength(block, overflowBuffer, maxMessageLength), 1, 1)
+                    )
                     // Send each block as a whole
                     .doOnNext(block -> {
-                        fullResponse.updateAndGet(current -> current + block + "\n\n");
-                        listener.accept(block + "\n\n");
+                        fullResponse.updateAndGet(current -> current + block);
+                        listener.accept(block);
                     })
                     .blockLast(timeout);
 
@@ -487,7 +490,7 @@ public class AIUtils {
             String remainingTail = tail.get().trim();
             String overflow = overflowBuffer.get();
             String finalTail = overflow.isEmpty() ? remainingTail : (remainingTail.isEmpty() ? overflow : remainingTail + "\n\n" + overflow);
-            processFinalTailAndAccumulated(finalTail, accumulatedShortParagraphs, fullResponse, listener, maxMessageLength, MIN_PARAGRAPH_LENGTH);
+            processFinalTailAndAccumulated(finalTail, accumulatedShortParagraphs, fullResponse, listener, maxMessageLength, minParagraphLength);
 
             // Send accumulated short paragraphs if any remain (in case they were not sent above)
             String accumulated = accumulatedShortParagraphs.get().trim();
@@ -534,7 +537,7 @@ public class AIUtils {
         throw new RuntimeException("No data received from streaming response");
     }
 
-    private static Flux<String> splitChunkIntoParagraphs(String chunk, AtomicReference<String> tail) {
+    private static Flux<String> splitChunkIntoParagraphs(String chunk, AtomicReference<String> tail, int maxMessageLength) {
         try {
             String text = tail.get() + chunk;
             String[] paragraphs = text.split("\n\n", -1);
@@ -542,8 +545,21 @@ public class AIUtils {
                 tail.set("");
                 return Flux.fromArray(paragraphs);
             }
-            tail.set(paragraphs[paragraphs.length - 1]);
-            return Flux.fromArray(Arrays.copyOfRange(paragraphs, 0, paragraphs.length - 1));
+            String incomplete = paragraphs[paragraphs.length - 1];
+            Flux<String> complete = Flux.fromArray(Arrays.copyOfRange(paragraphs, 0, paragraphs.length - 1));
+            // Emit incomplete part eagerly when it has reached maxMessageLength — no need to wait for \n\n
+            // Split at the next word boundary AFTER maxMessageLength (never cut mid-word)
+            if (maxMessageLength > 0 && incomplete.length() >= maxMessageLength) {
+                int boundary = findNextWordBoundary(incomplete, maxMessageLength - 1);
+                if (boundary <= incomplete.length()) {
+                    String toEmit = incomplete.substring(0, boundary);
+                    tail.set(incomplete.substring(boundary));
+                    return complete.concatWith(Flux.just(toEmit));
+                }
+                // Word not finished yet — keep accumulating
+            }
+            tail.set(incomplete);
+            return complete;
         } catch (Exception e) {
             log.debug("Error processing chunk: {}", e.getMessage());
             return Flux.empty();
@@ -874,40 +890,45 @@ public class AIUtils {
         String[] paragraphs = blockToProcess.split("\n\n", -1);
         StringBuilder currentPart = new StringBuilder();
         for (String paragraph : paragraphs) {
-            currentPart = appendParagraphToBlockParts(paragraph, currentPart, parts, overflowBuffer, maxMessageLength);
+            currentPart = appendParagraphToBlockParts(paragraph, currentPart, parts, maxMessageLength);
         }
-        addRemainingBlockPart(currentPart, parts, overflowBuffer, maxMessageLength);
+        addRemainingBlockPart(currentPart, parts, maxMessageLength);
         return parts.isEmpty() ? Flux.empty() : Flux.fromIterable(parts);
     }
 
     private static StringBuilder appendParagraphToBlockParts(String paragraph, StringBuilder currentPart,
-                                                             List<String> parts, AtomicReference<String> overflowBuffer,
+                                                             List<String> parts,
                                                              int maxMessageLength) {
         String paragraphWithSeparator = currentPart.isEmpty() ? paragraph : currentPart + "\n\n" + paragraph;
-        if (paragraphWithSeparator.length() <= maxMessageLength) {
+        if (maxMessageLength > 0 && paragraphWithSeparator.length() <= maxMessageLength) {
             return new StringBuilder(paragraphWithSeparator);
         }
         if (!currentPart.isEmpty()) {
             parts.add(currentPart.toString());
-            return new StringBuilder(paragraph);
+            return appendParagraphToBlockParts(paragraph, new StringBuilder(), parts, maxMessageLength);
         }
-        int splitPoint = findSplitPoint(paragraph, maxMessageLength);
-        parts.add(paragraph.substring(0, splitPoint));
-        overflowBuffer.set(paragraph.substring(splitPoint));
-        return new StringBuilder();
+        // paragraph itself is too long — split fully into parts, none lost
+        String remaining = paragraph;
+        while (remaining.length() > maxMessageLength) {
+            int splitPoint = findSplitPoint(remaining, maxMessageLength);
+            parts.add(remaining.substring(0, splitPoint));
+            remaining = remaining.substring(splitPoint);
+        }
+        return new StringBuilder(remaining);
     }
 
-    private static void addRemainingBlockPart(StringBuilder currentPart, List<String> parts,
-                                              AtomicReference<String> overflowBuffer, int maxMessageLength) {
+    private static void addRemainingBlockPart(StringBuilder currentPart, List<String> parts, int maxMessageLength) {
         if (currentPart.isEmpty()) {
             return;
         }
-        if (currentPart.length() <= maxMessageLength) {
-            parts.add(currentPart.toString());
-        } else {
-            int splitPoint = findSplitPoint(currentPart.toString(), maxMessageLength);
-            parts.add(currentPart.substring(0, splitPoint));
-            overflowBuffer.set(currentPart.substring(splitPoint));
+        String remaining = currentPart.toString();
+        while (remaining.length() > maxMessageLength) {
+            int splitPoint = findSplitPoint(remaining, maxMessageLength);
+            parts.add(remaining.substring(0, splitPoint));
+            remaining = remaining.substring(splitPoint);
+        }
+        if (!remaining.isEmpty()) {
+            parts.add(remaining);
         }
     }
 
@@ -974,38 +995,61 @@ public class AIUtils {
                                                        AtomicReference<String> fullResponse,
                                                        Consumer<String> listener, int maxMessageLength) {
         String paragraphWithSeparator = currentPart.isEmpty() ? paragraph : currentPart + "\n\n" + paragraph;
-        if (paragraphWithSeparator.length() <= maxMessageLength) {
+        if (maxMessageLength > 0 && paragraphWithSeparator.length() <= maxMessageLength) {
             return new StringBuilder(paragraphWithSeparator);
         }
         if (!currentPart.isEmpty()) {
             String currentPartStr = currentPart.toString();
             fullResponse.updateAndGet(current -> current + currentPartStr);
             listener.accept(currentPartStr);
-            return new StringBuilder(paragraph);
+            return appendParagraphToPart(new StringBuilder(), paragraph, fullResponse, listener, maxMessageLength);
         }
-        if (paragraph.length() > maxMessageLength) {
-            int splitPoint = findSplitPoint(paragraph, maxMessageLength);
-            fullResponse.updateAndGet(current -> current + paragraph.substring(0, splitPoint));
-            listener.accept(paragraph.substring(0, splitPoint));
-            String remainder = paragraph.substring(splitPoint);
-            return remainder.isEmpty() ? new StringBuilder() : new StringBuilder(remainder);
+        // paragraph itself is too long — split fully, none lost
+        String remaining = paragraph;
+        while (remaining.length() > maxMessageLength) {
+            int splitPoint = findSplitPoint(remaining, maxMessageLength);
+            String part = remaining.substring(0, splitPoint);
+            fullResponse.updateAndGet(current -> current + part);
+            listener.accept(part);
+            remaining = remaining.substring(splitPoint);
         }
-        return new StringBuilder(paragraph);
+        return new StringBuilder(remaining);
     }
 
     private static void flushRemainingPart(StringBuilder currentPart, AtomicReference<String> fullResponse,
                                            Consumer<String> listener, int maxMessageLength) {
         if (currentPart.isEmpty()) return;
-        String currentPartStr = currentPart.toString();
-        if (currentPartStr.length() <= maxMessageLength) {
-            fullResponse.updateAndGet(current -> current + currentPartStr);
-            listener.accept(currentPartStr);
-        } else {
-            int splitPoint = findSplitPoint(currentPartStr, maxMessageLength);
-            String partToSend = currentPartStr.substring(0, splitPoint);
-            fullResponse.updateAndGet(current -> current + partToSend);
-            listener.accept(partToSend);
+        String remaining = currentPart.toString();
+        while (remaining.length() > maxMessageLength) {
+            int splitPoint = findSplitPoint(remaining, maxMessageLength);
+            String part = remaining.substring(0, splitPoint);
+            fullResponse.updateAndGet(current -> current + part);
+            listener.accept(part);
+            remaining = remaining.substring(splitPoint);
         }
+        if (!remaining.isEmpty()) {
+            String tail = remaining;
+            fullResponse.updateAndGet(current -> current + tail);
+            listener.accept(tail);
+        }
+    }
+
+    /**
+     * Finds the next word boundary at or after {@code from}.
+     * Returns the index after the boundary character (space or sentence punctuation),
+     * or {@code text.length() + 1} if no boundary is found within the text.
+     */
+    private static int findNextWordBoundary(String text, int from) {
+        for (int i = from; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (Character.isWhitespace(c)) {
+                return i + 1;
+            }
+            if ((c == '.' || c == '!' || c == '?' || c == ',') && i + 1 < text.length()) {
+                return i + 1;
+            }
+        }
+        return text.length() + 1;
     }
 
     /**
