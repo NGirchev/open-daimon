@@ -14,11 +14,12 @@ ai-bot:
         list:
           - name: "qwen3.5"
             capabilities:
-              - AUTO
               - CHAT
               - TOOL_CALLING
               - SUMMARIZATION
               - VISION
+              - MODERATION
+              - WEB
             provider-type: OLLAMA
             priority: 1
           - name: "gemma3:1b"
@@ -32,8 +33,9 @@ ai-bot:
               - CHAT
               - TOOL_CALLING
               - SUMMARIZATION
-              - EMBEDDING
               - VISION
+              - MODERATION
+              - WEB
             provider-type: OPENAI
             priority: 3
 

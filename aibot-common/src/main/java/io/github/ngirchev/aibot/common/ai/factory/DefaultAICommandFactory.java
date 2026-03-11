@@ -47,11 +47,10 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
                     ? chatCommand.attachments() 
                     : List.of();
             String attachmentTypes = attachments.stream().map(a -> a.type().toString()).toList().toString();
-            log.info("Creating ChatAICommand: userText='{}', attachmentsCount={}, attachmentTypes={}",
-                    chatCommand.userText(), attachments.size(), attachmentTypes);
             UserPriority priority = Optional.ofNullable(userPriorityService.getUserPriority(command.userId()))
                     .orElse(UserPriority.REGULAR);
-            log.info("User {} resolved as ADMIN", command.userId());
+            log.info("Creating ChatAICommand: userText='{}', attachmentsCount={}, attachmentTypes={}, priority={}",
+                    chatCommand.userText(), attachments.size(), attachmentTypes, priority);
             Map<String, Object> body = new HashMap<>();
             
             // Base modelTypes depending on priority

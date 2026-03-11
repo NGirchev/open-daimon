@@ -3,7 +3,6 @@ package io.github.ngirchev.aibot.telegram.service;
 import io.github.ngirchev.aibot.bulkhead.model.UserPriority;
 import io.github.ngirchev.aibot.bulkhead.service.IUserObject;
 import io.github.ngirchev.aibot.bulkhead.service.IUserPriorityService;
-import io.github.ngirchev.aibot.bulkhead.service.IUserService;
 import io.github.ngirchev.aibot.bulkhead.service.IWhitelistService;
 import io.github.ngirchev.aibot.telegram.config.TelegramProperties;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +15,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class TelegramUserPriorityService implements IUserPriorityService {
 
-    private final IUserService userService;
+    private final TelegramUserService userService;
     private final IWhitelistService whitelistService;
     private final TelegramProperties telegramProperties;
 
@@ -54,6 +53,10 @@ public class TelegramUserPriorityService implements IUserPriorityService {
         }
 
         if (vipIds.contains(userId) || user.map(IUserObject::getIsPremium).map(Boolean.TRUE::equals).orElse(false) || inVipChannel) {
+            if (user.isPresent()) {
+                Long telegramId = ((io.github.ngirchev.aibot.telegram.model.TelegramUser) user.get()).getTelegramId();
+                userService.ensureUserWithLevel(telegramId, UserPriority.VIP);
+            }
             return UserPriority.VIP;
         }
 
