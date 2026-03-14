@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 
 import java.util.List;
 
@@ -26,6 +27,26 @@ public class SpringAIModelConfig {
     @NotNull(message = "Priority is required")
     @Min(value = 1, message = "Priority must be >= 1")
     private Integer priority;
+
+    /**
+     * Roles allowed to use this model. If null or empty — all roles can access it.
+     * Values: ADMIN, VIP, REGULAR (from UserPriority enum).
+     */
+    private List<UserPriority> allowedRoles;
+
+    /**
+     * Returns true if the given user priority is allowed to use this model.
+     * If allowedRoles is null or empty — all roles are allowed.
+     */
+    public boolean isAllowedForRole(UserPriority userPriority) {
+        if (allowedRoles == null || allowedRoles.isEmpty()) {
+            return true;
+        }
+        if (userPriority == null) {
+            return true;
+        }
+        return allowedRoles.contains(userPriority);
+    }
     
     public enum ProviderType {
         OLLAMA,

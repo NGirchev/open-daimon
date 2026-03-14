@@ -202,6 +202,7 @@ public class CoreAutoConfig {
     @ConditionalOnProperty(value = "open-daimon.common.manual-conversation-history.enabled", havingValue = "true")
     public AICommandFactory<AICommand, IChatCommand<?>> conversationHistoryAiCommandFactory(
             CoreCommonProperties coreCommonProperties,
+            IUserPriorityService userPriorityService,
             ConversationContextBuilderService conversationContextBuilderService,
             ConversationThreadService conversationThreadService,
             AssistantRoleService assistantRoleService,
@@ -210,6 +211,7 @@ public class CoreAutoConfig {
         return new ConversationHistoryAICommandFactory(
                 coreCommonProperties.getMaxOutputTokens(),
                 coreCommonProperties.getMaxReasoningTokens(),
+                userPriorityService,
                 conversationContextBuilderService,
                 conversationThreadService,
                 assistantRoleService,

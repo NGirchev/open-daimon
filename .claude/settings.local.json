@@ -28,7 +28,8 @@
       "Bash(./mvnw compile:*)",
       "Bash(./mvnw test-compile:*)",
       "Bash(find:*)",
-      "Bash(./mvnw install:*)"
+      "Bash(./mvnw install:*)",
+      "Bash(grep:*)"
     ]
   }
 }

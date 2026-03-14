@@ -11,6 +11,7 @@ public interface AICommand {
     String ASSISTANT_ROLE_ID_FIELD = "assistantRoleId";
     String USER_ID_FIELD = "userId";
     String LANGUAGE_CODE_FIELD = "languageCode";
+    String USER_PRIORITY_FIELD = "userPriority";
 
     Set<ModelCapabilities> modelCapabilities();
     Map<String, String> metadata();

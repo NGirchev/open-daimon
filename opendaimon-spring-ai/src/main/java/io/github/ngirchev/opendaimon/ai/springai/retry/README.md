@@ -87,6 +87,10 @@ open-daimon:
         max-attempts: 3   # max number of candidates (attempts); default in code is 2
         models:
           enabled: true
+          filters:
+            # Optional: roles allowed to use synced OpenRouter free models. Omit or empty = all roles (ALL).
+            # allowed-roles: [ ADMIN, VIP, REGULAR ]
+            include-model-ids: [ ... ]
           # ...
 ```
 

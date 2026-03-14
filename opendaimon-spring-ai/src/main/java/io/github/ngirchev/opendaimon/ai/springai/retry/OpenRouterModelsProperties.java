@@ -10,6 +10,8 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.util.StringUtils;
 
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
+
 import java.time.Duration;
 import java.util.List;
 
@@ -118,6 +120,12 @@ public class OpenRouterModelsProperties {
          * Exclude models whose id contains any of these fragments.
          */
         private List<String> excludeContains;
+
+        /**
+         * Roles allowed to use OpenRouter free models added by sync (from API).
+         * Values: ADMIN, VIP, REGULAR. If null or empty — all roles can use synced free models.
+         */
+        private List<UserPriority> allowedRoles;
     }
 
     @AssertTrue(message = "When enabled=true, api.key, api.url, refresh-initial-delay and refresh-interval (both > 0) must be set")

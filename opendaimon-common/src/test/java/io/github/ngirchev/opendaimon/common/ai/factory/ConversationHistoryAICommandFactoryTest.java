@@ -9,6 +9,8 @@ import io.github.ngirchev.opendaimon.common.model.AssistantRole;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
+import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
 import io.github.ngirchev.opendaimon.common.service.ConversationContextBuilderService;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
@@ -46,6 +48,8 @@ class ConversationHistoryAICommandFactoryTest {
     private static final String USER_ID_STR = "1";
 
     @Mock
+    private IUserPriorityService userPriorityService;
+    @Mock
     private ConversationContextBuilderService contextBuilder;
     @Mock
     private ConversationThreadService threadService;
@@ -58,9 +62,11 @@ class ConversationHistoryAICommandFactoryTest {
 
     @BeforeEach
     void setUp() {
+        when(userPriorityService.getUserPriority(any())).thenReturn(UserPriority.REGULAR);
         factory = new ConversationHistoryAICommandFactory(
                 MAX_OUTPUT_TOKENS,
                 null,
+                userPriorityService,
                 contextBuilder,
                 threadService,
                 assistantRoleService,

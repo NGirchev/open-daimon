@@ -2,6 +2,8 @@ package io.github.ngirchev.opendaimon.common.ai.factory;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
+import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
@@ -36,6 +38,7 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
 
     private final int maxOutputTokens;
     private final Integer maxReasoningTokens;
+    private final IUserPriorityService userPriorityService;
     private final ConversationContextBuilderService contextBuilder;
     private final ConversationThreadService threadService;
     private final AssistantRoleService assistantRoleService;
@@ -61,10 +64,15 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
             throw new IllegalStateException("User text is required for message command");
         }
 
+        metadata = new HashMap<>(metadata != null ? metadata : Map.of());
         String userText = command.userText();
         String threadKey = metadata.get(THREAD_KEY_FIELD);
         String assistantRoleIdStr = metadata.get(ASSISTANT_ROLE_ID_FIELD);
         String userIdStr = metadata.get(USER_ID_FIELD);
+
+        UserPriority userPriority = Optional.ofNullable(userPriorityService.getUserPriority(command.userId()))
+                .orElse(UserPriority.REGULAR);
+        metadata.put(USER_PRIORITY_FIELD, userPriority.name());
 
         if (threadKey == null || assistantRoleIdStr == null || userIdStr == null) {
             throw new IllegalStateException(
@@ -113,7 +121,6 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
             // Determine modelTypes dynamically - add VISION if there are images
             Set<ModelCapabilities> modelCapabilities = determineModelTypes(attachments);
 
-            // TODO add vip/regular logic
             // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
             String systemRole = buildSystemRole(assistantRole.getContent(), metadata.get(LANGUAGE_CODE_FIELD));
             return new ChatAICommand(

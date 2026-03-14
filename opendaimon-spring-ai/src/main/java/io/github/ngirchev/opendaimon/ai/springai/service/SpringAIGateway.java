@@ -33,6 +33,7 @@ import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
@@ -124,9 +125,10 @@ public class SpringAIGateway implements AIGateway {
     }
 
     private AIResponse executeChatWithOptions(OpenDaimonChatOptions chatOptions, AICommand command, List<Message> messages) {
-        List<SpringAIModelConfig> candidates = springAIModelRegistry.getCandidatesByCapabilities(command.modelCapabilities(), null);
+        UserPriority userPriority = resolveUserPriority(command);
+        List<SpringAIModelConfig> candidates = springAIModelRegistry.getCandidatesByCapabilities(command.modelCapabilities(), null, userPriority);
         if (candidates.isEmpty()) {
-            candidates = springAIModelRegistry.getCandidatesByCapabilities(Set.of(ModelCapabilities.AUTO), null);
+            candidates = springAIModelRegistry.getCandidatesByCapabilities(Set.of(ModelCapabilities.AUTO), null, userPriority);
         }
         SpringAIModelConfig modelConfig = candidates.isEmpty() ? null : candidates.getFirst();
         if (modelConfig == null) {
@@ -384,6 +386,22 @@ public class SpringAIGateway implements AIGateway {
         }
 
         return null;
+    }
+
+    private UserPriority resolveUserPriority(AICommand command) {
+        if (command == null || command.metadata() == null) {
+            return null;
+        }
+        String raw = command.metadata().get(AICommand.USER_PRIORITY_FIELD);
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return UserPriority.valueOf(raw);
+        } catch (IllegalArgumentException e) {
+            log.warn("Unknown userPriority in command metadata: {}", raw);
+            return null;
+        }
     }
 
     /**

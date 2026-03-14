@@ -5,6 +5,8 @@ import org.springframework.util.StringUtils;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -100,6 +102,10 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
             config.setCapabilities(new ArrayList<>(caps));
             config.setProviderType(SpringAIModelConfig.ProviderType.OPENAI);
             config.setPriority(OPENROUTER_FREE_PRIORITY);
+            OpenRouterModelsProperties.Filters filters = openRouterProperties.getFilters();
+            if (filters != null && filters.getAllowedRoles() != null && !filters.getAllowedRoles().isEmpty()) {
+                config.setAllowedRoles(new ArrayList<>(filters.getAllowedRoles()));
+            }
             modelsByName.put(entry.id(), config);
             log.debug("Added OpenRouter free model to registry: {}", entry.id());
         }
@@ -198,10 +204,14 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
             String caps = c.getCapabilities() != null
                     ? c.getCapabilities().stream().map(Enum::name).sorted().toList().toString()
                     : "[]";
+            String roles = (c.getAllowedRoles() == null || c.getAllowedRoles().isEmpty())
+                    ? "ALL"
+                    : c.getAllowedRoles().stream().map(Enum::name).toList().toString();
             sb.append("  ").append(c.getName())
                     .append(" | capabilities=").append(caps)
                     .append(" | priority=").append(c.getPriority())
                     .append(" | provider=").append(c.getProviderType())
+                    .append(" | roles=").append(roles)
                     .append("\n");
         }
         log.info(sb.toString());
@@ -241,6 +251,14 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
      * Candidates by capabilities, with optional preferred name (first in list).
      */
     public List<SpringAIModelConfig> getCandidatesByCapabilities(Set<ModelCapabilities> required, String preferredModelId) {
+        return getCandidatesByCapabilities(required, preferredModelId, null);
+    }
+
+    /**
+     * Candidates by capabilities and user role, with optional preferred name (first in list).
+     * If userPriority is null — role filtering is skipped.
+     */
+    public List<SpringAIModelConfig> getCandidatesByCapabilities(Set<ModelCapabilities> required, String preferredModelId, UserPriority userPriority) {
         if (required == null || required.isEmpty()) {
             return List.of();
         }
@@ -252,6 +270,9 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
             }
             Integer maxIndex = findMaxIndexForAllTypes(caps, required);
             if (maxIndex == null) {
+                continue;
+            }
+            if (userPriority != null && !model.isAllowedForRole(userPriority)) {
                 continue;
             }
             candidates.add(model);

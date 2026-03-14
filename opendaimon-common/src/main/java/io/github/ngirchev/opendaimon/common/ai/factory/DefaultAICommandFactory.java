@@ -43,16 +43,18 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
             if (chatCommand.userText() == null) {
                 throw new IllegalStateException("User text is required for message command");
             }
-            List<Attachment> attachments = chatCommand.attachments() != null 
-                    ? chatCommand.attachments() 
+            metadata = new HashMap<>(metadata != null ? metadata : Map.of());
+            List<Attachment> attachments = chatCommand.attachments() != null
+                    ? chatCommand.attachments()
                     : List.of();
             String attachmentTypes = attachments.stream().map(a -> a.type().toString()).toList().toString();
             UserPriority priority = Optional.ofNullable(userPriorityService.getUserPriority(command.userId()))
                     .orElse(UserPriority.REGULAR);
             log.info("Creating ChatAICommand: userText='{}', attachmentsCount={}, attachmentTypes={}, priority={}",
                     chatCommand.userText(), attachments.size(), attachmentTypes, priority);
+            metadata.put(AICommand.USER_PRIORITY_FIELD, priority.name());
             Map<String, Object> body = new HashMap<>();
-            
+
             // Base modelTypes depending on priority
             Set<ModelCapabilities> baseModelCapabilities = switch (priority) {
                 case ADMIN -> Set.of(AUTO);
@@ -62,7 +64,7 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
                 }
                 default -> Set.of(CHAT);
             };
-            
+
             // Add VISION dynamically if there are images
             Set<ModelCapabilities> modelCapabilities = addVisionIfNeeded(baseModelCapabilities, attachments);
 
