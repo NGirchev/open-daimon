@@ -1,0 +1,89 @@
+server:
+  port: 8080
+
+open-daimon:
+  common:
+    bulkhead:
+      enabled: true
+      instances:
+        ADMIN:
+          maxConcurrentCalls: 10
+          maxWaitDuration: 1s
+        VIP:
+          maxConcurrentCalls: 5
+          maxWaitDuration: 1s
+        REGULAR:
+          maxConcurrentCalls: 1
+          maxWaitDuration: 500ms
+    admin:
+      enabled: ${ADMIN_ENABLED:true}
+      telegram-id: ${ADMIN_TELEGRAM_ID:}
+      rest-email: ${ADMIN_REST_EMAIL:}
+    assistant-role: "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language."
+    max-output-tokens: 1000
+    max-user-message-tokens: 4000
+    max-total-prompt-tokens: 32000
+    summarization:
+      max-context-tokens: 8000
+      summary-trigger-threshold: 0.7
+      keep-recent-messages: 20
+    manual-conversation-history:
+      enabled: false
+      max-response-tokens: 4000
+      default-window-size: 20
+      include-system-prompt: true
+      token-estimation-chars-per-token: 4
+  telegram:
+    enabled: true
+    username: ${TELEGRAM_USERNAME}
+    token: ${TELEGRAM_TOKEN}
+    commands:
+      start-enabled: true
+      role-enabled: true
+      message-enabled: true
+      bugreport-enabled: true
+      newthread-enabled: true
+      history-enabled: true
+      threads-enabled: true
+  rest:
+    enabled: true
+  ui:
+    enabled: true
+  ai:
+    spring-ai:
+      enabled: false
+      openrouter-auto-rotation:
+        models:
+          enabled: false
+    gateway-mock:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: metrics,prometheus
+  endpoint:
+    metrics:
+      enabled: true
+
+spring:
+  ai:
+    openai:
+      api-key: "mock-key"  # Dummy key to disable Spring AI in mock profile
+    ollama:
+      base-url: "http://localhost:9999"  # Dummy URL to disable Ollama in mock profile
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/opendaimon}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: false
+
+logging:
+  level:
+    root: INFO
+    io.github.ngirchev.opendaimon: DEBUG
+

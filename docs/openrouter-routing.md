@@ -35,7 +35,7 @@ sequenceDiagram
 
 4. **Single model in yml:** If yml only has `openrouter/auto`, the registry still has many entries after refresh (openrouter/auto + all free models). So `getCandidatesByCapabilities` usually returns multiple candidates.
 
-5. **Attempt limit:** The list is trimmed to `maxAttempts` in `OpenRouterModelRotationAspect` (around line 176): `candidates = candidates.subList(0, maxAttempts)`. The value comes from `ai-bot.ai.spring-ai.openrouter-auto-rotation.max-attempts` (default in code is 2 in `SpringAIProperties`; in `SpringAIAutoConfig` a missing property yields 1).
+5. **Attempt limit:** The list is trimmed to `maxAttempts` in `OpenRouterModelRotationAspect` (around line 176): `candidates = candidates.subList(0, maxAttempts)`. The value comes from `open-daimon.ai.spring-ai.openrouter-auto-rotation.max-attempts` (default in code is 2 in `SpringAIProperties`; in `SpringAIAutoConfig` a missing property yields 1).
 
 ## Why models do not rotate after 429
 
@@ -51,7 +51,7 @@ sequenceDiagram
 
 ## What to check or change
 
-1. **Config:** In `application.yml` (or profile) set `ai-bot.ai.spring-ai.openrouter-auto-rotation.max-attempts` to at least 2 (e.g. 3) so the aspect does not trim the list to a single candidate.
+1. **Config:** In `application.yml` (or profile) set `open-daimon.ai.spring-ai.openrouter-auto-rotation.max-attempts` to at least 2 (e.g. 3) so the aspect does not trim the list to a single candidate.
 
 2. **Refresh:** Ensure OpenRouter refresh runs (look for log "OpenRouter free models refreshed. count=..."). Without it the registry only has `openrouter/auto` and rotation cannot happen.
 
@@ -59,5 +59,5 @@ sequenceDiagram
 
 ## Related
 
-- [aibot-spring-ai/.../retry/README.md](../aibot-spring-ai/src/main/java/io/github/ngirchev/aibot/ai/springai/retry/README.md) — OpenRouter retry and model rotation (implementation details, retryable errors, logging).
+- [opendaimon-spring-ai/.../retry/README.md](../opendaimon-spring-ai/src/main/java/io/github/ngirchev/opendaimon/ai/springai/retry/README.md) — OpenRouter retry and model rotation (implementation details, retryable errors, logging).
 - [AGENTS.md](../AGENTS.md) — Project overview and dialog flow.

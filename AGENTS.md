@@ -40,14 +40,14 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 ### When creating new modules
 1. **Create pom.xml** with the correct dependency structure (see Code Style)
 2. **Add the module** to parent pom.xml in the `<modules>` section
-3. **Package structure:** `io.github.ngirchev.aibot.<module-name>.<layer>`
-4. **If entities are needed:** extend `User` or `Message` from `aibot-common`
-5. **Create a Flyway migration** in `aibot-app/src/main/resources/db/migration/`
+3. **Package structure:** `io.github.ngirchev.opendaimon.<module-name>.<layer>`
+4. **If entities are needed:** extend `User` or `Message` from `opendaimon-common`
+5. **Create a Flyway migration** in `opendaimon-app/src/main/resources/db/migration/`
 6. **Create a configuration class** for all beans of the module (e.g. `MyModuleConfig`)
 
 ### When working with entities
 1. **Do not duplicate entities** across modules — use inheritance
-2. **Base entities** only in `aibot-common`
+2. **Base entities** only in `opendaimon-common`
 3. **Module-specific fields** in subclasses (e.g. `telegram_id` in `TelegramUser`)
 4. **Use JPA Inheritance JOINED** for User
 5. **Use JPA Inheritance SINGLE_TABLE** for Message (all messages in one table, specific data in metadata JSONB)
@@ -61,14 +61,14 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 5. **Do not add entities** — providers are stateless
 
 ### When working with the database
-1. **All migrations** in `aibot-app/src/main/resources/db/migration/`
+1. **All migrations** in `opendaimon-app/src/main/resources/db/migration/`
 2. **Naming:** `V<number>__<description>.sql` (e.g. `V1__Create_initial_tables.sql`)
 3. **Indexes are required** for foreign keys and frequently queried fields
 4. **Use `IF NOT EXISTS`** for idempotency
 5. **Timestamps:** `TIMESTAMP WITH TIME ZONE` (not `TIMESTAMP`)
 
 ### When adding metrics
-1. **Use `AiBotMeterRegistry`** from `aibot-common`
+1. **Use `OpenDaimonMeterRegistry`** from `opendaimon-common`
 2. **Metric format:** `<module>.<action>.<metric>` (e.g. `rest.request.processing.time`)
 3. **Types:** Counter, Timer, Gauge
 4. **Add description** in the Grafana dashboard
@@ -94,15 +94,15 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 
 ## Project Overview
 
-**AI Bot** — a multi-module Java project for interacting with various AI services through different interfaces (Telegram, REST API, Web UI), with Spring AI integration (OpenRouter, Ollama) and support for custom context and templates.
+**OpenDaimon** — a multi-module Java project for interacting with various AI services through different interfaces (Telegram, REST API, Web UI), with Spring AI integration (OpenRouter, Ollama) and support for custom context and templates.
 
 ### Architectural concept
 
 The project uses a **modular architecture**: each module can be built independently for a given client. For example:
-- Build only `aibot-telegram` without `aibot-rest`
-- Use only `aibot-rest` without `aibot-telegram`, or `aibot-ui` without `aibot-telegram`
-- Build only `aibot-spring-ai` without interface modules (wiring the required entry points)
-- Include `aibot-gateway-mock` as a provider stub for test scenarios without external APIs
+- Build only `opendaimon-telegram` without `opendaimon-rest`
+- Use only `opendaimon-rest` without `opendaimon-telegram`, or `opendaimon-ui` without `opendaimon-telegram`
+- Build only `opendaimon-spring-ai` without interface modules (wiring the required entry points)
+- Include `opendaimon-gateway-mock` as a provider stub for test scenarios without external APIs
 - Each module has its own entities and can run autonomously
 
 ### Technology stack
@@ -120,7 +120,7 @@ The project uses a **modular architecture**: each module can be built independen
 
 ## Module structure
 
-### 1. `aibot-common` (Core Module)
+### 1. `opendaimon-common` (Core Module)
 **Purpose:** Base module with shared business logic, models, and services.
 
 **Key components:**
@@ -129,10 +129,10 @@ The project uses a **modular architecture**: each module can be built independen
 - `CommandHandler<T, C, R>` — command handling interface (Command pattern)
 - `PriorityRequestExecutor` — request prioritization (ADMIN/VIP/REGULAR)
 - `BulkHeadAutoConfig`, `BulkHeadProperties` — thread pool configuration
-- `AIBotMeterRegistry` — metrics for monitoring  
+- `OpenDaimonMeterRegistry` — metrics for monitoring  
 **Dependencies:** Spring Data JPA, PostgreSQL, Resilience4j, Caffeine, Micrometer
 
-### 2. `aibot-telegram` (Telegram Interface Module)
+### 2. `opendaimon-telegram` (Telegram Interface Module)
 **Purpose:** Module for Telegram Bot API.
 
 **Key components:**
@@ -142,11 +142,11 @@ The project uses a **modular architecture**: each module can be built independen
 - Services: `TelegramUserService`, `TelegramMessageService`, `TelegramUserSessionService`, `TelegramWhitelistService`, `TypingIndicatorService`
 - Entities: `TelegramUser`, `TelegramUserSession`, `TelegramWhitelist`
 
-**Dependencies:** `aibot-common`, Telegram Bots API (6.9.7.0)
+**Dependencies:** `opendaimon-common`, Telegram Bots API (6.9.7.0)
 
 **DB tables:** `telegram_user`, `telegram_user_session`, `telegram_whitelist`
 
-### 3. `aibot-rest` (REST API Module)
+### 3. `opendaimon-rest` (REST API Module)
 **Purpose:** REST API module.
 
 **Key components:**
@@ -157,11 +157,11 @@ The project uses a **modular architecture**: each module can be built independen
 - Services: `ChatService`, `RestUserService`, `RestMessageService`, `RestAuthorizationService`
 - Exceptions: `RestExceptionHandler`, `UnauthorizedException`
 
-**Dependencies:** `aibot-common`, Springdoc OpenAPI (Swagger)
+**Dependencies:** `opendaimon-common`, Springdoc OpenAPI (Swagger)
 
 **DB tables:** `rest_user`
 
-### 4. `aibot-ui` (Web UI Module)
+### 4. `opendaimon-ui` (Web UI Module)
 **Purpose:** Web interface for browser use.
 
 **Key components:**
@@ -170,9 +170,9 @@ The project uses a **modular architecture**: each module can be built independen
 - Templates: `templates/login.html`, `templates/chat.html`
 - Static: `static/css/chat.css`, `static/js/chat.js`
 
-**Dependencies:** `aibot-rest`, Spring Boot Web, Thymeleaf
+**Dependencies:** `opendaimon-rest`, Spring Boot Web, Thymeleaf
 
-### 5. `aibot-spring-ai` (Spring AI Integration Module)
+### 5. `opendaimon-spring-ai` (Spring AI Integration Module)
 **Purpose:** Integration with LLM providers via Spring AI (OpenRouter, Ollama) and chat memory.
 
 **Key components:**
@@ -183,18 +183,18 @@ The project uses a **modular architecture**: each module can be built independen
 - Web/logging: `RestClientLogCustomizer`, `WebClientLogCustomizer`
 - Tools: `WebTools`
 
-**Dependencies:** `aibot-common`, Spring AI, WebClient
+**Dependencies:** `opendaimon-common`, Spring AI, WebClient
 
-### 6. `aibot-gateway-mock` (Gateway Mock Module)
+### 6. `opendaimon-gateway-mock` (Gateway Mock Module)
 **Purpose:** Stub for integration tests and scenarios without external API.
 
 **Key components:**
 - Provider response mocks
 - DTOs for test scenarios
 
-**Dependencies:** `aibot-common`
+**Dependencies:** `opendaimon-common`
 
-### 7. `aibot-app` (Application Module)
+### 7. `opendaimon-app` (Application Module)
 **Purpose:** Main application module that assembles all modules.
 
 **Key components:**
@@ -202,7 +202,7 @@ The project uses a **modular architecture**: each module can be built independen
 - Flyway migrations in `src/main/resources/db/migration/`
 - `application.yml` — application configuration
 
-**Dependencies:** `aibot-telegram`, `aibot-rest`, `aibot-ui`, `aibot-spring-ai`, `aibot-gateway-mock` (transitively pulls in all other modules)
+**Dependencies:** `opendaimon-telegram`, `opendaimon-rest`, `opendaimon-ui`, `opendaimon-spring-ai`, `opendaimon-gateway-mock` (transitively pulls in all other modules)
 
 ## Database structure
 
@@ -242,10 +242,10 @@ message (base table, SINGLE_TABLE strategy)
 - **Java 21** with modern features
 - **Lombok** to reduce boilerplate (`@Getter`, `@Setter`, `@RequiredArgsConstructor`, `@Slf4j`)
 - **Functional patterns** where possible (Vavr is used)
-- **Package structure:** `io.github.ngirchev.aibot.<module>.<layer>` (e.g. `io.github.ngirchev.aibot.telegram.service`)
+- **Package structure:** `io.github.ngirchev.opendaimon.<module>.<layer>` (e.g. `io.github.ngirchev.opendaimon.telegram.service`)
 
 ### Entity guidelines
-- Base entities in `aibot-common` (`User`, `Message`)
+- Base entities in `opendaimon-common` (`User`, `Message`)
 - Module-specific entities in modules (`TelegramUser`, `RestUser`)
 - **JPA Inheritance JOINED** for User
 - **JPA Inheritance SINGLE_TABLE** for Message (all messages in one table)
@@ -304,28 +304,28 @@ public class MessageTelegramCommandHandler {
 ### Command pattern
 - Interface `CommandHandler<T extends CommandType, C extends Command<T>, R>`
 - Each module has its own implementation (e.g. `TelegramCommandHandler`)
-- Registry for handlers (`AiBotCommandHandlerRegistry`)
+- Registry for handlers (`OpenDaimonCommandHandlerRegistry`)
 
 ### Metrics and monitoring
-- Use `AiBotMeterRegistry` to register metrics
+- Use `OpenDaimonMeterRegistry` to register metrics
 - Metric format: `<module>.<action>.<metric>` (e.g. `telegram.message.processing.time`)
 - All metrics are exported to Prometheus
 
 ## Configuration
 
-- Configuration namespace is `ai-bot.*` (modules `telegram`, `rest`, `ui`, `ai.spring-ai`); feature toggles use `*.enabled`.
-- Config keys and comments live in `aibot-app/src/main/resources/application.yml`.
+- Configuration namespace is `open-daimon.*` (modules `telegram`, `rest`, `ui`, `ai.spring-ai`); feature toggles use `*.enabled`.
+- Config keys and comments live in `opendaimon-app/src/main/resources/application.yml`.
 
 **Module auto-configuration:**  
 Each module provides an `@AutoConfiguration` class with conditional bean registration:
-- `CoreAutoConfig` (aibot-common) — core services, registries
-- `TelegramAutoConfig` — enabled via `ai-bot.telegram.enabled=true`
-- `RestAutoConfig` — enabled via `ai-bot.rest.enabled=true`
-- `SpringAIAutoConfig` — enabled via `ai-bot.ai.spring-ai.enabled=true`
+- `CoreAutoConfig` (opendaimon-common) — core services, registries
+- `TelegramAutoConfig` — enabled via `open-daimon.telegram.enabled=true`
+- `RestAutoConfig` — enabled via `open-daimon.rest.enabled=true`
+- `SpringAIAutoConfig` — enabled via `open-daimon.ai.spring-ai.enabled=true`
 
 **Properties hierarchy:**
 ```yaml
-ai-bot:
+open-daimon:
   common:
     summarization:
       max-context-tokens: 8000
@@ -356,7 +356,7 @@ ai-bot:
 
 Example:
 ```java
-@ConfigurationProperties(prefix = "ai-bot.context")
+@ConfigurationProperties(prefix = "open-daimon.context")
 @Validated
 @Getter
 @Setter
@@ -378,14 +378,14 @@ mvn clean install
 mvn clean package -DskipTests
 
 # Build a single module
-mvn clean install -pl aibot-common
+mvn clean install -pl opendaimon-common
 ```
 
 ### Run application
 ```bash
 # Local development (requires infrastructure)
 docker-compose up -d postgres prometheus grafana
-mvn spring-boot:run -pl aibot-app
+mvn spring-boot:run -pl opendaimon-app
 
 # Full Docker deployment
 mvn clean package -DskipTests
@@ -398,23 +398,23 @@ docker-compose up -d
 mvn test
 
 # Single test class
-mvn test -Dtest=MessageTelegramCommandHandlerIntegrationTest -pl aibot-app
+mvn test -Dtest=MessageTelegramCommandHandlerIntegrationTest -pl opendaimon-app
 
 # Single test method
-mvn test "-Dtest=TelegramUserRepositoryTest#whenSaveUser_thenUserIsSaved" -pl aibot-app
+mvn test "-Dtest=TelegramUserRepositoryTest#whenSaveUser_thenUserIsSaved" -pl opendaimon-app
 
 # Tests for one module
-mvn test -pl aibot-telegram
+mvn test -pl opendaimon-telegram
 
 # SpringAIGatewayIT (streaming, no Ollama)
-mvn test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
+mvn test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
 ```
 
 **Running tests on Windows:**
 - For `mvnw.cmd`, **JAVA_HOME** must point to JDK 21. If not set globally, JDK is often at `C:\Users\<user>\.jdks\corretto-21.0.10` (IDEA) or copy path from File → Project Structure → SDKs.
 - In **PowerShell** from project root (single line):
   ```powershell
-  $env:JAVA_HOME = "C:\Users\<user>\.jdks\corretto-21.0.10"; cd c:\path\to\ai-bot; .\mvnw.cmd test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
+  $env:JAVA_HOME = "C:\Users\<user>\.jdks\corretto-21.0.10"; cd c:\path\to\open-daimon; .\mvnw.cmd test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
   ```
   (replace `<user>` and path with your JDK and project location).
 - If running only module tests, build dependencies first: `.\mvnw.cmd install -DskipTests`, then the `test` command above.
@@ -429,10 +429,10 @@ mvn test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
 ### DB migrations
 ```bash
 # Run Flyway migrations manually
-mvn flyway:migrate -pl aibot-common
+mvn flyway:migrate -pl opendaimon-common
 
 # Flyway migration info
-mvn flyway:info -pl aibot-common
+mvn flyway:info -pl opendaimon-common
 ```
 
 **Modular Flyway strategy:**
@@ -444,7 +444,7 @@ mvn flyway:info -pl aibot-common
 **Adding a new migration:**
 1. Create file in the module path: `V<number>__Description.sql`
 2. Use naming like `V1__Create_base_tables.sql`, `V2__Add_user_fields.sql`
-3. Run `mvn flyway:migrate -pl aibot-common` to apply
+3. Run `mvn flyway:migrate -pl opendaimon-common` to apply
 
 ### Line endings (Linux, Mac, Windows)
 
@@ -511,11 +511,11 @@ Return response to user
 
 ## Dialog context modes
 
-The system has two mutually exclusive modes controlled by `ai-bot.common.manual-conversation-history.enabled`:
+The system has two mutually exclusive modes controlled by `open-daimon.common.manual-conversation-history.enabled`:
 
 **Mode 1: Manual context building (`enabled: true`)**
 - `ConversationHistoryAICommandFactory` builds context manually
-- `ConversationContextBuilderService` loads messages from table `aibot_message`
+- `ConversationContextBuilderService` loads messages from table `opendaimon_message`
 - Full control over token budget, window size, and summary integration
 - Use for custom context management logic
 
@@ -525,7 +525,7 @@ The system has two mutually exclusive modes controlled by `ai-bot.common.manual-
 - Automatic dialog tracking by conversationId
 - Use for framework integration with Spring AI
 
-**Default:** The default for the application is **Spring AI ChatMemory** (`ai-bot.common.manual-conversation-history.enabled=false`). Manual mode (`enabled: true`) is for experiments and custom scenarios, not the primary configuration.
+**Default:** The default for the application is **Spring AI ChatMemory** (`open-daimon.common.manual-conversation-history.enabled=false`). Manual mode (`enabled: true`) is for experiments and custom scenarios, not the primary configuration.
 
 ## Automatic dialog summarization
 
@@ -580,17 +580,17 @@ Vision-capable model (e.g., GPT-4o, Claude 3)
 ```
 
 **Feature Flags:**
-- `ai-bot.common.storage.enabled=true` - MinIO storage
-- `ai-bot.telegram.file-upload.enabled=true` - Telegram file processing
+- `open-daimon.common.storage.enabled=true` - MinIO storage
+- `open-daimon.telegram.file-upload.enabled=true` - Telegram file processing
 
 **Key components:**
-- `TelegramFileService` (aibot-telegram) — downloads files from Telegram API
-- `MinioFileStorageService` (aibot-common) — stores files in MinIO
-- `Attachment` record (aibot-common) — file metadata + byte data
+- `TelegramFileService` (opendaimon-telegram) — downloads files from Telegram API
+- `MinioFileStorageService` (opendaimon-common) — stores files in MinIO
+- `Attachment` record (opendaimon-common) — file metadata + byte data
 - `SpringAIGateway.createUserMessage()` — converts Attachment to Spring AI Media
 
 **Storing attachment references in history (manual-conversation-history mode):**
-- Table `message`, column `attachments` (JSONB): array of `{ storageKey, expiresAt, mimeType, filename }`. Reference and expiry (TTL from `ai-bot.common.storage.minio.ttl-hours`) are saved when saving the USER message (`TelegramMessageService.saveUserMessage` with attachments).
+- Table `message`, column `attachments` (JSONB): array of `{ storageKey, expiresAt, mimeType, filename }`. Reference and expiry (TTL from `open-daimon.common.storage.minio.ttl-hours`) are saved when saving the USER message (`TelegramMessageService.saveUserMessage` with attachments).
 - When building context (`ConversationContextBuilderService.buildContext`), for USER messages with non-empty `attachments` and non-expired `expiresAt`, images (mimeType image/*) are loaded from MinIO by `storageKey` and added as content parts (text + image_url with data:base64). If the file is expired or storage is disabled, only text is added. Attachments are available within the window until summarization and until TTL expires.
 
 ### PDF documents (RAG Pipeline Flow)
@@ -620,17 +620,17 @@ RAGService.createAugmentedPrompt()
 ```
 
 **Feature Flag:**
-- `ai-bot.ai.spring-ai.rag.enabled=true` — RAG pipeline (uses SimpleVectorStore in-memory)
+- `open-daimon.ai.spring-ai.rag.enabled=true` — RAG pipeline (uses SimpleVectorStore in-memory)
 
 **Key components:**
-- `DocumentProcessingService` (aibot-spring-ai) — ETL pipeline for PDF
-- `RAGService` (aibot-spring-ai) — similarity search and prompt augmentation
+- `DocumentProcessingService` (opendaimon-spring-ai) — ETL pipeline for PDF
+- `RAGService` (opendaimon-spring-ai) — similarity search and prompt augmentation
 - `SimpleVectorStore` — in-memory vector store (data is lost on restart)
 - `RAGProperties` — config: chunkSize, chunkOverlap, topK, similarityThreshold
 
 **Example RAG configuration:**
 ```yaml
-ai-bot:
+open-daimon:
   ai:
     spring-ai:
       rag:
@@ -646,7 +646,7 @@ ai-bot:
 ## Monitoring
 
 **Metrics:**
-- Custom `AIBotMeterRegistry` wraps Micrometer
+- Custom `OpenDaimonMeterRegistry` wraps Micrometer
 - Prometheus endpoint: `http://localhost:8080/actuator/prometheus`
 - Grafana dashboards: `http://localhost:3000` (admin/admin123456)
 
@@ -676,7 +676,7 @@ DEEPSEEK_KEY=your_deepseek_api_key
 # Database (same as docker-compose postgres service; required for flyway:migrate)
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_DB=ai_bot
+POSTGRES_DB=opendaimon
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_secure_password
 
@@ -687,19 +687,19 @@ POSTGRES_PASSWORD=your_secure_password
 
 ## Adding a new AI provider
 
-1. Create a new module `aibot-<provider>`
-2. Add dependency on `aibot-common`
+1. Create a new module `opendaimon-<provider>`
+2. Add dependency on `opendaimon-common`
 3. Implement `AIGateway`
 4. Create `@AutoConfiguration` with `@ConditionalOnProperty`
 5. Add a Properties class for API keys/endpoints
-6. Register in `aibot-app/pom.xml`
+6. Register in `opendaimon-app/pom.xml`
 7. Update `application.yml` with configuration
 
 ## Adding a new interface
 
-1. Create a new module `aibot-<interface>`
+1. Create a new module `opendaimon-<interface>`
 2. Implement command handlers extending `ICommandHandler`
 3. Create command types implementing `ICommand` or `IChatCommand`
 4. Create `@AutoConfiguration`
 5. Add properties for interface-specific configuration
-6. Register in `aibot-app/pom.xml`
+6. Register in `opendaimon-app/pom.xml`

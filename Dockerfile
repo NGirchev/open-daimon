@@ -4,22 +4,22 @@ WORKDIR /app
 
 # Copy pom.xml and all modules
 COPY pom.xml .
-COPY aibot-common/pom.xml ./aibot-common/
-COPY aibot-spring-ai/pom.xml ./aibot-spring-ai/
-COPY aibot-ui/pom.xml ./aibot-ui/
-COPY aibot-rest/pom.xml ./aibot-rest/
-COPY aibot-telegram/pom.xml ./aibot-telegram/
-COPY aibot-gateway-mock/pom.xml ./aibot-gateway-mock/
-COPY aibot-app/pom.xml ./aibot-app/
+COPY opendaimon-common/pom.xml ./opendaimon-common/
+COPY opendaimon-spring-ai/pom.xml ./opendaimon-spring-ai/
+COPY opendaimon-ui/pom.xml ./opendaimon-ui/
+COPY opendaimon-rest/pom.xml ./opendaimon-rest/
+COPY opendaimon-telegram/pom.xml ./opendaimon-telegram/
+COPY opendaimon-gateway-mock/pom.xml ./opendaimon-gateway-mock/
+COPY opendaimon-app/pom.xml ./opendaimon-app/
 
 # Copy source code
-COPY aibot-common/src ./aibot-common/src
-COPY aibot-spring-ai/src ./aibot-spring-ai/src
-COPY aibot-ui/src ./aibot-ui/src
-COPY aibot-rest/src ./aibot-rest/src
-COPY aibot-telegram/src ./aibot-telegram/src
-COPY aibot-gateway-mock/src ./aibot-gateway-mock/src
-COPY aibot-app/src ./aibot-app/src
+COPY opendaimon-common/src ./opendaimon-common/src
+COPY opendaimon-spring-ai/src ./opendaimon-spring-ai/src
+COPY opendaimon-ui/src ./opendaimon-ui/src
+COPY opendaimon-rest/src ./opendaimon-rest/src
+COPY opendaimon-telegram/src ./opendaimon-telegram/src
+COPY opendaimon-gateway-mock/src ./opendaimon-gateway-mock/src
+COPY opendaimon-app/src ./opendaimon-app/src
 
 # Build project
 RUN mvn clean package -DskipTests -B
@@ -29,7 +29,7 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 # Copy JAR from build stage
-COPY --from=build /app/aibot-app/target/aibot-app-1.0-SNAPSHOT.jar app.jar
+COPY --from=build /app/opendaimon-app/target/opendaimon-app-1.0-SNAPSHOT.jar app.jar
 
 # Expose port
 EXPOSE 8080

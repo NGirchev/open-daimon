@@ -8,7 +8,7 @@ If you discover a security vulnerability in this project, please report it respo
 
 ### How to report
 
-1. Go to [GitHub Security Advisories](https://github.com/NGirchev/ai-bot/security/advisories/new).
+1. Go to [GitHub Security Advisories](https://github.com/NGirchev/open-daimon/security/advisories/new).
 2. Click **Report a vulnerability**.
 3. Fill in the form with:
    - Description of the vulnerability

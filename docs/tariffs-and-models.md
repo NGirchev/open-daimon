@@ -4,7 +4,7 @@ This document describes how user priority (tariff) is determined, how it maps to
 
 ## 1. User priority (tariff)
 
-**Source:** [DefaultUserPriorityService](../aibot-common/src/main/java/io/github/ngirchev/aibot/bulkhead/service/impl/DefaultUserPriorityService.java) resolves priority by `userId`:
+**Source:** [DefaultUserPriorityService](../opendaimon-common/src/main/java/io/github/ngirchev/opendaimon/bulkhead/service/impl/DefaultUserPriorityService.java) resolves priority by `userId`:
 
 | Priority   | Condition |
 |-----------|-----------|
@@ -15,11 +15,11 @@ This document describes how user priority (tariff) is determined, how it maps to
 
 Priority is not a separate “plan” in the app; it is derived from Telegram (admin / premium), whitelist, and channel membership.
 
-**Access and groups/chats:** Access is granted via **membership in configured groups/channels** defined in `ai-bot.telegram.access.*.channels` (see `TELEGRAM_ACCESS_*_CHANNELS` env variables). Any user who is a member of one of these groups/channels is auto-added to the whitelist on first interaction ([TelegramWhitelistService](../aibot-telegram/src/main/java/io/github/ngirchev/aibot/telegram/service/TelegramWhitelistService.java)). Users who got access via such groups/channels receive **VIP (Premium)** priority (same as Telegram Premium users): they get the same model capabilities and free-model treatment.
+**Access and groups/chats:** Access is granted via **membership in configured groups/channels** defined in `open-daimon.telegram.access.*.channels` (see `TELEGRAM_ACCESS_*_CHANNELS` env variables). Any user who is a member of one of these groups/channels is auto-added to the whitelist on first interaction ([TelegramWhitelistService](../opendaimon-telegram/src/main/java/io/github/ngirchev/opendaimon/telegram/service/TelegramWhitelistService.java)). Users who got access via such groups/channels receive **VIP (Premium)** priority (same as Telegram Premium users): they get the same model capabilities and free-model treatment.
 
 ## 2. Capabilities by priority
 
-In [DefaultAICommandFactory](../aibot-common/src/main/java/io/github/ngirchev/aibot/common/ai/factory/DefaultAICommandFactory.java), priority determines the **ModelCapabilities** set (what the model must support):
+In [DefaultAICommandFactory](../opendaimon-common/src/main/java/io/github/ngirchev/opendaimon/common/ai/factory/DefaultAICommandFactory.java), priority determines the **ModelCapabilities** set (what the model must support):
 
 | Priority   | Capabilities | Extra |
 |-----------|---------------|-------|
@@ -40,9 +40,9 @@ The gateway then calls `getCandidatesByCapabilities(capabilities, null)` and rec
   Added to the registry during **refresh** from the OpenRouter API (`GET .../v1/models`): models with `pricing.prompt` and `pricing.completion == 0` are taken, then filters from config are applied.
 
 - **Filter (allowlist):**  
-  In [application.yml](../aibot-app/src/main/resources/application.yml) the free-model allowlist is:
+  In [application.yml](../opendaimon-app/src/main/resources/application.yml) the free-model allowlist is:
 
-  - `ai-bot.ai.spring-ai.openrouter-auto-rotation.models.filters.include-model-ids` — explicit list of model ids (e.g. `google/gemma-3-12b-it:free`, `meta-llama/llama-3.2-3b-instruct:free`, …).
+  - `open-daimon.ai.spring-ai.openrouter-auto-rotation.models.filters.include-model-ids` — explicit list of model ids (e.g. `google/gemma-3-12b-it:free`, `meta-llama/llama-3.2-3b-instruct:free`, …).
 
 Only free models from the API whose id is in this list (and passes other filters if configured) are added to the registry. So “free models” are not “searched depending on model”; they are loaded once at refresh from the API and filtered by the same allowlist for everyone. The actual model chosen for a request is then selected by **capabilities** (ADMIN/VIP/REGULAR) and ranking (latency, cooldown after 429/5xx).
 

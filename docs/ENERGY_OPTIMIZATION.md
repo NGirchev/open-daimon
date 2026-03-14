@@ -1,6 +1,6 @@
 # Ubuntu Server Energy Optimization
 
-Documentation for optimizing power consumption of Ubuntu Server on a laptop for the AI Bot project.
+Documentation for optimizing power consumption of Ubuntu Server on a laptop for the OpenDaimon project.
 
 ## ✅ What Has Been Done
 
@@ -634,7 +634,7 @@ sudo iftop
 
 - **Last updated**: 2024
 - **System**: Ubuntu Server on laptop
-- **Project**: AI Bot (Spring Boot + Docker + PostgreSQL)
+- **Project**: OpenDaimon (Spring Boot + Docker + PostgreSQL)
 
 ## 🔗 Useful Links
 

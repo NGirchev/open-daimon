@@ -49,7 +49,7 @@ When streaming is broken, this mock is the first thing to check:
 
 ### 1.2. Add console logs for raw chunks in chat.js
 
-Client‑side streaming is implemented in `aibot-ui/src/main/resources/static/js/chat.js`:
+Client‑side streaming is implemented in `opendaimon-ui/src/main/resources/static/js/chat.js`:
 
 - New chat: `onSend()` → `streamMessage(`${API}/stream`, ...)`
 - Existing chat: `onSend()` → `streamMessage(`${API}/${currentSessionId}/stream`, ...)`
@@ -85,7 +85,7 @@ Remove these logs after the issue is understood; they are only for troubleshooti
 
 ## 2. Spring AI streaming (SpringAIGateway + SpringAIChatService + WebClient)
 
-Streaming from the AI provider to our code is covered by `SpringAIGatewayIT` (`aibot-spring-ai` module). This test suite already contains **mock‑based reproduction of streaming problems** and should be used as the main reference.
+Streaming from the AI provider to our code is covered by `SpringAIGatewayIT` (`opendaimon-spring-ai` module). This test suite already contains **mock‑based reproduction of streaming problems** and should be used as the main reference.
 
 ### 2.1. Simulated ChatResponse stream (no real HTTP)
 
@@ -145,7 +145,7 @@ This test is the main place where **mocked HTTP SSE** is defined; if you need an
 
 ## 3. AIUtils: processing streaming responses and empty content
 
-`AIUtils` (`aibot-common`) is responsible for:
+`AIUtils` (`opendaimon-common`) is responsible for:
 
 - unifying Spring AI and other gateway responses;
 - aggregating streaming responses;
@@ -176,7 +176,7 @@ do the following:
 3. If all chunks have null `getResult()`:
    - the bug is earlier (SSE parsing or mapping from raw provider JSON to `ChatResponse`).
 
-The test `AIUtilsOpenRouterTest` (`aibot-spring-ai`) validates that `AIUtils.isOpenRouterEmptyStreamInChain` correctly detects `OpenRouterEmptyStreamException` in both direct and wrapped causes. If this test fails, logging and retry behaviour around empty streams will be wrong.
+The test `AIUtilsOpenRouterTest` (`opendaimon-spring-ai`) validates that `AIUtils.isOpenRouterEmptyStreamInChain` correctly detects `OpenRouterEmptyStreamException` in both direct and wrapped causes. If this test fails, logging and retry behaviour around empty streams will be wrong.
 
 ---
 
@@ -186,7 +186,7 @@ This is a concrete, repeatable checklist for verifying that streaming works acro
 
 1. **Verify Spring AI layer (no HTTP)**
    - From project root:
-     - `./mvnw -pl aibot-spring-ai -Dtest=SpringAIGatewayIT test`
+     - `./mvnw -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT test`
    - Expected:
      - `whenSpringAIStreamResponse_thenChunksArriveProgressivelyNotAllAtOnce` passes (chunks from `SpringAIGateway` arrive with noticeable time span, not all at once).
      - `whenSseStreamViaWebClientWithLogCustomizer_thenDataBuffersArriveProgressivelyNotAllAtOnce` passes (MockWebServer SSE + `WebClientLogCustomizer` do not buffer the stream).
@@ -194,14 +194,14 @@ This is a concrete, repeatable checklist for verifying that streaming works acro
 
 2. **Verify REST streaming handler (RestChatStreamMessageCommandHandler)**
    - Unit tests:
-     - `./mvnw -pl aibot-rest -Dtest=RestChatStreamMessageCommandHandlerTest test`
+     - `./mvnw -pl opendaimon-rest -Dtest=RestChatStreamMessageCommandHandlerTest test`
    - Expected:
      - `buildStreamFlux` correctly maps `SpringAIStreamResponse.chatResponse()` → `Flux<String>` of characters and saves full text to DB on complete/cancel.
    - For deeper investigation you can temporarily add `.doOnNext` logs into `buildStreamFlux` (for `ChatResponse` and text chunks), run a real request, and then revert logs after analysis.
 
 3. **Verify controller SSE contract (SessionController)**
    - Controller‑level test (no real AI, `ChatService` is mocked):
-     - `./mvnw -pl aibot-rest -Dtest=SessionControllerContractTest test`
+     - `./mvnw -pl opendaimon-rest -Dtest=SessionControllerContractTest test`
    - The test `PostStreamNewChat.whenAuthorized_returnsSseStream` does:
      - `POST /api/v1/session/stream` with `ChatRequestDto("Hello", email)`.
      - Mocks `ChatService.sendMessageToNewChat(...)` to return `ChatResponseDto<Flux<String>>` with `Flux.just("Hello", " ", "world")` and a fixed `sessionId`.

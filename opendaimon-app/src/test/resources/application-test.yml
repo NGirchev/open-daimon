@@ -1,0 +1,42 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig
+  ai:
+    openai:
+      api-key: mock-key
+    ollama:
+      base-url: http://localhost:11434
+
+open-daimon:
+  telegram:
+    enabled: true
+  common:
+    assistant-role: You are a helpful assistant
+    max-output-tokens: 1000
+    max-reasoning-tokens: 500
+    max-user-message-tokens: 4000
+    max-total-prompt-tokens: 32000
+    summarization:
+      max-context-tokens: 8000
+      summary-trigger-threshold: 0.7
+      keep-recent-messages: 5
+      prompt: "You are an assistant. Create a summary in JSON. Conversation:"
+    manual-conversation-history:
+      enabled: false
+      max-response-tokens: 4000
+      default-window-size: 5
+      include-system-prompt: true
+      token-estimation-chars-per-token: 4
+  ai:
+    openrouter:
+      enabled: false
+    deepseek:
+      enabled: false
+    spring-ai:
+      enabled: false

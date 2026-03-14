@@ -13,7 +13,7 @@ When making **logical changes to a component's algorithm or flow**, always updat
 - A significant step was added or removed in the pipeline, retry, model rotation, etc.
 
 **Where to find documentation:**
-- `README.md` in the package/module (e.g. `aibot-spring-ai/.../retry/README.md`).
+- `README.md` in the package/module (e.g. `opendaimon-spring-ai/.../retry/README.md`).
 - Code comments (class, key methods).
 - `AGENTS.md` — if architecture or flow description is affected.
 

@@ -6,23 +6,23 @@ The project uses a modular Flyway migration system where each module is responsi
 
 ## Migration structure
 
-### Core module (aibot-common)
+### Core module (opendaimon-common)
 **Always runs** — contains base tables:
 - `V1__Create_base_user_table.sql` — user table
 - `V2__Create_base_user_request_table.sql` — request table
 - `V3__Create_service_response_table.sql` — AI response table
 - `V4__Create_base_indexes.sql` — base indexes
 
-### Telegram module (aibot-telegram)
-**Runs only when `ai-bot.telegram.enabled=true`**:
+### Telegram module (opendaimon-telegram)
+**Runs only when `open-daimon.telegram.enabled=true`**:
 - `V1__Create_telegram_user_table.sql` — Telegram user table
 - `V2__Create_telegram_session_table.sql` — session table
 - `V3__Create_telegram_request_table.sql` — Telegram request table
 - `V4__Create_telegram_whitelist_table.sql` — whitelist table
 - `V5__Create_telegram_indexes.sql` — Telegram indexes
 
-### REST module (aibot-rest)
-**Runs only when `ai-bot.rest.enabled=true`**:
+### REST module (opendaimon-rest)
+**Runs only when `open-daimon.rest.enabled=true`**:
 - `V1__Create_rest_user_table.sql` — REST user table
 - `V2__Create_rest_request_table.sql` — REST request table
 - `V3__Create_rest_indexes.sql` — REST indexes
@@ -32,7 +32,7 @@ The project uses a modular Flyway migration system where each module is responsi
 ### Enabling modules
 
 ```yaml
-ai-bot:
+open-daimon:
   telegram:
     enabled: true   # Enable Telegram module
   rest:
@@ -51,7 +51,7 @@ spring:
 
 ### Telegram bot only
 ```yaml
-ai-bot:
+open-daimon:
   telegram:
     enabled: true
     token: "${TELEGRAM_BOT_TOKEN}"
@@ -63,7 +63,7 @@ ai-bot:
 
 ### REST API only
 ```yaml
-ai-bot:
+open-daimon:
   telegram:
     enabled: false
   rest:
@@ -74,7 +74,7 @@ ai-bot:
 
 ### Full stack
 ```yaml
-ai-bot:
+open-daimon:
   telegram:
     enabled: true
   rest:

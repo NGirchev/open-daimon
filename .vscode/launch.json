@@ -5,8 +5,8 @@
             "type": "java",
             "name": "Application",
             "request": "launch",
-            "mainClass": "io.github.ngirchev.aibot.Application",
-            "projectName": "ai-bot"
+            "mainClass": "io.github.ngirchev.opendaimon.Application",
+            "projectName": "open-daimon"
         },
         {
             "type": "java",
@@ -18,8 +18,8 @@
             "type": "java",
             "name": "Debug (Launch) - Main",
             "request": "launch",
-            "mainClass": "io.github.ngirchev.aibot.AiBotApplication",
-            "projectName": "ai-bot"
+            "mainClass": "io.github.ngirchev.opendaimon.OpenDaimonApplication",
+            "projectName": "open-daimon"
         },
         {
             "type": "java",

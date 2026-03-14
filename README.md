@@ -1,20 +1,20 @@
-# AI Bot
+# OpenDaimon
 
-[![Build Status](https://github.com/NGirchev/ai-bot/actions/workflows/maven.yml/badge.svg)](https://github.com/NGirchev/ai-bot/actions)
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.ngirchev/aibot-parent)](https://central.sonatype.com/namespace/io.github.ngirchev)
-[![SonarCloud Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=alert_status)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
-[![SonarCloud Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=ncloc)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
-[![SonarCloud Maintainability](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
-[![SonarCloud Code Smells](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=code_smells)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
-[![SonarCloud Security](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=security_rating)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
-[![SonarCloud Bugs](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=bugs)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
-[![SonarCloud Duplicated Lines](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
-[![SonarCloud Reliability](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
-[![SonarCloud Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_ai-bot&metric=sqale_index)](https://sonarcloud.io/summary/new_code?project=NGirchev_ai-bot)
+[![Build Status](https://github.com/NGirchev/open-daimon/actions/workflows/maven.yml/badge.svg)](https://github.com/NGirchev/open-daimon/actions)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.ngirchev/opendaimon-parent)](https://central.sonatype.com/namespace/io.github.ngirchev)
+[![SonarCloud Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=alert_status)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
+[![SonarCloud Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=ncloc)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
+[![SonarCloud Maintainability](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
+[![SonarCloud Code Smells](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=code_smells)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
+[![SonarCloud Security](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=security_rating)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
+[![SonarCloud Bugs](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=bugs)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
+[![SonarCloud Duplicated Lines](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
+[![SonarCloud Reliability](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
+[![SonarCloud Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=sqale_index)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
 
 [![Java 21](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk)](https://openjdk.org/)
 [![Spring Boot 3.3.3](https://img.shields.io/badge/Spring%20Boot-3.3.3-6DB33F?logo=springboot)](https://spring.io/projects/spring-boot)
-[![License](https://img.shields.io/github/license/NGirchev/ai-bot)](https://github.com/NGirchev/ai-bot/blob/master/LICENSE)
+[![License](https://img.shields.io/github/license/NGirchev/open-daimon)](https://github.com/NGirchev/open-daimon/blob/master/LICENSE)
 
 Multi-module Java project for interacting with various AI services through different interfaces (Telegram, REST API, Web UI), with integration via Spring AI (OpenRouter, Ollama).
 
@@ -111,7 +111,7 @@ REST_ACCESS_REGULAR_EMAILS=user@example.com,test@example.com
 Edit `application.yml` to change request limits:
 
 ```yaml
-ai-bot:
+open-daimon:
   common:
     bulkhead:
       enabled: true
@@ -159,30 +159,30 @@ ai-bot:
 
 ## Modules
 
-You can add only the modules you need. All modules use `groupId` `io.github.ngirchev`; set `aibot.version` in your POM or use a concrete version.
+You can add only the modules you need. All modules use `groupId` `io.github.ngirchev`; set `opendaimon.version` in your POM or use a concrete version.
 
 ### Module dependency graph
 
 ```mermaid
 graph TD
-    common[aibot-common]
-    telegram[aibot-telegram] --> common
-    rest[aibot-rest] --> common
-    ui[aibot-ui] --> rest
-    springai[aibot-spring-ai] --> common
-    mock[aibot-gateway-mock] --> common
+    common[opendaimon-common]
+    telegram[opendaimon-telegram] --> common
+    rest[opendaimon-rest] --> common
+    ui[opendaimon-ui] --> rest
+    springai[opendaimon-spring-ai] --> common
+    mock[opendaimon-gateway-mock] --> common
 ```
 
 ### Module overview
 
 | Module | Description | Depends on |
 |--------|-------------|------------|
-| `aibot-common` | Core: entities, services, request prioritization | — |
-| `aibot-telegram` | Telegram Bot interface | `aibot-common` |
-| `aibot-rest` | REST API (controllers, Swagger) | `aibot-common` |
-| `aibot-ui` | Web UI (Thymeleaf) | `aibot-rest` |
-| `aibot-spring-ai` | Spring AI (OpenRouter, Ollama, chat memory, RAG) | `aibot-common` |
-| `aibot-gateway-mock` | Mock AI provider for tests | `aibot-common` |
+| `opendaimon-common` | Core: entities, services, request prioritization | — |
+| `opendaimon-telegram` | Telegram Bot interface | `opendaimon-common` |
+| `opendaimon-rest` | REST API (controllers, Swagger) | `opendaimon-common` |
+| `opendaimon-ui` | Web UI (Thymeleaf) | `opendaimon-rest` |
+| `opendaimon-spring-ai` | Spring AI (OpenRouter, Ollama, chat memory, RAG) | `opendaimon-common` |
+| `opendaimon-gateway-mock` | Mock AI provider for tests | `opendaimon-common` |
 
 ### Example: Telegram bot + Spring AI
 
@@ -191,13 +191,13 @@ Minimal setup for a Telegram bot with AI:
 ```xml
 <dependency>
     <groupId>io.github.ngirchev</groupId>
-    <artifactId>aibot-telegram</artifactId>
-    <version>${aibot.version}</version>
+    <artifactId>opendaimon-telegram</artifactId>
+    <version>${opendaimon.version}</version>
 </dependency>
 <dependency>
     <groupId>io.github.ngirchev</groupId>
-    <artifactId>aibot-spring-ai</artifactId>
-    <version>${aibot.version}</version>
+    <artifactId>opendaimon-spring-ai</artifactId>
+    <version>${opendaimon.version}</version>
 </dependency>
 ```
 
@@ -208,13 +208,13 @@ No Telegram; REST and browser UI only:
 ```xml
 <dependency>
     <groupId>io.github.ngirchev</groupId>
-    <artifactId>aibot-ui</artifactId>
-    <version>${aibot.version}</version>
+    <artifactId>opendaimon-ui</artifactId>
+    <version>${opendaimon.version}</version>
 </dependency>
 <dependency>
     <groupId>io.github.ngirchev</groupId>
-    <artifactId>aibot-spring-ai</artifactId>
-    <version>${aibot.version}</version>
+    <artifactId>opendaimon-spring-ai</artifactId>
+    <version>${opendaimon.version}</version>
 </dependency>
 ```
 
@@ -225,8 +225,8 @@ Use the assembled application module (includes Telegram, REST, UI, Spring AI, ga
 ```xml
 <dependency>
     <groupId>io.github.ngirchev</groupId>
-    <artifactId>aibot-app</artifactId>
-    <version>${aibot.version}</version>
+    <artifactId>opendaimon-app</artifactId>
+    <version>${opendaimon.version}</version>
 </dependency>
 ```
 
@@ -267,11 +267,11 @@ docker-compose up -d postgres prometheus grafana
 - **If you have the source code** and want to build yourself: install [Maven](https://maven.apache.org/download.cgi) (build tool for Java). Then in the project folder run:
   ```bash
   mvn clean install
-  java -jar aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
+  java -jar opendaimon-app/target/opendaimon-app-1.0-SNAPSHOT.jar
   ```
 - **If someone gave you a ready JAR file:** put the JAR in a folder, put your `.env` in the same folder (or set the same variables in the environment), then run:
   ```bash
-  java -jar aibot-app-1.0-SNAPSHOT.jar
+  java -jar opendaimon-app-1.0-SNAPSHOT.jar
   ```
 
 The app will start. You can open the Web UI or use the Telegram bot according to your configuration. For more options (e.g. run everything in Docker), see the sections below.
@@ -301,7 +301,7 @@ For local run without Docker Compose you can also `export` variables in the shel
 
 3. **Run the application:**
    ```bash
-   mvn spring-boot:run -pl aibot-app
+   mvn spring-boot:run -pl opendaimon-app
    ```
 
 ### Run with Docker Compose (recommended)
@@ -322,7 +322,7 @@ For local run without Docker Compose you can also `export` variables in the shel
 4. **Check status:**
    ```bash
    docker-compose ps
-   docker-compose logs -f aibot-app
+   docker-compose logs -f opendaimon-app
    ```
 
 ## Build and run
@@ -346,8 +346,8 @@ docker-compose ps
 ```bash
 mvn clean install
 mvn clean install -DskipTests              # without tests
-mvn clean install -pl aibot-telegram       # single module
-mvn clean install -pl aibot-app -am        # module and dependencies
+mvn clean install -pl opendaimon-telegram       # single module
+mvn clean install -pl opendaimon-app -am        # module and dependencies
 ```
 
 ### Run application
@@ -355,15 +355,15 @@ mvn clean install -pl aibot-app -am        # module and dependencies
 **Option 1: Maven (development)**
 
 ```bash
-mvn spring-boot:run -pl aibot-app
+mvn spring-boot:run -pl opendaimon-app
 ```
 
 **Option 2: Run the built JAR**
 
-After `mvn clean install` (or `mvn clean package -pl aibot-app -am`), run the executable JAR. Set environment variables or use a `.env` file in the current directory (see [Environment variables](#environment-variables)).
+After `mvn clean install` (or `mvn clean package -pl opendaimon-app -am`), run the executable JAR. Set environment variables or use a `.env` file in the current directory (see [Environment variables](#environment-variables)).
 
 ```bash
-java -jar aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
+java -jar opendaimon-app/target/opendaimon-app-1.0-SNAPSHOT.jar
 ```
 
 JAR name follows the project version from the parent POM (e.g. `1.0-SNAPSHOT`). Use Java 21: `java -version`.
@@ -404,31 +404,31 @@ mvn test
 ### Run tests for a specific module
 
 ```bash
-mvn test -pl aibot-common
-mvn test -pl aibot-telegram
+mvn test -pl opendaimon-common
+mvn test -pl opendaimon-telegram
 ```
 
 ### Run a specific test
 
 ```bash
 # Example from README
-mvn test -Dtest=repository.telegram.io.github.ngirchev.aibot.common.TelegramUserRepositoryTest -pl aibot-app
+mvn test -Dtest=repository.telegram.io.github.ngirchev.opendaimon.common.TelegramUserRepositoryTest -pl opendaimon-app
 
 # Specific method
-mvn test "-Dtest=repository.telegram.io.github.ngirchev.aibot.common.TelegramUserRepositoryTest#whenSaveUser_thenUserIsSaved" -pl aibot-app
+mvn test "-Dtest=repository.telegram.io.github.ngirchev.opendaimon.common.TelegramUserRepositoryTest#whenSaveUser_thenUserIsSaved" -pl opendaimon-app
 
 # SpringAIGatewayIT (streaming)
-mvn test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
+mvn test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
 ```
 
 ### Running tests on Windows
 - **mvnw.cmd** requires **JAVA_HOME** (JDK 21). Common path: `C:\Users\<user>\.jdks\corretto-21.0.10` (IDEA) or File → Project Structure → SDKs.
 - **PowerShell** from project root:
   ```powershell
-  $env:JAVA_HOME = "C:\Users\<user>\.jdks\corretto-21.0.10"; cd c:\path\to\ai-bot; .\mvnw.cmd test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
+  $env:JAVA_HOME = "C:\Users\<user>\.jdks\corretto-21.0.10"; cd c:\path\to\open-daimon; .\mvnw.cmd test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
   ```
   (replace `<user>` and path with your JDK and project location).
-- If a single-module test fails with "Could not find artifact aibot-common", run `.\mvnw.cmd install -DskipTests` first, then the `test` command.
+- If a single-module test fails with "Could not find artifact opendaimon-common", run `.\mvnw.cmd install -DskipTests` first, then the `test` command.
 - **From IntelliJ IDEA**: right-click `SpringAIGatewayIT` → Run 'SpringAIGatewayIT'.
 
 ### Integration tests
@@ -475,7 +475,7 @@ mvn flyway:baseline
 ### Tests fail with DB error
 - Ensure Docker is running
 - Testcontainers starts PostgreSQL automatically
-- Check logs: `docker logs ai-bot-postgres`
+- Check logs: `docker logs open-daimon-postgres`
 
 ### "Could not find a valid Docker environment" / Status 400 (Windows)
 On Windows, Docker Desktop may return 400 over npipe and Testcontainers cannot connect. Enable TCP access to the daemon:
@@ -517,14 +517,14 @@ File -> Invalidate Caches / Restart
 ## Project structure
 
 ```text
-ai-bot/
-├── aibot-common/        # Core module with shared logic
-├── aibot-telegram/      # Telegram Bot interface
-├── aibot-rest/          # REST API interface
-├── aibot-ui/            # Web UI interface
-├── aibot-spring-ai/     # Spring AI integration
-├── aibot-gateway-mock/  # Mock provider for tests
-└── aibot-app/           # Main application module
+open-daimon/
+├── opendaimon-common/        # Core module with shared logic
+├── opendaimon-telegram/      # Telegram Bot interface
+├── opendaimon-rest/          # REST API interface
+├── opendaimon-ui/            # Web UI interface
+├── opendaimon-spring-ai/     # Spring AI integration
+├── opendaimon-gateway-mock/  # Mock provider for tests
+└── opendaimon-app/           # Main application module
 ```
 
 ## Additional commands

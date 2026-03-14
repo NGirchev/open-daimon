@@ -1,0 +1,314 @@
+server:
+  port: 8080
+
+open-daimon:
+  common:
+    storage:
+      enabled: true  # FEATURE FLAG - disabled by default
+      minio:
+        endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+        access-key: ${MINIO_USER:minioadmin}
+        secret-key: ${MINIO_PASSWORD:minioadmin}
+        bucket: opendaimon-files
+        ttl-hours: 24
+    bulkhead:
+      enabled: true
+      instances:
+        ADMIN:
+          maxConcurrentCalls: 10
+          maxWaitDuration: 1s
+        VIP:
+          maxConcurrentCalls: 5
+          maxWaitDuration: 1s
+        REGULAR:
+          maxConcurrentCalls: 1
+          maxWaitDuration: 500ms
+    admin:
+      enabled: ${ADMIN_ENABLED:true}
+      telegram-id: ${ADMIN_TELEGRAM_ID:}
+      rest-email: ${ADMIN_REST_EMAIL:}
+    assistant-role: "You are a helpful assistant, who talks with an old person and trying to help with new difficult world. You need to check your answers, because you shouldn't give an bad, wrong advises. Also, you prefer to answer shortly, without extra details if you were not asked about it. Also you are speaking only in Russian language."
+    # Hard limit for entire prompt to API (system + history + current). When exceeded — trim/reject and return error.
+    max-total-prompt-tokens: 32000
+    # Max tokens per user message; when exceeded can reject with hint to shorten.
+    max-user-message-tokens: 4000
+    # Total output token limit (max_tokens): reasoning + reply must fit.
+    max-output-tokens: 4000
+    # Budget for reasoning (part of total; must be < max-output-tokens). Optional.
+    max-reasoning-tokens: 1500
+    # Summarization of long conversations (manual and Spring AI modes).
+    summarization:
+      max-context-tokens: 8000
+      summary-trigger-threshold: 0.7
+      keep-recent-messages: 20
+      # Prompt for AI to produce summary + memory_bullets (JSON). Placeholder not used; conversation is sent as separate user message.
+      prompt: |
+        You are an assistant that creates brief summaries of conversations.
+        Analyze the following conversation and produce:
+        1. A short summary (2-3 paragraphs) of main topics and decisions
+        2. A list of 5-10 key facts/decisions (bullet points)
+        Reply in strict JSON only (no ```json or markdown):
+        {"summary": "short summary of the conversation", "memory_bullets": ["fact 1", "fact 2", ...]}
+        Conversation:
+    # Common-managed history (manual context). false = use Spring AI ChatMemory.
+    manual-conversation-history:
+      enabled: false
+      max-response-tokens: 4000
+      default-window-size: 20
+      include-system-prompt: true
+      token-estimation-chars-per-token: 4
+  telegram:
+    enabled: true
+    username: ${TELEGRAM_USERNAME}
+    token: ${TELEGRAM_TOKEN}
+    # User access configuration via environment variables
+    # Format: comma-separated lists
+    access:
+      admin:
+        ids: ${TELEGRAM_ACCESS_ADMIN_IDS:}      # e.g. "123456789,987654321"
+        channels: ${TELEGRAM_ACCESS_ADMIN_CHANNELS:}  # e.g. "-1000000000000,@admins"
+      vip:
+        ids: ${TELEGRAM_ACCESS_VIP_IDS:}        # e.g. "111111111,222222222"
+        channels: ${TELEGRAM_ACCESS_VIP_CHANNELS:}  # e.g. "-1002000000000,@vipgroup"
+      regular:
+        ids: ${TELEGRAM_ACCESS_REGULAR_IDS:}    # e.g. "333333333"
+        channels: ${TELEGRAM_ACCESS_REGULAR_CHANNELS:}  # e.g. "-1003000000000,@community"
+    file-upload:
+      enabled: true  # FEATURE FLAG - disabled by default
+      max-file-size-mb: 20  # Telegram API limit
+      # Supported image formats for multimodal AI
+      supported-image-types: jpeg,png,gif,webp,svg,bmp,tiff
+      # Supported document formats for RAG (via Tika/PDFBox)
+      # Microsoft Office: docx,doc,xls,xlsx,ppt,pptx
+      # OpenDocument: odt,ods,odp
+      # Text: txt,rtf,html,md,csv
+      # Structured: json,xml
+      # E-books: epub
+      supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub
+    # Long polling: socket timeout must be greater than get-updates-timeout (avoids Read timed out)
+    long-polling-socket-timeout-seconds: 90
+    get-updates-timeout-seconds: 50
+    # Max message length for Telegram (chars). Default 4096 (Telegram Bot API limit). When exceeded, message is split at paragraph boundaries.
+    max-message-length: 4096
+    commands:
+      start-enabled: true
+      role-enabled: true
+      message-enabled: true
+      bugreport-enabled: true
+      newthread-enabled: true
+      history-enabled: true
+      threads-enabled: true
+      language-enabled: true
+  rest:
+    enabled: true
+    # User access configuration via environment variables
+    # Format: comma-separated lists
+    access:
+      admin:
+        emails: ${REST_ACCESS_ADMIN_EMAILS:}    # e.g. "admin@example.com"
+      vip:
+        emails: ${REST_ACCESS_VIP_EMAILS:}      # e.g. "vip@example.com,premium@example.com"
+      regular:
+        emails: ${REST_ACCESS_REGULAR_EMAILS:}  # e.g. "user@example.com"
+  ui:
+    enabled: true
+  ai:
+    spring-ai:
+      enabled: true
+      # App attribution in OpenRouter dashboard (App column). Optional.
+      openrouter-app:
+        site-url: ${OPENROUTER_APP_SITE_URL:}   # e.g. https://github.com/your-username/open-daimon
+        title: ${OPENROUTER_APP_TITLE:}         # e.g. OpenDaimon
+      openrouter-auto-rotation:
+        models:
+          enabled: true
+          api:
+            key: ${OPENROUTER_KEY}
+            url: https://openrouter.ai/api
+          refresh-initial-delay: 10s
+          refresh-interval: 24h
+          filters:
+            include-model-ids:
+              - meta-llama/llama-3.3-70b-instruct:free
+              - mistralai/mistral-small-3.1-24b-instruct:free
+              - google/gemini-2.0-flash-exp:free
+              - google/gemma-3-27b-it:free
+              - openai/gpt-oss-120b:free
+              - openai/gpt-oss-20b:free
+              - qwen/qwen3-next-80b-a3b-instruct:free
+              - z-ai/glm-4.5-air:free
+              - tngtech/tng-r1t-chimera:free
+              - arcee-ai/trinity-large-preview:free
+              - arcee-ai/trinity-mini:free
+              - cognitivecomputations/dolphin-mistral-24b-venice-edition:free
+              - google/gemma-3-12b-it:free
+              - google/gemma-3-4b-it:free
+              - google/gemma-3n-e2b-it:free
+              - google/gemma-3n-e4b-it:free
+              - liquid/lfm-2.5-1.2b-instruct:free
+              - liquid/lfm-2.5-1.2b-thinking:free
+              - meta-llama/llama-3.2-3b-instruct:free
+              - nousresearch/hermes-3-llama-3.1-405b:free
+              - nvidia/nemotron-3-nano-30b-a3b:free
+              - nvidia/nemotron-nano-12b-v2-vl:free
+              - nvidia/nemotron-nano-9b-v2:free
+              - openrouter/free
+              - qwen/qwen3-4b:free
+              - qwen/qwen3-coder:free
+              - qwen/qwen3-vl-235b-a22b-thinking
+              - qwen/qwen3-vl-30b-a3b-thinking
+              - stepfun/step-3.5-flash:free
+          ranking:
+            enabled: true
+            retry-max-attempts: 3
+            latency-ewma-alpha: 0.2
+            cooldown429: 10m
+            cooldown5xx: 5m
+      serper:
+        api:
+          url: "https://google.serper.dev/search"
+          key: ${SERPER_KEY}
+      mock: false
+      history-window-size: 20
+      timeouts:
+        response-timeout-seconds: 600  # 10 minutes for HTTP requests to AI providers
+        stream-timeout-seconds: 600   # 10 minutes for streaming
+      # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
+      # Ollama models (run locally: ollama pull qwen2.5:7b, ollama pull qwen3-embedding:8b).
+      models:
+        list:
+          - name: "z-ai/glm-4.5v"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - EMBEDDING
+              - VISION
+            provider-type: OPENAI
+            priority: 2
+          - name: "openrouter/auto"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - EMBEDDING
+              - VISION
+            provider-type: OPENAI
+            priority: 3
+          - name: "qwen3.5"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - SUMMARIZATION
+            provider-type: OLLAMA
+            priority: 1
+          - name: "qwen3-embedding:8b"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 1
+          # Top 3 OpenRouter free models (explicit capabilities; others from include-model-ids get capabilities from API).
+          - name: "meta-llama/llama-3.3-70b-instruct:free"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - STRUCTURED_OUTPUT
+              - VISION
+              - FREE
+            provider-type: OPENAI
+            priority: 1
+          - name: "google/gemini-2.0-flash-exp:free"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - STRUCTURED_OUTPUT
+              - VISION
+              - FREE
+            provider-type: OPENAI
+            priority: 1
+          - name: "mistralai/mistral-small-3.1-24b-instruct:free"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - STRUCTURED_OUTPUT
+              - VISION
+              - FREE
+            provider-type: OPENAI
+            priority: 1
+      rag:
+        enabled: true
+        chunk-size: 800
+        chunk-overlap: 100
+        top-k: 5
+        similarity-threshold: 0.7
+        # Prompts for document/file processing (RAG and extraction errors).
+        prompts:
+          # Message when PDF text cannot be extracted (e.g. scan/image). %s = file name.
+          document-extract-error-pdf: "Could not extract text from file \"%s\". The file may be a scan or image. Please upload a PDF with a text layer or paste the text in your message."
+          # Message when document text cannot be extracted. %s = file name, %s = document type.
+          document-extract-error-document: "Could not extract text from file \"%s\" (type: %s). The file may be a scan or image. Please upload a document with a text layer or paste the text in your message."
+          # RAG augmented prompt template. First %s = context text, second %s = user question.
+          augmented-prompt-template: |
+            Based on the following context from the document, answer the user's question.
+            If the context doesn't contain relevant information to answer the question,
+            say that you couldn't find the answer in the provided documents.
+
+            Context:
+            %s
+
+            Question: %s
+    gateway-mock:
+      enabled: false  # Disabled by default
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: metrics,prometheus
+  endpoint:
+    metrics:
+      enabled: true
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/opendaimon}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: false
+
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      request-timeout: 600s
+    openai:
+      base-url: https://openrouter.ai/api
+      api-key: ${OPENROUTER_KEY:}
+    chat:
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: never
+
+logging:
+  level:
+    root: INFO
+    io.github.ngirchev.opendaimon: INFO
+    org.springframework.ai.chat.model.MessageAggregator: ERROR
+    reactor.core.publisher: WARN
+    org.springframework.web.reactive.function.client: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    exception-conversion-word: "%ex{short}"

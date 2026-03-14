@@ -17,7 +17,7 @@ alwaysApply: true
 
 **Correct usage example:**
 ```java
-@ConfigurationProperties(prefix = "ai-bot.context")
+@ConfigurationProperties(prefix = "open-daimon.context")
 @Validated
 @Getter
 @Setter

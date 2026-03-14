@@ -1,0 +1,3 @@
+io.github.ngirchev.opendaimon.common.config.CoreAutoConfig
+io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig
+io.github.ngirchev.opendaimon.common.storage.config.StorageAutoConfig

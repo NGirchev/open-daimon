@@ -2,19 +2,33 @@
   "permissions": {
     "allow": [
       "Bash(./mvnw test:*)",
-      "Bash(chmod +x mvnw && mvn test -pl aibot-rest -Dtest=ChatServiceTest 2>&1 | tail -50)",
+      "Bash(chmod +x mvnw && mvn test -pl opendaimon-rest -Dtest=ChatServiceTest 2>&1 | tail -50)",
       "Bash(mvn verify:*)",
       "Bash(./mvnw verify:*)",
       "Bash(sh ./mvnw verify 2>&1)",
       "Bash(mvn --version 2>&1 | head -5)",
       "Bash(mvn test:*)",
       "Bash(mvn install:*)",
-      "Bash(rm \"C:/Work/IdeaProjects/ai-bot/aibot-app/target/test-classes/io/github/ngirchev/aibot/RepositoryTestConfig.class\" && cd \"C:/Work/IdeaProjects/ai-bot\" && ./mvnw clean test -am -pl aibot-app -Dtest=TelegramUserRepositoryIT -Dsurefire.failIfNoSpecifiedTests=false 2>&1)",
+      "Bash(rm \"C:/Work/IdeaProjects/open-daimon/opendaimon-app/target/test-classes/io/github/ngirchev/opendaimon/RepositoryTestConfig.class\" && cd \"C:/Work/IdeaProjects/open-daimon\" && ./mvnw clean test -am -pl opendaimon-app -Dtest=TelegramUserRepositoryIT -Dsurefire.failIfNoSpecifiedTests=false 2>&1)",
       "mcp__ide__getDiagnostics",
-      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" && ./mvnw clean test -pl aibot-common,aibot-telegram -Dtest=TelegramBotTest -q 2>&1 | tail -20)",
-      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" && ./mvnw clean install -pl aibot-common -q 2>&1 | tail -5 && ./mvnw test -pl aibot-telegram -Dtest=TelegramBotTest -q 2>&1 | tail -20)",
-      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" && ./mvnw compile -pl aibot-spring-ai -q 2>&1 | tail -10)",
-      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" && ./mvnw compile -pl aibot-common,aibot-telegram -q 2>&1 | tail -10)"
+      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\open-daimon\" && ./mvnw clean test -pl opendaimon-common,opendaimon-telegram -Dtest=TelegramBotTest -q 2>&1 | tail -20)",
+      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\open-daimon\" && ./mvnw clean install -pl opendaimon-common -q 2>&1 | tail -5 && ./mvnw test -pl opendaimon-telegram -Dtest=TelegramBotTest -q 2>&1 | tail -20)",
+      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\open-daimon\" && ./mvnw compile -pl opendaimon-spring-ai -q 2>&1 | tail -10)",
+      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\open-daimon\" && ./mvnw compile -pl opendaimon-common,opendaimon-telegram -q 2>&1 | tail -10)",
+      "Bash(grep -r \"opendaimonMessage\\\\|opendaimonMeterRegistry\\\\|opendaimonChatOptions\" \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" --include=\"*.java\" 2>/dev/null | head -50)",
+      "Bash(grep -r \"opendaimonMessage\\\\|opendaimonMeterRegistry\\\\|opendaimonChatOptions\" \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" --include=\"*.java\" 2>/dev/null | wc -l)",
+      "Bash(grep -r \"opendaimonMessage\\\\|opendaimonMeterRegistry\\\\|opendaimonChatOptions\" \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" --include=\"*.java\" 2>/dev/null | cut -d: -f1 | sort -u)",
+      "Bash(grep -l \"opendaimonMessage\\\\|opendaimonMeterRegistry\\\\|opendaimonChatOptions\" \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\"/**/*.java 2>/dev/null | sort | uniq)",
+      "Bash(find \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" -name \"*.yml\" -o -name \"*.yaml\" -o -name \"*.properties\" | xargs grep -l \"aibot\\\\|AIBot\" 2>/dev/null)",
+      "Bash(find \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" -type f \\\\\\( -name \"*.yml\" -o -name \"*.yaml\" \\\\\\) 2>/dev/null | head -10)",
+      "Bash(grep -r \"class.*AIBot\\\\|interface.*AIBot\" \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" --include=\"*.java\" 2>/dev/null | head -20)",
+      "Bash(find /c/Work/IdeaProjects/ai-bot -name \"*.java\" | xargs sed -i \\\\\n  -e 's/opendaimonMessageRepository/OpenDaimonMessageRepository/g' \\\\\n  -e 's/opendaimonMessage/OpenDaimonMessage/g' \\\\\n  -e 's/opendaimonMeterRegistry/OpenDaimonMeterRegistry/g' \\\\\n  -e 's/opendaimonChatOptions/OpenDaimonChatOptions/g' \\\\\n  -e 's/openDaimonMessageServiceTest/OpenDaimonMessageServiceTest/g'\necho \"Done\")",
+      "Bash(head -40 /c/Work/IdeaProjects/ai-bot/opendaimon-common/src/main/java/io/github/ngirchev/opendaimon/common/model/OpenDaimonMessage.java | grep \"public class\\\\|public record\\\\|public interface\"\nhead -5 /c/Work/IdeaProjects/ai-bot/opendaimon-common/src/main/java/io/github/ngirchev/opendaimon/common/repository/OpenDaimonMessageRepository.java\nhead -5 /c/Work/IdeaProjects/ai-bot/opendaimon-common/src/main/java/io/github/ngirchev/opendaimon/common/meter/OpenDaimonMeterRegistry.java\nhead -5 /c/Work/IdeaProjects/ai-bot/opendaimon-common/src/main/java/io/github/ngirchev/opendaimon/common/ai/command/OpenDaimonChatOptions.java)",
+      "Bash(mvn compile:*)",
+      "Bash(./mvnw compile:*)",
+      "Bash(./mvnw test-compile:*)",
+      "Bash(find:*)",
+      "Bash(./mvnw install:*)"
     ]
   }
 }

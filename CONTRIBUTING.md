@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in contributing to AI Bot. We welcome contributions.
+Thank you for your interest in contributing to OpenDaimon. We welcome contributions.
 
 **Language**: This project uses **English** for all documentation, code comments, commit messages, and issue discussions. Please submit all contributions, bug reports, and comments in English so they can be understood and reviewed by the global developer community.
 
@@ -15,8 +15,8 @@ Thank you for your interest in contributing to AI Bot. We welcome contributions.
 ### Setup
 
 ```bash
-git clone https://github.com/NGirchev/ai-bot.git
-cd ai-bot
+git clone https://github.com/NGirchev/open-daimon.git
+cd open-daimon
 mvn clean install
 ```
 
@@ -37,8 +37,8 @@ All tests must pass before submitting a Pull Request. Integration tests use Test
 Follow the project conventions described in **[AGENTS.md](AGENTS.md)**. Summary:
 
 - **Beans**: Do not use `@Service`, `@Component`, or `@Repository` on service/component classes. Register beans explicitly in configuration classes via `@Bean` methods. Configuration classes live in the `config` package of each module.
-- **Package structure**: `io.github.ngirchev.aibot.<module-name>.<layer>` (e.g. `io.github.ngirchev.aibot.telegram.service`).
-- **Entities**: Base entities only in `aibot-common`; module-specific entities extend them. Do not duplicate entities across modules.
+- **Package structure**: `io.github.ngirchev.opendaimon.<module-name>.<layer>` (e.g. `io.github.ngirchev.opendaimon.telegram.service`).
+- **Entities**: Base entities only in `opendaimon-common`; module-specific entities extend them. Do not duplicate entities across modules.
 - **Dependencies in pom.xml**: Follow the order defined in the parent POM (project modules, Spring, database, other, test). All versions in `<properties>`.
 - **Language**: Code, comments, JavaDoc, and commit messages in English. User-facing strings (i18n, bot messages) may be in any language.
 
@@ -59,8 +59,8 @@ When adding or changing behaviour, add or update tests so that the change is cov
 mvn test
 
 # Single module (and its dependencies)
-mvn test -pl aibot-telegram
-mvn test -pl aibot-spring-ai -Dtest=SpringAIGatewayIT
+mvn test -pl opendaimon-telegram
+mvn test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
 ```
 
 See [README — Testing](README.md#testing) for more examples (including Windows).
@@ -79,7 +79,7 @@ Before submitting a Pull Request, ensure:
 
 - **API keys and secrets**: Only in environment variables or `.env` (and `.env` must not be committed).
 - **Do not commit** real credentials in `application.yml` or in code.
-- **Reporting vulnerabilities**: If you discover a security vulnerability, do not open a public issue. Report it privately via [GitHub Security Advisories](https://github.com/NGirchev/ai-bot/security/advisories/new) or contact the maintainers.
+- **Reporting vulnerabilities**: If you discover a security vulnerability, do not open a public issue. Report it privately via [GitHub Security Advisories](https://github.com/NGirchev/open-daimon/security/advisories/new) or contact the maintainers.
 
 ## Releasing (maintainers)
 
@@ -115,7 +115,7 @@ git push --tags
 
 ## Questions and issues
 
-- **Bug reports and feature requests**: [GitHub Issues](https://github.com/NGirchev/ai-bot/issues).
+- **Bug reports and feature requests**: [GitHub Issues](https://github.com/NGirchev/open-daimon/issues).
 - **Questions**: Open an issue or a discussion on GitHub.
 
 Please write issues and comments in English.

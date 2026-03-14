@@ -1,3 +1,0 @@
-io.github.ngirchev.aibot.common.config.CoreAutoConfig
-io.github.ngirchev.aibot.bulkhead.config.BulkHeadAutoConfig
-io.github.ngirchev.aibot.common.storage.config.StorageAutoConfig

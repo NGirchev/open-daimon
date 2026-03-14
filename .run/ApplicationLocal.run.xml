@@ -3,12 +3,12 @@
     <envs>
       <env name="SPRING_PROFILES_ACTIVE" value="local" />
     </envs>
-    <option name="MAIN_CLASS_NAME" value="io.github.ngirchev.aibot.Application" />
-    <module name="aibot-app" />
+    <option name="MAIN_CLASS_NAME" value="io.github.ngirchev.opendaimon.Application" />
+    <module name="opendaimon-app" />
     <shortenClasspath name="ARGS_FILE" />
     <extension name="coverage">
       <pattern>
-        <option name="PATTERN" value="io.github.ngirchev.aibot.test.*" />
+        <option name="PATTERN" value="io.github.ngirchev.opendaimon.test.*" />
         <option name="ENABLED" value="true" />
       </pattern>
     </extension>

@@ -3,13 +3,13 @@
 *.iml
 /.mvn/
 /.vscode/
-/aibot-telegram/target/
-/aibot-common/target/
-/aibot-deepseek/target/
-/aibot-openrouter/target/
-/aibot-app/target/
-/aibot-rest/target/
-/aibot-spring-ai/target/
+/opendaimon-telegram/target/
+/opendaimon-common/target/
+/opendaimon-deepseek/target/
+/opendaimon-openrouter/target/
+/opendaimon-app/target/
+/opendaimon-rest/target/
+/opendaimon-spring-ai/target/
 /telegram-utils/target/
 /.idea/
 # Exception: track run configurations
@@ -30,3 +30,5 @@
 /target/
 /.claude/worktrees/flamboyant-heyrovsky/
 /.claude/
+/scripts/ollama-check-vision.ps1
+/opendaimon.code-workspace

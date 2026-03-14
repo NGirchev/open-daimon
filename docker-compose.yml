@@ -1,10 +1,10 @@
 services:
-  # AI Bot application
-  aibot-app:
+  # OpenDaimon application
+  opendaimon-app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ai-bot-app
+    container_name: open-daimon-app
     ports:
       - "8080:8080"
     extra_hosts:
@@ -23,7 +23,7 @@ services:
       - SERPER_KEY=${SERPER_KEY:-}
       - SERP_API_KEY=${SERP_API_KEY:-}
       # Database (use service name from docker-compose)
-      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ai_bot}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-opendaimon}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     depends_on:
@@ -31,11 +31,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - ai-bot-network
+      - open-daimon-network
 
   prometheus:
     image: prom/prometheus:v3.7.1
-    container_name: ai-bot-prometheus
+    container_name: open-daimon-prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -46,11 +46,11 @@ services:
       - '--storage.tsdb.path=/prometheus'
     restart: unless-stopped
     networks:
-      - ai-bot-network
+      - open-daimon-network
 
   grafana:
     image: grafana/grafana:12.2.0
-    container_name: ai-bot-grafana
+    container_name: open-daimon-grafana
     ports:
       - "3000:3000"
     environment:
@@ -62,17 +62,17 @@ services:
       - prometheus
     restart: unless-stopped
     networks:
-      - ai-bot-network
+      - open-daimon-network
 
   postgres:
     image: postgres:17.0
-    container_name: ai-bot-postgres
+    container_name: open-daimon-postgres
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-ai_bot}
+      POSTGRES_DB: ${POSTGRES_DB:-opendaimon}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ai_bot}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-opendaimon}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -83,11 +83,11 @@ services:
       - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
     networks:
-      - ai-bot-network
+      - open-daimon-network
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
-    container_name: ai-bot-elasticsearch
+    container_name: open-daimon-elasticsearch
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -98,11 +98,11 @@ services:
       - elasticsearch-data:/usr/share/elasticsearch/data
     restart: unless-stopped
     networks:
-      - ai-bot-network
+      - open-daimon-network
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.12.0
-    container_name: ai-bot-kibana
+    container_name: open-daimon-kibana
     ports:
       - "5601:5601"
     environment:
@@ -111,11 +111,11 @@ services:
       - elasticsearch
     restart: unless-stopped
     networks:
-      - ai-bot-network
+      - open-daimon-network
 
   minio:
     image: minio/minio:latest
-    container_name: ai-bot-minio
+    container_name: open-daimon-minio
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -132,11 +132,11 @@ services:
       retries: 3
     restart: unless-stopped
     networks:
-      - ai-bot-network
+      - open-daimon-network
 
 #  metricbeat:
 #    image: docker.elastic.co/beats/metricbeat:8.12.0
-#    container_name: ai-bot-metricbeat
+#    container_name: open-daimon-metricbeat
 #    user: root
 #    privileged: true
 #    volumes:
@@ -156,7 +156,7 @@ services:
 #      - elasticsearch
 #    restart: unless-stopped
 #    networks:
-#      - ai-bot-network
+#      - open-daimon-network
 
 volumes:
   grafana-storage:
@@ -166,5 +166,5 @@ volumes:
   minio-data:
 
 networks:
-  ai-bot-network:
+  open-daimon-network:
     driver: bridge

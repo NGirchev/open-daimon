@@ -33,4 +33,4 @@ jobs:
       - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: mvn -B -T 4C verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=NGirchev_ai-bot -Dsonar.organization=ngirchev
+        run: mvn -B -T 4C verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=NGirchev_open-daimon -Dsonar.organization=ngirchev

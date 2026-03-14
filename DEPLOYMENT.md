@@ -1,4 +1,4 @@
-# AI Bot Deployment Guide
+# OpenDaimon Deployment Guide
 
 > **For local development** see [README.md](README.md)
 
@@ -52,20 +52,20 @@ newgrp docker
 ```bash
 # Clone repository
 git clone <your-repo-url>
-cd ai-bot
+cd open-daimon
 
 # Build project
 mvn clean package -DskipTests
 
 # Verify JAR was created
-ls -lh aibot-app/target/aibot-app-1.0-SNAPSHOT.jar
+ls -lh opendaimon-app/target/opendaimon-app-1.0-SNAPSHOT.jar
 ```
 
 ## Step 3: Check configuration files
 
 Ensure the following files are set up correctly:
 - **[Dockerfile](Dockerfile)** — must be in project root
-- **[docker-compose.yml](docker-compose.yml)** — must define service `aibot-app` with the correct environment variables
+- **[docker-compose.yml](docker-compose.yml)** — must define service `opendaimon-app` with the correct environment variables
 
 ## Step 4: Create .env file
 
@@ -81,7 +81,7 @@ DEEPSEEK_KEY=your_deepseek_api_key
 OPENROUTER_KEY=your_openrouter_api_key
 
 # Database (change if needed)
-POSTGRES_DB=ai_bot
+POSTGRES_DB=opendaimon
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_secure_password
 ```
@@ -91,9 +91,9 @@ POSTGRES_PASSWORD=your_secure_password
 ## Step 5: Verify configuration
 
 Ensure the following are set correctly:
-- **[prometheus.yml](prometheus.yml)** — must include target `aibot-app:8080`
-- **[aibot-app/src/main/resources/application.yml](aibot-app/src/main/resources/application.yml)** — must use environment variables for DB connection
- - **User access configuration** — Telegram access and priority are configured via `TELEGRAM_ACCESS_*_IDS` и `TELEGRAM_ACCESS_*_CHANNELS` переменные (см. `.env.example` и `aibot-app/src/main/resources/application.yml`).
+- **[prometheus.yml](prometheus.yml)** — must include target `opendaimon-app:8080`
+- **[opendaimon-app/src/main/resources/application.yml](opendaimon-app/src/main/resources/application.yml)** — must use environment variables for DB connection
+ - **User access configuration** — Telegram access and priority are configured via `TELEGRAM_ACCESS_*_IDS` и `TELEGRAM_ACCESS_*_CHANNELS` переменные (см. `.env.example` и `opendaimon-app/src/main/resources/application.yml`).
 
 ## Step 6: Choose docker-compose file
 
@@ -152,7 +152,7 @@ docker-compose up -d
 docker-compose ps
 
 # Application logs
-docker-compose logs -f aibot-app
+docker-compose logs -f opendaimon-app
 
 # All services logs
 docker-compose logs -f
@@ -172,10 +172,10 @@ docker-compose logs -f
 docker volume ls
 
 # Inspect a volume
-docker volume inspect ai-bot_postgres-data
+docker volume inspect open-daimon_postgres-data
 
 # Physical location (usually /var/lib/docker/volumes/)
-docker volume inspect ai-bot_postgres-data | grep Mountpoint
+docker volume inspect open-daimon_postgres-data | grep Mountpoint
 ```
 
 **Production notes:**
@@ -191,10 +191,10 @@ docker volume inspect ai-bot_postgres-data | grep Mountpoint
 docker system df -v
 
 # Backup volume (example for postgres)
-docker run --rm -v ai-bot_postgres-data:/data -v $(pwd):/backup alpine tar czf /backup/postgres-backup.tar.gz /data
+docker run --rm -v open-daimon_postgres-data:/data -v $(pwd):/backup alpine tar czf /backup/postgres-backup.tar.gz /data
 
 # Remove volume (CAUTION! Deletes all data!)
-docker volume rm ai-bot_postgres-data
+docker volume rm open-daimon_postgres-data
 ```
 
 ### Automatic restart
@@ -247,37 +247,37 @@ curl http://localhost:8080/actuator/prometheus
 
 ```bash
 # Stop application
-docker-compose stop aibot-app
+docker-compose stop opendaimon-app
 
 # Rebuild JAR (if changed)
 mvn clean package -DskipTests
 
 # Rebuild Docker image
-docker-compose build aibot-app
+docker-compose build opendaimon-app
 
 # Start again
-docker-compose up -d aibot-app
+docker-compose up -d opendaimon-app
 
 # Check logs
-docker-compose logs -f aibot-app
+docker-compose logs -f opendaimon-app
 ```
 
 ## Step 9: systemd autostart (optional but recommended)
 
 > **Note**: With `restart: unless-stopped` in docker-compose.yml and Docker enabled at boot, containers will start after reboot. A systemd service adds an extra layer of control and monitoring.
 
-Create `/etc/systemd/system/ai-bot.service`:
+Create `/etc/systemd/system/open-daimon.service`:
 
 ```ini
 [Unit]
-Description=AI Bot Application
+Description=OpenDaimon Application
 Requires=docker.service
 After=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/path/to/ai-bot
+WorkingDirectory=/path/to/open-daimon
 ExecStart=/usr/bin/docker-compose up -d
 ExecStop=/usr/bin/docker-compose down
 User=your-user
@@ -290,19 +290,19 @@ Enable the service:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable ai-bot.service
-sudo systemctl start ai-bot.service
+sudo systemctl enable open-daimon.service
+sudo systemctl start open-daimon.service
 ```
 
 ## Useful commands
 
 ```bash
 # View logs
-docker-compose logs -f aibot-app
+docker-compose logs -f opendaimon-app
 docker-compose logs -f postgres
 
 # Restart a service
-docker-compose restart aibot-app
+docker-compose restart opendaimon-app
 
 # Stop all services
 docker-compose down
@@ -314,8 +314,8 @@ docker-compose down -v
 docker stats
 
 # Shell into container
-docker exec -it ai-bot-app sh
-docker exec -it ai-bot-postgres psql -U postgres -d ai_bot
+docker exec -it open-daimon-app sh
+docker exec -it open-daimon-postgres psql -U postgres -d opendaimon
 ```
 
 ## Troubleshooting
@@ -324,13 +324,13 @@ docker exec -it ai-bot-postgres psql -U postgres -d ai_bot
 
 ```bash
 # Check logs
-docker-compose logs aibot-app
+docker-compose logs opendaimon-app
 
 # Verify DB is reachable
-docker-compose exec postgres psql -U postgres -d ai_bot -c "SELECT 1;"
+docker-compose exec postgres psql -U postgres -d opendaimon -c "SELECT 1;"
 
 # Check environment variables
-docker-compose exec aibot-app env | grep -E "TELEGRAM|DEEPSEEK|OPENROUTER"
+docker-compose exec opendaimon-app env | grep -E "TELEGRAM|DEEPSEEK|OPENROUTER"
 ```
 
 ### Database connection issues
@@ -340,7 +340,7 @@ docker-compose exec aibot-app env | grep -E "TELEGRAM|DEEPSEEK|OPENROUTER"
 docker-compose ps postgres
 
 # Check network
-docker network inspect ai-bot_ai-bot-network
+docker network inspect open-daimon_open-daimon-network
 
 # Check postgres logs
 docker-compose logs postgres
@@ -350,7 +350,7 @@ docker-compose logs postgres
 
 ```bash
 # Check targets in Prometheus UI
-# Ensure aibot-app is reachable by name on the network
+# Ensure opendaimon-app is reachable by name on the network
 
 # Check prometheus.yml
 docker-compose exec prometheus cat /etc/prometheus/prometheus.yml
@@ -360,7 +360,7 @@ docker-compose exec prometheus cat /etc/prometheus/prometheus.yml
 
 If you see this error when running `docker-compose up -d`:
 ```
-failed to create network ai-bot_ai-bot-network: Error response from daemon: 
+failed to create network open-daimon_open-daimon-network: Error response from daemon: 
 add inter-network communication rule: (iptables failed: iptables --wait -t filter 
 -A DOCKER-ISOLATION-STAGE-1 -i br-xxx ! -o br-xxx -j DOCKER-ISOLATION-STAGE-2: 
 iptables v1.8.10 (nf_tables): Chain 'DOCKER-ISOLATION-STAGE-2' does not exist
@@ -439,10 +439,10 @@ If the above did not help, comment out the custom network in `docker-compose.yml
 2. Comment out the `networks:` section at the end:
    ```yaml
    # networks:
-   #   ai-bot-network:
+   #   open-daimon-network:
    #     driver: bridge
    ```
-3. Remove all `networks: - ai-bot-network` from services
+3. Remove all `networks: - open-daimon-network` from services
 4. Docker Compose will create a default network named after the project
 
 **Solution 6: Configure Docker to use iptables (official approach)**
@@ -502,10 +502,10 @@ sudo systemctl restart docker
 
 To run multiple instances:
 
-1. **Remove `container_name`** from `aibot-app` in [docker-compose.yml](docker-compose.yml):
+1. **Remove `container_name`** from `opendaimon-app` in [docker-compose.yml](docker-compose.yml):
    ```yaml
-   aibot-app:
-     # container_name: ai-bot-app  # Comment out for scaling
+   opendaimon-app:
+     # container_name: open-daimon-app  # Comment out for scaling
      ports:
        - "8080:8080"  # Or use range: "8080-8090:8080"
    ```
@@ -513,13 +513,13 @@ To run multiple instances:
 2. **Run with scaling**:
    ```bash
    # Run 3 instances
-   docker-compose up -d --scale aibot-app=3
+   docker-compose up -d --scale opendaimon-app=3
    
    # Check status
    docker-compose ps
    
    # Logs from all instances
-   docker-compose logs -f aibot-app
+   docker-compose logs -f opendaimon-app
    ```
 
 4. **Use a load balancer** (nginx, traefik) to distribute load across instances
@@ -539,27 +539,27 @@ To run multiple instances:
 2. **Set up regular DB backups**:
    ```bash
    # DB backup (run regularly)
-   docker-compose exec postgres pg_dump -U postgres ${POSTGRES_DB:-ai_bot} > backup-$(date +%Y%m%d-%H%M%S).sql
+   docker-compose exec postgres pg_dump -U postgres ${POSTGRES_DB:-opendaimon} > backup-$(date +%Y%m%d-%H%M%S).sql
    
    # Restore DB
-   docker-compose exec -T postgres psql -U postgres ${POSTGRES_DB:-ai_bot} < backup.sql
+   docker-compose exec -T postgres psql -U postgres ${POSTGRES_DB:-opendaimon} < backup.sql
    
    # Cron example (add to crontab)
-   # 0 2 * * * cd /path/to/ai-bot && docker-compose exec -T postgres pg_dump -U postgres ai_bot > /backups/ai-bot-$(date +\%Y\%m\%d).sql
+   # 0 2 * * * cd /path/to/open-daimon && docker-compose exec -T postgres pg_dump -U postgres opendaimon > /backups/open-daimon-$(date +\%Y\%m\%d).sql
    ```
 
 3. **Backup volumes (optional, for full backup)**:
    ```bash
    # Backup all volumes
-   docker run --rm -v ai-bot_postgres-data:/data -v $(pwd):/backup alpine tar czf /backup/postgres-volume-$(date +%Y%m%d).tar.gz /data
-   docker run --rm -v ai-bot_grafana-storage:/data -v $(pwd):/backup alpine tar czf /backup/grafana-volume-$(date +%Y%m%d).tar.gz /data
+   docker run --rm -v open-daimon_postgres-data:/data -v $(pwd):/backup alpine tar czf /backup/postgres-volume-$(date +%Y%m%d).tar.gz /data
+   docker run --rm -v open-daimon_grafana-storage:/data -v $(pwd):/backup alpine tar czf /backup/grafana-volume-$(date +%Y%m%d).tar.gz /data
    ```
 
 4. **Use a reverse proxy** (nginx) for HTTPS, rate limiting and load balancing when scaling
 
    Example nginx config for multiple instances:
    ```nginx
-   upstream aibot {
+   upstream opendaimon {
        least_conn;
        server localhost:8080;
        server localhost:8081;
@@ -571,7 +571,7 @@ To run multiple instances:
        server_name your-domain.com;
        
        location / {
-           proxy_pass http://aibot;
+           proxy_pass http://opendaimon;
            proxy_set_header Host $host;
            proxy_set_header X-Real-IP $remote_addr;
        }

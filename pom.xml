@@ -13,23 +13,23 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>io.github.ngirchev</groupId>
-    <artifactId>aibot-parent</artifactId>
+    <artifactId>opendaimon</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <modules>
-        <module>aibot-spring-ai</module>
-        <module>aibot-common</module>
-        <module>aibot-ui</module>
-        <module>aibot-rest</module>
-        <module>aibot-telegram</module>
-        <module>aibot-gateway-mock</module>
-        <module>aibot-app</module>
+        <module>opendaimon-spring-ai</module>
+        <module>opendaimon-common</module>
+        <module>opendaimon-ui</module>
+        <module>opendaimon-rest</module>
+        <module>opendaimon-telegram</module>
+        <module>opendaimon-gateway-mock</module>
+        <module>opendaimon-app</module>
     </modules>
 
-    <name>AI Bot</name>
+    <name>OpenDaimon</name>
     <description>Multi-module Java project for AI services via Telegram, REST API, Web UI</description>
-    <url>https://github.com/NGirchev/ai-bot</url>
+    <url>https://github.com/NGirchev/open-daimon</url>
 
     <licenses>
         <license>
@@ -47,9 +47,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/NGirchev/ai-bot.git</connection>
-        <developerConnection>scm:git:ssh://github.com:NGirchev/ai-bot.git</developerConnection>
-        <url>https://github.com/NGirchev/ai-bot</url>
+        <connection>scm:git:git://github.com/NGirchev/open-daimon.git</connection>
+        <developerConnection>scm:git:ssh://github.com:NGirchev/open-daimon.git</developerConnection>
+        <url>https://github.com/NGirchev/open-daimon</url>
         <tag>HEAD</tag>
     </scm>
 
@@ -71,7 +71,7 @@
 
         <!-- SonarCloud (CI / optional mvn sonar:sonar); local checks via IDE SonarLint -->
         <sonar.organization>ngirchev</sonar.organization>
-        <sonar.projectKey>NGirchev_ai-bot</sonar.projectKey>
+        <sonar.projectKey>NGirchev_open-daimon</sonar.projectKey>
         <!-- Coverage: run mvn test (or verify) before sonar:sonar so that JaCoCo reports exist -->
         <sonar.coverage.jacoco.xmlReportPaths>**/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
 

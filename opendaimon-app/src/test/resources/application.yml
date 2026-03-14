@@ -1,0 +1,23 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate  # or none if using Flyway
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+# Prod-like limits: history and summarization (summarization + manual-conversation-history from main application.yml).
+# Prompt = system + history + current ≤ max-total-prompt-tokens; response = reasoning + text ≤ max-output-tokens.
+open-daimon:
+  telegram:
+    enabled: true
+  common:
+    max-output-tokens: 4000      # space for response (reasoning + text); 1000 was too low
+    max-reasoning-tokens: 1500   # budget for reasoning, rest is response text
+    max-user-message-tokens: 4000
+    max-total-prompt-tokens: 32000
+  ai:
+    spring-ai:
+      openrouter-auto-rotation:
+        models:
+          enabled: false
