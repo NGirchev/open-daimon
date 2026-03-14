@@ -12,7 +12,7 @@
     </appender>
 
     <!-- Shorter stacktraces for Spring AI and Reactor -->
-    <!-- MessageAggregator and SpringAiRetryAutoConfiguration — message only, no stack -->
+    <!-- MessageAggregator and Spring AI retry — limited stack (2 lines) -->
     <logger name="org.springframework.ai.chat.model.MessageAggregator" level="ERROR" additivity="false">
         <appender-ref ref="CONSOLE_NO_STACKTRACE"/>
     </logger>
@@ -24,10 +24,10 @@
 
     <logger name="org.springframework.web.reactive.function.client" level="WARN"/>
 
-    <!-- Appender without stacktraces for MessageAggregator -->
+    <!-- Appender with limited stack (2 lines) for MessageAggregator and Spring AI retry -->
     <appender name="CONSOLE_NO_STACKTRACE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n%ex{2}%nopex</pattern>
         </encoder>
     </appender>
 

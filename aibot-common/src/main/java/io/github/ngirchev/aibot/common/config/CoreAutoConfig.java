@@ -194,9 +194,8 @@ public class CoreAutoConfig {
     public CommandSyncService commandSyncService(
             AIBotMeterRegistry meterRegistry,
             CommandHandlerRegistry registry,
-            PriorityRequestExecutor priorityRequestExecutor,
-            IUserPriorityService priorityService) {
-        return new CommandSyncService(meterRegistry, registry, priorityRequestExecutor, priorityService);
+            PriorityRequestExecutor priorityRequestExecutor) {
+        return new CommandSyncService(meterRegistry, registry, priorityRequestExecutor);
     }
 
     @Bean
@@ -263,12 +262,4 @@ public class CoreAutoConfig {
         return new UserService(userRepository);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnProperty(name = "ai-bot.common.admin.enabled", havingValue = "true", matchIfMissing = false)
-    public AdminInitializer adminInitializer(
-            CoreCommonProperties coreCommonProperties,
-            ApplicationContext applicationContext) {
-        return new AdminInitializer(coreCommonProperties, applicationContext);
-    }
 }

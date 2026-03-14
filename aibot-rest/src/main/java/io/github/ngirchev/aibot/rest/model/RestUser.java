@@ -9,13 +9,14 @@ import io.github.ngirchev.aibot.common.model.User;
 
 @Entity
 @Table(name = "rest_user")
+@PrimaryKeyJoinColumn(name = "id")
 @DiscriminatorValue("REST")
 @Getter
 @Setter
 @ToString
 @NoArgsConstructor
 public class RestUser extends User {
-    
-    @Column(name = "email", unique = true)
+
+    @Column(name = "email", unique = true, nullable = false)
     private String email;
 } 

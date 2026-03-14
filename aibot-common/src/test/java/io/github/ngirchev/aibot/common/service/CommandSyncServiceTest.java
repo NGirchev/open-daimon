@@ -2,7 +2,6 @@ package io.github.ngirchev.aibot.common.service;
 
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import io.github.ngirchev.aibot.bulkhead.config.BulkHeadProperties;
@@ -46,13 +45,12 @@ class CommandSyncServiceTest {
             CommandSyncService service = new CommandSyncService(
                     new AIBotMeterRegistry(new SimpleMeterRegistry()),
                     handlerRegistry,
-                    requestExecutor,
-                    userPriorityService
+                    requestExecutor
             );
 
-            assertEquals(2, service.createSemaphoreForUser(1L).availablePermits());
-            assertEquals(3, service.createSemaphoreForUser(2L).availablePermits());
-            assertEquals(4, service.createSemaphoreForUser(3L).availablePermits());
+            assertEquals(2, service.createSemaphoreForUser(1L, priorities::get).availablePermits());
+            assertEquals(3, service.createSemaphoreForUser(2L, priorities::get).availablePermits());
+            assertEquals(4, service.createSemaphoreForUser(3L, priorities::get).availablePermits());
         }
     }
 
@@ -69,11 +67,10 @@ class CommandSyncServiceTest {
             CommandSyncService service = new CommandSyncService(
                     new AIBotMeterRegistry(new SimpleMeterRegistry()),
                     handlerRegistry,
-                    requestExecutor,
-                    userPriorityService
+                    requestExecutor
             );
 
-            assertEquals(2, service.createSemaphoreForUser(99L).availablePermits());
+            assertEquals(2, service.createSemaphoreForUser(99L, priorities::get).availablePermits());
         }
     }
 
@@ -100,8 +97,7 @@ class CommandSyncServiceTest {
             CommandSyncService service = new CommandSyncService(
                     new AIBotMeterRegistry(new SimpleMeterRegistry()),
                     handlerRegistry,
-                    requestExecutor,
-                    userPriorityService
+                    requestExecutor
             );
 
             ExecutorService executor = Executors.newFixedThreadPool(3);
@@ -109,9 +105,9 @@ class CommandSyncServiceTest {
                 CountDownLatch start = new CountDownLatch(1);
                 TestCommand command = new TestCommand(userId, TestCommandType.TEST);
 
-                CompletableFuture<String> f1 = supplyAsync(() -> awaitAndCall(start, service, command), executor);
-                CompletableFuture<String> f2 = supplyAsync(() -> awaitAndCall(start, service, command), executor);
-                CompletableFuture<String> f3 = supplyAsync(() -> awaitAndCall(start, service, command), executor);
+                CompletableFuture<String> f1 = supplyAsync(() -> awaitAndCall(start, service, command, priorities::get), executor);
+                CompletableFuture<String> f2 = supplyAsync(() -> awaitAndCall(start, service, command, priorities::get), executor);
+                CompletableFuture<String> f3 = supplyAsync(() -> awaitAndCall(start, service, command, priorities::get), executor);
 
                 start.countDown();
 
@@ -171,19 +167,18 @@ class CommandSyncServiceTest {
                 public int priority() { return 0; }
                 public boolean canHandle(ICommand<TestCommandType> command) { return true; }
 
-                @SneakyThrows
                 public String handle(TestCommand command) {
-                    if (vipUsers.contains(command.userId)) {
-                        log.info("Work for user: {}", command.userId);
-                        countOfVipInWork.incrementAndGet();
-                        Thread.sleep(1_000L);
-                        log.info("Work for user: {} finished", command.userId);
-                    } else {
-                        log.info("Work for user: {}", command.userId);
-                        countOfRegularInWork.incrementAndGet();
-                        regularUserInWork.set(command.userId);
-                        countDownLatch.await();
-                        log.info("Work for user: {} finished", command.userId);
+                    try {
+                        if (vipUsers.contains(command.userId)) {
+                            countOfVipInWork.incrementAndGet();
+                            Thread.sleep(1_000L);
+                        } else {
+                            countOfRegularInWork.incrementAndGet();
+                            regularUserInWork.set(command.userId);
+                            countDownLatch.await();
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                     }
                     return "Result";
                 }
@@ -193,47 +188,52 @@ class CommandSyncServiceTest {
             var service = new CommandSyncService(
                     new AIBotMeterRegistry(new SimpleMeterRegistry()),
                     handlerRegistry,
-                    requestExecutor,
-                    userPriorityService
+                    requestExecutor
             );
 
-	            ExecutorService executor = Executors.newFixedThreadPool(6);
-	            try {
-	                var r1 = supplyAsync(() -> service.syncAndHandle(new TestCommand(regular1Id, TestCommandType.TEST)), executor);
-                    var r2 = supplyAsync(() -> service.syncAndHandle(new TestCommand(regular2Id, TestCommandType.TEST)), executor);
-                    Thread.sleep(100);
-                    assertEquals(1, countOfRegularInWork.get());
-	                var v1 = supplyAsync(() -> service.syncAndHandle(new TestCommand(vipUser1Id, TestCommandType.TEST)), executor);
-	                var v2 = supplyAsync(() -> service.syncAndHandle(new TestCommand(vipUser2Id, TestCommandType.TEST)), executor);
-	                var v3 = supplyAsync(() -> service.syncAndHandle(new TestCommand(vipUser3Id, TestCommandType.TEST)), executor);
-	                var v4 = supplyAsync(() -> service.syncAndHandle(new TestCommand(vipUser4Id, TestCommandType.TEST)), executor);
+            ExecutorService executor = Executors.newFixedThreadPool(6);
+            try {
+                var r1 = supplyAsync(() -> service.syncAndHandle(new TestCommand(regular1Id, TestCommandType.TEST), priorities::get), executor);
+                var r2 = supplyAsync(() -> service.syncAndHandle(new TestCommand(regular2Id, TestCommandType.TEST), priorities::get), executor);
+
+                int waitedMs = 0;
+                while (countOfRegularInWork.get() == 0 && waitedMs < 1000) {
+                    Thread.sleep(10);
+                    waitedMs += 10;
+                }
+                assertEquals(1, countOfRegularInWork.get());
+                var v1 = supplyAsync(() -> service.syncAndHandle(new TestCommand(vipUser1Id, TestCommandType.TEST), priorities::get), executor);
+                var v2 = supplyAsync(() -> service.syncAndHandle(new TestCommand(vipUser2Id, TestCommandType.TEST), priorities::get), executor);
+                var v3 = supplyAsync(() -> service.syncAndHandle(new TestCommand(vipUser3Id, TestCommandType.TEST), priorities::get), executor);
+                var v4 = supplyAsync(() -> service.syncAndHandle(new TestCommand(vipUser4Id, TestCommandType.TEST), priorities::get), executor);
 	                Thread.sleep(200);
 	                assertEquals(3, countOfVipInWork.get());
-	                Thread.sleep(3000);
-	                assertEquals(4, countOfVipInWork.get());
-	                assertEquals(1, countOfRegularInWork.get());
+                Thread.sleep(3000);
+                assertEquals(4, countOfVipInWork.get());
+                assertEquals(1, countOfRegularInWork.get());
 
-	                assertEquals("Result", v1.get(3, TimeUnit.SECONDS));
-	                assertEquals("Result", v2.get(3, TimeUnit.SECONDS));
-	                assertEquals("Result", v3.get(3, TimeUnit.SECONDS));
-	                assertEquals("Result", v4.get(3, TimeUnit.SECONDS));
+                assertEquals("Result", v1.get(3, TimeUnit.SECONDS));
+                assertEquals("Result", v2.get(3, TimeUnit.SECONDS));
+                assertEquals("Result", v3.get(3, TimeUnit.SECONDS));
+                assertEquals("Result", v4.get(3, TimeUnit.SECONDS));
 
-	                var ex = assertThrows(ExecutionException.class, regularUserInWork.get() == regular1Id ? r2::get : r1::get);
+                var ex = assertThrows(ExecutionException.class, regularUserInWork.get() == regular1Id ? r2::get : r1::get);
                     assertInstanceOf(BulkheadFullException.class, ex.getCause(), "Second REGULAR must fail with bulkhead full");
 
                     countDownLatch.countDown();
-	                assertEquals("Result", regularUserInWork.get() == regular1Id ? r1.get() : r2.get());
-	            } finally {
-	                executor.shutdownNow();
-	                executor.awaitTermination(1, TimeUnit.SECONDS);
-	            }
+                assertEquals("Result", regularUserInWork.get() == regular1Id ? r1.get() : r2.get());
+            } finally {
+                executor.shutdownNow();
+                executor.awaitTermination(1, TimeUnit.SECONDS);
+            }
         }
     }
 
-    private static String awaitAndCall(CountDownLatch start, CommandSyncService service, TestCommand command) {
+    private static String awaitAndCall(CountDownLatch start, CommandSyncService service, TestCommand command,
+                                       java.util.function.Function<Long, UserPriority> priorities) {
         try {
             assertTrue(start.await(2, TimeUnit.SECONDS));
-            return service.syncAndHandle(command);
+            return service.syncAndHandle(command, priorities);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);

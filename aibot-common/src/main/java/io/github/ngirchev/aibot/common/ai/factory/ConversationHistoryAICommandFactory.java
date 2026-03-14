@@ -115,12 +115,13 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
 
             // TODO add vip/regular logic
             // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
+            String systemRole = buildSystemRole(assistantRole.getContent(), metadata.get(LANGUAGE_CODE_FIELD));
             return new ChatAICommand(
                     modelCapabilities,
                     0.35,
                     maxOutputTokens,
                     maxReasoningTokens,
-                    assistantRole.getContent(),
+                    systemRole,
                     command.userText(),
                     command.stream(),
                     metadata,
@@ -131,6 +132,22 @@ public class ConversationHistoryAICommandFactory implements AICommandFactory<AIC
             log.error("Failed to build context with history for thread {}: {}", threadKey, e.getMessage(), e);
             throw new RuntimeException("Failed to create AI command with conversation history", e);
         }
+    }
+
+    private static String buildSystemRole(String roleContent, String languageCode) {
+        if (languageCode == null || languageCode.isBlank()) {
+            return roleContent;
+        }
+        String languageName = switch (languageCode.toLowerCase()) {
+            case "ru" -> "Russian";
+            case "en" -> "English";
+            case "de" -> "German";
+            case "fr" -> "French";
+            case "es" -> "Spanish";
+            case "zh" -> "Chinese";
+            default -> languageCode;
+        };
+        return roleContent + "\nIMPORTANT: Always respond in " + languageName + " (" + languageCode + ").";
     }
 
     /**

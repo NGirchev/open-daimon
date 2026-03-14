@@ -21,6 +21,7 @@ Multi-module Java project for interacting with various AI services through diffe
 ## Table of contents
 
 - [Features](#features)
+- [User Priorities and Bulkhead](#user-priorities-and-bulkhead)
 - [Requirements](#requirements)
 - [Tech stack](#tech-stack)
 - [Modules](#modules)
@@ -43,6 +44,106 @@ Multi-module Java project for interacting with various AI services through diffe
 - **Modular architecture**: enable only the modules you need
 - **Request prioritization**: bulkhead (ADMIN/VIP/REGULAR) and per-user concurrency
 - **Monitoring**: Prometheus, Grafana, Elasticsearch, Kibana
+
+## User Priorities and Bulkhead
+
+The system uses a **Bulkhead pattern** to manage AI request limits based on user priority.
+
+### Priority Levels
+
+| Priority  | Description                              | Max Concurrent Requests | Max Wait Time |
+|-----------|------------------------------------------|------------------------|---------------|
+| ADMIN     | Bot administrators                       | 10 (configurable)      | 1s            |
+| VIP       | Paid users or channel members           | 5 (configurable)       | 1s            |
+| REGULAR   | Free users in whitelist                  | 1 (configurable)      | 500ms         |
+| BLOCKED   | Not in whitelist — access denied        | 0                      | —             |
+
+### How Priority is Determined
+
+Priority is checked in this order (first match wins):
+
+1. **ADMIN** — in config list (`admin.ids` or `admin.channels`) OR `isAdmin = true` in database
+2. **BLOCKED** — not in whitelist, not in any configured channel
+3. **VIP** — in config list (`vip.ids`) OR `isPremium = true` (Telegram Premium) OR in `vip.channels`
+4. **REGULAR** — all other users in whitelist
+
+### Configuration via Environment Variables
+
+User access is configured via **environment variables** (not hardcoded in YAML):
+
+#### Telegram
+
+```bash
+# Admin users by Telegram ID
+TELEGRAM_ACCESS_ADMIN_IDS=123456789,987654321
+
+# Admin channel (members get ADMIN)
+TELEGRAM_ACCESS_ADMIN_CHANNELS=-1000000000000,@admins
+
+# VIP users by Telegram ID
+TELEGRAM_ACCESS_VIP_IDS=111111111,222222222
+
+# VIP channels (members get VIP)
+TELEGRAM_ACCESS_VIP_CHANNELS=-1002000000000,@vipgroup
+
+# Regular users by Telegram ID
+TELEGRAM_ACCESS_REGULAR_IDS=333333333
+
+# Regular channels (members get REGULAR)
+TELEGRAM_ACCESS_REGULAR_CHANNELS=-1003000000000,@community
+```
+
+#### REST API
+
+```bash
+# Admin emails
+REST_ACCESS_ADMIN_EMAILS=admin@example.com
+
+# VIP emails
+REST_ACCESS_VIP_EMAILS=vip@example.com,premium@example.com
+
+# Regular emails
+REST_ACCESS_REGULAR_EMAILS=user@example.com,test@example.com
+```
+
+### Bulkhead Configuration (application.yml)
+
+Edit `application.yml` to change request limits:
+
+```yaml
+ai-bot:
+  common:
+    bulkhead:
+      enabled: true
+      instances:
+        ADMIN:
+          maxConcurrentCalls: 10
+          maxWaitDuration: 1s
+        VIP:
+          maxConcurrentCalls: 5
+          maxWaitDuration: 1s
+        REGULAR:
+          maxConcurrentCalls: 1
+          maxWaitDuration: 500ms
+```
+
+### Managing Users
+
+- **Add admin**: Set `TELEGRAM_ACCESS_ADMIN_IDS` or `REST_ACCESS_ADMIN_EMAILS` env variable
+- **Add VIP**: Set `TELEGRAM_ACCESS_VIP_IDS` or `REST_ACCESS_VIP_EMAILS` env variable
+- **Add to whitelist (REGULAR)**: Use TelegramWhitelistService or DB table `telegram_whitelist`
+- **Database fields**: `isAdmin`, `isPremium` in user tables (legacy, config takes priority)
+
+**Startup initialization of direct users**: On application startup, all users listed in `REST_ACCESS_*_EMAILS` and `TELEGRAM_ACCESS_*_IDS` (admin, vip, regular) are created or updated in the database with flags set by level. If a user appears in more than one level, the highest level wins (ADMIN > VIP > REGULAR). Groups/channels are not used for this; only the direct ids/emails from config are initialized. For Telegram, when the bot is available, the initializer calls the getChat API for each configured id to fetch real username, first name, and last name; new users are then created with these values instead of a placeholder (e.g. `id_<telegramId>`). If getChat fails (e.g. user never chatted with the bot), the placeholder is used.
+
+### Related Files
+
+- `UserPriority.java` — enum with priority levels
+- `TelegramUserPriorityService.java` — Telegram priority logic
+- `RestUserPriorityService.java` — REST priority logic
+- `PriorityRequestExecutor.java` — bulkhead execution
+- `application.yml` — bulkhead limits
+- `TelegramProperties.java`, `RestProperties.java` — access configuration
 
 ## Requirements
 
@@ -411,7 +512,7 @@ File -> Invalidate Caches / Restart
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — How to contribute (setup, code style, testing, PR requirements)
 - **[SECURITY.md](SECURITY.md)** — How to report security vulnerabilities
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** — Server deployment guide
-- **[MODULAR_MIGRATIONS.md](MODULAR_MIGRATIONS.md)** — Flyway modular migrations
+- **[MODULAR_MIGRATIONS.md](docs/MODULAR_MIGRATIONS.md)** — Flyway modular migrations
 
 ## Project structure
 

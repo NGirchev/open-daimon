@@ -279,6 +279,9 @@ class TelegramConversationThreadRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         return user;
     }
 

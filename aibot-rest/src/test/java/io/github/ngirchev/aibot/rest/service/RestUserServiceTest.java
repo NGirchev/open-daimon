@@ -2,6 +2,7 @@ package io.github.ngirchev.aibot.rest.service;
 
 import io.github.ngirchev.aibot.common.model.AssistantRole;
 import io.github.ngirchev.aibot.common.service.AssistantRoleService;
+import io.github.ngirchev.aibot.rest.config.RestProperties;
 import io.github.ngirchev.aibot.rest.model.RestUser;
 import io.github.ngirchev.aibot.rest.repository.RestUserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,12 +33,14 @@ class RestUserServiceTest {
     private RestUserRepository restUserRepository;
     @Mock
     private AssistantRoleService assistantRoleService;
+    @Mock
+    private RestProperties restProperties;
 
     private RestUserService service;
 
     @BeforeEach
     void setUp() {
-        service = new RestUserService(restUserRepository, assistantRoleService);
+        service = new RestUserService(restUserRepository, assistantRoleService, restProperties);
     }
 
     @Nested
@@ -58,6 +61,12 @@ class RestUserServiceTest {
 
         @Test
         void whenUserDoesNotExist_thenCreatesAndSavesNew() {
+            RestProperties.AccessConfig accessConfig = new RestProperties.AccessConfig();
+            RestProperties.AccessConfig.LevelConfig admin = new RestProperties.AccessConfig.LevelConfig();
+            admin.getEmails().add("new@test.com");
+            accessConfig.setAdmin(admin);
+            when(restProperties.getAccess()).thenReturn(accessConfig);
+
             when(restUserRepository.findByEmail("new@test.com")).thenReturn(Optional.empty());
             when(restUserRepository.save(any(RestUser.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -72,6 +81,9 @@ class RestUserServiceTest {
             ArgumentCaptor<RestUser> captor = ArgumentCaptor.forClass(RestUser.class);
             verify(restUserRepository).save(captor.capture());
             assertEquals("new@test.com", captor.getValue().getEmail());
+            assertEquals(Boolean.TRUE, captor.getValue().getIsAdmin());
+            assertEquals(Boolean.TRUE, captor.getValue().getIsPremium());
+            assertEquals(Boolean.FALSE, captor.getValue().getIsBlocked());
         }
     }
 

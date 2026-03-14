@@ -44,10 +44,14 @@ public class TelegramWhitelistService implements IWhitelistService {
     public void onApplicationReady() {
         List<Long> allUserIds = whitelistRepository.findAllUserIds();
         allowedUsers.addAll(allUserIds);
-        List<Long> allTelegramIds = whitelistRepository.findAllTelegramUsers().stream()
+
+        List<TelegramUser> whitelistUsers = whitelistRepository.findAllTelegramUsers();
+        List<Long> allTelegramIds = whitelistUsers.stream()
                 .map(TelegramUser::getTelegramId)
                 .toList();
-        log.info("Loaded user whitelist: {}", allTelegramIds);
+
+        log.info("Loaded user whitelist ({} entries): userIds={}, telegramIds={}",
+                whitelistUsers.size(), allUserIds, allTelegramIds);
     }
 
     @Override

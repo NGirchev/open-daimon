@@ -389,10 +389,8 @@ class TelegramRealGatewayIT {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration(excludeName = {
-            "org.springframework.ai.model.ollama.autoconfigure.OllamaAutoConfiguration",
             "org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration",
             "io.github.ngirchev.aibot.ai.springai.config.SpringAIAutoConfig",
-//            "org.springframework.ai.model.openai.autoconfigure.OpenAiAutoConfiguration",
             "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration",
             "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration",
             "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration",

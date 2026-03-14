@@ -223,7 +223,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         TelegramUser telegramUser = userService.getOrCreateUser(message.getFrom());
         Long userId = telegramUser.getId();
 
-        String userText = message.getCaption() != null ? message.getCaption() : "";
+        String caption = message.getCaption();
+        String userText = caption != null && !caption.isBlank()
+                ? caption
+                : messageLocalizationService != null
+                        ? messageLocalizationService.getMessage("telegram.photo.default.prompt", telegramUser.getLanguageCode())
+                        : "What is this?";
         TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
 
         List<Attachment> attachments = new ArrayList<>();

@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./mvnw test:*)",
+      "Bash(chmod +x mvnw && mvn test -pl aibot-rest -Dtest=ChatServiceTest 2>&1 | tail -50)",
+      "Bash(mvn verify:*)",
+      "Bash(./mvnw verify:*)",
+      "Bash(sh ./mvnw verify 2>&1)",
+      "Bash(mvn --version 2>&1 | head -5)",
+      "Bash(mvn test:*)",
+      "Bash(mvn install:*)",
+      "Bash(rm \"C:/Work/IdeaProjects/ai-bot/aibot-app/target/test-classes/io/github/ngirchev/aibot/RepositoryTestConfig.class\" && cd \"C:/Work/IdeaProjects/ai-bot\" && ./mvnw clean test -am -pl aibot-app -Dtest=TelegramUserRepositoryIT -Dsurefire.failIfNoSpecifiedTests=false 2>&1)",
+      "mcp__ide__getDiagnostics",
+      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" && ./mvnw clean test -pl aibot-common,aibot-telegram -Dtest=TelegramBotTest -q 2>&1 | tail -20)",
+      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" && ./mvnw clean install -pl aibot-common -q 2>&1 | tail -5 && ./mvnw test -pl aibot-telegram -Dtest=TelegramBotTest -q 2>&1 | tail -20)",
+      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" && ./mvnw compile -pl aibot-spring-ai -q 2>&1 | tail -10)",
+      "Bash(cd \"C:\\\\Work\\\\IdeaProjects\\\\ai-bot\" && ./mvnw compile -pl aibot-common,aibot-telegram -q 2>&1 | tail -10)"
+    ]
+  }
+}

@@ -31,6 +31,7 @@ import reactor.core.publisher.Flux;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -333,9 +334,18 @@ class SessionControllerContractTest {
                     .andExpect(request().asyncStarted())
                     .andReturn();
 
-            mockMvc.perform(asyncDispatch(mvcResult))
+            MvcResult result = mockMvc.perform(asyncDispatch(mvcResult))
                     .andExpect(status().isOk())
-                    .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM));
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                    .andReturn();
+
+            String body = result.getResponse().getContentAsString();
+            // Basic contract: first event is metadata with sessionId, then data chunks
+            // We do not assert exact formatting to keep test stable, only key markers.
+            assertTrue(body.contains("event:metadata"));
+            assertTrue(body.contains("{\"sessionId\":\"" + SESSION_ID + "\""));
+            assertTrue(body.contains("data:Hello"));
+            assertTrue(body.contains("data:world"));
         }
 
         @Test

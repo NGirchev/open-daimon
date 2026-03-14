@@ -68,6 +68,9 @@ class RestAIBotMessageRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         AssistantRole assistantRole = new AssistantRole();
@@ -124,6 +127,9 @@ class RestAIBotMessageRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         AIBotMessage message1 = createRestMessage(user, "First request", "127.0.0.1", "Mozilla/5.0", "/api/chat");
@@ -150,6 +156,9 @@ class RestAIBotMessageRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         AIBotMessage message = createRestMessage(user, "Test request", "127.0.0.1", "Mozilla/5.0", "/api/chat");
@@ -181,6 +190,9 @@ class RestAIBotMessageRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         AIBotMessage message = createRestMessage(user, "Test request", "127.0.0.1", "Mozilla/5.0", "/api/chat");
@@ -361,6 +373,9 @@ class RestAIBotMessageRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         return user;
     }
 

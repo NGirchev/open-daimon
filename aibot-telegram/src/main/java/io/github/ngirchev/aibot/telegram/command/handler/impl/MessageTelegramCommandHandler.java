@@ -133,6 +133,13 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
             ResponseContext ctx = extractResponseContext(aiResponse, command, message);
 
+            if (ctx.responseTextOpt().isEmpty()) {
+                // One retry on empty content
+                log.debug("Empty content from model, retrying once");
+                aiResponse = aiGateway.generateResponse(aiCommand);
+                ctx = extractResponseContext(aiResponse, command, message);
+            }
+
             if (ctx.responseTextOpt().isPresent()) {
                 saveAndSendSuccessResponse(command, telegramUser, message, aiResponse, ctx, modelCapabilities,
                         assistantRoleContent, startTime);
@@ -193,19 +200,20 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         } else {
             log.error(AbstractTelegramCommandHandler.LOG_ERROR_PROCESSING_MESSAGE, e);
         }
+        String userFacingMessage = messageLocalizationService.getMessage("common.error.processing", command.languageCode());
         if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
             String errorRoleContent = userMessage.getAssistantRole() != null
                     ? userMessage.getAssistantRole().getContent()
                     : null;
             telegramMessageService.saveAssistantErrorMessage(
                     telegramUser,
-                    "An error occurred while processing your request",
+                    userFacingMessage,
                     modelCapabilities.toString(),
                     errorRoleContent,
                     null);
         }
         Integer replyToMessageId = message != null ? message.getMessageId() : null;
-        sendErrorMessage(command.telegramId(), "An error occurred while processing your request", replyToMessageId);
+        sendErrorMessage(command.telegramId(), userFacingMessage, replyToMessageId);
     }
 
     private static DocumentContentNotExtractableException findDocumentContentNotExtractable(Throwable t) {
@@ -271,16 +279,20 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     private void sendEmptyContentError(TelegramCommand command, TelegramUser telegramUser, Message message,
                                        ResponseContext ctx, Set<ModelCapabilities> modelCapabilities,
                                        String assistantRoleContent) {
-        String errorMessage = ctx.errorOpt().orElse(AIUtils.CONTENT_IS_EMPTY);
+        String detailedError = ctx.errorOpt().orElse(AIUtils.CONTENT_IS_EMPTY);
+        log.warn("Empty content from model: {}. usefulResponseData={}",
+                detailedError,
+                ctx.usefulResponseData() != null ? ctx.usefulResponseData() : "null");
         telegramMessageService.saveAssistantErrorMessage(
                 telegramUser,
-                errorMessage,
+                detailedError,
                 modelCapabilities.toString(),
                 assistantRoleContent,
                 ctx.usefulResponseData() != null && !ctx.usefulResponseData().isEmpty()
                         ? ctx.usefulResponseData().toString()
                         : null);
-        sendErrorMessage(command.telegramId(), errorMessage, message.getMessageId());
+        String userMessage = messageLocalizationService.getMessage("common.error.processing", command.languageCode());
+        sendErrorMessage(command.telegramId(), userMessage, message.getMessageId());
     }
 
     private Map<String, String> prepareMetadata(
@@ -295,6 +307,9 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         metadata.put(USER_ID_FIELD, telegramUser.getId().toString());
         // For backward compatibility also pass role (for fallback to DefaultAiCommandFactory)
         metadata.put(ROLE_FIELD, assistantRoleContent);
+        if (telegramUser.getLanguageCode() != null) {
+            metadata.put(LANGUAGE_CODE_FIELD, telegramUser.getLanguageCode());
+        }
         return metadata;
     }
 

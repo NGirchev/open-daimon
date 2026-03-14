@@ -15,7 +15,7 @@ This document describes how user priority (tariff) is determined, how it maps to
 
 Priority is not a separate “plan” in the app; it is derived from Telegram (admin / premium), whitelist, and channel membership.
 
-**Access and groups/chats:** Access is granted via (1) `ai-bot.telegram.whitelist-exceptions` (user IDs, added at startup) or (2) **membership in configured groups/channels**: if `ai-bot.telegram.whitelist-channel-id-exceptions` is set, any user who is a member of one of these groups/channels is auto-added to the whitelist on first interaction ([TelegramWhitelistService](../aibot-telegram/src/main/java/io/github/ngirchev/aibot/telegram/service/TelegramWhitelistService.java)). Users who got access via (2) receive **VIP (Premium)** priority (same as Telegram Premium users): they get the same model capabilities and free-model treatment.
+**Access and groups/chats:** Access is granted via **membership in configured groups/channels** defined in `ai-bot.telegram.access.*.channels` (see `TELEGRAM_ACCESS_*_CHANNELS` env variables). Any user who is a member of one of these groups/channels is auto-added to the whitelist on first interaction ([TelegramWhitelistService](../aibot-telegram/src/main/java/io/github/ngirchev/aibot/telegram/service/TelegramWhitelistService.java)). Users who got access via such groups/channels receive **VIP (Premium)** priority (same as Telegram Premium users): they get the same model capabilities and free-model treatment.
 
 ## 2. Capabilities by priority
 

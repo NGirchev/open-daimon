@@ -41,6 +41,15 @@ public class TelegramServiceConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    public TelegramUsersStartupInitializer telegramUsersStartupInitializer(
+            TelegramUserService telegramUserService,
+            TelegramProperties telegramProperties,
+            org.springframework.beans.factory.ObjectProvider<TelegramBot> telegramBotProvider) {
+        return new TelegramUsersStartupInitializer(telegramUserService, telegramProperties, telegramBotProvider);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public TelegramWhitelistService telegramWhitelistService(
             TelegramWhitelistRepository whitelistRepository,
             @Lazy TelegramBot telegramBot,
@@ -50,7 +59,7 @@ public class TelegramServiceConfig {
                 whitelistRepository,
                 telegramBot,
                 telegramUserRepository,
-                telegramProperties.getWhitelistChannelIdExceptionsSet());
+                telegramProperties.getAllAccessChannels());
     }
 
     @Bean
@@ -87,15 +96,6 @@ public class TelegramServiceConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public TelegramWhitelistInitializer telegramWhitelistInitializer(
-            TelegramWhitelistService whitelistService,
-            TelegramWhitelistRepository whitelistRepository,
-            TelegramProperties telegramProperties) {
-        return new TelegramWhitelistInitializer(whitelistService, whitelistRepository, telegramProperties);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public ScheduledExecutorService typingIndicatorScheduledExecutor() {
         return Executors.newScheduledThreadPool(2, r -> {
             Thread thread = new Thread(r, "typing-indicator-");
@@ -127,9 +127,10 @@ public class TelegramServiceConfig {
             CommandHandlerRegistry registry,
             PriorityRequestExecutor priorityRequestExecutor,
             TelegramUserService userService,
-            TelegramWhitelistService whitelistService) {
+            TelegramWhitelistService whitelistService,
+            TelegramProperties telegramProperties) {
         return new TelegramCommandSyncService(meterRegistry, registry, priorityRequestExecutor,
-                new DefaultUserPriorityService(userService, whitelistService));
+                new TelegramUserPriorityService(userService, whitelistService, telegramProperties));
     }
 
     @Bean

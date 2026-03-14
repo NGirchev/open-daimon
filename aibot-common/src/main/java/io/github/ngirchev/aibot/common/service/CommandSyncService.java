@@ -7,7 +7,6 @@ import io.github.resilience4j.bulkhead.BulkheadFullException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import io.github.ngirchev.aibot.bulkhead.model.UserPriority;
-import io.github.ngirchev.aibot.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.aibot.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.aibot.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.aibot.common.command.ICommand;
@@ -17,6 +16,7 @@ import io.github.ngirchev.aibot.common.meter.AIBotMeterRegistry;
 
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -25,7 +25,6 @@ public class CommandSyncService {
     protected final AIBotMeterRegistry aiBotMeterRegistry;
     protected final CommandHandlerRegistry commandHandlerRegistry;
     protected final PriorityRequestExecutor priorityRequestExecutor;
-    protected final IUserPriorityService userPriorityService;
 
     protected Cache<Long, Semaphore> userLocks = Caffeine.newBuilder()
             .expireAfterAccess(10, TimeUnit.MINUTES)
@@ -40,9 +39,15 @@ public class CommandSyncService {
         // do nothing
     }
 
-    public <T extends ICommandType, C extends ICommand<T>, R> R syncAndHandle(C command) {
-        Semaphore userLock = userLocks.get(command.userId(), this::createSemaphoreForUser);
-        
+    /**
+     * Main entry point that must be used by callers: requires explicit user priority function.
+     */
+    public <T extends ICommandType, C extends ICommand<T>, R> R syncAndHandle(
+            C command,
+            Function<Long, UserPriority> userPriorityFn
+    ) {
+        Semaphore userLock = userLocks.get(command.userId(), id -> createSemaphoreForUser(id, userPriorityFn));
+
         try {
             userLock.acquire();
             try {
@@ -64,6 +69,15 @@ public class CommandSyncService {
     }
 
     /**
+     * Legacy entry point kept for backwards compatibility.
+     * Implementations that need a one-argument API must override this method
+     * and delegate to {@link #syncAndHandle(ICommand, Function)} with a proper userPriorityFn.
+     */
+    public <T extends ICommandType, C extends ICommand<T>, R> R syncAndHandle(C command) {
+        throw new UnsupportedOperationException("Use syncAndHandle(command, userPriorityFn)");
+    }
+
+    /**
      * Creates semaphore for user based on priority.
      * Admins get 4 permits (4 concurrent requests).
      * VIP users get 3 permits (3 concurrent requests).
@@ -72,8 +86,8 @@ public class CommandSyncService {
      * @param userId user identifier
      * @return semaphore with corresponding number of permits
      */
-    protected Semaphore createSemaphoreForUser(Long userId) {
-        UserPriority priority = userPriorityService.getUserPriority(userId);
+    protected Semaphore createSemaphoreForUser(Long userId, Function<Long, UserPriority> userPriorityFn) {
+        UserPriority priority = userPriorityFn.apply(userId);
         int permits = switch (priority) {
             case ADMIN -> 4;
             case VIP -> 3;

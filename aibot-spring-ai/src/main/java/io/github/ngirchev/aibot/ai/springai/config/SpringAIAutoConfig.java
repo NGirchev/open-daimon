@@ -162,6 +162,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "ai-bot.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
     public OpenRouterModelRotationAspect openRouterModelRotationAspect(
             OpenRouterRotationRegistry openRouterRotationRegistry,
             SpringAIProperties springAIProperties

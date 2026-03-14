@@ -1,8 +1,10 @@
 package io.github.ngirchev.aibot.telegram.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.objects.User;
+import io.github.ngirchev.aibot.bulkhead.model.UserPriority;
 import io.github.ngirchev.aibot.bulkhead.service.IUserObject;
 import io.github.ngirchev.aibot.bulkhead.service.IUserService;
 import io.github.ngirchev.aibot.common.model.AssistantRole;
@@ -11,9 +13,12 @@ import io.github.ngirchev.aibot.telegram.model.TelegramUser;
 import io.github.ngirchev.aibot.telegram.model.TelegramUserSession;
 import io.github.ngirchev.aibot.telegram.repository.TelegramUserRepository;
 
+import org.telegram.telegrambots.meta.api.objects.Chat;
+
 import java.time.OffsetDateTime;
 import java.util.Optional;
 
+@Slf4j
 @RequiredArgsConstructor
 public class TelegramUserService implements IUserService {
 
@@ -39,7 +44,9 @@ public class TelegramUserService implements IUserService {
 
     @Transactional
     public TelegramUser updateUserActivity(TelegramUser user) {
-        user.setLastActivityAt(OffsetDateTime.now());
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
         return telegramUserRepository.save(user);
     }
 
@@ -66,10 +73,12 @@ public class TelegramUserService implements IUserService {
         
         AssistantRole role = assistantRoleService.updateActiveRole(user, enhancedRoleContent);
         user.setCurrentAssistantRole(role);
-        
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
         return telegramUserRepository.save(user);
     }
-    
+
     /**
      * Appends a requirement to the role prompt to consider user locale and answer in the corresponding language.
      */
@@ -118,9 +127,12 @@ public class TelegramUserService implements IUserService {
             String enhancedDefaultContent = addLanguageRequirement(defaultContent, languageCode);
             role = assistantRoleService.getOrCreateDefaultRole(managedUser, enhancedDefaultContent);
 
-        managedUser.setCurrentAssistantRole(role);
-        telegramUserRepository.save(managedUser);
-    }
+            managedUser.setCurrentAssistantRole(role);
+            OffsetDateTime now = OffsetDateTime.now();
+            managedUser.setUpdatedAt(now);
+            managedUser.setLastActivityAt(now);
+            telegramUserRepository.save(managedUser);
+        }
 
         // Initialize role fields in this transaction to avoid LazyInitializationException later
         role.getId();
@@ -145,7 +157,9 @@ public class TelegramUserService implements IUserService {
         String normalized = languageCode != null && !languageCode.isBlank()
                 ? languageCode.trim().toLowerCase().split("-")[0] : "en";
         user.setLanguageCode(normalized);
-        user.setUpdatedAt(OffsetDateTime.now());
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
 
         Optional<AssistantRole> activeRole = assistantRoleService.getActiveRole(user);
         if (activeRole.isPresent()) {
@@ -219,11 +233,86 @@ public class TelegramUserService implements IUserService {
                 ? fromApi.trim().toLowerCase().split("-")[0]
                 : "en");
         user.setIsPremium(telegramUser.getIsPremium());
-        user.setCreatedAt(OffsetDateTime.now());
-        user.setUpdatedAt(OffsetDateTime.now());
-        user.setLastActivityAt(OffsetDateTime.now());
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setCreatedAt(now);
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
         user.setIsBlocked(false);
+        user.setIsAdmin(false);
         return telegramUserRepository.save(user);
+    }
+
+    /**
+     * Applies flags by access level (strict matrix). Used for startup and explicit level assignment.
+     */
+    public static void applyFlagsByLevel(TelegramUser user, UserPriority level) {
+        if (level == null) {
+            return;
+        }
+        switch (level) {
+            case ADMIN -> {
+                user.setIsAdmin(true);
+                user.setIsPremium(true);
+                user.setIsBlocked(false);
+            }
+            case VIP -> {
+                user.setIsAdmin(false);
+                user.setIsPremium(true);
+                user.setIsBlocked(false);
+            }
+            case REGULAR, BLOCKED -> {
+                user.setIsAdmin(false);
+                user.setIsPremium(false);
+                user.setIsBlocked(level == UserPriority.BLOCKED);
+            }
+        }
+    }
+
+    /**
+     * Ensures a Telegram user exists with the given telegramId and access level. Creates minimal user if missing, then applies strict flag matrix.
+     */
+    @Transactional
+    public TelegramUser ensureUserWithLevel(Long telegramId, UserPriority level) {
+        return ensureUserWithLevel(telegramId, level, Optional.empty());
+    }
+
+    /**
+     * Ensures a Telegram user exists with the given telegramId and access level. If chatFromApi is present (from getChat),
+     * uses real username/firstName/lastName; otherwise uses placeholder "startup_&lt;id&gt;" until the user interacts.
+     */
+    @Transactional
+    public TelegramUser ensureUserWithLevel(Long telegramId, UserPriority level, Optional<Chat> chatFromApi) {
+        if (telegramId == null) {
+            throw new IllegalArgumentException("telegramId is required for Telegram user");
+        }
+        TelegramUser user = telegramUserRepository.findByTelegramId(telegramId).orElseGet(() -> {
+            TelegramUser newUser = new TelegramUser();
+            newUser.setTelegramId(telegramId);
+            if (chatFromApi.isPresent()) {
+                Chat chat = chatFromApi.get();
+                newUser.setUsername(chat.getUserName() != null && !chat.getUserName().isBlank() ? chat.getUserName() : "id_" + telegramId);
+                newUser.setFirstName(chat.getFirstName());
+                newUser.setLastName(chat.getLastName());
+            } else {
+                newUser.setUsername("id_" + telegramId);
+            }
+            OffsetDateTime now = OffsetDateTime.now();
+            newUser.setCreatedAt(now);
+            newUser.setUpdatedAt(now);
+            newUser.setLastActivityAt(now);
+            newUser.setIsBlocked(false);
+            newUser.setIsPremium(false);
+            newUser.setIsAdmin(false);
+            return telegramUserRepository.save(newUser);
+        });
+        applyFlagsByLevel(user, level);
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
+        TelegramUser saved = telegramUserRepository.save(user);
+        log.info("Telegram user ensured: id={}, telegramId={}, username='{}', level={}, isAdmin={}, isPremium={}, isBlocked={}",
+                saved.getId(), saved.getTelegramId(), saved.getUsername(), level, saved.getIsAdmin(), saved.getIsPremium(), saved.getIsBlocked());
+        return saved;
     }
 
     private void updateUserInfo(TelegramUser user, User telegramUser) {
@@ -244,6 +333,8 @@ public class TelegramUserService implements IUserService {
         if (isPremium != null) {
             user.setIsPremium(isPremium);
         }
-        user.setLastActivityAt(OffsetDateTime.now());
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
     }
 }

@@ -162,7 +162,7 @@ class TelegramBotStartCommandIT {
 
         @Bean
         public CommandSyncService commandSyncService() {
-            return new CommandSyncService(null, null, null, userId -> UserPriority.REGULAR) {
+            return new CommandSyncService(null, null, null) {
                 @Override
                 public <T extends io.github.ngirchev.aibot.common.command.ICommandType, C extends io.github.ngirchev.aibot.common.command.ICommand<T>, R> R syncAndHandle(C command) {
                     throw new UnsupportedOperationException("Not needed for this test");

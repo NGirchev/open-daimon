@@ -1,5 +1,7 @@
 package io.github.ngirchev.aibot.rest.service;
 
+import io.github.ngirchev.aibot.bulkhead.model.UserPriority;
+import io.github.ngirchev.aibot.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.aibot.common.model.AIBotMessage;
 import io.github.ngirchev.aibot.common.model.ConversationThread;
 import io.github.ngirchev.aibot.common.model.MessageRole;
@@ -20,6 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -32,6 +36,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class ChatServiceTest {
 
     @Mock
@@ -46,13 +51,16 @@ class ChatServiceTest {
     private HttpServletRequest request;
 
     private ChatService service;
+    @Mock
+    private IUserPriorityService userPriorityService;
 
     private RestUser currentUser;
     private ConversationThread thread;
 
     @BeforeEach
     void setUp() {
-        service = new ChatService(threadRepository, conversationThreadService, messageRepository, commandSyncService);
+        when(userPriorityService.getUserPriority(any())).thenReturn(UserPriority.REGULAR);
+        service = new ChatService(threadRepository, conversationThreadService, messageRepository, commandSyncService, userPriorityService);
         currentUser = new RestUser();
         currentUser.setId(1L);
         currentUser.setEmail("user@test.com");
@@ -72,14 +80,14 @@ class ChatServiceTest {
         void whenNoActiveThread_createsNewThreadAndSendsMessage() {
             when(threadRepository.findMostRecentActiveThread(currentUser)).thenReturn(Optional.empty());
             when(conversationThreadService.createNewThread(currentUser)).thenReturn(thread);
-            when(commandSyncService.syncAndHandle(any())).thenReturn("AI response");
+            when(commandSyncService.syncAndHandle(any(), any())).thenReturn("AI response");
 
             ChatResponseDto<String> result = service.sendMessageToNewChat("Hello", currentUser, request, false);
 
             assertEquals("AI response", result.message());
             assertEquals("session-123", result.sessionId());
             verify(conversationThreadService).createNewThread(currentUser);
-            verify(commandSyncService).syncAndHandle(any());
+            verify(commandSyncService).syncAndHandle(any(), any());
         }
 
         @Test
@@ -88,7 +96,7 @@ class ChatServiceTest {
             activeThread.setThreadKey("old-session");
             when(threadRepository.findMostRecentActiveThread(currentUser)).thenReturn(Optional.of(activeThread));
             when(conversationThreadService.createNewThread(currentUser)).thenReturn(thread);
-            when(commandSyncService.syncAndHandle(any())).thenReturn("OK");
+            when(commandSyncService.syncAndHandle(any(), any())).thenReturn("OK");
 
             ChatResponseDto<String> result = service.sendMessageToNewChat("Hi", currentUser, request, false);
 
@@ -105,7 +113,7 @@ class ChatServiceTest {
         @Test
         void whenSessionBelongsToUser_activatesThreadAndSends() {
             when(threadRepository.findByThreadKey("session-123")).thenReturn(Optional.of(thread));
-            when(commandSyncService.syncAndHandle(any())).thenReturn("Reply");
+            when(commandSyncService.syncAndHandle(any(), any())).thenReturn("Reply");
 
             ChatResponseDto<String> result = service.sendMessage("session-123", "Hi", currentUser, request, false);
 

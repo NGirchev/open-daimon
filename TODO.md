@@ -22,3 +22,11 @@
 - [ ] Rest whitelist
 - [ ] Free router for REGULAR
 - [ ] Reply options as buttons
+- [ ] Telegram RAG Module
+- [ ] OpenCode Module (Claude)
+- [ ] MCP Module
+- [ ] Current PDF/Image creates RAG, do we need it or just long context?
+- [ ] Voice recognition
+- [ ] Agent publication news module
+- [ ] UI Dashboard with full administration functionality
+- [ ] Image generation

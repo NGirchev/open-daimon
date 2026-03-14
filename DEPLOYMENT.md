@@ -76,10 +76,6 @@ Create a `.env` file in the project root with environment variables:
 TELEGRAM_USERNAME=your_bot_username
 TELEGRAM_TOKEN=your_telegram_bot_token
 
-# Whitelist (optional, comma-separated)
-WHITELIST_EXCEPTIONS=
-WHITELIST_CHANNEL_ID_EXCEPTIONS=
-
 # AI Providers
 DEEPSEEK_KEY=your_deepseek_api_key
 OPENROUTER_KEY=your_openrouter_api_key
@@ -97,6 +93,7 @@ POSTGRES_PASSWORD=your_secure_password
 Ensure the following are set correctly:
 - **[prometheus.yml](prometheus.yml)** — must include target `aibot-app:8080`
 - **[aibot-app/src/main/resources/application.yml](aibot-app/src/main/resources/application.yml)** — must use environment variables for DB connection
+ - **User access configuration** — Telegram access and priority are configured via `TELEGRAM_ACCESS_*_IDS` и `TELEGRAM_ACCESS_*_CHANNELS` переменные (см. `.env.example` и `aibot-app/src/main/resources/application.yml`).
 
 ## Step 6: Choose docker-compose file
 

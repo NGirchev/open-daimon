@@ -10,6 +10,7 @@ public interface AICommand {
     String THREAD_KEY_FIELD = "threadKey";
     String ASSISTANT_ROLE_ID_FIELD = "assistantRoleId";
     String USER_ID_FIELD = "userId";
+    String LANGUAGE_CODE_FIELD = "languageCode";
 
     Set<ModelCapabilities> modelCapabilities();
     Map<String, String> metadata();

@@ -3,6 +3,9 @@ package io.github.ngirchev.aibot.ai.springai.rest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
 import org.springframework.boot.web.reactive.function.client.WebClientCustomizer;
@@ -30,6 +33,7 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
 
     private static final int MAX_ERROR_BODY_CHARS = 4_000;
     private static final int MAX_METADATA_VALUE_LENGTH = 500;
+    private static final int BASE64_TRUNCATE_THRESHOLD = 200;
 
     private final ObjectMapper objectMapper;
 
@@ -287,10 +291,46 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
 
         try {
             JsonNode root = objectMapper.readTree(body);
+            sanitizeBase64(root);
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(root);
         } catch (JsonProcessingException e) {
             return body;
         }
+    }
+
+    private void sanitizeBase64(JsonNode node) {
+        if (node == null) return;
+        if (node.isObject()) {
+            ObjectNode obj = (ObjectNode) node;
+            obj.fields().forEachRemaining(entry -> {
+                JsonNode value = entry.getValue();
+                if (value.isTextual() && looksLikeBase64(value.asText())) {
+                    obj.set(entry.getKey(), new TextNode("[base64 ~" + value.asText().length() + " chars]"));
+                } else {
+                    sanitizeBase64(value);
+                }
+            });
+        } else if (node.isArray()) {
+            ArrayNode arr = (ArrayNode) node;
+            for (int i = 0; i < arr.size(); i++) {
+                JsonNode elem = arr.get(i);
+                if (elem.isTextual() && looksLikeBase64(elem.asText())) {
+                    arr.set(i, new TextNode("[base64 ~" + elem.asText().length() + " chars]"));
+                } else {
+                    sanitizeBase64(elem);
+                }
+            }
+        }
+    }
+
+    private boolean looksLikeBase64(String s) {
+        if (s == null || s.length() < BASE64_TRUNCATE_THRESHOLD) return false;
+        if (s.startsWith("data:")) return true;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (!Character.isLetterOrDigit(c) && c != '+' && c != '/' && c != '=') return false;
+        }
+        return true;
     }
 
     private String truncate(String body) {

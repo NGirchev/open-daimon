@@ -9,6 +9,8 @@ import io.github.ngirchev.aibot.common.model.AIBotMessage;
 import io.github.ngirchev.aibot.common.model.MessageRole;
 import io.github.ngirchev.aibot.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.aibot.common.repository.AIBotMessageRepository;
+import io.github.ngirchev.aibot.bulkhead.model.UserPriority;
+import io.github.ngirchev.aibot.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.aibot.common.service.CommandSyncService;
 import io.github.ngirchev.aibot.common.service.ConversationThreadService;
 import io.github.ngirchev.aibot.rest.handler.RestChatCommand;
@@ -37,6 +39,7 @@ public class ChatService {
     private final ConversationThreadService conversationThreadService;
     private final AIBotMessageRepository messageRepository;
     private final CommandSyncService commandSyncService;
+    private final IUserPriorityService userPriorityService;
 
     /**
      * Sends message to new chat (creates new session)
@@ -92,7 +95,7 @@ public class ChatService {
                 user.getId()
         );
 
-        return commandSyncService.syncAndHandle(command);
+        return commandSyncService.syncAndHandle(command, this::getUserPriority);
     }
 
     /**
@@ -159,6 +162,10 @@ public class ChatService {
     private ConversationThread getThreadBySessionId(String sessionId) {
         return threadRepository.findByThreadKey(sessionId)
                 .orElseThrow(() -> new UnauthorizedException(SESSION_NOT_FOUND_PREFIX + sessionId));
+    }
+
+    private UserPriority getUserPriority(Long userId) {
+        return userPriorityService.getUserPriority(userId);
     }
 }
 

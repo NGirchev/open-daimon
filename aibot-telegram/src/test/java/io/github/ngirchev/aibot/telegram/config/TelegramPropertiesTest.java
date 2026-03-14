@@ -7,10 +7,6 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * Unit tests for TelegramProperties.
- * Verifies whitelist parsing and optional fields.
- */
 class TelegramPropertiesTest {
 
     private TelegramProperties properties;
@@ -24,46 +20,32 @@ class TelegramPropertiesTest {
     }
 
     @Test
-    void parseWhitelistExceptions_whenEmpty_thenSetIsEmpty() {
-        properties.setWhitelistExceptions(null);
+    void getAllAccessChannels_whenLevelsNullOrEmpty_returnsEmptySet() {
         properties.parseWhitelistExceptions();
-        assertTrue(properties.getWhitelistExceptionsSet().isEmpty());
-
-        properties.setWhitelistExceptions("   ");
-        properties.parseWhitelistExceptions();
-        assertTrue(properties.getWhitelistExceptionsSet().isEmpty());
+        assertTrue(properties.getAllAccessChannels().isEmpty());
     }
 
     @Test
-    void parseWhitelistExceptions_whenValidNumbers_thenParsed() {
-        properties.setWhitelistExceptions("350001752, 123456789 , 999");
-        properties.parseWhitelistExceptions();
-        assertEquals(Set.of(350001752L, 123456789L, 999L), properties.getWhitelistExceptionsSet());
-    }
+    void getAllAccessChannels_whenChannelsConfigured_returnsUnionOfAllLevels() {
+        TelegramProperties.AccessConfig accessConfig = new TelegramProperties.AccessConfig();
+        TelegramProperties.AccessConfig.LevelConfig admin = new TelegramProperties.AccessConfig.LevelConfig();
+        admin.setChannels(Set.of("admin-channel", "@admin_group"));
+        TelegramProperties.AccessConfig.LevelConfig vip = new TelegramProperties.AccessConfig.LevelConfig();
+        vip.setChannels(Set.of("vip-channel"));
+        TelegramProperties.AccessConfig.LevelConfig regular = new TelegramProperties.AccessConfig.LevelConfig();
+        regular.setChannels(Set.of("common-channel", "vip-channel"));
 
-    @Test
-    void parseWhitelistExceptions_whenInvalidNumber_thenSetIsEmpty() {
-        properties.setWhitelistExceptions("123,abc,456");
-        properties.parseWhitelistExceptions();
-        assertTrue(properties.getWhitelistExceptionsSet().isEmpty());
-    }
+        accessConfig.setAdmin(admin);
+        accessConfig.setVip(vip);
+        accessConfig.setRegular(regular);
+        properties.setAccess(accessConfig);
 
-    @Test
-    void parseWhitelistChannelIdExceptions_whenEmpty_thenSetIsEmpty() {
-        properties.setWhitelistChannelIdExceptions(null);
         properties.parseWhitelistExceptions();
-        assertTrue(properties.getWhitelistChannelIdExceptionsSet().isEmpty());
 
-        properties.setWhitelistChannelIdExceptions("");
-        properties.parseWhitelistExceptions();
-        assertTrue(properties.getWhitelistChannelIdExceptionsSet().isEmpty());
-    }
-
-    @Test
-    void parseWhitelistChannelIdExceptions_whenValid_thenParsed() {
-        properties.setWhitelistChannelIdExceptions("-1000000000000, @mygroup , channel");
-        properties.parseWhitelistExceptions();
-        assertEquals(Set.of("-1000000000000", "@mygroup", "channel"), properties.getWhitelistChannelIdExceptionsSet());
+        assertEquals(
+                Set.of("admin-channel", "@admin_group", "vip-channel", "common-channel"),
+                properties.getAllAccessChannels()
+        );
     }
 
     @Test

@@ -42,6 +42,9 @@ class TelegramUserRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         telegramUserRepository.save(user);
 
         // Act
@@ -75,6 +78,9 @@ class TelegramUserRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         telegramUserRepository.save(user);
 
         // Act
@@ -104,6 +110,9 @@ class TelegramUserRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
 
         // Act
         TelegramUser saved = telegramUserRepository.save(user);

@@ -62,20 +62,4 @@ public class User extends AbstractEntity<Long> implements IUserObject {
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "current_assistant_role_id")
     private AssistantRole currentAssistantRole;
-    
-    @PrePersist
-    protected void onCreate() {
-        createdAt = OffsetDateTime.now();
-        updatedAt = OffsetDateTime.now();
-        lastActivityAt = OffsetDateTime.now();
-        isBlocked = false;
-        isPremium = false;
-        isAdmin = false;
-    }
-    
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = OffsetDateTime.now();
-        lastActivityAt = OffsetDateTime.now();
-    }
 } 

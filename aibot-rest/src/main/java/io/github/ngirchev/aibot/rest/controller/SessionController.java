@@ -17,6 +17,7 @@ import io.github.ngirchev.aibot.rest.exception.UnauthorizedException;
 import io.github.ngirchev.aibot.rest.service.ChatService;
 import io.github.ngirchev.aibot.rest.service.RestAuthorizationService;
 
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -68,6 +69,23 @@ public class SessionController {
                 false)
         );
     }
+
+//    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+//    public Flux<ServerSentEvent<String>> sendMessageToNewChatStream(
+//            @RequestBody ChatRequestDto request,
+//            HttpServletRequest httpRequest,
+//            HttpSession session) {
+//        // TODO: TEMP fake stream — remove after UI streaming is confirmed working
+//        String fakeText = "Hello! This is a fake stream test. Each character arrives with 200ms delay.";
+//        ServerSentEvent<String> sessionEvent = ServerSentEvent.<String>builder()
+//                .event("metadata")
+//                .data("{\"sessionId\":\"fake-test-session\"}")
+//                .build();
+//        Flux<ServerSentEvent<String>> fakeContent = Flux.fromArray(fakeText.split(""))
+//                .delayElements(Duration.ofMillis(200))
+//                .map(ch -> ServerSentEvent.builder(ch).build());
+//        return Flux.concat(Flux.just(sessionEvent), fakeContent);
+//    }
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> sendMessageToNewChatStream(

@@ -37,8 +37,6 @@ ai-bot:
     enabled: true
     username: ${TELEGRAM_USERNAME}
     token: ${TELEGRAM_TOKEN}
-    whitelist-exceptions: ${WHITELIST_EXCEPTIONS:}
-    whitelist-channel-id-exceptions: ${WHITELIST_CHANNEL_ID_EXCEPTIONS:}
     commands:
       start-enabled: true
       role-enabled: true

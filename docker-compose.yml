@@ -15,8 +15,6 @@ services:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       # Ollama on host (use host.docker.internal to reach host from container)
       - SPRING_AI_OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - WHITELIST_EXCEPTIONS=${WHITELIST_EXCEPTIONS:-}
-      - WHITELIST_CHANNEL_ID_EXCEPTIONS=${WHITELIST_CHANNEL_ID_EXCEPTIONS:-}
       # Admin
       - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID:-}
       - ADMIN_REST_EMAIL=${ADMIN_REST_EMAIL:-}

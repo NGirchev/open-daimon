@@ -48,6 +48,9 @@ class TelegramUserSessionRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         TelegramUserSession session = new TelegramUserSession();
@@ -78,6 +81,9 @@ class TelegramUserSessionRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         TelegramUserSession session = new TelegramUserSession();
@@ -108,6 +114,9 @@ class TelegramUserSessionRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         TelegramUserSession session = new TelegramUserSession();
@@ -138,6 +147,9 @@ class TelegramUserSessionRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         TelegramUserSession session = new TelegramUserSession();
@@ -168,6 +180,9 @@ class TelegramUserSessionRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         userRepository.save(user);
 
         TelegramUserSession session = new TelegramUserSession();

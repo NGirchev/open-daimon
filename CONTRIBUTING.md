@@ -111,7 +111,7 @@ git push --tags
 - **[AGENTS.md](AGENTS.md)** — Architecture, module structure, code style, and rules for contributors and AI agents.
 - **[README.md](README.md)** — Quick start, build, run, testing, and modules.
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** — Production deployment.
-- **[MODULAR_MIGRATIONS.md](MODULAR_MIGRATIONS.md)** — Flyway modular migrations.
+- **[MODULAR_MIGRATIONS.md](docs/MODULAR_MIGRATIONS.md)** — Flyway modular migrations.
 
 ## Questions and issues
 

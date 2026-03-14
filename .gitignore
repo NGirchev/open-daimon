@@ -28,3 +28,5 @@
 /.env
 /.cursor/mcp.json
 /target/
+/.claude/worktrees/flamboyant-heyrovsky/
+/.claude/

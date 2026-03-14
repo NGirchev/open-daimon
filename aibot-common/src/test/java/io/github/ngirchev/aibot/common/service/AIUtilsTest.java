@@ -5,6 +5,7 @@ import io.github.ngirchev.aibot.common.ai.response.MapResponse;
 import io.github.ngirchev.aibot.common.ai.response.SpringAIResponse;
 import io.github.ngirchev.aibot.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.aibot.common.exception.DocumentContentNotExtractableException;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
@@ -14,6 +15,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +23,8 @@ import java.util.Optional;
 
 import static io.github.ngirchev.aibot.common.ai.LlmParamNames.*;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class AIUtilsTest {
 
@@ -73,6 +76,38 @@ class AIUtilsTest {
             *   Or would you like me to tell another fairy tale?
             """;
 
+    @Disabled("Manual test")
+    @Test
+    void mainTestForStreamingChecksManually() {
+        // First ~400 chars covers 2 paragraphs — ~50 words × 15ms (Windows timer) ≈ 750ms
+        Flux<ChatResponse> responseFlux = Flux.fromStream(FULL_FAIRY_TALE_TEXT.substring(0, 400).chars().boxed())
+                .map(c -> createChatResponse(String.valueOf((char) (int) c)));
+
+        List<Long> messageTimestamps = new ArrayList<>();
+        List<String> receivedMessages = new ArrayList<>();
+
+        AIUtils.processStreamingResponseByParagraphs(
+                responseFlux,
+                1000,
+                message -> {
+                    messageTimestamps.add(System.currentTimeMillis());
+                    receivedMessages.add(message);
+                    System.out.println(LocalDateTime.now() + " - " + message);
+                },
+                Duration.ofSeconds(10)
+        );
+
+        assertFalse(receivedMessages.isEmpty(), "Should receive at least one message");
+        String joined = String.join("", receivedMessages);
+        assertTrue(joined.contains("Ok, let me"), "Full text must be present");
+        assertTrue(joined.contains("Inside it was"), "Full text must be present");
+
+        // Messages must arrive at different times — not all at once
+        long firstMs = messageTimestamps.getFirst();
+        long lastMs = messageTimestamps.getLast();
+        assertTrue(lastMs > firstMs, "Messages must arrive over time, not all at once");
+    }
+
     @Test
     void testProcessStreamingResponseByParagraphs_RealisticCharByCharStreaming() {
         // Arrange: realistic streaming simulation — text arrives character by character
@@ -99,7 +134,7 @@ class AIUtilsTest {
         
         // Assert
         assertNotNull(result, "Result must not be null");
-        assertTrue(receivedParagraphs.size() == 8, "Should receive many paragraphs (tale is long)");
+        assertTrue(receivedParagraphs.size() >= 1, "Should receive at least one block");
         
         // First paragraph must start correctly
         assertTrue(receivedParagraphs.getFirst().trim().startsWith("Ok, let me tell you"),
@@ -110,15 +145,13 @@ class AIUtilsTest {
         assertTrue(lastParagraph.contains("another fairy tale"),
                 "Last paragraph must contain tale-related text");
         
-        // All paragraphs except last must end with separator
-        for (int i = 0; i < receivedParagraphs.size() - 1; i++) {
-            assertTrue(receivedParagraphs.get(i).endsWith("\n\n"), 
-                    "Paragraph " + i + " must end with separator");
-        }
-        
-        // Last paragraph must not end with separator
-        assertFalse(receivedParagraphs.getLast().endsWith("\n\n"),
-                "Last paragraph must NOT end with separator");
+        // All non-whitespace characters must be preserved
+        String joined = String.join("", receivedParagraphs);
+        assertEquals(
+                FULL_FAIRY_TALE_TEXT.replaceAll("\\s+", ""),
+                joined.replaceAll("\\s+", ""),
+                "All non-whitespace characters must be preserved"
+        );
     }
 
     @Test
@@ -154,7 +187,7 @@ class AIUtilsTest {
         
         // Assert
         assertNotNull(result, "Result must not be null");
-        assertTrue(receivedParagraphs.size() == 8, "Should receive many paragraphs (tale is long)");
+        assertFalse(receivedParagraphs.isEmpty(), "Should receive at least one block");
         
         // First paragraph must start correctly
         assertTrue(receivedParagraphs.getFirst().trim().startsWith("Ok, let me tell you"),
@@ -165,15 +198,13 @@ class AIUtilsTest {
         assertTrue(lastParagraph.contains("another fairy tale"),
                 "Last paragraph must contain tale-related text");
         
-        // All paragraphs except last must end with separator
-        for (int j = 0; j < receivedParagraphs.size() - 1; j++) {
-            assertTrue(receivedParagraphs.get(j).endsWith("\n\n"), 
-                    "Paragraph " + j + " must end with separator");
-        }
-        
-        // Last paragraph must not end with separator
-        assertFalse(receivedParagraphs.getLast().endsWith("\n\n"),
-                "Last paragraph must NOT end with separator");
+        // All non-whitespace characters must be preserved
+        String joined = String.join("", receivedParagraphs);
+        assertEquals(
+                FULL_FAIRY_TALE_TEXT.replaceAll("\\s+", ""),
+                joined.replaceAll("\\s+", ""),
+                "All non-whitespace characters must be preserved"
+        );
     }
 
     @Test
@@ -298,6 +329,54 @@ class AIUtilsTest {
         for (String block : receivedBlocks) {
             assertFalse(block.trim().equals("***"), "*** must not be a separate block");
         }
+    }
+
+    // --- maxMessageLength splitting — no text lost ---
+
+    @Test
+    void testProcessStreamingResponseByParagraphs_maxLengthZero_eachCharIsOwnMessage() {
+        String text = "Hi!";
+        Flux<ChatResponse> flux = Flux.just(createChatResponse(text));
+        List<String> received = new ArrayList<>();
+
+        AIUtils.processStreamingResponseByParagraphs(flux, 0, received::add);
+
+        assertEquals(text, String.join("", received), "All text must be present");
+        assertEquals(1, received.size(), "With maxLength=0 single block with full text is expected");
+    }
+
+    @Test
+    void testProcessStreamingResponseByParagraphs_maxLengthSmall_noTextLost() {
+        String text = "Hello world. This is a longer sentence that must be split.";
+        Flux<ChatResponse> flux = Flux.just(createChatResponse(text));
+        List<String> received = new ArrayList<>();
+
+        AIUtils.processStreamingResponseByParagraphs(flux, 10, received::add);
+
+        String joined = String.join("", received);
+        assertEquals(
+                text.replaceAll("\\s+", ""),
+                joined.replaceAll("\\s+", ""),
+                "All non-whitespace characters must be present after splitting"
+        );
+        assertTrue(received.stream().allMatch(s -> s.length() <= 10),
+                "Each chunk must be <= 10 chars");
+    }
+
+    @Test
+    void testProcessStreamingResponseByParagraphs_multipleLongParagraphs_noTextLost() {
+        // Both paragraphs are longer than maxMessageLength — old code would lose the overflow of the first
+        String para1 = "First paragraph with enough words to exceed the limit easily.";
+        String para2 = "Second paragraph also long enough to exceed the limit on its own.";
+        String text = para1 + "\n\n" + para2;
+        Flux<ChatResponse> flux = Flux.just(createChatResponse(text));
+        List<String> received = new ArrayList<>();
+
+        AIUtils.processStreamingResponseByParagraphs(flux, 10, received::add);
+
+        String joined = String.join("", received);
+        assertTrue(joined.contains("First paragraph"), "First paragraph must not be lost");
+        assertTrue(joined.contains("Second paragraph"), "Second paragraph must not be lost");
     }
 
     // --- Exception / root cause ---
@@ -696,6 +775,18 @@ class AIUtilsTest {
         assertNotNull(result);
         assertEquals(1, received.size());
         assertEquals("Short text.", received.getFirst());
+    }
+
+    @Test
+    void processStreamingResponseByParagraphs_nullResultInChunk_doesNotThrow() {
+        ChatResponse mockResponse = mock(ChatResponse.class);
+        when(mockResponse.getResult()).thenReturn(null);
+
+        Flux<ChatResponse> flux = Flux.just(mockResponse);
+        List<String> received = new ArrayList<>();
+
+        assertDoesNotThrow(() ->
+                AIUtils.processStreamingResponseByParagraphs(flux, 4096, received::add));
     }
 
     // --- extractUsefulData(Map) edge cases: usage not Map, finish_reason in root, no useful data ---

@@ -1,5 +1,7 @@
 package io.github.ngirchev.aibot.it.telegram;
 
+import io.github.ngirchev.aibot.common.command.ICommand;
+import io.github.ngirchev.aibot.common.command.ICommandType;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -159,7 +161,12 @@ class TelegramMockGatewayIT {
                 PriorityRequestExecutor priorityRequestExecutor,
                 IUserPriorityService userPriorityService
         ) {
-            return new CommandSyncService(meterRegistry, registry, priorityRequestExecutor, userPriorityService);
+            return new CommandSyncService(meterRegistry, registry, priorityRequestExecutor) {
+                @Override
+                public <T extends ICommandType, C extends ICommand<T>, R> R syncAndHandle(C command) {
+                    return syncAndHandle(command, userPriorityService::getUserPriority);
+                }
+            };
         }
 
         @Bean
@@ -220,8 +227,6 @@ class TelegramMockGatewayIT {
             var props = new TelegramProperties();
             props.setToken("test-token");
             props.setUsername("test-bot");
-            props.setWhitelistExceptions("");
-            props.setWhitelistChannelIdExceptions("");
             props.setMaxMessageLength(4096);
             return props;
         }

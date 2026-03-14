@@ -256,8 +256,8 @@ class MessageTelegramCommandHandlerTest {
 
         assertNull(handler.handleInner(command));
 
-        verify(telegramMessageService).saveAssistantErrorMessage(eq(telegramUser), eq("An error occurred while processing your request"), anyString(), eq("Role"), isNull());
-        verify(telegramBot).sendErrorMessage(eq(CHAT_ID), eq("An error occurred while processing your request"), eq(1));
+        verify(telegramMessageService).saveAssistantErrorMessage(eq(telegramUser), eq("An error occurred while processing the message."), anyString(), eq("Role"), isNull());
+        verify(telegramBot).sendErrorMessage(eq(CHAT_ID), eq("An error occurred while processing the message."), eq(1));
     }
 
     @Test
@@ -413,7 +413,7 @@ class MessageTelegramCommandHandlerTest {
     }
 
     @Test
-    void handleInner_whenGatewayReturnsEmptyContent_thenSendsEmptyContentError() throws Exception {
+    void handleInner_whenGatewayReturnsEmptyContent_thenLogsDetailAndSendsI18nError() throws Exception {
         Update update = new Update();
         Message message = new Message();
         message.setMessageId(1);
@@ -447,18 +447,77 @@ class MessageTelegramCommandHandlerTest {
         Map<String, Object> responseMap = Map.of(
                 CHOICES, List.of(Map.of(MESSAGE, Map.of(CONTENT, "")))
         );
-        AIResponse aiResponse = mock(AIResponse.class);
-        when(aiResponse.gatewaySource()).thenReturn(AIGateways.MOCK);
-        when(aiResponse.toMap()).thenReturn(responseMap);
-        when(aiGateway.generateResponse(aiCommand)).thenReturn(aiResponse);
+        AIResponse emptyResponse = mock(AIResponse.class);
+        when(emptyResponse.gatewaySource()).thenReturn(AIGateways.MOCK);
+        when(emptyResponse.toMap()).thenReturn(responseMap);
+        when(aiGateway.generateResponse(aiCommand)).thenReturn(emptyResponse);
 
         TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.MESSAGE), update, "Hello");
         command.languageCode("en");
 
         assertNull(handler.handleInner(command));
 
+        verify(aiGateway, times(2)).generateResponse(aiCommand);
         verify(telegramMessageService).saveAssistantErrorMessage(eq(telegramUser), anyString(), anyString(), eq("Role"), any());
-        verify(telegramBot).sendErrorMessage(eq(CHAT_ID), anyString(), eq(1));
+        verify(telegramBot).sendErrorMessage(eq(CHAT_ID), eq("An error occurred while processing the message."), eq(1));
+    }
+
+    @Test
+    void handleInner_whenGatewayReturnsEmptyThenContentOnRetry_thenSuccess() throws Exception {
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        User from = new User(200L, "user", false);
+        message.setFrom(from);
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setTelegramId(200L);
+        telegramUser.setId(1L);
+        AssistantRole role = new AssistantRole();
+        role.setId(10L);
+        role.setContent("Role");
+        ConversationThread thread = new ConversationThread();
+        thread.setThreadKey("tk");
+        thread.setUser(telegramUser);
+        AIBotMessage userMessage = new AIBotMessage();
+        userMessage.setUser(telegramUser);
+        userMessage.setAssistantRole(role);
+        userMessage.setThread(thread);
+
+        when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
+        when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any())).thenReturn(userMessage);
+
+        AICommand aiCommand = mock(AICommand.class);
+        when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
+        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
+
+        Map<String, Object> emptyMap = Map.of(CHOICES, List.of(Map.of(MESSAGE, Map.of(CONTENT, ""))));
+        Map<String, Object> successMap = Map.of(CHOICES, List.of(Map.of(MESSAGE, Map.of(CONTENT, "Retry success"))));
+        AIResponse emptyResponse = mock(AIResponse.class);
+        when(emptyResponse.gatewaySource()).thenReturn(AIGateways.MOCK);
+        when(emptyResponse.toMap()).thenReturn(emptyMap);
+        AIResponse successResponse = mock(AIResponse.class);
+        when(successResponse.gatewaySource()).thenReturn(AIGateways.MOCK);
+        when(successResponse.toMap()).thenReturn(successMap);
+        when(aiGateway.generateResponse(aiCommand)).thenReturn(emptyResponse).thenReturn(successResponse);
+
+        AIBotMessage assistantMessage = new AIBotMessage();
+        when(telegramMessageService.saveAssistantMessage(eq(telegramUser), eq("Retry success"), anyString(), eq("Role"), anyInt(), any()))
+                .thenReturn(assistantMessage);
+
+        TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.MESSAGE), update, "Hello");
+        command.languageCode("en");
+
+        assertNull(handler.handleInner(command));
+
+        verify(aiGateway, times(2)).generateResponse(aiCommand);
+        verify(telegramMessageService).saveAssistantMessage(eq(telegramUser), eq("Retry success"), anyString(), eq("Role"), anyInt(), any());
+        verify(messageService).updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
+        verify(telegramBot).sendMessage(eq(CHAT_ID), contains("Retry success"), any());
+        verify(telegramBot, never()).sendErrorMessage(anyLong(), anyString(), any());
     }
 
     @Test

@@ -61,8 +61,18 @@ ai-bot:
     enabled: true
     username: ${TELEGRAM_USERNAME}
     token: ${TELEGRAM_TOKEN}
-    whitelist-exceptions: ${WHITELIST_EXCEPTIONS:}
-    whitelist-channel-id-exceptions: ${WHITELIST_CHANNEL_ID_EXCEPTIONS:}
+    # User access configuration via environment variables
+    # Format: comma-separated lists
+    access:
+      admin:
+        ids: ${TELEGRAM_ACCESS_ADMIN_IDS:}      # e.g. "123456789,987654321"
+        channels: ${TELEGRAM_ACCESS_ADMIN_CHANNELS:}  # e.g. "-1000000000000,@admins"
+      vip:
+        ids: ${TELEGRAM_ACCESS_VIP_IDS:}        # e.g. "111111111,222222222"
+        channels: ${TELEGRAM_ACCESS_VIP_CHANNELS:}  # e.g. "-1002000000000,@vipgroup"
+      regular:
+        ids: ${TELEGRAM_ACCESS_REGULAR_IDS:}    # e.g. "333333333"
+        channels: ${TELEGRAM_ACCESS_REGULAR_CHANNELS:}  # e.g. "-1003000000000,@community"
     file-upload:
       enabled: true  # FEATURE FLAG - disabled by default
       max-file-size-mb: 20  # Telegram API limit
@@ -91,6 +101,15 @@ ai-bot:
       language-enabled: true
   rest:
     enabled: true
+    # User access configuration via environment variables
+    # Format: comma-separated lists
+    access:
+      admin:
+        emails: ${REST_ACCESS_ADMIN_EMAILS:}    # e.g. "admin@example.com"
+      vip:
+        emails: ${REST_ACCESS_VIP_EMAILS:}      # e.g. "vip@example.com,premium@example.com"
+      regular:
+        emails: ${REST_ACCESS_REGULAR_EMAILS:}  # e.g. "user@example.com"
   ui:
     enabled: true
   ai:
@@ -107,7 +126,7 @@ ai-bot:
             key: ${OPENROUTER_KEY}
             url: https://openrouter.ai/api
           refresh-initial-delay: 10s
-          refresh-interval: 1h
+          refresh-interval: 24h
           filters:
             include-model-ids:
               - meta-llama/llama-3.3-70b-instruct:free
@@ -158,6 +177,17 @@ ai-bot:
       # Ollama models (run locally: ollama pull qwen2.5:7b, ollama pull qwen3-embedding:8b).
       models:
         list:
+          - name: "z-ai/glm-4.5v"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - EMBEDDING
+              - VISION
+            provider-type: OPENAI
+            priority: 2
           - name: "openrouter/auto"
             capabilities:
               - AUTO
@@ -169,7 +199,7 @@ ai-bot:
               - VISION
             provider-type: OPENAI
             priority: 3
-          - name: "qwen2.5:7b"
+          - name: "qwen3.5"
             capabilities:
               - CHAT
               - TOOL_CALLING
@@ -262,6 +292,7 @@ spring:
   ai:
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      request-timeout: 600s
     openai:
       base-url: https://openrouter.ai/api
       api-key: ${OPENROUTER_KEY:}

@@ -45,6 +45,9 @@ class TelegramWhitelistRepositoryIT {
         user1.setCreatedAt(OffsetDateTime.now());
         user1.setUpdatedAt(OffsetDateTime.now());
         user1.setLastActivityAt(OffsetDateTime.now());
+        user1.setIsAdmin(false);
+        user1.setIsPremium(false);
+        user1.setIsBlocked(false);
         telegramUserRepository.save(user1);
 
         TelegramUser user2 = new TelegramUser();
@@ -55,6 +58,9 @@ class TelegramWhitelistRepositoryIT {
         user2.setCreatedAt(OffsetDateTime.now());
         user2.setUpdatedAt(OffsetDateTime.now());
         user2.setLastActivityAt(OffsetDateTime.now());
+        user2.setIsAdmin(false);
+        user2.setIsPremium(false);
+        user2.setIsBlocked(false);
         telegramUserRepository.save(user2);
 
         TelegramWhitelist whitelist1 = new TelegramWhitelist();
@@ -85,6 +91,9 @@ class TelegramWhitelistRepositoryIT {
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
         user.setLastActivityAt(OffsetDateTime.now());
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(false);
         telegramUserRepository.save(user);
 
         TelegramWhitelist whitelist = new TelegramWhitelist();

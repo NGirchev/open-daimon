@@ -184,6 +184,7 @@
                 </executions>
                 <configuration>
                     <mainClass>io.github.ngirchev.aibot.Application</mainClass>
+                    <classifier>exec</classifier>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

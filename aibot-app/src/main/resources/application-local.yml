@@ -5,6 +5,7 @@ ai-bot:
     spring-ai:
       openrouter-auto-rotation:
         models:
+          enabled: false
           refresh-initial-delay: 1s
           refresh-interval: 10m
         ranking:
@@ -12,16 +13,21 @@ ai-bot:
           cooldown5xx: 2m
       models:
         list:
-          - name: "openrouter/auto"
+          - name: "qwen3.5"
             capabilities:
-              - AUTO
               - CHAT
               - TOOL_CALLING
               - SUMMARIZATION
-              - EMBEDDING
               - VISION
-            provider-type: OPENAI
-            priority: 3
+              - MODERATION
+              - WEB
+            provider-type: OLLAMA
+            priority: 1
+          - name: "gemma3:1b"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 1
 
 logging:
   level:

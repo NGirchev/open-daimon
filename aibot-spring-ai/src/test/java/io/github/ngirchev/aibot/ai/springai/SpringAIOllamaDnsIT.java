@@ -80,6 +80,7 @@ class SpringAIOllamaDnsIT {
     private OllamaChatModel ollamaChatModel;
 
     /**
+     * .\mvnw.cmd test -pl aibot-spring-ai -Dtest=SpringAIOllamaDnsIT#testStreamToConsole (not in idea console!!!)
      * Manual test: run locally with Ollama to see streaming output in console.
      * Disabled in CI; remove @Disabled for a local run.
      */
@@ -109,11 +110,12 @@ class SpringAIOllamaDnsIT {
     }
 
     /**
+     *.\mvnw.cmd test -pl aibot-spring-ai -Dtest=SpringAIOllamaDnsIT#testStreamParagraphToConsole (not in idea console!!!)
      * Manual test: run locally with Ollama to see paragraph-by-paragraph streaming in console.
      * Disabled in CI; remove @Disabled for a local run.
      */
     @Test
-    @Disabled("Manual test: run locally to verify streaming by paragraphs to console")
+//    @Disabled("Manual test: run locally to verify streaming by paragraphs to console")
     void testStreamParagraphToConsole() {
         // Note: chunk size in streaming is not configurable via Ollama params
         var responseFlux = ChatClient.builder(ollamaChatModel).build().prompt()

@@ -132,8 +132,7 @@
       sessions = list;
       renderSessions();
       // Keep selection highlight if still present
-      if (currentSessionId && !sessions.find(s => s.sessionId === currentSessionId)) {
-        // current was removed
+      if (currentSessionId && !sessions.find(s => s.sessionId === currentSessionId) && !isSending) {
         setUIForNewChat();
       } else {
         highlightSelected(currentSessionId);
@@ -421,11 +420,11 @@
         await streamMessage(`${API}/stream`, { message: text }, assistantMessageDiv, (sessionId) => {
           currentSessionId = sessionId;
           setHashSessionId(currentSessionId);
-          loadSessions();
         });
         el.input.value = '';
         autoResizeTextarea(el.input);
         updateSendButtonState();
+        loadSessions();
       } catch (e) {
         console.error('Error sending message (new chat):', e);
         // Remove user and assistant messages on error
