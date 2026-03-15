@@ -64,6 +64,7 @@ public class SpringAIChatService {
 
         AtomicBoolean firstChunk = new AtomicBoolean(true);
         StringBuilder reasoningAccumulator = new StringBuilder();
+        StringBuilder toolCallDebugBuffer = new StringBuilder();
         Flux<ChatResponse> chatResponseFlux = promptBuilder.stream().chatResponse()
                 .doOnNext(cr -> {
                     // Log only first chunk — stream start
@@ -71,6 +72,21 @@ public class SpringAIChatService {
                         log.info("Spring AI stream started - first chunk received");
                     }
                     log.trace("Spring AI stream chunk received: {}", cr);
+
+                    if (log.isDebugEnabled() && cr != null && cr.getResult() != null) {
+                        var meta = cr.getResult().getMetadata();
+                        String finishReason = meta != null ? String.valueOf(meta.getFinishReason()) : "null";
+                        String content = cr.getResult().getOutput() != null
+                                ? cr.getResult().getOutput().getText() : "";
+                        if (content != null && !content.isEmpty()) {
+                            toolCallDebugBuffer.append(content);
+                        }
+                        if (!"null".equals(finishReason) && !finishReason.isEmpty()) {
+                            log.debug("Stream chunk finishReason={}, bufferedContent=[{}]",
+                                    finishReason, normalizeReasoningForLog(toolCallDebugBuffer.toString()));
+                            toolCallDebugBuffer.setLength(0);
+                        }
+                    }
 
                     // Extract reasoning from metadata (OpenRouter and other providers)
                     // if (cr != null) {
