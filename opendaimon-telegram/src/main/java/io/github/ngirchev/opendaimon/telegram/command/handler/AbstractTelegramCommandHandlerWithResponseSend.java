@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.ObjectProvider;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import io.github.ngirchev.opendaimon.bulkhead.exception.AccessDeniedException;
 import io.github.ngirchev.opendaimon.common.command.ICommandHandler;
@@ -73,7 +74,16 @@ public abstract class AbstractTelegramCommandHandlerWithResponseSend implements
     }
 
     public void sendMessage(Long chatId, String text, Integer replyToMessageId) {
-        sendMessage(chatId, text, replyToMessageId, null);
+        sendMessage(chatId, text, replyToMessageId, (ReplyKeyboard) null);
+    }
+
+    public void sendMessage(Long chatId, String text, Integer replyToMessageId, ReplyKeyboard replyMarkup) {
+        try {
+            telegramBotProvider.getObject().sendMessage(chatId, text, replyToMessageId, replyMarkup);
+        } catch (TelegramApiException e) {
+            String msg = messageLocalizationService.getMessage("common.error.send.failed", null);
+            throw new TelegramCommandHandlerException(msg, e);
+        }
     }
 
     public void sendMessage(Long chatId, String text, Integer replyToMessageId, String languageCode) {

@@ -24,6 +24,7 @@ import org.telegram.telegrambots.meta.api.objects.inlinequery.InlineQuery;
 import org.telegram.telegrambots.meta.api.objects.inlinequery.inputmessagecontent.InputTextMessageContent;
 import org.telegram.telegrambots.meta.api.objects.inlinequery.result.InlineQueryResultArticle;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.webapp.WebAppInfo;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -310,10 +311,18 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     public void sendMessage(Long chatId, String text, Integer replyToMessageId) throws TelegramApiException {
-        sendMessageAndGetId(chatId, text, replyToMessageId);
+        sendMessageAndGetId(chatId, text, replyToMessageId, null);
+    }
+
+    public void sendMessage(Long chatId, String text, Integer replyToMessageId, ReplyKeyboard replyMarkup) throws TelegramApiException {
+        sendMessageAndGetId(chatId, text, replyToMessageId, replyMarkup);
     }
 
     public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId) throws TelegramApiException {
+        return sendMessageAndGetId(chatId, text, replyToMessageId, null);
+    }
+
+    public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId, ReplyKeyboard replyMarkup) throws TelegramApiException {
         try {
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
@@ -321,6 +330,9 @@ public class TelegramBot extends TelegramLongPollingBot {
             message.setParseMode("HTML");
             if (replyToMessageId != null) {
                 message.setReplyToMessageId(replyToMessageId);
+            }
+            if (replyMarkup != null) {
+                message.setReplyMarkup(replyMarkup);
             }
             Message sentMessage = execute(message);
             return sentMessage != null ? sentMessage.getMessageId() : null;
@@ -333,6 +345,9 @@ public class TelegramBot extends TelegramLongPollingBot {
                     fallbackMessage.setText(text);
                     if (replyToMessageId != null) {
                         fallbackMessage.setReplyToMessageId(replyToMessageId);
+                    }
+                    if (replyMarkup != null) {
+                        fallbackMessage.setReplyMarkup(replyMarkup);
                     }
                     Message sentMessage = execute(fallbackMessage);
                     return sentMessage != null ? sentMessage.getMessageId() : null;

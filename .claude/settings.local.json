@@ -32,7 +32,8 @@
       "Bash(grep:*)",
       "Read(//mnt/c/Work/IdeaProjects/**)",
       "Bash(./mvnw -pl opendaimon-spring-ai -am test -Dtest=SpringAIGatewayTest -q)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(cmd.exe /c \"mvn compile -pl opendaimon-telegram -am -q 2>&1\" | tail -30)"
     ]
   }
 }

@@ -48,24 +48,39 @@ public class PersistentKeyboardService {
      * Sends keyboard showing {@code actualModelName} as the model label (used after a successful response
      * to display the model that was actually invoked, not the stored preference).
      */
+    /**
+     * Builds the persistent keyboard markup without sending it.
+     * Returns null if model-enabled=false.
+     */
+    public ReplyKeyboardMarkup buildKeyboardMarkup(Long userId, ConversationThread thread, String actualModelName) {
+        if (!telegramProperties.getCommands().isModelEnabled()) {
+            return null;
+        }
+        String modelLabel = actualModelName != null
+                ? TelegramCommand.MODEL_KEYBOARD_PREFIX + " " + actualModelName
+                : buildModelLabel(userId);
+        String contextLabel = buildContextLabel(thread);
+
+        KeyboardRow row = new KeyboardRow();
+        row.add(new KeyboardButton(modelLabel));
+        row.add(new KeyboardButton(contextLabel));
+
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row));
+        markup.setResizeKeyboard(true);
+        markup.setIsPersistent(true);
+        return markup;
+    }
+
     public void sendKeyboard(Long chatId, Long userId, ConversationThread thread, String actualModelName) {
         if (!telegramProperties.getCommands().isModelEnabled()) {
             return;
         }
         try {
+            ReplyKeyboardMarkup markup = buildKeyboardMarkup(userId, thread, actualModelName);
             String modelLabel = actualModelName != null
                     ? TelegramCommand.MODEL_KEYBOARD_PREFIX + " " + actualModelName
                     : buildModelLabel(userId);
             String contextLabel = buildContextLabel(thread);
-
-            KeyboardRow row = new KeyboardRow();
-            row.add(new KeyboardButton(modelLabel));
-            row.add(new KeyboardButton(contextLabel));
-
-            ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row));
-            markup.setResizeKeyboard(true);
-            markup.setIsPersistent(true);
-
             String statusText = modelLabel + "  ·  " + contextLabel;
             SendMessage msg = new SendMessage(chatId.toString(), statusText);
             msg.setReplyMarkup(markup);

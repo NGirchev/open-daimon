@@ -676,7 +676,8 @@ public class AIUtils {
 
     public static Optional<String> extractText(ChatResponse response) {
         try {
-            Optional<String> result = Optional.ofNullable(response.getResult().getOutput().getText()).filter(StringUtils::hasLength);
+            Optional<String> result = Optional.ofNullable(response.getResult().getOutput().getText())
+                    .filter(StringUtils::hasLength);
             if (result.isEmpty()) {
                 logExtractTextEmptyDiagnostic(response);
             }

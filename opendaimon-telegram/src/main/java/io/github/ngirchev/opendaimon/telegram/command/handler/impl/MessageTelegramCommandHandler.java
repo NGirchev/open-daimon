@@ -31,6 +31,8 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
 
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,9 +152,20 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             }
 
             if (ctx.responseTextOpt().isPresent()) {
-                String actualModel = saveAndSendSuccessResponse(command, telegramUser, message, aiResponse, ctx, modelCapabilities,
+                String actualModel = saveSuccessResponse(telegramUser, aiResponse, ctx, modelCapabilities,
                         assistantRoleContent, startTime);
-                persistentKeyboardService.sendKeyboard(command.telegramId(), telegramUser.getId(), thread, actualModel);
+                if (ctx.alreadySentInStream()) {
+                    // Streaming: keyboard sent as a separate message (keyboard attached here would go to the wrong message)
+                    persistentKeyboardService.sendKeyboard(command.telegramId(), telegramUser.getId(), thread, actualModel);
+                } else {
+                    // Non-streaming: attach keyboard directly to the AI response message for reliable display on Android
+                    ReplyKeyboardMarkup keyboard = persistentKeyboardService.buildKeyboardMarkup(
+                            telegramUser.getId(), thread, actualModel);
+                    sendMessage(command.telegramId(),
+                            AIUtils.convertMarkdownToHtml(ctx.responseTextOpt().get()),
+                            message.getMessageId(),
+                            keyboard);
+                }
             } else {
                 sendEmptyContentError(command, telegramUser, message, ctx, modelCapabilities, assistantRoleContent);
                 return null;
@@ -288,10 +301,9 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         return new ResponseContext(usefulResponseData, retrieveMessage(aiResponse), extractError(aiResponse), false);
     }
 
-    private String saveAndSendSuccessResponse(TelegramCommand command, TelegramUser telegramUser, Message message,
-                                              AIResponse aiResponse, ResponseContext ctx,
-                                              Set<ModelCapabilities> modelCapabilities, String assistantRoleContent,
-                                              long startTime) {
+    private String saveSuccessResponse(TelegramUser telegramUser, AIResponse aiResponse, ResponseContext ctx,
+                                       Set<ModelCapabilities> modelCapabilities, String assistantRoleContent,
+                                       long startTime) {
         String responseText = ctx.responseTextOpt().orElseThrow();
         long processingTime = System.currentTimeMillis() - startTime;
         String model = ctx.usefulResponseData() != null && ctx.usefulResponseData().containsKey("model")
@@ -305,9 +317,6 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 assistantRoleContent,
                 (int) processingTime,
                 ctx.usefulResponseData());
-        if (!ctx.alreadySentInStream()) {
-            sendMessage(command.telegramId(), AIUtils.convertMarkdownToHtml(responseText), message.getMessageId());
-        }
         messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
         return model;
     }
