@@ -168,15 +168,15 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             }
 
             if (ctx.responseTextOpt().isPresent()) {
-                String actualModel = saveSuccessResponse(telegramUser, aiResponse, ctx, modelCapabilities,
-                        assistantRoleContent, startTime);
+                String actualModel = saveSuccessResponse(telegramUser, aiResponse, ctx, modelCapabilities, assistantRoleContent, startTime);
                 if (ctx.alreadySentInStream()) {
                     // Streaming: keyboard sent as a separate message (keyboard attached here would go to the wrong message)
+                    // Status message text shows the actual model from response; keyboard buttons reflect DB preference.
                     persistentKeyboardService.sendKeyboard(command.telegramId(), telegramUser.getId(), thread, actualModel);
                 } else {
                     // Non-streaming: attach keyboard directly to the AI response message for reliable display on Android
                     ReplyKeyboardMarkup keyboard = persistentKeyboardService.buildKeyboardMarkup(
-                            telegramUser.getId(), thread, actualModel);
+                            telegramUser.getId(), thread);
                     sendMessage(command.telegramId(),
                             AIUtils.convertMarkdownToHtml(ctx.responseTextOpt().get()),
                             message.getMessageId(),

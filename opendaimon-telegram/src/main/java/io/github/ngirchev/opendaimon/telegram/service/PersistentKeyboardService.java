@@ -45,20 +45,40 @@ public class PersistentKeyboardService {
     }
 
     /**
-     * Sends keyboard showing {@code actualModelName} as the model label (used after a successful response
-     * to display the model that was actually invoked, not the stored preference).
+     * Sends keyboard with status message.
+     * Keyboard button label reflects the stored DB preference.
+     * Status message text uses {@code actualModelName} when provided (e.g. the model resolved by AUTO),
+     * otherwise falls back to the DB preference label.
      */
+    public void sendKeyboard(Long chatId, Long userId, ConversationThread thread, String actualModelName) {
+        if (!telegramProperties.getCommands().isModelEnabled()) {
+            return;
+        }
+        try {
+            ReplyKeyboardMarkup markup = buildKeyboardMarkup(userId, thread);
+            String statusModelLabel = actualModelName != null
+                    ? TelegramCommand.MODEL_KEYBOARD_PREFIX + " " + actualModelName
+                    : buildModelLabel(userId);
+            String contextLabel = buildContextLabel(thread);
+            String statusText = statusModelLabel + "  ·  " + contextLabel;
+            SendMessage msg = new SendMessage(chatId.toString(), statusText);
+            msg.setReplyMarkup(markup);
+            telegramBotProvider.getObject().execute(msg);
+        } catch (Exception e) {
+            log.warn("Failed to send persistent keyboard to chat {}: {}", chatId, e.getMessage());
+        }
+    }
+
     /**
      * Builds the persistent keyboard markup without sending it.
+     * Keyboard button labels always reflect the stored DB preference.
      * Returns null if model-enabled=false.
      */
-    public ReplyKeyboardMarkup buildKeyboardMarkup(Long userId, ConversationThread thread, String actualModelName) {
+    public ReplyKeyboardMarkup buildKeyboardMarkup(Long userId, ConversationThread thread) {
         if (!telegramProperties.getCommands().isModelEnabled()) {
             return null;
         }
-        String modelLabel = actualModelName != null
-                ? TelegramCommand.MODEL_KEYBOARD_PREFIX + " " + actualModelName
-                : buildModelLabel(userId);
+        String modelLabel = buildModelLabel(userId);
         String contextLabel = buildContextLabel(thread);
 
         KeyboardRow row = new KeyboardRow();
@@ -69,25 +89,6 @@ public class PersistentKeyboardService {
         markup.setResizeKeyboard(true);
         markup.setIsPersistent(true);
         return markup;
-    }
-
-    public void sendKeyboard(Long chatId, Long userId, ConversationThread thread, String actualModelName) {
-        if (!telegramProperties.getCommands().isModelEnabled()) {
-            return;
-        }
-        try {
-            ReplyKeyboardMarkup markup = buildKeyboardMarkup(userId, thread, actualModelName);
-            String modelLabel = actualModelName != null
-                    ? TelegramCommand.MODEL_KEYBOARD_PREFIX + " " + actualModelName
-                    : buildModelLabel(userId);
-            String contextLabel = buildContextLabel(thread);
-            String statusText = modelLabel + "  ·  " + contextLabel;
-            SendMessage msg = new SendMessage(chatId.toString(), statusText);
-            msg.setReplyMarkup(markup);
-            telegramBotProvider.getObject().execute(msg);
-        } catch (Exception e) {
-            log.warn("Failed to send persistent keyboard to chat {}: {}", chatId, e.getMessage());
-        }
     }
 
     private String buildModelLabel(Long userId) {
