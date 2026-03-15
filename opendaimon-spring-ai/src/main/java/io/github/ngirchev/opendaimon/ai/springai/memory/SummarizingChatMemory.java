@@ -6,7 +6,9 @@ import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.lang.NonNull;
+import io.github.ngirchev.opendaimon.common.event.SummarizationStartedEvent;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
@@ -33,6 +35,7 @@ public class SummarizingChatMemory implements ChatMemory {
     private final ConversationThreadRepository conversationThreadRepository;
     private final OpenDaimonMessageRepository messageRepository;
     private final SummarizationService summarizationService;
+    private final ApplicationEventPublisher eventPublisher;
     private final Integer maxMessages; // Max messages from MessageWindowChatMemory
     /** Message count at which summarization is triggered (maxMessages * summaryTriggerThreshold). */
     private final int summarizationThreshold;
@@ -42,11 +45,13 @@ public class SummarizingChatMemory implements ChatMemory {
             ConversationThreadRepository conversationThreadRepository,
             OpenDaimonMessageRepository messageRepository,
             SummarizationService summarizationService,
+            ApplicationEventPublisher eventPublisher,
             Integer maxMessages,
             double summaryTriggerThreshold) {
         this.conversationThreadRepository = conversationThreadRepository;
         this.messageRepository = messageRepository;
         this.summarizationService = summarizationService;
+        this.eventPublisher = eventPublisher;
         this.maxMessages = maxMessages;
         this.summarizationThreshold = Math.max(1, (int) Math.ceil(maxMessages * summaryTriggerThreshold));
         this.delegate = MessageWindowChatMemory.builder()
@@ -68,9 +73,10 @@ public class SummarizingChatMemory implements ChatMemory {
         
         // If message count reached threshold (summaryTriggerThreshold * maxMessages), trigger summarization
         if (messageCount >= summarizationThreshold) {
-            log.debug("ChatMemory has {} messages (threshold: {}, max: {}), triggering summarization for conversationId {}",
+            log.info("ChatMemory has {} messages (threshold: {}, max: {}), triggering summarization for conversationId {}",
                 messageCount, summarizationThreshold, maxMessages, conversationId);
-            
+            eventPublisher.publishEvent(new SummarizationStartedEvent(conversationId));
+
             // Run summarization and update ChatMemory
             if (performSummarizationAndUpdateChatMemory(conversationId)) {
                 // After successful summarization get updated message list

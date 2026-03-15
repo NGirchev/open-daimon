@@ -11,8 +11,10 @@ import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.meter.OpenDaimonMeterRegistry;
-import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
+import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
+import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
+import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
 import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
@@ -134,8 +136,17 @@ public class TelegramServiceConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    public TelegramSummarizationListener telegramSummarizationListener(
+            ObjectProvider<TelegramBot> telegramBotProvider,
+            ConversationThreadRepository conversationThreadRepository,
+            MessageLocalizationService messageLocalizationService) {
+        return new TelegramSummarizationListener(telegramBotProvider, conversationThreadRepository, messageLocalizationService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(
-            name = "open-daimon.telegram.file-upload.enabled", 
+            name = "open-daimon.telegram.file-upload.enabled",
             havingValue = "true")
     public TelegramFileService telegramFileService(
             ObjectProvider<TelegramBot> telegramBotProvider,

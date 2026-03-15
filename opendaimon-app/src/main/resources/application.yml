@@ -209,9 +209,9 @@ open-daimon:
             capabilities:
               - CHAT
               - TOOL_CALLING
-              - SUMMARIZATION
               - VISION
               - WEB
+              - SUMMARIZATION
             provider-type: OLLAMA
             priority: 1
             # allowed-roles not set — accessible to all roles
