@@ -8,6 +8,11 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 
 ## Rules for AI agents
 
+### Documentation maintenance
+- Every module that has a behavior reference doc (e.g. `SPRING_AI_MODULE.md`, `TELEGRAM_MODULE.md`) must be updated when the behavior it describes changes.
+- If you add or change a use case, command flow, branching condition, input/output format, or error path — update the corresponding doc in the same commit.
+- Docs live next to the module root (e.g. `opendaimon-spring-ai/SPRING_AI_MODULE.md`, `opendaimon-telegram/TELEGRAM_MODULE.md`).
+
 ### Language in code and documentation
 - **Code, comments, javadoc, commit messages, and in-repo documentation** (AGENTS.md, READMEs in packages) must be written in **English**.
 - User-facing strings (i18n in `.properties`, bot messages) may be in any language.

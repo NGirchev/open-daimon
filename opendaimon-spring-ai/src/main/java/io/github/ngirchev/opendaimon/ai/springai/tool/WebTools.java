@@ -98,6 +98,10 @@ public class WebTools {
         description = "Fetch a URL and return cleaned main text for citation."
     )
     public String fetchUrl(String url) {
+        if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+            log.warn("WebTools.fetchUrl: url=[{}] is not a valid HTTP(S) URL. Skipping.", url);
+            return "";
+        }
         try {
             log.info("WebTools fetchUrl: {}", url);
             String html = webClient.get()
