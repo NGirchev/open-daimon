@@ -168,6 +168,7 @@ open-daimon:
             latency-ewma-alpha: 0.2
             cooldown429: 10m
             cooldown5xx: 5m
+            cooldown404: 6h
       serper:
         api:
           url: "https://google.serper.dev/search"

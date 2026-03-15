@@ -96,6 +96,12 @@ public class OpenRouterModelsProperties {
          */
         @NotNull(message = "ranking.cooldown5xx is required")
         private Duration cooldown5xx;
+
+        /**
+         * Cooldown after 404 (model unavailable due to guardrail/data-policy restrictions).
+         * Optional — if not set, 404 is not cooled down (only score penalty applies).
+         */
+        private Duration cooldown404;
     }
 
     @Getter

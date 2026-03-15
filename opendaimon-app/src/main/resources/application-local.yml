@@ -11,6 +11,7 @@ open-daimon:
         ranking:
           cooldown429: 5m
           cooldown5xx: 2m
+          cooldown404: 1h
       models:
         list:
           - name: "qwen3.5"

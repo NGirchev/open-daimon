@@ -12,6 +12,7 @@ import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
+import io.github.ngirchev.opendaimon.common.exception.ModelGuardrailException;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 import io.github.ngirchev.opendaimon.common.model.*;
@@ -140,8 +141,21 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()
                     .findFirst()
-                    .orElseThrow(() -> new RuntimeException(AIUtils.NO_SUPPORTED_AI_GATEWAY + " for AI Command " + aiCommand));
-            AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
+                    .orElseThrow(() -> new RuntimeException(AIUtils.NO_SUPPORTED_AI_GATEWAY));
+            AIResponse aiResponse;
+            try {
+                aiResponse = aiGateway.generateResponse(aiCommand);
+            } catch (ModelGuardrailException e) {
+                log.warn("Fixed model unavailable due to guardrail: model={}, userId={}", e.getModelId(), telegramUser.getId());
+                String notifyText = messageLocalizationService.getMessage(
+                        "common.error.model.guardrail", command.languageCode(), e.getModelId());
+                sendMessage(command.telegramId(), notifyText, message.getMessageId());
+                userModelPreferenceService.clearPreference(telegramUser.getId());
+                metadata.remove(PREFERRED_MODEL_ID_FIELD);
+                AICommand fallbackCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
+                modelCapabilities = fallbackCommand.modelCapabilities();
+                aiResponse = aiGateway.generateResponse(fallbackCommand);
+            }
             ResponseContext ctx = extractResponseContext(aiResponse, command, message);
 
             if (ctx.responseTextOpt().isEmpty()) {

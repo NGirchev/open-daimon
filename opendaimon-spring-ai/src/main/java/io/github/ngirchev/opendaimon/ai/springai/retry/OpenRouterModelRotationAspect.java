@@ -12,6 +12,7 @@ import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
+import io.github.ngirchev.opendaimon.common.exception.ModelGuardrailException;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 
 import java.util.ArrayList;
@@ -40,13 +41,14 @@ public class OpenRouterModelRotationAspect {
 
         return rotate.stream()
                 ? streamWithRetry(pjp, args, candidates, 0)
-                : callWithRetry(pjp, args, candidates);
+                : callWithRetry(pjp, args, candidates, command);
     }
 
     private AIResponse callWithRetry(
             ProceedingJoinPoint pjp,
             Object[] baseArgs,
-            List<SpringAIModelConfig> candidates
+            List<SpringAIModelConfig> candidates,
+            AICommand command
     ) throws Throwable {
         RuntimeException last = null;
         for (SpringAIModelConfig candidate : candidates) {
@@ -61,6 +63,9 @@ public class OpenRouterModelRotationAspect {
             } catch (Exception e) {
                 long latencyMs = (System.nanoTime() - startNs) / 1_000_000L;
                 recordFailureIfPossible(modelId, e, latencyMs);
+                if (command instanceof FixedModelChatAICommand && isGuardrailError(e)) {
+                    throw new ModelGuardrailException(modelId);
+                }
                 last = (e instanceof RuntimeException re) ? re : new RuntimeException(e);
                 if (!isRetryable(e)) {
                     throw last;
@@ -222,6 +227,15 @@ public class OpenRouterModelRotationAspect {
             }
         }
         throw new IllegalStateException("AICommand not found in aspect target method args");
+    }
+
+    private boolean isGuardrailError(Throwable error) {
+        WebClientResponseException w = findWebClientResponseException(error);
+        if (w == null || w.getStatusCode().value() != 404) {
+            return false;
+        }
+        String body = w.getResponseBodyAsString();
+        return body.contains("guardrail restrictions");
     }
 
     private boolean isRetryable(Throwable error) {

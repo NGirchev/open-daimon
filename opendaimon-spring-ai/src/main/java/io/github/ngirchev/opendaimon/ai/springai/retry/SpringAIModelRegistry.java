@@ -99,11 +99,18 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         Set<String> keysBeforeAdd = new HashSet<>(modelsByName.keySet());
 
         // Add free models from response that are not yet in registry
+        long now = System.currentTimeMillis();
         for (OpenRouterModelEntry entry : fetched) {
             if (!entry.free() || !freeFiltered.contains(entry.id())) {
                 continue;
             }
             if (modelsByName.containsKey(entry.id())) {
+                continue;
+            }
+            ModelStats existingStats = statsByModelId.get(entry.id());
+            if (existingStats != null && existingStats.cooldownUntilEpochMs > now) {
+                log.debug("OpenRouter free model skipped (cooldown active): model={}, cooldownRemainingMs={}",
+                        entry.id(), existingStats.cooldownUntilEpochMs - now);
                 continue;
             }
             Set<ModelCapabilities> caps = OpenRouterModelCapabilitiesMapper.fromOpenRouterModel(entry.node(), true);
@@ -426,14 +433,21 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
             long cooldownMs = 0;
             if (status == 429 && ranking.getCooldown429() != null) {
                 cooldownMs = ranking.getCooldown429().toMillis();
+            } else if (status == 404 && ranking.getCooldown404() != null) {
+                cooldownMs = ranking.getCooldown404().toMillis();
             } else if (status >= 500 && status <= 599 && ranking.getCooldown5xx() != null) {
                 cooldownMs = ranking.getCooldown5xx().toMillis();
             }
             if (cooldownMs > 0) {
                 stats.cooldownUntilEpochMs = System.currentTimeMillis() + cooldownMs;
+                log.info("OpenRouter model cooldown: model={}, status={}, cooldownMs={}", modelId, status, cooldownMs);
             }
         }
         if (status == 404) {
+            if (!ymlModelNames.contains(modelId)) {
+                modelsByName.remove(modelId);
+                log.warn("OpenRouter model removed from registry on 404: model={}", modelId);
+            }
             logModelDetailsFromOpenRouter(modelId);
         }
     }
