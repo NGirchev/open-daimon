@@ -1,106 +1,106 @@
-# Token Limits & Summarization: логика, расчёты, советы
+# Token Limits & Summarization: Logic, Calculations, Tips
 
-## Зачем это нужно
+## Why this matters
 
-Каждый запрос к модели ограничен размером контекстного окна (context window). Если история диалога вырастет слишком большой — запрос упадёт с ошибкой. Чтобы этого не происходило, OpenDaimon автоматически **саммаризирует** диалог при достижении настраиваемых порогов.
+Every model request is limited by the context window size. If the conversation history grows too large, the request can fail with an error. To avoid that, OpenDaimon **summarizes** the dialog automatically when configurable thresholds are reached.
 
 ---
 
-## Настройки и их смысл
+## Settings and what they mean
 
 ```yaml
 open-daimon:
   common:
-    max-output-tokens: 4000          # (1) Максимум токенов в ответе модели
-    max-reasoning-tokens: 1500       # (2) Бюджет на reasoning (< max-output-tokens)
-    max-user-message-tokens: 4000    # (3) Максимум токенов в одном сообщении пользователя
-    max-total-prompt-tokens: 32000   # (4) Декларативный лимит всего промпта (см. примечание)
+    max-output-tokens: 4000          # (1) Max tokens in the model response
+    max-reasoning-tokens: 1500       # (2) Reasoning budget (< max-output-tokens)
+    max-user-message-tokens: 4000    # (3) Max tokens in a single user message
+    max-total-prompt-tokens: 32000   # (4) Declarative total prompt limit (see note)
     summarization:
-      message-window-size: 40        # (5) Триггер 1: кол-во сообщений в окне памяти
-      max-window-tokens: 16000       # (6) Триггер 2: токены с момента последней саммаризации
-      max-output-tokens: 2000        # (7) Максимум токенов для ответа саммаризатора
+      message-window-size: 40        # (5) Trigger 1: message count in the memory window
+      max-window-tokens: 16000       # (6) Trigger 2: tokens since last summarization
+      max-output-tokens: 2000        # (7) Max tokens for the summarizer response
 ```
 
-> **Примечание:** `max-total-prompt-tokens` (4) в коде не применяется принудительно — это ориентир. Реальный контроль размера промпта обеспечивают настройки (5) и (6).
+> **Note:** `max-total-prompt-tokens` (4) is **not** enforced strictly in code — it is a guideline. Actual prompt size is controlled mainly by settings (5) and (6).
 
 ---
 
-## Два триггера саммаризации
+## Two summarization triggers
 
-Саммаризация запускается когда **хотя бы один** из триггеров достигнут:
+Summarization runs when **at least one** trigger is reached:
 
-| Триггер | Настройка | Смысл |
+| Trigger | Setting | Meaning |
 |---|---|---|
-| По сообщениям | `message-window-size: 40` | В памяти накопилось ≥ 40 сообщений |
-| По токенам | `max-window-tokens: 16000` | Накоплено ≥ 16000 токенов с последней саммаризации |
+| By message count | `message-window-size: 40` | Memory has accumulated ≥ 40 messages |
+| By tokens | `max-window-tokens: 16000` | ≥ 16000 tokens accumulated since last summarization |
 
-**Зачем оба?** Если модель пишет длинные ответы (например с кодом), токенный лимит может быть исчерпан задолго до достижения лимита по сообщениям.
+**Why both?** If the model produces long replies (e.g. with code), the token limit can be hit long before the message-count limit.
 
-### Пример 1: обычный чат
+### Example 1: typical chat
 
 ```
-Обмен 1: user(50) + assistant(200) = 250 токенов
-Обмен 2: user(80) + assistant(300) = 380 токенов
+Turn 1: user(50) + assistant(200) = 250 tokens
+Turn 2: user(80) + assistant(300) = 380 tokens
 ...
-20 обменов × ~400 токенов = ~8000 токенов → токенный триггер не сработает
-40 сообщений → сработает триггер по сообщениям ✓
+20 turns × ~400 tokens = ~8000 tokens → token trigger does not fire
+40 messages → message-count trigger fires ✓
 ```
 
-### Пример 2: диалог с кодом
+### Example 2: chat with code
 
 ```
-Обмен 1: user(100) + assistant(1500) = 1600 токенов  (большой блок кода)
-Обмен 2: user(50)  + assistant(1200) = 1250 токенов
+Turn 1: user(100) + assistant(1500) = 1600 tokens  (large code block)
+Turn 2: user(50)  + assistant(1200) = 1250 tokens
 ...
-10 обменов × ~1400 токенов = ~14000 токенов
-Обмен 11: ещё ~2000 → итого 16000 → сработает токенный триггер ✓
-(сообщений всего 22, далеко до 40)
+10 turns × ~1400 tokens = ~14000 tokens
+Turn 11: ~2000 more → total 16000 → token trigger fires ✓
+(only 22 messages, well below 40)
 ```
 
 ---
 
-## Как работает саммаризация
+## How summarization works
 
-При срабатывании триггера выполняется **partial summarization**:
+When a trigger fires, **partial summarization** runs:
 
 ```
-Все сообщения с момента последней саммаризации:
+All messages since last summarization:
 [msg1, msg2, msg3, msg4, msg5, msg6, msg7, msg8]
-         ↓ split на половины
-[msg1, msg2, msg3, msg4]  →  отправляем на саммари (AI генерирует резюме)
-[msg5, msg6, msg7, msg8]  →  оставляем в памяти (свежий контекст)
+         ↓ split in half
+[msg1, msg2, msg3, msg4]  →  sent for summary (AI produces a recap)
+[msg5, msg6, msg7, msg8]  →  kept in memory (fresh context)
 
-Новое состояние ChatMemory:
+New ChatMemory state:
 [SystemMessage("Summary: ..."), msg5, msg6, msg7, msg8]
 ```
 
-После саммаризации `totalTokens` **сбрасывается** — начинает считать только новые сообщения.
+After summarization, `totalTokens` is **reset** — counting starts only for new messages.
 
 ---
 
-## Кнопка 💬% в Telegram
+## Telegram 💬% button
 
-Показывает **максимум** из двух процентов:
+Shows the **maximum** of two percentages:
 
 ```
-messagesPct = сообщения_с_последней_саммари / message-window-size × 100
-tokensPct   = токены_с_последней_саммари   / max-window-tokens  × 100
+messagesPct = messages_since_last_summary / message-window-size × 100
+tokensPct   = tokens_since_last_summary   / max-window-tokens  × 100
 displayed   = max(messagesPct, tokensPct)
 ```
 
-Пример: 20 сообщений из 40 = 50%, но уже 12000 токенов из 16000 = 75% → кнопка покажет **75%**.
+Example: 20 of 40 messages = 50%, but 12000 of 16000 tokens = 75% → the button shows **75%**.
 
 ---
 
-## Безопасный расчёт `max-window-tokens`
+## Safe `max-window-tokens` calculation
 
-Пиковый размер промпта при запросе к API (прямо перед саммаризацией):
+Peak prompt size on an API call (right before summarization):
 
 ```
-system_prompt:       ~500 токенов
-summary (предыдущий): ~1500 токенов
+system_prompt:       ~500 tokens
+summary (previous):  ~1500 tokens
 context window:      max-window-tokens
-user_message:        до max-user-message-tokens
+user_message:        up to max-user-message-tokens
                      ─────────────────────────
 INPUT TOTAL:         ~2000 + max-window-tokens + 4000 = max-window-tokens + 6000
 RESPONSE:            max-output-tokens = 4000
@@ -108,51 +108,51 @@ RESPONSE:            max-output-tokens = 4000
 GRAND TOTAL:         max-window-tokens + 10000
 ```
 
-### Формула безопасного значения
+### Safe value formula
 
 ```
 max-window-tokens ≤ model_context_window - 10000 - safety_buffer(1000)
 ```
 
-| Контекст модели | Макс. безопасное `max-window-tokens` |
+| Model context | Max safe `max-window-tokens` |
 |---|---|
-| 32K (маленькие free-модели) | **21000** (с буфером: 16000–18000) |
-| 128K (большинство моделей) | **117000** (практически неограничено) |
+| 32K (small free models) | **21000** (with buffer: 16000–18000) |
+| 128K (most models) | **117000** (effectively unlimited) |
 | 200K (Claude) | **189000** |
 
-### Выравнивание двух триггеров
+### Aligning the two triggers
 
-Рекомендуется, чтобы токенный и сообщенческий триггеры срабатывали примерно одновременно:
+Prefer token and message triggers to fire at roughly the same time:
 
 ```
 message-window-size × avg_tokens_per_message ≈ max-window-tokens
 
-Пример (средний диалог, ~400 токенов/сообщение):
+Example (average dialog, ~400 tokens per message):
 40 × 400 = 16000 → max-window-tokens: 16000 ✓
 
-Пример (диалог с кодом, ~800 токенов/сообщение):
-40 × 800 = 32000 → max-window-tokens: 32000 (но ограничено 32K-моделями!)
+Example (code-heavy dialog, ~800 tokens per message):
+40 × 800 = 32000 → max-window-tokens: 32000 (but capped by 32K models!)
 ```
 
 ---
 
-## Советы по настройке
+## Tuning tips
 
-**Для экономии токенов / небольших моделей:**
+**To save tokens / small models:**
 ```yaml
 message-window-size: 20
 max-window-tokens: 8000
 max-output-tokens: 2000
 ```
 
-**Текущие настройки (баланс для OpenRouter free-моделей):**
+**Example defaults (balance for OpenRouter free models):**
 ```yaml
 message-window-size: 40
 max-window-tokens: 16000
 max-output-tokens: 4000
 ```
 
-**Для мощных моделей с большим контекстом (Claude, GPT-4):**
+**High-capacity models (Claude, GPT-4):**
 ```yaml
 message-window-size: 80
 max-window-tokens: 40000
@@ -161,27 +161,27 @@ max-output-tokens: 8000
 
 ---
 
-## Саммаризация и Reasoning
+## Summarization and reasoning
 
-⚠️ **Важно:** Саммаризация **не использует reasoning параметр** (`max-reasoning-tokens`).
+⚠️ **Important:** Summarization does **not** use the reasoning parameter (`max-reasoning-tokens`).
 
-**Почему?**
-- Саммаризация — это простое резюме, не требующее extended reasoning
-- Small free-модели (gemma-3-12b-it:free) с `max_price=0.5` падают, если запросить reasoning
-- Reasoning токены = 1500 + completion токены = 2000 могут превысить бюджет малых моделей
+**Why?**
+- Summarization is a simple recap, not extended reasoning
+- Small free models (e.g. gemma-3-12b-it:free) with `max_price=0.5` can fail if reasoning is requested
+- Reasoning tokens = 1500 plus completion tokens = 2000 can exceed small-model budgets
 
-**Как это работает в коде:**
-- `SummarizationService` явно передаёт `maxReasoningTokens=null` при создании `ChatAICommand`
-- `SpringAIPromptFactory.resolveReasoning()` не добавляет reasoning в запрос
-- Результат: модель получает чистый запрос без reasoning, работает на free-моделях
+**How it works in code:**
+- `SummarizationService` passes `maxReasoningTokens=null` when building `ChatAICommand`
+- `SpringAIPromptFactory.resolveReasoning()` does not add reasoning to the request
+- Result: the model gets a plain request without reasoning, suitable for free-tier models
 
 ---
 
-## Связанные файлы
+## Related files
 
-- `CoreCommonProperties.java` — валидация всех настроек
-- `SummarizingChatMemory.java` — логика двух триггеров
-- `ConversationThreadService.java` — счётчик `totalTokens` (сбрасывается после саммаризации)
-- `PersistentKeyboardService.java` — расчёт % для кнопки Telegram
-- `SummarizationService.java` — создание `ChatAICommand` без reasoning для саммаризации
-- `application.yml` — все значения настроек
+- `CoreCommonProperties.java` — validates all settings
+- `SummarizingChatMemory.java` — dual-trigger logic
+- `ConversationThreadService.java` — `totalTokens` counter (reset after summarization)
+- `PersistentKeyboardService.java` — percentage for the Telegram button
+- `SummarizationService.java` — builds `ChatAICommand` without reasoning for summarization
+- `application.yml` — configured values
