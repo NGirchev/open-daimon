@@ -184,7 +184,6 @@
                 </executions>
                 <configuration>
                     <mainClass>io.github.ngirchev.opendaimon.Application</mainClass>
-                    <classifier>exec</classifier>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
