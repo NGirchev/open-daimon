@@ -118,7 +118,7 @@ class TelegramUserPriorityServiceTest {
 
         vipLevel.getChannels().add("@vipgroup");
         when(whitelistService.isUserAllowed(userId)).thenReturn(true);
-        when(whitelistService.checkUserInChannel(userId)).thenReturn(true);
+        when(whitelistService.checkUserInChannel(userId, "@vipgroup")).thenReturn(true);
 
         priorityService = new TelegramUserPriorityService(telegramUserService, whitelistService, telegramProperties);
 
@@ -145,7 +145,9 @@ class TelegramUserPriorityServiceTest {
     }
 
     @Test
-    void whenUserNotInWhitelistOrChannels_thenBlocked() {
+    void whenUserNotInWhitelistOrChannels_thenRegular() {
+        // Unknown users (not in whitelist, not in any channel) get REGULAR by default.
+        // BLOCKED is reserved for users explicitly flagged isBlocked = true.
         Long userId = 7L;
         when(telegramProperties.getAccess()).thenReturn(accessConfig);
         when(telegramUserService.findById(userId)).thenReturn(Optional.empty());
@@ -155,7 +157,7 @@ class TelegramUserPriorityServiceTest {
 
         UserPriority result = priorityService.getUserPriority(userId);
 
-        assertEquals(UserPriority.BLOCKED, result);
+        assertEquals(UserPriority.REGULAR, result);
     }
 }
 

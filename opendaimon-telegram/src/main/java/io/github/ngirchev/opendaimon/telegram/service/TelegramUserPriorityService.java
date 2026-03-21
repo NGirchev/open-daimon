@@ -45,9 +45,8 @@ public class TelegramUserPriorityService implements IUserPriorityService {
         boolean inVipChannel = isUserInChannels(userId, vipChannels);
         boolean inAdminChannel = isUserInChannels(userId, adminChannels);
 
-        if (!inWhitelist && !inRegularChannel && !inVipChannel && !inAdminChannel) {
-            return UserPriority.BLOCKED;
-        }
+        // Unknown users (not in any whitelist/channel) are treated as REGULAR.
+        // BLOCKED is reserved for users explicitly flagged as blocked.
 
         if (user.map(IUserObject::getIsBlocked).map(Boolean.TRUE::equals).orElse(false)) {
             return UserPriority.BLOCKED;
@@ -72,11 +71,15 @@ public class TelegramUserPriorityService implements IUserPriorityService {
         if (channels == null || channels.isEmpty()) {
             return false;
         }
-        try {
-            return whitelistService.checkUserInChannel(userId);
-        } catch (Exception e) {
-            log.debug("Could not check channel membership for user {}: {}", userId, e.getMessage());
-            return false;
+        for (String channelId : channels) {
+            try {
+                if (whitelistService.checkUserInChannel(userId, channelId)) {
+                    return true;
+                }
+            } catch (Exception e) {
+                log.debug("Could not check channel membership for user {} in channel {}: {}", userId, channelId, e.getMessage());
+            }
         }
+        return false;
     }
 }
