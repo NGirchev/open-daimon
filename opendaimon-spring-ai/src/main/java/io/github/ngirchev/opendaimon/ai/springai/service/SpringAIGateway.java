@@ -108,7 +108,7 @@ public class SpringAIGateway implements AIGateway {
         try {
             if (command.options() instanceof OpenDaimonChatOptions chatOptions) {
                 List<Message> messages = createMessages(chatOptions.body());
-                log.info("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole());
+                log.info("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole() == null ? null : chatOptions.userRole().replaceAll("\\s+", " ").trim());
                 addSystemAndUserMessagesIfNeeded(messages, chatOptions, command);
                 return executeChatWithOptions(chatOptions, command, messages);
             } else {
@@ -484,7 +484,7 @@ public class SpringAIGateway implements AIGateway {
         var documentProcessingService = documentProcessingServiceProvider.getIfAvailable();
         FileRAGService fileRagService = ragServiceProvider.getIfAvailable();
         log.info("processRagIfEnabled: userQuery='{}', totalAttachments={}, documentAttachments={}, ragPropertiesNull={}, docServiceNull={}, ragServiceNull={}",
-                userQuery, totalAttachments, documentAttachments.size(), ragProperties == null, documentProcessingService == null, fileRagService == null);
+                userQuery == null ? null : userQuery.replaceAll("\\s+", " ").trim(), totalAttachments, documentAttachments.size(), ragProperties == null, documentProcessingService == null, fileRagService == null);
 
         // Check feature flag
         if (ragProperties == null || !isRagEnabled()) {

@@ -91,9 +91,9 @@ public class SummarizationService {
         log.debug("Summarizing {} messages for thread {}", messages.size(), thread.getThreadKey());
         String dialogTextStr = buildDialogTextForSummarization(thread, messages);
         SummaryResult result = callAiAndParseSummaryResult(dialogTextStr);
-        String combinedSummary = combineWithExistingSummary(thread.getSummary(), result.summary());
-        List<String> combinedBullets = combineWithExistingBullets(thread.getMemoryBullets(), result.memoryBullets());
-        threadService.updateThreadSummary(thread, combinedSummary, combinedBullets);
+        // Unified summary: the model already sees the previous summary in buildDialogText
+        // and produces a single unified summary (not a continuation).
+        threadService.updateThreadSummary(thread, result.summary(), result.memoryBullets());
         log.info("Successfully summarized {} messages for thread {}", messages.size(), thread.getThreadKey());
     }
 
@@ -126,8 +126,8 @@ public class SummarizationService {
         AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(summaryCommand).stream()
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("No AI gateway for summarization"));
-        RuntimeException lastError = null;
-        for (int attempt = 1; attempt <= SUMMARIZATION_PARSE_MAX_RETRIES; attempt++) {
+        RuntimeException lastError;
+        for (int attempt = 1; true; attempt++) {
             String summaryResponse = retrieveMessage(aiGateway.generateResponse(summaryCommand))
                     .orElseThrow(() -> new RuntimeException("Response is empty"));
             try {
@@ -141,7 +141,6 @@ public class SummarizationService {
                 }
             }
         }
-        throw new RuntimeException("Summarization failed: no valid result", lastError);
     }
 
     private SummaryResult parseSummaryResponse(String response) {
@@ -225,26 +224,6 @@ public class SummarizationService {
         return response;
     }
 
-    private String combineWithExistingSummary(String existing, String newSummary) {
-        if (existing == null || existing.isEmpty()) {
-            return newSummary;
-        }
-
-        // Incremental update: append new summary to existing
-        return existing + "\n\n---\n\nContinuation:\n" + newSummary;
-    }
-
-    private List<String> combineWithExistingBullets(List<String> existing, List<String> newBullets) {
-        List<String> combined = new ArrayList<>(existing != null ? existing : new ArrayList<>());
-        combined.addAll(newBullets);
-
-        // Cap number of bullets (e.g. last 20)
-        if (combined.size() > 20) {
-            return combined.subList(combined.size() - 20, combined.size());
-        }
-
-        return combined;
-    }
 
     private record SummaryResult(String summary, List<String> memoryBullets) {
     }

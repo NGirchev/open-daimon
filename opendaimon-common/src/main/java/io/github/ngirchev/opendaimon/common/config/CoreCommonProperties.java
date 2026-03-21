@@ -79,14 +79,14 @@ public class CoreCommonProperties {
          */
         @NotNull(message = "messageWindowSize is required")
         @Min(value = 1, message = "messageWindowSize must be >= 1")
-        private Integer messageWindowSize = 20;
+        private Integer messageWindowSize;
 
         /**
          * Max tokens for the summarization response (summary + memory_bullets JSON).
          */
         @NotNull(message = "maxOutputTokens is required")
         @Min(value = 100, message = "maxOutputTokens must be >= 100")
-        private Integer maxOutputTokens = 2000;
+        private Integer maxOutputTokens;
 
         /**
          * Prompt for the AI to produce summary and memory_bullets (JSON). Conversation is sent as separate user message.

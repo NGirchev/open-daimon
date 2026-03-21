@@ -124,6 +124,10 @@ public class SpringAIPromptFactory {
         if (maxTokens == null && chatOptions != null) {
             maxTokens = chatOptions.maxTokens();
         }
+        // Per-model override takes priority over global default
+        if (modelConfig != null && modelConfig.getMaxOutputTokens() != null) {
+            maxTokens = modelConfig.getMaxOutputTokens();
+        }
         
         if (isOpenAIProvider(modelConfig, modelName)) {
             OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()

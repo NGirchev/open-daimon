@@ -4,8 +4,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.lang.NonNull;
 import io.github.ngirchev.opendaimon.common.event.SummarizationStartedEvent;
@@ -16,6 +18,7 @@ import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageReposito
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.SummarizationService;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -98,78 +101,93 @@ public class SummarizingChatMemory implements ChatMemory {
     }
 
     /**
-     * Performs summarization and updates ChatMemory.
+     * Performs partial summarization: summarizes the older half of messages,
+     * keeps the recent half in ChatMemory for context continuity.
      *
      * Logic:
-     * 1. Gets all messages from main DB for summarization
-     * 2. Calls synchronous summarization (sync inside SummarizationService)
-     * 3. Clears ChatMemory (delegate.clear) — removes messages from SPRING_AI_CHAT_MEMORY
-     * 4. Adds summary as SystemMessage to ChatMemory (delegate.add)
+     * 1. Loads messages from main DB (after last summarization point)
+     * 2. Splits into older half (to summarize) and recent half (to keep)
+     * 3. Summarizes the older half via SummarizationService
+     * 4. Rebuilds ChatMemory: SystemMessage(summary) + recent messages
      *
      * @param conversationId conversation id
-     * @return true if summarization succeeded and summary was stored; false if there is nothing to summarize
-     * @throws SummarizationFailedException if the AI call failed — propagates to the caller to surface the error to the user
+     * @return true if summarization succeeded; false if nothing to summarize
+     * @throws SummarizationFailedException if the AI call failed
      */
     private boolean performSummarizationAndUpdateChatMemory(@NonNull String conversationId) {
         try {
             Optional<ConversationThread> threadOpt = conversationThreadRepository.findByThreadKey(conversationId);
-            
+
             if (threadOpt.isEmpty()) {
                 log.debug("Thread not found for conversationId {}, skipping summarization", conversationId);
                 return false;
             }
-            
+
             ConversationThread thread = threadOpt.get();
-            
-            log.info("Triggering summarization for conversationId {} (thread {})",
+
+            log.info("Triggering partial summarization for conversationId {} (thread {})",
                 conversationId, thread.getThreadKey());
-            
-            // Get messages from main DB for summarization
-            // If there was a previous summarization, take only new messages after it
-            // If messagesAtLastSummarization == null, no summarization yet, take all messages (from 0)
+
+            // Load messages from main DB (after last summarization point)
             Integer messagesAtLastSummarization = thread.getMessagesAtLastSummarization();
             int minSequenceNumber = messagesAtLastSummarization != null ? messagesAtLastSummarization : 0;
-            
-            List<OpenDaimonMessage> messages = messageRepository
-                .findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(thread, minSequenceNumber);
-            messages.removeLast();
-            
-            log.debug("Getting messages for summarization (sequenceNumber > {}) for thread {}: {} messages",
-                minSequenceNumber, thread.getThreadKey(), messages.size());
-            
-            if (messages.isEmpty()) {
-                log.warn("No messages to summarize for conversationId {}", conversationId);
+
+            List<OpenDaimonMessage> allMessages = new ArrayList<>(messageRepository
+                .findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(thread, minSequenceNumber));
+
+            if (allMessages.size() < 2) {
+                log.warn("Not enough messages to summarize for conversationId {}", conversationId);
                 return false;
             }
-            
-            // Call synchronous summarization
-            summarizationService.summarizeThread(thread, messages);
-            
+
+            // Split: older half to summarize, recent half to keep
+            int half = allMessages.size() / 2;
+            List<OpenDaimonMessage> toSummarize = allMessages.subList(0, half);
+            List<OpenDaimonMessage> toKeep = allMessages.subList(half, allMessages.size());
+
+            log.info("Partial summarization: {} messages to summarize, {} to keep for conversationId {}",
+                toSummarize.size(), toKeep.size(), conversationId);
+
+            // Summarize the older half
+            summarizationService.summarizeThread(thread, toSummarize);
+
             // Refresh thread from DB after summarization
             thread = conversationThreadRepository.findByThreadKey(conversationId)
                 .orElseThrow(() -> new RuntimeException("Thread not found after summarization"));
-            
-            // Clear ChatMemory (Spring AI temporary history) — removes messages from SPRING_AI_CHAT_MEMORY
+
+            // Rebuild ChatMemory: summary + recent messages
             delegate.clear(conversationId);
-            
-            // Add summary as SystemMessage to ChatMemory
+
             if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
                 String summaryContent = buildSummaryContent(thread);
-                SystemMessage summaryMessage = new SystemMessage(summaryContent);
-                delegate.add(conversationId, summaryMessage);
-                
-                log.info("Successfully summarized and updated ChatMemory for conversationId {}: {} chars",
-                    conversationId, summaryContent.length());
-                return true;
-            } else {
-                log.warn("Summarization completed but summary is empty for conversationId {}", conversationId);
-                return false;
+                delegate.add(conversationId, new SystemMessage(summaryContent));
             }
+
+            // Re-add recent messages to ChatMemory
+            for (OpenDaimonMessage msg : toKeep) {
+                Message springMessage = convertToSpringMessage(msg);
+                delegate.add(conversationId, springMessage);
+            }
+
+            log.info("Successfully summarized and rebuilt ChatMemory for conversationId {}: summary + {} recent messages",
+                conversationId, toKeep.size());
+            return true;
         } catch (Exception e) {
             log.error("Error during summarization for conversationId {}", conversationId, e);
             throw new SummarizationFailedException(
                     "Conversation summarization failed. Please start a new session (/newthread).", e);
         }
+    }
+
+    /**
+     * Converts OpenDaimonMessage to Spring AI Message.
+     */
+    private Message convertToSpringMessage(OpenDaimonMessage msg) {
+        return switch (msg.getRole()) {
+            case USER -> new UserMessage(msg.getContent());
+            case ASSISTANT -> new AssistantMessage(msg.getContent());
+            case SYSTEM -> new SystemMessage(msg.getContent());
+        };
     }
 
     @Override

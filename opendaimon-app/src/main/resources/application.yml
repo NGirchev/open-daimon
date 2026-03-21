@@ -39,14 +39,21 @@ open-daimon:
     # Summarization of long conversations (manual and Spring AI modes).
     summarization:
       message-window-size: 10
-      # Prompt for AI to produce summary + memory_bullets (JSON). Placeholder not used; conversation is sent as separate user message.
+      max-output-tokens: 2000
+      # Prompt for AI to produce summary + memory_bullets (JSON). Conversation is sent as separate user message.
       prompt: |
-        You are an assistant that creates brief summaries of conversations.
-        Analyze the following conversation and produce:
-        1. A short summary (2-3 paragraphs) of main topics and decisions
-        2. A list of 5-10 key facts/decisions (bullet points)
-        Reply in strict JSON only (no ```json or markdown):
-        {"summary": "short summary of the conversation", "memory_bullets": ["fact 1", "fact 2", ...]}
+        You are summarizing a conversation for an AI assistant's long-term memory.
+        If a "Previous conversation summary" section is present, incorporate it into your new summary — produce a SINGLE UNIFIED summary, not a continuation.
+
+        Rules:
+        1. Summarize only what was ACTUALLY said — do not infer, interpret, or invent meaning. If messages are trivial (e.g. single words, numbers, test messages), state that plainly.
+        2. Summary: 2-4 paragraphs, max 500 words. Focus on user's goals, decisions made, problems solved, preferences expressed.
+        3. Memory bullets: up to 10 key facts the assistant must remember going forward. Omit bullets if there is nothing meaningful to remember.
+        4. If previous bullets exist, keep relevant ones, drop obsolete, deduplicate.
+        5. Respond in the SAME LANGUAGE as the conversation.
+        6. Reply in strict JSON only (no markdown, no backticks, no preamble):
+        {"summary": "...", "memory_bullets": ["fact 1", "fact 2", ...]}
+
         Conversation:
   telegram:
     enabled: true

@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.memory;
 
+import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
@@ -165,9 +166,9 @@ class SummarizingChatMemoryTest {
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey(CONVERSATION_ID);
         when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
-        // One message: after removeLast() list is empty, summarization is skipped
+        // One message: size < 2, partial summarization is skipped
         when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
-                .thenReturn(new ArrayList<>(List.of(createMockMessage())));
+                .thenReturn(new ArrayList<>(List.of(createMockMessage(MessageRole.USER))));
 
         List<Message> result = summarizingChatMemory.get(CONVERSATION_ID);
 
@@ -176,7 +177,7 @@ class SummarizingChatMemoryTest {
     }
 
     @Test
-    void whenGetWithMessageCountAtMaxAndSummarizationSucceeds_thenChatMemoryContainsSummary() {
+    void whenGetWithMessageCountAtMaxAndSummarizationSucceeds_thenChatMemoryContainsSummaryAndRecentMessages() {
         for (int i = 0; i < MAX_MESSAGES; i++) {
             summarizingChatMemory.add(CONVERSATION_ID, new UserMessage("u" + i));
             summarizingChatMemory.add(CONVERSATION_ID, new AssistantMessage("a" + i));
@@ -192,27 +193,36 @@ class SummarizingChatMemoryTest {
         when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID))
                 .thenReturn(Optional.of(thread))
                 .thenReturn(Optional.of(threadWithSummary));
-        ArrayList<OpenDaimonMessage> dbMessages = new ArrayList<>(List.of(createMockMessage(), createMockMessage()));
+        // 4 messages in DB: partial summarization splits into 2 to summarize + 2 to keep
+        ArrayList<OpenDaimonMessage> dbMessages = new ArrayList<>(List.of(
+                createMockMessage(MessageRole.USER),
+                createMockMessage(MessageRole.ASSISTANT),
+                createMockMessage(MessageRole.USER),
+                createMockMessage(MessageRole.ASSISTANT)));
         when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
                 .thenReturn(dbMessages);
 
         List<Message> result = summarizingChatMemory.get(CONVERSATION_ID);
 
         assertFalse(result.isEmpty());
+        // Should contain summary SystemMessage
         boolean hasSummary = result.stream()
                 .filter(m -> m instanceof SystemMessage)
                 .anyMatch(m -> ((SystemMessage) m).getText().contains("Summary of previous conversation")
                         && ((SystemMessage) m).getText().contains("Previous talk summary"));
         assertTrue(hasSummary, "Expected a SystemMessage with summary content: " + result);
+        // Should also contain recent messages (the kept half)
+        long nonSystemCount = result.stream().filter(m -> !(m instanceof SystemMessage)).count();
+        assertEquals(2, nonSystemCount, "Expected 2 recent messages kept after partial summarization");
 
-        ArgumentCaptor<ConversationThread> threadCaptor = ArgumentCaptor.forClass(ConversationThread.class);
+        // Verify only the first half was passed to summarization
         ArgumentCaptor<List<OpenDaimonMessage>> listCaptor = ArgumentCaptor.forClass(List.class);
-        verify(summarizationService).summarizeThread(threadCaptor.capture(), listCaptor.capture());
-        assertEquals(CONVERSATION_ID, threadCaptor.getValue().getThreadKey());
+        verify(summarizationService).summarizeThread(any(), listCaptor.capture());
+        assertEquals(2, listCaptor.getValue().size(), "Expected only half of messages to be summarized");
     }
 
     @Test
-    void whenGetWithMessageCountAtMaxAndSummarizationReturnsEmptySummary_thenNoSummaryMessageAdded() {
+    void whenGetWithMessageCountAtMaxAndSummarizationReturnsEmptySummary_thenNoSummaryMessageAddedButRecentMessagesKept() {
         for (int i = 0; i < MAX_MESSAGES; i++) {
             summarizingChatMemory.add(CONVERSATION_ID, new UserMessage("u" + i));
             summarizingChatMemory.add(CONVERSATION_ID, new AssistantMessage("a" + i));
@@ -226,7 +236,11 @@ class SummarizingChatMemoryTest {
         when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID))
                 .thenReturn(Optional.of(thread))
                 .thenReturn(Optional.of(threadAfterSummary));
-        ArrayList<OpenDaimonMessage> dbMessages = new ArrayList<>(List.of(createMockMessage(), createMockMessage()));
+        ArrayList<OpenDaimonMessage> dbMessages = new ArrayList<>(List.of(
+                createMockMessage(MessageRole.USER),
+                createMockMessage(MessageRole.ASSISTANT),
+                createMockMessage(MessageRole.USER),
+                createMockMessage(MessageRole.ASSISTANT)));
         when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
                 .thenReturn(dbMessages);
 
@@ -237,6 +251,8 @@ class SummarizingChatMemoryTest {
                 .filter(m -> m instanceof SystemMessage)
                 .anyMatch(m -> ((SystemMessage) m).getText().contains("Summary of previous conversation"));
         assertFalse(hasSummaryContent);
+        // Recent messages should still be kept
+        assertEquals(2, result.size(), "Expected 2 recent messages kept even without summary");
     }
 
     @Test
@@ -249,7 +265,11 @@ class SummarizingChatMemoryTest {
         thread.setThreadKey(CONVERSATION_ID);
         when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
         when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
-                .thenReturn(new ArrayList<>(List.of(createMockMessage(), createMockMessage())));
+                .thenReturn(new ArrayList<>(List.of(
+                        createMockMessage(MessageRole.USER),
+                        createMockMessage(MessageRole.ASSISTANT),
+                        createMockMessage(MessageRole.USER),
+                        createMockMessage(MessageRole.ASSISTANT))));
         doThrow(new RuntimeException("AI model unavailable"))
                 .when(summarizationService).summarizeThread(any(), anyList());
 
@@ -257,8 +277,9 @@ class SummarizingChatMemoryTest {
                 () -> summarizingChatMemory.get(CONVERSATION_ID));
     }
 
-    private static OpenDaimonMessage createMockMessage() {
+    private static OpenDaimonMessage createMockMessage(MessageRole role) {
         OpenDaimonMessage m = new OpenDaimonMessage();
+        m.setRole(role);
         m.setContent("content");
         return m;
     }

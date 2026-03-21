@@ -36,6 +36,14 @@ public class SpringAIModelConfig {
     private List<UserPriority> allowedRoles;
 
     /**
+     * Per-model output token limit. Overrides global CoreCommonProperties.maxOutputTokens.
+     * null  — use global default.
+     * &gt;0 — use this value instead of global.
+     */
+    @Min(value = 1, message = "maxOutputTokens must be >= 1")
+    private Integer maxOutputTokens;
+
+    /**
      * Per-model reasoning token budget. Overrides global CoreCommonProperties.maxReasoningTokens.
      * null  — use global default.
      * 0     — disable reasoning for this model.
