@@ -239,9 +239,50 @@ curl http://localhost:8080/actuator/prometheus
 - Password: `admin123456`
 - Add Prometheus as data source: `http://prometheus:9090`
 
-### Kibana
-- URL: `http://your-server-ip:5601`
-- Configure index pattern for logs
+### Kibana & Filebeat (log collection)
+
+Filebeat collects logs from all Docker containers and ships them to Elasticsearch automatically. It starts as part of `docker-compose up -d`.
+
+**Configuration file**: [`filebeat.yml`](filebeat.yml)
+
+#### Verifying Filebeat is running
+
+```bash
+# Check Filebeat logs
+docker-compose logs -f filebeat
+
+# Expected output:
+# filebeat | {"log.level":"info","message":"Connection to backoff(elasticsearch(http://elasticsearch:9200)) established","..."}
+```
+
+#### Viewing logs in Kibana
+
+1. Open Kibana: `http://your-server-ip:5601`
+2. Go to **Management → Stack Management → Kibana → Data Views**
+3. Click **Create data view**
+4. Set **Name**: `filebeat-*`, **Index pattern**: `filebeat-*`, **Timestamp field**: `@timestamp`
+5. Click **Save data view to Kibana**
+6. Go to **Discover** — you will see logs from all containers
+
+#### Filtering logs for OpenDaimon only
+
+In the Discover search bar:
+```
+container.name: "open-daimon-app"
+```
+
+#### Troubleshooting
+
+```bash
+# Filebeat fails to connect to Elasticsearch
+docker-compose logs filebeat | grep -i error
+
+# Check Elasticsearch is healthy
+curl http://localhost:9200/_cluster/health
+
+# Restart Filebeat
+docker-compose restart filebeat
+```
 
 ## Step 8: Updating the application
 

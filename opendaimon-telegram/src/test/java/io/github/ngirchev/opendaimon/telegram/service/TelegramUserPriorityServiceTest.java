@@ -145,6 +145,44 @@ class TelegramUserPriorityServiceTest {
     }
 
     @Test
+    void whenUserInAdminChannel_thenAdmin() {
+        Long userId = 8L;
+        adminLevel.getChannels().add("@adminchat");
+        when(telegramProperties.getAccess()).thenReturn(accessConfig);
+        when(telegramUserService.findById(userId)).thenReturn(Optional.empty());
+        when(whitelistService.checkUserInChannel(userId, "@adminchat")).thenReturn(true);
+
+        priorityService = new TelegramUserPriorityService(telegramUserService, whitelistService, telegramProperties);
+
+        assertEquals(UserPriority.ADMIN, priorityService.getUserPriority(userId));
+    }
+
+    @Test
+    void whenAdminDefaultBlocked_andUserNotAdmin_thenBlocked() {
+        Long userId = 9L;
+        adminLevel.setDefaultBlocked(true);
+        when(telegramProperties.getAccess()).thenReturn(accessConfig);
+        when(telegramUserService.findById(userId)).thenReturn(Optional.empty());
+
+        priorityService = new TelegramUserPriorityService(telegramUserService, whitelistService, telegramProperties);
+
+        assertEquals(UserPriority.BLOCKED, priorityService.getUserPriority(userId));
+    }
+
+    @Test
+    void whenVipDefaultBlocked_andUserNotVip_thenBlocked() {
+        Long userId = 10L;
+        vipLevel.setDefaultBlocked(true);
+        when(telegramProperties.getAccess()).thenReturn(accessConfig);
+        when(telegramUserService.findById(userId)).thenReturn(Optional.empty());
+        when(whitelistService.isUserAllowed(userId)).thenReturn(false);
+
+        priorityService = new TelegramUserPriorityService(telegramUserService, whitelistService, telegramProperties);
+
+        assertEquals(UserPriority.BLOCKED, priorityService.getUserPriority(userId));
+    }
+
+    @Test
     void whenUserNotInWhitelistOrChannels_thenRegular() {
         // Unknown users (not in whitelist, not in any channel) get REGULAR by default.
         // BLOCKED is reserved for users explicitly flagged isBlocked = true.

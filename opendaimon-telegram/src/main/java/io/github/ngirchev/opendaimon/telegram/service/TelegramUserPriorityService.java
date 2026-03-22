@@ -36,17 +36,18 @@ public class TelegramUserPriorityService implements IUserPriorityService {
         Set<Long> regularIds = access.getRegular().getIds();
         Set<String> regularChannels = access.getRegular().getChannels();
 
-        if (adminIds.contains(userId) || user.map(IUserObject::getIsAdmin).map(Boolean.TRUE::equals).orElse(false)) {
-            return UserPriority.ADMIN;
-        }
-
+        boolean inAdminChannel = isUserInChannels(userId, adminChannels);
         boolean inWhitelist = whitelistService.isUserAllowed(userId);
         boolean inRegularChannel = isUserInChannels(userId, regularChannels);
         boolean inVipChannel = isUserInChannels(userId, vipChannels);
-        boolean inAdminChannel = isUserInChannels(userId, adminChannels);
 
-        // Unknown users (not in any whitelist/channel) are treated as REGULAR.
-        // BLOCKED is reserved for users explicitly flagged as blocked.
+        if (adminIds.contains(userId) || user.map(IUserObject::getIsAdmin).map(Boolean.TRUE::equals).orElse(false) || inAdminChannel) {
+            return UserPriority.ADMIN;
+        }
+
+        if (access.getAdmin().isDefaultBlocked()) {
+            return UserPriority.BLOCKED;
+        }
 
         if (user.map(IUserObject::getIsBlocked).map(Boolean.TRUE::equals).orElse(false)) {
             return UserPriority.BLOCKED;
@@ -58,6 +59,10 @@ public class TelegramUserPriorityService implements IUserPriorityService {
                 userService.ensureUserWithLevel(telegramId, UserPriority.VIP);
             }
             return UserPriority.VIP;
+        }
+
+        if (access.getVip().isDefaultBlocked()) {
+            return UserPriority.BLOCKED;
         }
 
         if (inRegularChannel || regularIds.contains(userId) || inWhitelist) {

@@ -138,6 +138,21 @@ services:
     networks:
       - open-daimon-network
 
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.12.0
+    container_name: open-daimon-filebeat
+    user: root
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - elasticsearch
+      - kibana
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
 #  metricbeat:
 #    image: docker.elastic.co/beats/metricbeat:8.12.0
 #    container_name: open-daimon-metricbeat
