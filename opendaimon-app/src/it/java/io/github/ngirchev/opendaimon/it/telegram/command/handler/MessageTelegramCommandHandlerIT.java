@@ -194,11 +194,6 @@ class MessageTelegramCommandHandlerIT {
                 }
 
                 @Override
-                public boolean checkUserInChannel(Long userId, String channelId) {
-                    return true;
-                }
-
-                @Override
                 public void addToWhitelist(Long userId) {
                     // no-op
                 }
