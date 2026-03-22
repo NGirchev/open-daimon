@@ -40,13 +40,11 @@ class DefaultUserPriorityServiceTest {
     }
 
     @Test
-    void whenUserNotInWhitelist_andNotInChannel_thenReturnRegular() {
-        // Arrange: unknown user — not in whitelist, not in any channel → REGULAR (not BLOCKED)
+    void whenUserNotInWhitelist_andNotInChannel_thenReturnBlocked() {
+        // Arrange
         Long userId = 7L;
         IUserObject mockUser = mock(IUserObject.class);
         when(mockUser.getIsAdmin()).thenReturn(false);
-        when(mockUser.getIsBlocked()).thenReturn(false);
-        when(mockUser.getIsPremium()).thenReturn(false);
         when(whitelistService.isUserAllowed(userId)).thenReturn(false);
         when(whitelistService.checkUserInChannel(userId)).thenReturn(false);
         doReturn(Optional.of(mockUser)).when(telegramUserService).findById(userId);
@@ -55,11 +53,11 @@ class DefaultUserPriorityServiceTest {
         UserPriority result = userPriorityService.getUserPriority(userId);
 
         // Assert
-        assertEquals(UserPriority.REGULAR, result);
+        assertEquals(UserPriority.BLOCKED, result);
         verify(telegramUserService).findById(userId);
         verify(mockUser).getIsAdmin();
         verify(whitelistService).isUserAllowed(userId);
-        verify(whitelistService, atLeast(1)).checkUserInChannel(userId);
+        verify(whitelistService).checkUserInChannel(userId);
     }
 
     @Test

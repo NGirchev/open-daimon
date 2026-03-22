@@ -91,7 +91,6 @@ open-daimon:
       REGULAR:
         ids: ${TELEGRAM_ACCESS_REGULAR_IDS:}    # e.g. "333333333"
         channels: ${TELEGRAM_ACCESS_REGULAR_CHANNELS:}  # e.g. "-1003000000000,@community"
-        default-blocked: true
     file-upload:
       enabled: true  # FEATURE FLAG - disabled by default
       max-file-size-mb: 20  # Telegram API limit
@@ -210,85 +209,86 @@ open-daimon:
             allowed-roles:
               - ADMIN
               - VIP
-#          - name: "z-ai/glm-4.5v"
-#            capabilities:
-#              - CHAT
-#              - TOOL_CALLING
-#              - WEB
-#              - EMBEDDING
-#              - VISION
-#            provider-type: OPENAI
-#            priority: 2
-#            allowed-roles:
-#              - ADMIN
-#              - VIP
-#          - name: "qwen3.5:4b"
-#            capabilities:
-#              - CHAT
-#              - TOOL_CALLING
-#              - VISION
-#              - WEB
-#              - SUMMARIZATION
-#            provider-type: OLLAMA
-#            priority: 1
-#            max-reasoning-tokens: 0  # Ollama does not support reasoning parameter
-#            think: false  # Disable Qwen3 thinking mode — prevents token budget exhaustion that causes empty responses
-#          - name: "qwen3-embedding:8b"
-#            capabilities:
-#              - EMBEDDING
-#            provider-type: OLLAMA
-#            priority: 1
+          - name: "z-ai/glm-4.5v"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - EMBEDDING
+              - VISION
+            provider-type: OPENAI
+            priority: 2
+            allowed-roles:
+              - ADMIN
+              - VIP
+          - name: "qwen3.5"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - VISION
+              - WEB
+              - SUMMARIZATION
+            provider-type: OLLAMA
+            priority: 1
+            max-reasoning-tokens: 0  # Ollama does not support reasoning parameter
+            think: false  # Disable Qwen3 thinking mode — prevents token budget exhaustion that causes empty responses
+          - name: "qwen3-embedding:8b"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 1
+            # allowed-roles not set — accessible to all roles
           # Top 3 OpenRouter free models (explicit capabilities; others from include-model-ids get capabilities from API).
-#          - name: "openrouter/free"
-#            capabilities:
-#              - AUTO
-#              - CHAT
-#              - TOOL_CALLING
-#              - WEB
-#              - EMBEDDING
-#              - VISION
-#            provider-type: OPENAI
-#            priority: 3
-#            allowed-roles:
-#              - ADMIN
-#              - REGULAR
-#          - name: "meta-llama/llama-3.3-70b-instruct:free"
-#            capabilities:
-#              - CHAT
-#              - TOOL_CALLING
-#              - WEB
-#              - STRUCTURED_OUTPUT
-#              - VISION
-#              - FREE
-#            provider-type: OPENAI
-#            priority: 1
-#            allowed-roles:
-#              - ADMIN
-#              - REGULAR
-#          - name: "mistralai/mistral-small-3.1-24b-instruct:free"
-#            capabilities:
-#              - CHAT
-#              - TOOL_CALLING
-#              - WEB
-#              - STRUCTURED_OUTPUT
-#              - VISION
-#              - FREE
-#            provider-type: OPENAI
-#            priority: 1
-#            allowed-roles:
-#              - ADMIN
-#              - REGULAR
-#          - name: "google/gemini-2.0-flash-exp:free"
-#            capabilities:
-#              - CHAT
-#              - TOOL_CALLING
-#              - WEB
-#              - STRUCTURED_OUTPUT
-#              - VISION
-#              - FREE
-#            provider-type: OPENAI
-#            priority: 1
-#            allowed-roles not set — accessible to all roles
+          - name: "openrouter/free"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - EMBEDDING
+              - VISION
+            provider-type: OPENAI
+            priority: 3
+            allowed-roles:
+              - ADMIN
+              - REGULAR
+          - name: "meta-llama/llama-3.3-70b-instruct:free"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - STRUCTURED_OUTPUT
+              - VISION
+              - FREE
+            provider-type: OPENAI
+            priority: 1
+            allowed-roles:
+              - ADMIN
+              - REGULAR
+          - name: "mistralai/mistral-small-3.1-24b-instruct:free"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - STRUCTURED_OUTPUT
+              - VISION
+              - FREE
+            provider-type: OPENAI
+            priority: 1
+            allowed-roles:
+              - ADMIN
+              - REGULAR
+          - name: "google/gemini-2.0-flash-exp:free"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - STRUCTURED_OUTPUT
+              - VISION
+              - FREE
+            provider-type: OPENAI
+            priority: 1
+            # allowed-roles not set — accessible to all roles
       rag:
         enabled: true
         chunk-size: 800

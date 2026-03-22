@@ -38,7 +38,7 @@ Wizard input:
 | Serper? | No |
 | Optional services | leave Monitoring checked, uncheck rest |
 | DB password | *(blank — auto-generate)* |
-| Pull images? | No |
+| Start stack? | No |
 
 **Expected files created:**
 ```
@@ -65,13 +65,13 @@ cat /tmp/test-openrouter/.env
 ```bash
 cat /tmp/test-openrouter/application-local.yml
 ```
-- Должен быть закомментированный шаблон (OpenRouter path = minimal file)
+- Should contain only commented-out lines (OpenRouter path = minimal file)
 
 **Check `docker-compose.yml`:**
 ```bash
 grep -E "profiles:|SPRING_CONFIG|application-local" /tmp/test-openrouter/docker-compose.yml
 ```
-- `profiles: ["monitoring"]` у prometheus/grafana
+- `profiles: ["monitoring"]` on prometheus/grafana services
 - `SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/app/config/application-local.yml`
 - `./application-local.yml:/app/config/application-local.yml:ro`
 
@@ -91,99 +91,101 @@ Wizard input:
 | Bot username | `test_bot` |
 | Admin Telegram ID | `123456789` |
 | AI provider | **Ollama** |
-| Ollama URL | *(Enter, принять default `http://localhost:11434`)* |
+| Ollama URL | *(press Enter to accept default `http://localhost:11434`)* |
+| Pull gemma3:1b? | No (or Yes if Ollama is running) |
 | Serper? | No |
-| Services | снять все галочки |
+| Services | uncheck all |
 | DB password | `mypassword` |
-| Pull images? | No |
+| Start stack? | No |
 
-**Проверки:**
+**Checks:**
 ```bash
-# OPENROUTER_KEY должен быть пустым
+# OPENROUTER_KEY must be empty
 grep OPENROUTER_KEY /tmp/test-ollama/.env
 
-# OLLAMA_BASE_URL должен быть выставлен
+# OLLAMA_BASE_URL must be set
 grep OLLAMA_BASE_URL /tmp/test-ollama/.env
 
-# application-local.yml должен содержать модели Ollama
+# application-local.yml must contain Ollama models
 cat /tmp/test-ollama/application-local.yml
 ```
 
-- `COMPOSE_PROFILES=` (пустая строка — ни один профиль не активен)
-- `prometheus.yml` НЕ должен быть создан (monitoring не выбран)
-- `application-local.yml` содержит `provider-type: OLLAMA`, `qwen2.5:7b`, `nomic-embed-text:v1.5`
+- `COMPOSE_PROFILES=` (empty string — no optional profiles active)
+- `prometheus.yml` must NOT be created (monitoring not selected)
+- `application-local.yml` contains `provider-type: OLLAMA`, `gemma3:1b`, `nomic-embed-text:v1.5`
 - `spring.ai.ollama.base-url: ${OLLAMA_BASE_URL:http://localhost:11434}`
 
 ---
 
-### Test 3 — Overwrite existing `.env`
+### Test 3 — Resume mode (existing `.env`)
 
 ```bash
-cd /tmp/test-openrouter   # директория из теста 1
+cd /tmp/test-openrouter   # directory from test 1
 node /path/to/cli/bin/setup.js
 ```
 
-- Wizard должен спросить `.env already exists. Overwrite it?`
-- Ответить **No** → должен напечатать `Aborted.` и выйти без изменений
-- Запустить снова, ответить **Yes** → wizard продолжается
+- Wizard should print `Found existing config — pre-filling values.`
+- All prompts should be pre-filled with values from the existing `.env`
+- Change one field, accept the rest with Enter
+- Verify that only the changed field is updated in `.env`
 
 ---
 
-### Test 4 — Отмена по Ctrl+C
+### Test 4 — Cancel with Ctrl+C
 
 ```bash
 mkdir /tmp/test-cancel && cd /tmp/test-cancel
 node /path/to/cli/bin/setup.js
 ```
 
-Нажать `Ctrl+C` на любом вопросе.
+Press `Ctrl+C` at any prompt.
 
-- Должен напечатать `Setup cancelled.`
-- Не должен падать со stack trace
-- Никакие файлы не должны быть созданы (или только те, что до отмены)
+- Should print `Setup cancelled.`
+- Must not crash with a stack trace
+- No files should be created (or only those written before the cancel)
 
 ---
 
-### Test 5 — Все сервисы включены
+### Test 5 — All services enabled
 
 ```bash
 mkdir /tmp/test-all-services && cd /tmp/test-all-services
 node /path/to/cli/bin/setup.js
 ```
 
-На шаге `Which optional services to start?` выбрать все три (Space на каждом).
+At the `Which optional services to start?` step, select all three (Space on each).
 
-**Проверка:**
+**Check:**
 ```bash
 grep COMPOSE_PROFILES /tmp/test-all-services/.env
 ```
-Ожидается: `COMPOSE_PROFILES=monitoring,logging,storage`
+Expected: `COMPOSE_PROFILES=storage,monitoring,logging`
 
 ---
 
-### Test 6 — Валидация полей
+### Test 6 — Field validation
 
 ```bash
 mkdir /tmp/test-validation && cd /tmp/test-validation
 node /path/to/cli/bin/setup.js
 ```
 
-- **Bot token**: ввести пробел → должен показать `Required`, не продолжать
-- **Admin Telegram ID**: ввести `abc123` → должен показать `Must be a number`
-- **Admin Telegram ID**: ввести `123456789` → проходит
+- **Bot token**: enter a space → should show `Required`, must not proceed
+- **Admin Telegram ID**: enter `abc123` → should show `Must be a number`
+- **Admin Telegram ID**: enter `123456789` → passes
 
 ---
 
-### Test 7 — npm pack (симуляция npx)
+### Test 7 — npm pack (npx simulation)
 
-Проверяет, что в пакет включены все нужные файлы.
+Verifies that all required files are included in the package.
 
 ```bash
 cd cli
 npm pack --dry-run
 ```
 
-Вывод должен содержать:
+Output must include:
 ```
 bin/setup.js
 templates/docker-compose.yml
@@ -193,30 +195,26 @@ package.json
 README.md
 ```
 
-Полная симуляция с упаковкой:
+Full simulation with packing:
 ```bash
-npm pack
-# Создаёт: ngirchev-open-daimon-1.0.0.tgz
-
+npm pack --pack-destination /tmp/
 mkdir /tmp/test-pack && cd /tmp/test-pack
-node /absolute/path/to/cli/ngirchev-open-daimon-1.0.0.tgz/bin/setup.js
-# или:
-npx /absolute/path/to/cli/ngirchev-open-daimon-1.0.0.tgz
+npx file:/tmp/ngirchev-open-daimon-1.0.0.tgz
 ```
 
 ---
 
-## Важное ограничение при тестировании
+## Important limitation when testing
 
-Шаблон `cli/templates/docker-compose.yml` использует:
+The `cli/templates/docker-compose.yml` template uses:
 ```yaml
 image: ghcr.io/ngirchev/open-daimon:latest
 ```
 
-До публикации Docker образа `docker compose up -d` завершится ошибкой pull. Чтобы проверить что стек реально поднимается — используй **корневой** `docker-compose.yml` (который собирает образ из исходников):
+Until the Docker image is published, `docker compose up -d` will fail with a pull error. To verify the full stack starts — use the **root** `docker-compose.yml` (which builds from source):
 
 ```bash
-# В корне репозитория:
+# From the repository root:
 cp /tmp/test-openrouter/.env .
 cp /tmp/test-openrouter/application-local.yml .
 docker compose up -d --build
@@ -225,15 +223,15 @@ docker compose logs -f opendaimon-app
 
 ---
 
-## Чеклист перед публикацией в npm
+## Pre-publish checklist
 
-- [ ] Test 1 пройден: все файлы создаются, содержимое корректное
-- [ ] Test 2 пройден: Ollama конфиг в `application-local.yml` правильный
-- [ ] Test 3 пройден: overwrite работает
-- [ ] Test 4 пройден: Ctrl+C не даёт stack trace
-- [ ] Test 5 пройден: `COMPOSE_PROFILES` содержит все три профиля
-- [ ] Test 6 пройден: валидация работает
-- [ ] Test 7 пройден: `npm pack --dry-run` показывает все нужные файлы
-- [ ] Стек поднимается через корневой `docker-compose.yml` с `.env` от визарда
-- [ ] `application-local.yml` монтируется и подхватывается Spring Boot (`docker compose logs` не показывает ошибок конфига)
-- [ ] Опубликован Docker образ на GHCR (`publish-docker.yml` workflow)
+- [ ] Test 1 passed: all files created, content is correct
+- [ ] Test 2 passed: Ollama config in `application-local.yml` is correct
+- [ ] Test 3 passed: resume mode pre-fills values from existing `.env`
+- [ ] Test 4 passed: Ctrl+C does not produce a stack trace
+- [ ] Test 5 passed: `COMPOSE_PROFILES` contains all three profiles
+- [ ] Test 6 passed: field validation works
+- [ ] Test 7 passed: `npm pack --dry-run` shows all required files
+- [ ] Stack starts via root `docker-compose.yml` with `.env` from the wizard
+- [ ] `application-local.yml` is mounted and picked up by Spring Boot (no config errors in `docker compose logs`)
+- [ ] Docker image published to GHCR (`docker-publish.yml` workflow)

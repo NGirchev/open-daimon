@@ -36,16 +36,16 @@ public class TelegramUserPriorityService implements IUserPriorityService {
         Set<Long> regularIds = access.getRegular().getIds();
         Set<String> regularChannels = access.getRegular().getChannels();
 
-        boolean inAdminChannel = isUserInChannels(userId, adminChannels);
-        boolean inWhitelist = whitelistService.isUserAllowed(userId);
-        boolean inRegularChannel = isUserInChannels(userId, regularChannels);
-        boolean inVipChannel = isUserInChannels(userId, vipChannels);
-
-        if (adminIds.contains(userId) || user.map(IUserObject::getIsAdmin).map(Boolean.TRUE::equals).orElse(false) || inAdminChannel) {
+        if (adminIds.contains(userId) || user.map(IUserObject::getIsAdmin).map(Boolean.TRUE::equals).orElse(false)) {
             return UserPriority.ADMIN;
         }
 
-        if (access.getAdmin().isDefaultBlocked()) {
+        boolean inWhitelist = whitelistService.isUserAllowed(userId);
+        boolean inRegularChannel = isUserInChannels(userId, regularChannels);
+        boolean inVipChannel = isUserInChannels(userId, vipChannels);
+        boolean inAdminChannel = isUserInChannels(userId, adminChannels);
+
+        if (!inWhitelist && !inRegularChannel && !inVipChannel && !inAdminChannel) {
             return UserPriority.BLOCKED;
         }
 
@@ -61,30 +61,22 @@ public class TelegramUserPriorityService implements IUserPriorityService {
             return UserPriority.VIP;
         }
 
-        if (access.getVip().isDefaultBlocked()) {
-            return UserPriority.BLOCKED;
-        }
-
         if (inRegularChannel || regularIds.contains(userId) || inWhitelist) {
             return UserPriority.REGULAR;
         }
 
-        return access.getRegular().isDefaultBlocked() ? UserPriority.BLOCKED : UserPriority.REGULAR;
+        return UserPriority.REGULAR;
     }
 
     private boolean isUserInChannels(Long userId, Set<String> channels) {
         if (channels == null || channels.isEmpty()) {
             return false;
         }
-        for (String channelId : channels) {
-            try {
-                if (whitelistService.checkUserInChannel(userId, channelId)) {
-                    return true;
-                }
-            } catch (Exception e) {
-                log.debug("Could not check channel membership for user {} in channel {}: {}", userId, channelId, e.getMessage());
-            }
+        try {
+            return whitelistService.checkUserInChannel(userId);
+        } catch (Exception e) {
+            log.debug("Could not check channel membership for user {}: {}", userId, e.getMessage());
+            return false;
         }
-        return false;
     }
 }

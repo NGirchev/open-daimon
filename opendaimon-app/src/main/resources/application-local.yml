@@ -26,6 +26,11 @@ open-daimon:
             priority: 1
             max-reasoning-tokens: 0  # Ollama does not support reasoning parameter
             think: false  # Disable Qwen3 thinking mode — prevents token budget exhaustion that causes empty responses
+          - name: "nomic-embed-text:v1.5"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 1
 
 logging:
   level:
