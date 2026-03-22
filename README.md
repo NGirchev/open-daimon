@@ -4,9 +4,7 @@
   <tr>
     <td><img src="img.jpg" alt="OpenDaimon Logo" width="100"></td>
     <td>
-      <svg height="60" xmlns="http://www.w3.org/2000/svg">
-        <text x="0" y="45" font-size="48" font-weight="bold" fill="#A78EEF">OpenDaimon</text>
-      </svg>
+      <img src="text.jpg" alt="OpenDaimon Text" width="500">
     </td>
   </tr>
 </table>
