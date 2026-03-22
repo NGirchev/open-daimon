@@ -129,10 +129,6 @@ public class OpenRouterModelsProperties {
          */
         private List<String> includeModelIds;
 
-        /**
-         * Models whose ID contains any of these fragments are allowed by this whitelist entry.
-         */
-        private List<String> includeContains;
     }
 
     @Getter

@@ -148,7 +148,7 @@ open-daimon:
           refresh-interval: 24h
           whitelist:
             - roles: [ ADMIN, VIP ]
-              include-contains:
+              include-model-ids:
                 - openai/gpt-5.4
                 - openai/gpt-5-nano
                 - z-ai/glm-5-turbo

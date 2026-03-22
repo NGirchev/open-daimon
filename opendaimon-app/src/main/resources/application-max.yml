@@ -13,7 +13,7 @@ open-daimon:
       openrouter-auto-rotation:
         whitelist:
           - roles: [ ADMIN, VIP ]
-            include-contains:
+            include-model-ids:
               - openai/gpt-4.1
               - google/gemini-2.5-pro
               - deepseek/deepseek-r2
