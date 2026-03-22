@@ -120,6 +120,24 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         }
 
         logExcludedAndAlreadyPresent(freeFromApi, freeFiltered, keysBeforeAdd);
+
+        // Paid (non-free) models matched by whitelist — only when whitelist is configured
+        List<OpenRouterModelsProperties.Whitelist> whitelists = openRouterProperties.getWhitelist();
+        if (whitelists != null && !whitelists.isEmpty()) {
+            for (OpenRouterModelEntry entry : fetched) {
+                if (entry.free()) continue;                          // already handled above
+                if (modelsByName.containsKey(entry.id())) continue; // already in registry (e.g. from yml)
+                if (isBlacklisted(entry.id())) continue;
+                if (whitelists.stream().noneMatch(wl -> matchesWhitelist(entry.id(), wl))) continue;
+                ModelStats existingStats = statsByModelId.get(entry.id());
+                if (existingStats != null && existingStats.cooldownUntilEpochMs > now) continue;
+                Set<ModelCapabilities> caps = OpenRouterModelCapabilitiesMapper.fromOpenRouterModel(entry.node(), false);
+                SpringAIModelConfig config = getSpringAIModelConfig(entry, caps);
+                modelsByName.put(entry.id(), config);
+                log.debug("Added OpenRouter paid (whitelisted) model to registry: {}", entry.id());
+            }
+        }
+
         logRegistrySnapshot("after OpenRouter sync");
     }
 
@@ -177,6 +195,14 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         if (hasIncludeContains && wl.getIncludeContains().stream().anyMatch(modelId::contains)) {
             return true;
         }
+        return false;
+    }
+
+    private boolean isBlacklisted(String modelId) {
+        OpenRouterModelsProperties.Blacklist blacklist = openRouterProperties.getBlacklist();
+        if (blacklist == null) return false;
+        if (blacklist.getExcludeModelIds() != null && blacklist.getExcludeModelIds().contains(modelId)) return true;
+        if (blacklist.getExcludeContains() != null && blacklist.getExcludeContains().stream().anyMatch(modelId::contains)) return true;
         return false;
     }
 
@@ -286,18 +312,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         List<String> result = new ArrayList<>(modelIds);
 
         // 1. Apply blacklist first
-        OpenRouterModelsProperties.Blacklist blacklist = openRouterProperties.getBlacklist();
-        if (blacklist != null) {
-            if (blacklist.getExcludeModelIds() != null && !blacklist.getExcludeModelIds().isEmpty()) {
-                Set<String> deny = new HashSet<>(blacklist.getExcludeModelIds());
-                result = result.stream().filter(id -> !deny.contains(id)).toList();
-            }
-            if (blacklist.getExcludeContains() != null && !blacklist.getExcludeContains().isEmpty()) {
-                result = result.stream()
-                        .filter(id -> blacklist.getExcludeContains().stream().noneMatch(id::contains))
-                        .toList();
-            }
-        }
+        result = result.stream().filter(id -> !isBlacklisted(id)).toList();
 
         // 2. Apply whitelist: keep only models matched by at least one whitelist entry
         List<OpenRouterModelsProperties.Whitelist> whitelists = openRouterProperties.getWhitelist();
