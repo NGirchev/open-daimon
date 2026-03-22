@@ -64,7 +64,7 @@ public class TelegramUserPriorityService implements IUserPriorityService {
             return UserPriority.REGULAR;
         }
 
-        return UserPriority.REGULAR;
+        return access.getRegular().isDefaultBlocked() ? UserPriority.BLOCKED : UserPriority.REGULAR;
     }
 
     private boolean isUserInChannels(Long userId, Set<String> channels) {

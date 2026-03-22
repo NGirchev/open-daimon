@@ -52,6 +52,11 @@ public class TelegramProperties {
             private Set<Long> ids = new HashSet<>();
             private Set<String> channels = new HashSet<>();
             private Set<String> emails = new HashSet<>();
+            /**
+             * When true, users not matching any ids/channels/whitelist for this level are BLOCKED
+             * instead of falling through to REGULAR. Effectively makes access opt-in (whitelist-only).
+             */
+            private boolean defaultBlocked = false;
         }
     }
 
