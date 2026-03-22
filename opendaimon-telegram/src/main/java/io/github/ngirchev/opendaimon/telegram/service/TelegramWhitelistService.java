@@ -81,33 +81,34 @@ public class TelegramWhitelistService implements IWhitelistService {
             log.debug("Channel/group list not configured, skipping membership check");
             return false;
         }
-
-        TelegramUser user = telegramUserRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-        
-        // Check user in all channels from list
         for (String channelId : whitelistChannelIdExceptions) {
-            try {
-                GetChatMember getChatMember = new GetChatMember();
-                getChatMember.setChatId(channelId.trim());
-
-
-                getChatMember.setUserId(user.getTelegramId());
-                ChatMember chatMember = telegramBot.execute(getChatMember);
-                boolean isMember = ChatMemberStatus.fromTelegramStatus(chatMember.getStatus()).isMember();
-                if (isMember) {
-                    log.debug("User {} found in channel/group {}", user.getTelegramId(), channelId);
-                    return true;
-                }
-            } catch (TelegramApiException e) {
-                log.debug("User {} is not a member of channel/group {}: {}",
-                        user.getTelegramId(), channelId, e.getMessage());
-                // Continue checking next channel
+            if (checkUserInChannel(userId, channelId)) {
+                return true;
             }
         }
-        
-        log.debug("User {} not found in any channel/group: {}", user.getTelegramId(), whitelistChannelIdExceptions);
+        log.debug("User {} not found in any channel/group: {}", userId, whitelistChannelIdExceptions);
         return false;
+    }
+
+    @Override
+    public boolean checkUserInChannel(Long userId, String channelId) {
+        TelegramUser user = telegramUserRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        try {
+            GetChatMember getChatMember = new GetChatMember();
+            getChatMember.setChatId(channelId.trim());
+            getChatMember.setUserId(user.getTelegramId());
+            ChatMember chatMember = telegramBot.execute(getChatMember);
+            boolean isMember = ChatMemberStatus.fromTelegramStatus(chatMember.getStatus()).isMember();
+            if (isMember) {
+                log.debug("User {} found in channel/group {}", user.getTelegramId(), channelId);
+            }
+            return isMember;
+        } catch (TelegramApiException e) {
+            log.debug("User {} is not a member of channel/group {}: {}",
+                    user.getTelegramId(), channelId, e.getMessage());
+            return false;
+        }
     }
 
     private enum ChatMemberStatus {

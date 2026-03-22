@@ -43,15 +43,11 @@ public class DefaultUserPriorityService implements IUserPriorityService {
             return UserPriority.ADMIN;
         }
 
-        // Check if user is in whitelist
-        if (!whitelistService.isUserAllowed(userId)) {
-            // If not in whitelist, check channel membership
-            if (whitelistService.checkUserInChannel(userId)) {
-                // If user is in channel, add to whitelist
-                whitelistService.addToWhitelist(userId);
-            } else {
-                return UserPriority.BLOCKED;
-            }
+        // Check if user is in whitelist or channel; if yes – add to whitelist.
+        // Unknown users who are not in any whitelist/channel are still treated as REGULAR
+        // (BLOCKED is reserved for users explicitly flagged as blocked).
+        if (!whitelistService.isUserAllowed(userId) && whitelistService.checkUserInChannel(userId)) {
+            whitelistService.addToWhitelist(userId);
         }
 
         if (user.map(IUserObject::getIsBlocked).map(Boolean.TRUE::equals).orElse(false)) {

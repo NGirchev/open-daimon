@@ -1,17 +1,18 @@
-package io.github.ngirchev.opendaimon.telegram.repository;
+package io.github.ngirchev.opendaimon.it.telegram.repository;
 
+import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
+import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
+import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
+import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
+import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
-import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
-import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
-import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
-import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
-import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
 
 import java.time.OffsetDateTime;
 import java.util.Optional;

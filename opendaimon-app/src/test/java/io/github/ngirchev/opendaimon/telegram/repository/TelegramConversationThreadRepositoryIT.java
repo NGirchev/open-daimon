@@ -1,5 +1,15 @@
-package io.github.ngirchev.opendaimon.telegram.repository;
+package io.github.ngirchev.opendaimon.it.telegram.repository;
 
+import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
+import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
+import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
+import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -7,15 +17,6 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
-import jakarta.persistence.EntityManager;
-import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
-import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
-import io.github.ngirchev.opendaimon.common.model.ConversationThread;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
-import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
-import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
-import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -93,13 +94,13 @@ class TelegramConversationThreadRepositoryIT {
         ConversationThread thread1 = createThread(user, "thread-1", true, OffsetDateTime.now().minusHours(2));
         ConversationThread thread2 = createThread(user, "thread-2", true, OffsetDateTime.now().minusHours(1));
         ConversationThread thread3 = createThread(user, "thread-3", false, OffsetDateTime.now()); // Inactive
-        
+
         // Save threads
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         threadRepository.save(thread3);
         entityManager.flush();
-        
+
         // Update lastActivityAt via SQL to bypass @PreUpdate
         OffsetDateTime time1 = OffsetDateTime.now().minusHours(2);
         OffsetDateTime time2 = OffsetDateTime.now().minusHours(1);
@@ -113,7 +114,7 @@ class TelegramConversationThreadRepositoryIT {
                 .setParameter("time", time2)
                 .setParameter("id", thread2.getId())
                 .executeUpdate();
-        
+
         entityManager.flush();
         entityManager.clear();
 
@@ -138,11 +139,11 @@ class TelegramConversationThreadRepositoryIT {
         OffsetDateTime cutoff = OffsetDateTime.now().minusHours(1);
         ConversationThread thread1 = createThread(user, "thread-1", true, OffsetDateTime.now().minusHours(2)); // Older
         ConversationThread thread2 = createThread(user, "thread-2", true, OffsetDateTime.now().minusMinutes(30)); // Newer
-        
+
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         entityManager.flush();
-        
+
         // Update lastActivityAt via SQL to bypass @PreUpdate
         entityManager.createNativeQuery(
                 "UPDATE conversation_thread SET last_activity_at = :time WHERE id = :id")
@@ -154,7 +155,7 @@ class TelegramConversationThreadRepositoryIT {
                 .setParameter("time", OffsetDateTime.now().minusMinutes(30))
                 .setParameter("id", thread2.getId())
                 .executeUpdate();
-        
+
         entityManager.flush();
         entityManager.clear();
 
@@ -179,18 +180,18 @@ class TelegramConversationThreadRepositoryIT {
         ConversationThread thread1 = createThread(user, "thread-1", true, null);
         ConversationThread thread2 = createThread(user, "thread-2", true, null);
         ConversationThread thread3 = createThread(user, "thread-3", false, null); // Inactive
-        
+
         // Save all threads
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         threadRepository.save(thread3);
         entityManager.flush();
-        
+
         // Detach entities so Hibernate does not overwrite changes
         entityManager.detach(thread1);
         entityManager.detach(thread2);
         entityManager.detach(thread3);
-        
+
         // Update lastActivityAt via SQL with different times
         OffsetDateTime time1 = OffsetDateTime.now().minusHours(2);
         OffsetDateTime time2 = OffsetDateTime.now().minusHours(1);
@@ -204,15 +205,15 @@ class TelegramConversationThreadRepositoryIT {
                 .setParameter("time", time2)
                 .setParameter("id", thread2.getId())
                 .executeUpdate();
-        
+
         entityManager.flush();
         entityManager.clear();
 
         // Verify data saved correctly via list
         List<ConversationThread> allActive = threadRepository.findByUserAndIsActiveTrueOrderByLastActivityAtDesc(user);
         assertEquals(2, allActive.size(), "Must have 2 active threads");
-        assertEquals("thread-2", allActive.get(0).getThreadKey(), "First in list must be thread-2");
-        
+        assertEquals("thread-2", allActive.getFirst().getThreadKey(), "First in list must be thread-2");
+
         // Verify findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc works
         Optional<ConversationThread> foundDirect = threadRepository.findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc(user);
         assertTrue(foundDirect.isPresent(), "findFirstBy must return a result");

@@ -124,6 +124,13 @@
             <version>${minio.version}</version>
         </dependency>
 
+        <!-- Logstash encoder for sending logs to Logstash via TCP -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
+        </dependency>
+
         <!-- test-->
         <dependency>
             <groupId>org.springframework.boot</groupId>
