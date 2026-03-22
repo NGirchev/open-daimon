@@ -43,6 +43,34 @@ function pullOllamaModel(model) {
   });
 }
 
+function spawnAsync(cmd, args, cwd) {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, args, { stdio: 'inherit', cwd });
+    proc.on('close', resolve);
+  });
+}
+
+async function waitForApp(url, timeoutMs = 120000) {
+  const start = Date.now();
+  process.stdout.write('\nWaiting for app to be ready');
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        console.log(' ✓ Ready!');
+        return true;
+      }
+    } catch {
+      // not ready yet
+    }
+    process.stdout.write('.');
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  console.log(' ✗ Timed out after 2 minutes.');
+  console.log('  Check logs: docker compose logs -f opendaimon-app');
+  return false;
+}
+
 function genPassword() {
   return randomBytes(16).toString('hex');
 }
@@ -372,12 +400,16 @@ async function main() {
     default: true,
   });
   if (doStart) {
-    console.log('Starting stack...');
-    const up = spawn(composeCmd[0], [...composeCmd.slice(1), 'up', '-d'], {
-      stdio: 'inherit',
-      cwd: TARGET_DIR,
-    });
-    await new Promise((resolve) => up.on('close', resolve));
+    console.log('\nDownloading images (this may take a few minutes on first run)...');
+    await spawnAsync(composeCmd[0], [...composeCmd.slice(1), 'pull'], TARGET_DIR);
+
+    console.log('\nStarting containers...');
+    await spawnAsync(composeCmd[0], [...composeCmd.slice(1), 'up', '-d'], TARGET_DIR);
+
+    console.log('\nContainer status:');
+    await spawnAsync(composeCmd[0], [...composeCmd.slice(1), 'ps'], TARGET_DIR);
+
+    await waitForApp('http://localhost:8080/actuator/health');
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────
@@ -420,11 +452,13 @@ async function main() {
   console.log('');
 }
 
-main().catch((err) => {
-  if (err?.name === 'ExitPromptError') {
-    console.log('\nSetup cancelled.');
-  } else {
-    console.error('\nError:', err?.message ?? err);
-    process.exit(1);
-  }
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    if (err?.name === 'ExitPromptError') {
+      console.log('\nSetup cancelled.');
+    } else {
+      console.error('\nError:', err?.message ?? err);
+      process.exit(1);
+    }
+  });
