@@ -25,7 +25,7 @@ public class TelegramUserActivityService {
     @Scheduled(fixedRate = 600000) // Every hour
     @Transactional
     public void checkUserActivity() {
-        log.info("Starting user activity check");
+        log.trace("Starting user activity check");
 
         OffsetDateTime threshold = OffsetDateTime.now().minusMinutes(INACTIVITY_THRESHOLD_MINUS);
         int page = 0;
@@ -35,7 +35,7 @@ public class TelegramUserActivityService {
             activeSessionsPage = sessionRepository.findActiveSessionsBefore(
                 threshold, PageRequest.of(page, BATCH_SIZE));
 
-            log.info("Processing page {} of {} with {} sessions",
+            log.trace("Processing page {} of {} with {} sessions",
                 page + 1, activeSessionsPage.getTotalPages(), activeSessionsPage.getNumberOfElements());
 
             activeSessionsPage.getContent().forEach(session -> {
@@ -50,7 +50,7 @@ public class TelegramUserActivityService {
             page++;
         } while (activeSessionsPage.hasNext());
 
-        log.info("User activity check completed. Processed {} pages, {} sessions total",
+        log.trace("User activity check completed. Processed {} pages, {} sessions total",
             page, activeSessionsPage.getTotalElements());
     }
 
