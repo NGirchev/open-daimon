@@ -19,27 +19,6 @@ function checkCommand(cmd) {
   }
 }
 
-async function checkOllama(url) {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    return res.status < 500;
-  } catch {
-    return false;
-  }
-}
-
-function pullOllamaModel(model) {
-  return new Promise((resolve) => {
-    console.log(`  Pulling ${model} (this may take a few minutes)...`);
-    const proc = spawn('ollama', ['pull', model], { stdio: 'inherit' });
-    proc.on('close', resolve);
-    proc.on('error', () => {
-      console.log(`  ollama CLI not found — pull manually: ollama pull ${model}`);
-      resolve();
-    });
-  });
-}
-
 function genPassword() {
   return randomBytes(16).toString('hex');
 }
@@ -86,9 +65,6 @@ function buildEnv(cfg) {
     'REST_ACCESS_VIP_EMAILS=',
     'REST_ACCESS_REGULAR_EMAILS=',
     '',
-    '# Spring profiles (local = load application-local.yml)',
-    'SPRING_PROFILES_ACTIVE=local',
-    '',
     '# Active Docker Compose service profiles (comma-separated)',
     '# Available: monitoring, logging, storage',
     `COMPOSE_PROFILES=${profiles}`,
@@ -132,7 +108,7 @@ function buildAppLocalYml(cfg) {
     '          enabled: false',
     '      models:',
     '        list:',
-    '          - name: "gemma3:1b"',
+    '          - name: "qwen2.5:7b"',
     '            capabilities:',
     '              - AUTO',
     '              - CHAT',
@@ -227,33 +203,11 @@ async function main() {
     });
   } else {
     console.log('   Make sure Ollama is running: ollama serve');
+    console.log('   Recommended model: ollama pull qwen2.5:7b');
     ollamaUrl = await input({
       message: 'Ollama base URL:',
       default: 'http://localhost:11434',
     });
-
-    process.stdout.write('   Checking Ollama connection... ');
-    const ollamaAlive = await checkOllama(ollamaUrl.trim());
-    if (ollamaAlive) {
-      console.log('OK');
-      const doPullModel = await confirm({
-        message: 'Pull default model gemma3:1b now? (~815 MB, required for Ollama mode)',
-        default: true,
-      });
-      if (doPullModel) {
-        await pullOllamaModel('gemma3:1b');
-      }
-    } else {
-      console.log('UNREACHABLE');
-      console.log('   ⚠  Ollama is not running at ' + ollamaUrl.trim());
-      console.log('   Start it with: ollama serve');
-      console.log('   Then manually pull the model: ollama pull gemma3:1b');
-      const continueAnyway = await confirm({
-        message: 'Continue setup anyway?',
-        default: true,
-      });
-      if (!continueAnyway) process.exit(0);
-    }
   }
 
   // ── Web Search (optional) ─────────────────────────────────────────────────
@@ -322,21 +276,20 @@ async function main() {
   writeFileSync(join(TARGET_DIR, 'application-local.yml.example'), exampleTemplate, 'utf8');
   console.log('  application-local.yml.example');
 
-  // ── Start the stack ───────────────────────────────────────────────────────
+  // ── Pull images ───────────────────────────────────────────────────────────
   console.log('');
-  const composeCmd = checkCommand('docker compose') ? ['docker', 'compose'] : ['docker-compose'];
-
-  const doStart = await confirm({
-    message: 'Start the stack now? (docker compose up -d)',
-    default: true,
+  const doPull = await confirm({
+    message: 'Pull Docker images now? (recommended, takes a few minutes)',
+    default: false,
   });
-  if (doStart) {
-    console.log('Starting stack...');
-    const up = spawn(composeCmd[0], [...composeCmd.slice(1), 'up', '-d'], {
+  if (doPull) {
+    console.log('Pulling images...');
+    const composeCmd = checkCommand('docker compose') ? ['docker', 'compose'] : ['docker-compose'];
+    const pull = spawn(composeCmd[0], [...composeCmd.slice(1), 'pull'], {
       stdio: 'inherit',
       cwd: TARGET_DIR,
     });
-    await new Promise((resolve) => up.on('close', resolve));
+    await new Promise((resolve) => pull.on('close', resolve));
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────
@@ -345,26 +298,19 @@ async function main() {
   console.log('║            Setup complete!               ║');
   console.log('╚══════════════════════════════════════════╝');
   console.log('');
-  if (!doStart) {
-    console.log('Next steps:');
-    console.log('');
-    console.log('  1. Review generated files:');
-    console.log('       .env                     — secrets and credentials');
-    console.log('       docker-compose.yml        — service definitions');
-    console.log('       application-local.yml     — app overrides (edit as needed)');
-    console.log('');
-    console.log('  2. Start the stack:');
-    console.log('       docker compose up -d');
-    console.log('');
-  } else {
-    console.log('The stack is starting. To check logs:');
-    console.log('');
-  }
-  console.log('  Watch logs:');
+  console.log('Next steps:');
+  console.log('');
+  console.log('  1. Review generated files:');
+  console.log('       .env                     — secrets and credentials');
+  console.log('       docker-compose.yml        — service definitions');
+  console.log('       application-local.yml     — app overrides (edit as needed)');
+  console.log('');
+  console.log('  2. Start the stack:');
+  console.log('       docker compose up -d');
+  console.log('');
+  console.log('  3. Watch logs:');
   console.log('       docker compose logs -f opendaimon-app');
   console.log('');
-  console.log('  ── URLs ──────────────────────────────────────');
-  console.log('  App:        http://localhost:8080');
   console.log('  Swagger UI: http://localhost:8080/swagger-ui/index.html');
   if (services.includes('monitoring')) {
     console.log('  Grafana:    http://localhost:3000  (admin / admin123456)');

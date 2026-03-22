@@ -34,8 +34,6 @@ services:
       - REST_ACCESS_ADMIN_EMAILS=${REST_ACCESS_ADMIN_EMAILS:-}
       - REST_ACCESS_VIP_EMAILS=${REST_ACCESS_VIP_EMAILS:-}
       - REST_ACCESS_REGULAR_EMAILS=${REST_ACCESS_REGULAR_EMAILS:-}
-      # Activate profiles from .env (e.g. SPRING_PROFILES_ACTIVE=local)
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-local}
       # Additional config (application-local.yml mounted below)
       - SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/app/config/application-local.yml
     volumes:

@@ -25,20 +25,15 @@ npx @ngirchev/open-daimon
 ```
 
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Node.js 18+.
+The wizard configures `.env`, selects optional services, and generates a ready-to-run `docker-compose.yml`.
 
-The wizard will:
-- Configure `.env` with your credentials
-- Let you choose AI provider (OpenRouter or Ollama)
-- For Ollama — check the connection and pull `gemma3:1b` automatically
-- Generate ready-to-run `docker-compose.yml` and `application-local.yml`
-- Offer to start the stack immediately
-
-Before running the wizard, prepare:
+Before running the wizard:
 - [Create a Telegram bot](docs/setup-telegram.md) — get a token from @BotFather and your user ID from @userinfobot
-- [Get an OpenRouter API key](docs/setup-openrouter.md) — free models available; or skip if you plan to use Ollama locally
+- [Get an OpenRouter API key](docs/setup-openrouter.md) — or skip if you plan to use Ollama locally
 
-After the wizard completes, check that the app started:
+After the wizard completes:
 ```bash
+docker compose up -d
 docker compose logs -f opendaimon-app
 ```
 
