@@ -94,7 +94,7 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
             Set<ModelCapabilities> modelCapabilities = addVisionIfNeeded(baseModelCapabilities, attachments);
 
             // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
-            String systemRole = resolveLanguagePlaceholder(metadata.get(ROLE_FIELD), metadata.get(LANGUAGE_CODE_FIELD));
+            String systemRole = metadata.get(ROLE_FIELD);
             String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
             if (StringUtils.hasText(fixedModelId)) {
                 Set<ModelCapabilities> fixedModelCapabilities;
@@ -141,20 +141,6 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
         } else {
             throw new IllegalArgumentException("Supported type is IChatCommand");
         }
-    }
-
-    /**
-     * Replaces {language_code} placeholder in role content with the human-readable language name.
-     * E.g. "ru" → "Russian", "en" → "English".
-     */
-    static String resolveLanguagePlaceholder(String role, String langCode) {
-        if (role == null || !role.contains("{language_code}")) return role;
-        String language = switch (langCode != null ? langCode.toLowerCase() : "") {
-            case "ru" -> "Russian";
-            case "en" -> "English";
-            default -> langCode != null ? langCode : "English";
-        };
-        return role.replace("{language_code}", language);
     }
 
     /**
