@@ -221,7 +221,7 @@ open-daimon:
             allowed-roles:
               - ADMIN
               - VIP
-          - name: "qwen3.5"
+          - name: "qwen3.5:4b"
             capabilities:
               - CHAT
               - TOOL_CALLING

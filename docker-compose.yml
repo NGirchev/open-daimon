@@ -4,12 +4,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - .env
     container_name: open-daimon-app
     ports:
       - "8080:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      # Logstash
+      - LOGSTASH_HOST=logstash
       # Telegram
       - TELEGRAM_USERNAME=${TELEGRAM_USERNAME}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
@@ -24,6 +28,8 @@ services:
       - SERP_API_KEY=${SERP_API_KEY:-}
       # Database (use service name from docker-compose)
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-opendaimon}
+      # MinIO (use service name from docker-compose)
+      - MINIO_ENDPOINT=http://minio:9000
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     depends_on:
@@ -133,6 +139,34 @@ services:
     restart: unless-stopped
     networks:
       - open-daimon-network
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.12.0
+    container_name: open-daimon-logstash
+    ports:
+      - "5044:5044"
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+  # filebeat:
+  #   image: docker.elastic.co/beats/filebeat:8.12.0
+  #   container_name: open-daimon-filebeat
+  #   user: root
+  #   volumes:
+  #     - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+  #     - /var/lib/docker/containers:/var/lib/docker/containers:ro
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #   depends_on:
+  #     - elasticsearch
+  #     - kibana
+  #   restart: unless-stopped
+  #   networks:
+  #     - open-daimon-network
 
 #  metricbeat:
 #    image: docker.elastic.co/beats/metricbeat:8.12.0

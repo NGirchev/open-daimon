@@ -119,7 +119,7 @@ The project uses a **modular architecture**: each module can be built independen
 - **Resilience4j** for bulkhead pattern (request prioritization)
 - **Caffeine** for caching
 - **Micrometer + Prometheus + Grafana** for metrics
-- **Elasticsearch + Kibana + Metricbeat** for logging
+- **Elasticsearch + Kibana + Logstash** for logging
 - **Testcontainers** for integration tests
 - **Lombok** to reduce boilerplate
 

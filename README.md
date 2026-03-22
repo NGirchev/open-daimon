@@ -267,6 +267,22 @@ Use the assembled application module (includes Telegram, REST, UI, Spring AI, ga
 
 ## Quick start
 
+### Docker (fastest)
+
+Pull and run the latest published image — no build needed:
+
+```bash
+# Pull the image
+docker pull ghcr.io/ngirchev/open-daimon:latest
+
+# Run with your environment variables
+docker run -p 8080:8080 --env-file .env ghcr.io/ngirchev/open-daimon:latest
+```
+
+Specific version: `docker pull ghcr.io/ngirchev/open-daimon:1.2.3`
+
+> **Note:** The app requires PostgreSQL, MinIO, and other services. Use `docker-compose.yml` for a full local setup (see below).
+
 ### Running the app (no Java experience)
 
 If you are new to Java, follow these steps. You will need a **terminal** (command line): on Windows use PowerShell or Command Prompt; on macOS/Linux use Terminal.
@@ -483,14 +499,34 @@ Uses **Testcontainers** for PostgreSQL:
 - **Prometheus**: http://localhost:9090/query
 - **Grafana**: http://localhost:3000/ (admin/admin123456)
 - **Kibana**: http://localhost:5601/
+- **Elasticsearch**: http://localhost:9200/
 
-### Logging
-- **Root level**: INFO
-- **Flyway**: DEBUG
-- **Spring JDBC**: INFO
-- **Bulkhead**: INFO
+### Logging (Elasticsearch + Kibana)
 
-Logs are sent to Elasticsearch via Metricbeat.
+Logs are sent to **Elasticsearch** via **Logstash** (TCP on port 5044). Index pattern: `opendaimon-logs-*`.
+
+To view logs in Kibana:
+
+1. Open **Kibana** (http://localhost:5601)
+2. **Stack Management** → **Data Views** → **Create data view**
+3. Configure:
+   - **Name**: `opendaimon-logs`
+   - **Index pattern**: `opendaimon-logs-*`
+   - **Timestamp field**: `@timestamp`
+4. **Save**, then go to **Observability** → **Logs**
+
+Query logs via Dev Tools:
+```
+GET opendaimon-logs-*/_search?size=10
+```
+
+Check log count:
+```bash
+curl "http://localhost:9200/opendaimon-logs-*/_count"
+```
+
+### Metrics
+Metrics are sent to **Prometheus** and visualized in **Grafana**. See [Monitoring and debugging](#monitoring-and-debugging) section above.
 
 ## Troubleshooting
 
@@ -540,6 +576,11 @@ File -> Invalidate Caches / Restart
 - Check Prometheus: http://localhost:9090/targets
 - Ensure the app exports metrics: http://localhost:8080/actuator/prometheus
 - Restart Grafana: `docker-compose restart grafana`
+
+### Logs not appearing in Kibana
+- Verify Elasticsearch has logs: `curl "http://localhost:9200/opendaimon-logs-*/_count"`
+- Create a **Data View** in Kibana (see [Kibana Setup for Logs](#logging-elasticsearch--kibana))
+- Check Logstash is running: `docker compose logs logstash`
 
 ## Documentation
 

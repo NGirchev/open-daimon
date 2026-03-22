@@ -1,21 +1,23 @@
-package io.github.ngirchev.opendaimon.telegram.repository;
+package io.github.ngirchev.opendaimon.it.rest.repository;
 
+import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
+import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.rest.config.RestFlywayConfig;
+import io.github.ngirchev.opendaimon.rest.config.RestJpaConfig;
+import io.github.ngirchev.opendaimon.rest.model.RestUser;
+import io.github.ngirchev.opendaimon.rest.repository.RestUserRepository;
+import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
-import jakarta.persistence.EntityManager;
-import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
-import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
-import io.github.ngirchev.opendaimon.common.model.ConversationThread;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
-import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
-import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
-import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -30,17 +32,20 @@ import static org.junit.jupiter.api.Assertions.*;
 @Import({
         TestDatabaseConfiguration.class,
         CoreJpaConfig.class,
-        TelegramJpaConfig.class,
+        RestJpaConfig.class,
         CoreFlywayConfig.class,
-        TelegramFlywayConfig.class
+        RestFlywayConfig.class
 })
-class TelegramConversationThreadRepositoryIT {
+@TestPropertySource(properties = {
+        "open-daimon.rest.enabled=true"
+})
+class RestConversationThreadRepositoryIT {
 
     @Autowired
     private ConversationThreadRepository threadRepository;
 
     @Autowired
-    private TelegramUserRepository telegramUserRepository;
+    private RestUserRepository restUserRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -49,8 +54,8 @@ class TelegramConversationThreadRepositoryIT {
     @Transactional
     void whenFindByThreadKey_thenReturnThread() {
         // Arrange
-        TelegramUser user = createTestUser();
-        telegramUserRepository.save(user);
+        RestUser user = createTestUser();
+        restUserRepository.save(user);
 
         ConversationThread thread = new ConversationThread();
         thread.setUser(user);
@@ -84,8 +89,8 @@ class TelegramConversationThreadRepositoryIT {
     @Transactional
     void whenFindByUserAndIsActiveTrueOrderByLastActivityAtDesc_thenReturnActiveThreads() {
         // Arrange
-        TelegramUser user = createTestUser();
-        telegramUserRepository.save(user);
+        RestUser user = createTestUser();
+        restUserRepository.save(user);
         entityManager.flush();
         entityManager.clear();
 
@@ -130,8 +135,8 @@ class TelegramConversationThreadRepositoryIT {
     @Transactional
     void whenFindByUserAndIsActiveTrueAndLastActivityAtBefore_thenReturnOldThreads() {
         // Arrange
-        TelegramUser user = createTestUser();
-        telegramUserRepository.save(user);
+        RestUser user = createTestUser();
+        restUserRepository.save(user);
         entityManager.flush();
         entityManager.clear();
 
@@ -170,8 +175,8 @@ class TelegramConversationThreadRepositoryIT {
     @Transactional
     void whenFindMostRecentActiveThread_thenReturnMostRecent() {
         // Arrange
-        TelegramUser user = createTestUser();
-        telegramUserRepository.save(user);
+        RestUser user = createTestUser();
+        restUserRepository.save(user);
         entityManager.flush();
         entityManager.clear();
 
@@ -230,8 +235,8 @@ class TelegramConversationThreadRepositoryIT {
     @Transactional
     void whenFindMostRecentActiveThread_andNoActiveThreads_thenReturnEmpty() {
         // Arrange
-        TelegramUser user = createTestUser();
-        telegramUserRepository.save(user);
+        RestUser user = createTestUser();
+        restUserRepository.save(user);
 
         ConversationThread thread1 = createThread(user, "thread-1", false, OffsetDateTime.now());
         ConversationThread thread2 = createThread(user, "thread-2", false, OffsetDateTime.now());
@@ -248,8 +253,8 @@ class TelegramConversationThreadRepositoryIT {
     @Transactional
     void whenSaveThread_thenThreadIsSaved() {
         // Arrange
-        TelegramUser user = createTestUser();
-        telegramUserRepository.save(user);
+        RestUser user = createTestUser();
+        restUserRepository.save(user);
 
         ConversationThread thread = new ConversationThread();
         thread.setUser(user);
@@ -272,9 +277,9 @@ class TelegramConversationThreadRepositoryIT {
     }
 
     // Helper methods
-    private TelegramUser createTestUser() {
-        TelegramUser user = new TelegramUser();
-        user.setTelegramId(123L);
+    private RestUser createTestUser() {
+        RestUser user = new RestUser();
+        user.setEmail("test@example.com");
         user.setUsername("testuser");
         user.setFirstName("Test");
         user.setLastName("User");
@@ -287,7 +292,7 @@ class TelegramConversationThreadRepositoryIT {
         return user;
     }
 
-    private ConversationThread createThread(TelegramUser user, String threadKey, boolean isActive, OffsetDateTime lastActivity) {
+    private ConversationThread createThread(RestUser user, String threadKey, boolean isActive, OffsetDateTime lastActivity) {
         ConversationThread thread = new ConversationThread();
         thread.setUser(user);
         thread.setThreadKey(threadKey);

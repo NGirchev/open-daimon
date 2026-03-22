@@ -239,9 +239,53 @@ curl http://localhost:8080/actuator/prometheus
 - Password: `admin123456`
 - Add Prometheus as data source: `http://prometheus:9090`
 
-### Kibana
-- URL: `http://your-server-ip:5601`
-- Configure index pattern for logs
+### Kibana & Logstash (log collection)
+
+Logstash collects logs from the application and ships them to Elasticsearch. It starts as part of `docker-compose up -d`.
+
+**Configuration file**: [`logstash.conf`](logstash.conf)
+
+#### Verifying Logstash is running
+
+```bash
+# Check Logstash logs
+docker-compose logs -f logstash
+
+# Expected output:
+# logstash | Pipeline started {"pipeline.id"=>"main"}
+```
+
+#### Viewing logs in Kibana
+
+1. Open Kibana: `http://your-server-ip:5601`
+2. Go to **Management → Stack Management → Data Views**
+3. Click **Create data view**
+4. Set **Name**: `opendaimon-logs`, **Index pattern**: `opendaimon-logs-*`, **Timestamp field**: `@timestamp`
+5. Click **Save data view to Kibana**
+6. Go to **Observability → Logs** — you will see application logs
+
+#### Filtering logs
+
+Use the created Data View to search and filter logs. Check log count:
+```bash
+curl "http://localhost:9200/opendaimon-logs-*/_count"
+```
+
+#### Troubleshooting
+
+```bash
+# Logstash fails to connect to Elasticsearch
+docker-compose logs logstash | grep -i error
+
+# Check Elasticsearch is healthy
+curl http://localhost:9200/_cluster/health
+
+# Check if logs are reaching Elasticsearch
+curl "http://localhost:9200/opendaimon-logs-*/_count"
+
+# Restart Logstash
+docker-compose restart logstash
+```
 
 ## Step 8: Updating the application
 

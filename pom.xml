@@ -77,11 +77,11 @@
 
         <maven-plugin.version>3.11.0</maven-plugin.version>
 
-        <spring-boot.version>3.3.3</spring-boot.version>
+        <spring-boot.version>3.4.4</spring-boot.version>
         <spring-boot-maven-plugin.version>3.4.4</spring-boot-maven-plugin.version>
         <org.springframework.version>6.2.6</org.springframework.version>
-        <spring-thymeleaf.version>3.3.3</spring-thymeleaf.version>
-        <springdoc.version>2.5.0</springdoc.version>
+        <spring-thymeleaf.version>3.4.4</spring-thymeleaf.version>
+        <springdoc.version>2.8.6</springdoc.version>
         <javax.version>1.3.2</javax.version>
 
         <postgresql.version>42.7.3</postgresql.version>
@@ -99,6 +99,7 @@
         <caffeine.version>3.1.8</caffeine.version>
         <minio.version>8.5.7</minio.version>
 
+        <okhttp.version>4.12.0</okhttp.version>
         <mockito.version>5.10.0</mockito.version>
         <testcontainers.version>1.20.0</testcontainers.version>
         <h2.version>2.2.224</h2.version>
@@ -237,6 +238,12 @@
                 <groupId>com.h2database</groupId>
                 <artifactId>h2</artifactId>
                 <version>${h2.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okhttp3</groupId>
+                <artifactId>mockwebserver</artifactId>
+                <version>${okhttp.version}</version>
                 <scope>test</scope>
             </dependency>
         </dependencies>

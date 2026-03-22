@@ -1,22 +1,22 @@
-package io.github.ngirchev.opendaimon.rest.repository;
+package io.github.ngirchev.opendaimon.it.telegram.repository;
 
+import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
+import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
+import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
+import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
-import jakarta.persistence.EntityManager;
-import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
-import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
-import io.github.ngirchev.opendaimon.common.model.ConversationThread;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
-import io.github.ngirchev.opendaimon.rest.config.RestJpaConfig;
-import io.github.ngirchev.opendaimon.rest.config.RestFlywayConfig;
-import io.github.ngirchev.opendaimon.rest.model.RestUser;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -31,20 +31,17 @@ import static org.junit.jupiter.api.Assertions.*;
 @Import({
         TestDatabaseConfiguration.class,
         CoreJpaConfig.class,
-        RestJpaConfig.class,
+        TelegramJpaConfig.class,
         CoreFlywayConfig.class,
-        RestFlywayConfig.class
+        TelegramFlywayConfig.class
 })
-@TestPropertySource(properties = {
-        "open-daimon.rest.enabled=true"
-})
-class RestConversationThreadRepositoryIT {
+class TelegramConversationThreadRepositoryIT {
 
     @Autowired
     private ConversationThreadRepository threadRepository;
 
     @Autowired
-    private RestUserRepository restUserRepository;
+    private TelegramUserRepository telegramUserRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -53,8 +50,8 @@ class RestConversationThreadRepositoryIT {
     @Transactional
     void whenFindByThreadKey_thenReturnThread() {
         // Arrange
-        RestUser user = createTestUser();
-        restUserRepository.save(user);
+        TelegramUser user = createTestUser();
+        telegramUserRepository.save(user);
 
         ConversationThread thread = new ConversationThread();
         thread.setUser(user);
@@ -88,8 +85,8 @@ class RestConversationThreadRepositoryIT {
     @Transactional
     void whenFindByUserAndIsActiveTrueOrderByLastActivityAtDesc_thenReturnActiveThreads() {
         // Arrange
-        RestUser user = createTestUser();
-        restUserRepository.save(user);
+        TelegramUser user = createTestUser();
+        telegramUserRepository.save(user);
         entityManager.flush();
         entityManager.clear();
 
@@ -97,13 +94,13 @@ class RestConversationThreadRepositoryIT {
         ConversationThread thread1 = createThread(user, "thread-1", true, OffsetDateTime.now().minusHours(2));
         ConversationThread thread2 = createThread(user, "thread-2", true, OffsetDateTime.now().minusHours(1));
         ConversationThread thread3 = createThread(user, "thread-3", false, OffsetDateTime.now()); // Inactive
-        
+
         // Save threads
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         threadRepository.save(thread3);
         entityManager.flush();
-        
+
         // Update lastActivityAt via SQL to bypass @PreUpdate
         OffsetDateTime time1 = OffsetDateTime.now().minusHours(2);
         OffsetDateTime time2 = OffsetDateTime.now().minusHours(1);
@@ -117,7 +114,7 @@ class RestConversationThreadRepositoryIT {
                 .setParameter("time", time2)
                 .setParameter("id", thread2.getId())
                 .executeUpdate();
-        
+
         entityManager.flush();
         entityManager.clear();
 
@@ -134,19 +131,19 @@ class RestConversationThreadRepositoryIT {
     @Transactional
     void whenFindByUserAndIsActiveTrueAndLastActivityAtBefore_thenReturnOldThreads() {
         // Arrange
-        RestUser user = createTestUser();
-        restUserRepository.save(user);
+        TelegramUser user = createTestUser();
+        telegramUserRepository.save(user);
         entityManager.flush();
         entityManager.clear();
 
         OffsetDateTime cutoff = OffsetDateTime.now().minusHours(1);
         ConversationThread thread1 = createThread(user, "thread-1", true, OffsetDateTime.now().minusHours(2)); // Older
         ConversationThread thread2 = createThread(user, "thread-2", true, OffsetDateTime.now().minusMinutes(30)); // Newer
-        
+
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         entityManager.flush();
-        
+
         // Update lastActivityAt via SQL to bypass @PreUpdate
         entityManager.createNativeQuery(
                 "UPDATE conversation_thread SET last_activity_at = :time WHERE id = :id")
@@ -158,7 +155,7 @@ class RestConversationThreadRepositoryIT {
                 .setParameter("time", OffsetDateTime.now().minusMinutes(30))
                 .setParameter("id", thread2.getId())
                 .executeUpdate();
-        
+
         entityManager.flush();
         entityManager.clear();
 
@@ -174,8 +171,8 @@ class RestConversationThreadRepositoryIT {
     @Transactional
     void whenFindMostRecentActiveThread_thenReturnMostRecent() {
         // Arrange
-        RestUser user = createTestUser();
-        restUserRepository.save(user);
+        TelegramUser user = createTestUser();
+        telegramUserRepository.save(user);
         entityManager.flush();
         entityManager.clear();
 
@@ -183,18 +180,18 @@ class RestConversationThreadRepositoryIT {
         ConversationThread thread1 = createThread(user, "thread-1", true, null);
         ConversationThread thread2 = createThread(user, "thread-2", true, null);
         ConversationThread thread3 = createThread(user, "thread-3", false, null); // Inactive
-        
+
         // Save all threads
         thread1 = threadRepository.save(thread1);
         thread2 = threadRepository.save(thread2);
         threadRepository.save(thread3);
         entityManager.flush();
-        
+
         // Detach entities so Hibernate does not overwrite changes
         entityManager.detach(thread1);
         entityManager.detach(thread2);
         entityManager.detach(thread3);
-        
+
         // Update lastActivityAt via SQL with different times
         OffsetDateTime time1 = OffsetDateTime.now().minusHours(2);
         OffsetDateTime time2 = OffsetDateTime.now().minusHours(1);
@@ -208,15 +205,15 @@ class RestConversationThreadRepositoryIT {
                 .setParameter("time", time2)
                 .setParameter("id", thread2.getId())
                 .executeUpdate();
-        
+
         entityManager.flush();
         entityManager.clear();
 
         // Verify data saved correctly via list
         List<ConversationThread> allActive = threadRepository.findByUserAndIsActiveTrueOrderByLastActivityAtDesc(user);
         assertEquals(2, allActive.size(), "Must have 2 active threads");
-        assertEquals("thread-2", allActive.get(0).getThreadKey(), "First in list must be thread-2");
-        
+        assertEquals("thread-2", allActive.getFirst().getThreadKey(), "First in list must be thread-2");
+
         // Verify findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc works
         Optional<ConversationThread> foundDirect = threadRepository.findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc(user);
         assertTrue(foundDirect.isPresent(), "findFirstBy must return a result");
@@ -234,8 +231,8 @@ class RestConversationThreadRepositoryIT {
     @Transactional
     void whenFindMostRecentActiveThread_andNoActiveThreads_thenReturnEmpty() {
         // Arrange
-        RestUser user = createTestUser();
-        restUserRepository.save(user);
+        TelegramUser user = createTestUser();
+        telegramUserRepository.save(user);
 
         ConversationThread thread1 = createThread(user, "thread-1", false, OffsetDateTime.now());
         ConversationThread thread2 = createThread(user, "thread-2", false, OffsetDateTime.now());
@@ -252,8 +249,8 @@ class RestConversationThreadRepositoryIT {
     @Transactional
     void whenSaveThread_thenThreadIsSaved() {
         // Arrange
-        RestUser user = createTestUser();
-        restUserRepository.save(user);
+        TelegramUser user = createTestUser();
+        telegramUserRepository.save(user);
 
         ConversationThread thread = new ConversationThread();
         thread.setUser(user);
@@ -276,9 +273,9 @@ class RestConversationThreadRepositoryIT {
     }
 
     // Helper methods
-    private RestUser createTestUser() {
-        RestUser user = new RestUser();
-        user.setEmail("test@example.com");
+    private TelegramUser createTestUser() {
+        TelegramUser user = new TelegramUser();
+        user.setTelegramId(123L);
         user.setUsername("testuser");
         user.setFirstName("Test");
         user.setLastName("User");
@@ -291,7 +288,7 @@ class RestConversationThreadRepositoryIT {
         return user;
     }
 
-    private ConversationThread createThread(RestUser user, String threadKey, boolean isActive, OffsetDateTime lastActivity) {
+    private ConversationThread createThread(TelegramUser user, String threadKey, boolean isActive, OffsetDateTime lastActivity) {
         ConversationThread thread = new ConversationThread();
         thread.setUser(user);
         thread.setThreadKey(threadKey);
