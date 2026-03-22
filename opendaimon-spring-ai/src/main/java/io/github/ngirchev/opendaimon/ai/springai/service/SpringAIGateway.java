@@ -108,7 +108,7 @@ public class SpringAIGateway implements AIGateway {
         try {
             if (command.options() instanceof OpenDaimonChatOptions chatOptions) {
                 List<Message> messages = createMessages(chatOptions.body());
-                log.info("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole() == null ? null : chatOptions.userRole().replaceAll("\\s+", " ").trim());
+                log.debug("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole() == null ? null : chatOptions.userRole().replaceAll("\\s+", " ").trim());
                 addSystemAndUserMessagesIfNeeded(messages, chatOptions, command);
                 return executeChatWithOptions(chatOptions, command, messages);
             } else {
@@ -362,7 +362,7 @@ public class SpringAIGateway implements AIGateway {
                 : command instanceof FixedModelChatAICommand fixed
                         ? fixed.attachments()
                         : List.of();
-        log.info("Gateway: addingUserMessage={}, attachmentsCount={}, commandType={}",
+        log.debug("Gateway: addingUserMessage={}, attachmentsCount={}, commandType={}",
                 !userAlreadyPresent, attachments != null ? attachments.size() : 0, command.getClass().getSimpleName());
         if (userAlreadyPresent) {
             return;
@@ -483,18 +483,17 @@ public class SpringAIGateway implements AIGateway {
                 : List.of();
         var documentProcessingService = documentProcessingServiceProvider.getIfAvailable();
         FileRAGService fileRagService = ragServiceProvider.getIfAvailable();
-        log.info("processRagIfEnabled: userQuery='{}', totalAttachments={}, documentAttachments={}, ragPropertiesNull={}, docServiceNull={}, ragServiceNull={}",
-                userQuery == null ? null : userQuery.replaceAll("\\s+", " ").trim(), totalAttachments, documentAttachments.size(), ragProperties == null, documentProcessingService == null, fileRagService == null);
-
         // Check feature flag
         if (ragProperties == null || !isRagEnabled()) {
             return userQuery;
         }
 
         if (documentAttachments.isEmpty()) {
-            log.info("processRagIfEnabled: skipped, no document attachments (Attachment.isDocument false for all?)");
+            log.debug("processRagIfEnabled: skipped, no document attachments");
             return userQuery;
         }
+
+        log.info("processRagIfEnabled: totalAttachments={}, documentAttachments={}", totalAttachments, documentAttachments.size());
 
         if (documentProcessingService == null || fileRagService == null) {
             log.warn("RAG is enabled but services are not available. Skipping RAG processing.");

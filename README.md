@@ -15,6 +15,37 @@
 [![Spring Boot 3.3.3](https://img.shields.io/badge/Spring%20Boot-3.3.3-6DB33F?logo=springboot)](https://spring.io/projects/spring-boot)
 [![License](https://img.shields.io/github/license/NGirchev/open-daimon)](https://github.com/NGirchev/open-daimon/blob/master/LICENSE)
 
+## Quick Setup
+
+**Option 1 — One command (recommended):**
+
+```bash
+mkdir my-bot && cd my-bot
+npx @ngirchev/open-daimon
+```
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Node.js 18+.
+
+The wizard will:
+- Configure `.env` with your credentials
+- Let you choose AI provider (OpenRouter or Ollama)
+- For Ollama — check the connection and pull `gemma3:1b` automatically
+- Generate ready-to-run `docker-compose.yml` and `application-local.yml`
+- Offer to start the stack immediately
+
+Before running the wizard, prepare:
+- [Create a Telegram bot](docs/setup-telegram.md) — get a token from @BotFather and your user ID from @userinfobot
+- [Get an OpenRouter API key](docs/setup-openrouter.md) — free models available; or skip if you plan to use Ollama locally
+
+After the wizard completes, check that the app started:
+```bash
+docker compose logs -f opendaimon-app
+```
+
+**Option 2 — Manual setup (after git clone):** See [Quick start](#quick-start) below.
+
+---
+
 **OpenDaimon** (formerly **ai-bot**) is a multi-module Java platform for building AI-powered chat agents and chatbots. It connects to various AI providers via **Spring AI** (OpenRouter, Ollama) and exposes them through Telegram, REST API, and Web UI. Use it as a library to assemble your own pipelines and integrations, or run the full app as a private, self-hosted chat assistant.
 
 ### Who it's for
@@ -48,6 +79,7 @@ Java/Spring teams building conversational AI or internal bots; developers who wa
 
 ## Table of contents
 
+- [Quick Setup](#quick-setup) — [npx wizard](#quick-setup)
 - [Who it's for](#who-its-for)
 - [Why OpenDaimon?](#why-opendaimon) — [For developers](#for-developers-and-teams), [For end users](#for-end-users-self-hosted), [Technical highlights](#technical-highlights)
 - [Features](#features)
@@ -318,11 +350,11 @@ docker-compose up -d postgres prometheus grafana
 - **If you have the source code** and want to build yourself: install [Maven](https://maven.apache.org/download.cgi) (build tool for Java). Then in the project folder run:
   ```bash
   mvn clean install
-  java -jar opendaimon-app/target/opendaimon-app-1.0-SNAPSHOT.jar
+  java -jar opendaimon-app/target/opendaimon-app-1.0.0-SNAPSHOT.jar
   ```
 - **If someone gave you a ready JAR file:** put the JAR in a folder, put your `.env` in the same folder (or set the same variables in the environment), then run:
   ```bash
-  java -jar opendaimon-app-1.0-SNAPSHOT.jar
+  java -jar opendaimon-app-1.0.0-SNAPSHOT.jar
   ```
 
 The app will start. You can open the Web UI or use the Telegram bot according to your configuration. For more options (e.g. run everything in Docker), see the sections below.
@@ -358,6 +390,11 @@ For local run without Docker Compose you can also `export` variables in the shel
 ### Run with Docker Compose (recommended)
 
 1. **Create `.env`** from [.env.example](.env.example) and set required values (see [Environment variables](#environment-variables) above).
+
+   Create `application-local.yml` for app overrides (optional but recommended):
+   ```bash
+   cp application-local.yml.example application-local.yml
+   ```
 
 2. **Build the project:**
    ```bash
@@ -414,10 +451,10 @@ mvn spring-boot:run -pl opendaimon-app
 After `mvn clean install` (or `mvn clean package -pl opendaimon-app -am`), run the executable JAR. Set environment variables or use a `.env` file in the current directory (see [Environment variables](#environment-variables)).
 
 ```bash
-java -jar opendaimon-app/target/opendaimon-app-1.0-SNAPSHOT.jar
+java -jar opendaimon-app/target/opendaimon-app-1.0.0-SNAPSHOT.jar
 ```
 
-JAR name follows the project version from the parent POM (e.g. `1.0-SNAPSHOT`). Use Java 21: `java -version`.
+JAR name follows the project version from the parent POM (e.g. `1.0.0-SNAPSHOT`). Use Java 21: `java -version`.
 
 ### DB migrations
 
@@ -584,6 +621,12 @@ File -> Invalidate Caches / Restart
 
 ## Documentation
 
+### Setup guides
+- **[docs/setup-telegram.md](docs/setup-telegram.md)** — Create a Telegram bot and get your user ID
+- **[docs/setup-openrouter.md](docs/setup-openrouter.md)** — Get an OpenRouter API key (free models available)
+- **[docs/setup-serper.md](docs/setup-serper.md)** — Enable web search (optional)
+
+### Project docs
 - **[AGENTS.md](AGENTS.md)** — Detailed documentation for AI agents (architecture, module structure, code style)
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — How to contribute (setup, code style, testing, PR requirements)
 - **[SECURITY.md](SECURITY.md)** — How to report security vulnerabilities

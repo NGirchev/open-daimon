@@ -1,0 +1,87 @@
+# application-local.yml — user-editable overrides for OpenDaimon.
+#
+# This file is mounted into the Docker container and applied on top of the
+# defaults in application.yml. Edit it to customize models, logging, and limits
+# without rebuilding the image. Restart the container to apply changes:
+#
+#   docker compose restart opendaimon-app
+#
+# Copy this file to application-local.yml and uncomment the sections you need:
+#
+#   cp application-local.yml.example application-local.yml
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── AI Model List ─────────────────────────────────────────────────────────────
+# Override the model list to use custom models.
+# provider-type: OPENAI (OpenRouter), OLLAMA
+# capabilities: AUTO, CHAT, TOOL_CALLING, WEB, SUMMARIZATION, EMBEDDING, VISION
+#
+# open-daimon:
+#   ai:
+#     spring-ai:
+#       openrouter-auto-rotation:
+#         models:
+#           enabled: false          # Set true to auto-rotate free OpenRouter models
+#       models:
+#         list:
+#           - name: "openrouter/auto"
+#             capabilities: [AUTO, CHAT, TOOL_CALLING, WEB, SUMMARIZATION, VISION]
+#             provider-type: OPENAI
+#             priority: 3
+#             allowed-roles: [ADMIN, VIP]
+#
+#           # Example Ollama model:
+#           - name: "qwen2.5:7b"
+#             capabilities: [AUTO, CHAT, TOOL_CALLING, SUMMARIZATION]
+#             provider-type: OLLAMA
+#             priority: 1
+#             max-reasoning-tokens: 0
+#             think: false
+#
+#           - name: "nomic-embed-text:v1.5"
+#             capabilities: [EMBEDDING]
+#             provider-type: OLLAMA
+#             priority: 1
+
+# ── Bulkhead Limits ───────────────────────────────────────────────────────────
+# Adjust concurrent request limits per user tier.
+#
+# open-daimon:
+#   common:
+#     bulkhead:
+#       instances:
+#         ADMIN:
+#           maxConcurrentCalls: 10
+#           maxWaitDuration: 1s
+#         VIP:
+#           maxConcurrentCalls: 5
+#           maxWaitDuration: 1s
+#         REGULAR:
+#           maxConcurrentCalls: 1
+#           maxWaitDuration: 500ms
+
+# ── Token Limits ──────────────────────────────────────────────────────────────
+#
+# open-daimon:
+#   ai:
+#     spring-ai:
+#       max-total-prompt-tokens: 32000
+#       max-user-message-tokens: 4000
+#       max-output-tokens: 4000
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+#
+# logging:
+#   level:
+#     io.github.ngirchev.opendaimon.ai.springai.rest: DEBUG
+#     io.github.ngirchev.opendaimon.telegram: DEBUG
+
+# ── Ollama Base URL ───────────────────────────────────────────────────────────
+# Only needed when using Ollama provider.
+# Inside Docker, use host.docker.internal to reach your machine.
+#
+# spring:
+#   ai:
+#     ollama:
+#       base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}

@@ -32,3 +32,12 @@
 /.claude/
 /scripts/ollama-check-vision.ps1
 /opendaimon.code-workspace
+
+# CLI wizard test artifacts
+/cli/.env
+/cli/application-local.yml
+/cli/application-local.yml.example
+/cli/docker-compose.yml
+/cli/prometheus.yml
+/cli/node_modules/
+/cli/*.tgz

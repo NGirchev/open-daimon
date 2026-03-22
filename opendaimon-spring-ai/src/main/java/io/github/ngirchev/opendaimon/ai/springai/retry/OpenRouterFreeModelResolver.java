@@ -466,18 +466,11 @@ public class OpenRouterFreeModelResolver {
     }
 
     private static boolean matchesWhitelist(String modelId, OpenRouterModelsProperties.Whitelist wl) {
-        boolean hasIncludeIds = wl.getIncludeModelIds() != null && !wl.getIncludeModelIds().isEmpty();
-        boolean hasIncludeContains = wl.getIncludeContains() != null && !wl.getIncludeContains().isEmpty();
-        if (!hasIncludeIds && !hasIncludeContains) {
+        List<String> includeIds = wl.getIncludeModelIds();
+        if (includeIds == null || includeIds.isEmpty()) {
             return true;
         }
-        if (hasIncludeIds && wl.getIncludeModelIds().contains(modelId)) {
-            return true;
-        }
-        if (hasIncludeContains && wl.getIncludeContains().stream().anyMatch(modelId::contains)) {
-            return true;
-        }
-        return false;
+        return includeIds.contains(modelId);
     }
 
     private ModelInfo extractModelInfo(JsonNode modelNode) {

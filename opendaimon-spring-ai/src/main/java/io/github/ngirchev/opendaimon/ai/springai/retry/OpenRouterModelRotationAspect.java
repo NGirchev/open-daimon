@@ -161,7 +161,7 @@ public class OpenRouterModelRotationAspect {
     private List<SpringAIModelConfig> resolveCandidates(SpringAIModelConfig modelConfig, AICommand command) {
         // Fixed model: user explicitly selected a model — no routing, no retry fallback
         if (command instanceof FixedModelChatAICommand) {
-            log.info("OpenRouter model rotation: fixed model selected={}, skipping rotation", modelConfig != null ? modelConfig.getName() : "null");
+            log.debug("OpenRouter model rotation: fixed model selected={}, skipping rotation", modelConfig != null ? modelConfig.getName() : "null");
             return modelConfig != null ? List.of(modelConfig) : List.of();
         }
         var capabilities = command.modelCapabilities();

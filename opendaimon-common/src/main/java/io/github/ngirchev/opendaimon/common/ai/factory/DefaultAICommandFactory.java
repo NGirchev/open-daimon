@@ -73,7 +73,7 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
             String attachmentTypes = attachments.stream().map(a -> a.type().toString()).toList().toString();
             UserPriority priority = Optional.ofNullable(userPriorityService.getUserPriority(command.userId()))
                     .orElse(UserPriority.REGULAR);
-            log.info("Creating ChatAICommand: userText='{}', attachmentsCount={}, attachmentTypes={}, priority={}",
+            log.debug("Creating ChatAICommand: userText='{}', attachmentsCount={}, attachmentTypes={}, priority={}",
                     chatCommand.userText(), attachments.size(), attachmentTypes, priority);
             metadata.put(AICommand.USER_PRIORITY_FIELD, priority.name());
             Map<String, Object> body = new HashMap<>();
@@ -84,7 +84,11 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
                         case VIP -> coreCommonProperties.getChatRouting().getVip();
                         default -> coreCommonProperties.getChatRouting().getRegular();
                     };
-            if (tier.getMaxPrice() != null) {
+            String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
+            // max_price is an OpenRouter routing hint — only meaningful for auto model selection.
+            // When the user explicitly picks a model, do not send max_price so OpenRouter doesn't
+            // reject a valid paid model because the tier cap is lower than its completion price.
+            if (tier.getMaxPrice() != null && !StringUtils.hasText(fixedModelId)) {
                 body.put(MAX_PRICE, tier.getMaxPrice());
             }
             Set<ModelCapabilities> optionalModelCapabilities = Set.copyOf(tier.getOptionalCapabilities());
@@ -92,16 +96,9 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
 
             // Add VISION dynamically if there are images
             Set<ModelCapabilities> modelCapabilities = addVisionIfNeeded(baseModelCapabilities, attachments);
-
-            String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
             String routingModelLabel = StringUtils.hasText(fixedModelId) ? fixedModelId : "(auto)";
-            log.info(
-                    "Chat routing: priority={}, preferredModelId={}, maxPrice={}, requiredCapabilities={}, optionalCapabilities={}",
-                    priority,
-                    routingModelLabel,
-                    body.get(MAX_PRICE),
-                    modelCapabilities,
-                    optionalModelCapabilities);
+            log.info("[{}] model={}, maxPrice={}, caps={}, attachments={}",
+                    priority, routingModelLabel, body.get(MAX_PRICE), modelCapabilities, attachments.size());
 
             // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
             String systemRole = metadata.get(ROLE_FIELD);

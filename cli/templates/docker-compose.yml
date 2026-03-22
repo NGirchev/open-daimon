@@ -1,0 +1,165 @@
+services:
+  # OpenDaimon application
+  opendaimon-app:
+    image: ghcr.io/ngirchev/open-daimon:latest
+    container_name: open-daimon-app
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Telegram
+      - TELEGRAM_USERNAME=${TELEGRAM_USERNAME}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      # Ollama on host (use host.docker.internal to reach host from container)
+      - SPRING_AI_OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Admin
+      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID:-}
+      - ADMIN_REST_EMAIL=${ADMIN_REST_EMAIL:-}
+      # AI Providers
+      - OPENROUTER_KEY=${OPENROUTER_KEY}
+      - SERPER_KEY=${SERPER_KEY:-}
+      - SERP_API_KEY=${SERP_API_KEY:-}
+      # Database (use service name from docker-compose)
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-opendaimon}
+      - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      # User Access
+      - TELEGRAM_ACCESS_ADMIN_IDS=${TELEGRAM_ACCESS_ADMIN_IDS:-}
+      - TELEGRAM_ACCESS_ADMIN_CHANNELS=${TELEGRAM_ACCESS_ADMIN_CHANNELS:-}
+      - TELEGRAM_ACCESS_VIP_IDS=${TELEGRAM_ACCESS_VIP_IDS:-}
+      - TELEGRAM_ACCESS_VIP_CHANNELS=${TELEGRAM_ACCESS_VIP_CHANNELS:-}
+      - TELEGRAM_ACCESS_REGULAR_IDS=${TELEGRAM_ACCESS_REGULAR_IDS:-}
+      - TELEGRAM_ACCESS_REGULAR_CHANNELS=${TELEGRAM_ACCESS_REGULAR_CHANNELS:-}
+      - REST_ACCESS_ADMIN_EMAILS=${REST_ACCESS_ADMIN_EMAILS:-}
+      - REST_ACCESS_VIP_EMAILS=${REST_ACCESS_VIP_EMAILS:-}
+      - REST_ACCESS_REGULAR_EMAILS=${REST_ACCESS_REGULAR_EMAILS:-}
+      # Activate profiles from .env (e.g. SPRING_PROFILES_ACTIVE=local)
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-local}
+      # Additional config (application-local.yml mounted below)
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/app/config/application-local.yml
+    volumes:
+      - ./application-local.yml:/app/config/application-local.yml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+  prometheus:
+    image: prom/prometheus:v3.7.1
+    profiles: ["monitoring"]
+    container_name: open-daimon-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    profiles: ["monitoring"]
+    container_name: open-daimon-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123456
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+  postgres:
+    image: postgres:17.0
+    container_name: open-daimon-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-opendaimon}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-opendaimon}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    profiles: ["logging"]
+    container_name: open-daimon-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0
+    profiles: ["logging"]
+    container_name: open-daimon-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["storage"]
+    container_name: open-daimon-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+volumes:
+  grafana-storage:
+  elasticsearch-data:
+  postgres-data:
+  prometheus-data:
+  minio-data:
+
+networks:
+  open-daimon-network:
+    driver: bridge

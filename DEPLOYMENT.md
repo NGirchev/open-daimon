@@ -58,7 +58,7 @@ cd open-daimon
 mvn clean package -DskipTests
 
 # Verify JAR was created
-ls -lh opendaimon-app/target/opendaimon-app-1.0-SNAPSHOT.jar
+ls -lh opendaimon-app/target/opendaimon-app-1.0.0-SNAPSHOT.jar
 ```
 
 ## Step 3: Check configuration files

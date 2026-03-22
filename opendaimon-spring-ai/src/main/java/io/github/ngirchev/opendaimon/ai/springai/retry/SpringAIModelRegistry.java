@@ -55,7 +55,9 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
     }
 
     /**
-     * Refreshes registry from OpenRouter: removes yml OPENAI models not in response; adds new free models from response.
+     * Refreshes registry from OpenRouter: removes stale yml OPENAI models; adds new models.
+     * Free models are added unless blocked by whitelist/blacklist.
+     * Paid models are added only if explicitly listed in a whitelist entry.
      */
     public void refreshOpenRouterModels() {
         if (openRouterClient == null || openRouterProperties == null
@@ -69,58 +71,60 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         if (fetched.isEmpty()) {
             return;
         }
-        Set<String> openRouterIds = fetched.stream().map(OpenRouterModelEntry::id).filter(StringUtils::hasText).collect(Collectors.toSet());
 
-        // Remove yml OPENAI models not present in OpenRouter response
-        List<String> removedYmlModels = new ArrayList<>();
-        for (String name : new ArrayList<>(modelsByName.keySet())) {
-            if (!ymlModelNames.contains(name)) {
+        Set<String> fetchedIds = fetched.stream()
+                .map(OpenRouterModelEntry::id)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        removeStaleYmlModels(fetchedIds);
+
+        long now = System.currentTimeMillis();
+        List<String> added = new ArrayList<>();
+        for (OpenRouterModelEntry entry : fetched) {
+            if (modelsByName.containsKey(entry.id())) continue;
+            if (isBlacklisted(entry.id())) continue;
+            if (!isAllowedByWhitelist(entry)) continue;
+            ModelStats stats = statsByModelId.get(entry.id());
+            if (stats != null && stats.cooldownUntilEpochMs > now) {
+                log.debug("OpenRouter model skipped (cooldown): model={}, remainingMs={}", entry.id(), stats.cooldownUntilEpochMs - now);
                 continue;
             }
+            SpringAIModelConfig config = getSpringAIModelConfig(entry, OpenRouterModelCapabilitiesMapper.fromOpenRouterModel(entry.node(), entry.free()));
+            modelsByName.put(entry.id(), config);
+            added.add(entry.id());
+        }
+
+        log.info("OpenRouter sync: {} model(s) added: {}", added.size(), added);
+        logRegistrySnapshot("after OpenRouter sync");
+    }
+
+    /**
+     * Free models pass when no whitelist is configured.
+     * Paid models require an explicit whitelist entry — never added by default.
+     */
+    private boolean isAllowedByWhitelist(OpenRouterModelEntry entry) {
+        List<OpenRouterModelsProperties.Whitelist> whitelists = openRouterProperties.getWhitelist();
+        boolean hasWhitelist = whitelists != null && !whitelists.isEmpty();
+        if (!hasWhitelist) {
+            return entry.free();
+        }
+        return whitelists.stream().anyMatch(wl -> matchesWhitelist(entry.id(), wl));
+    }
+
+    private void removeStaleYmlModels(Set<String> fetchedIds) {
+        List<String> removed = new ArrayList<>();
+        for (String name : new ArrayList<>(modelsByName.keySet())) {
+            if (!ymlModelNames.contains(name)) continue;
             SpringAIModelConfig config = modelsByName.get(name);
             if (config != null && config.getProviderType() == SpringAIModelConfig.ProviderType.OPENAI
-                    && !openRouterIds.contains(name)) {
+                    && !fetchedIds.contains(name)) {
                 modelsByName.remove(name);
-                removedYmlModels.add(name);
+                removed.add(name);
             }
         }
-        if (!removedYmlModels.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("yml models removed from registry (not found in OpenRouter API), count=").append(removedYmlModels.size()).append(":\n");
-            for (String name : removedYmlModels) {
-                sb.append("  - ").append(name).append("\n");
-            }
-            log.warn(sb.toString());
+        if (!removed.isEmpty()) {
+            log.warn("yml OPENAI models removed (not in OpenRouter API): {}", removed);
         }
-
-        // Free models from API and after filters
-        List<String> freeFromApi = fetched.stream().filter(OpenRouterModelEntry::free).map(OpenRouterModelEntry::id).toList();
-        List<String> freeFiltered = applyPropertyFilters(freeFromApi);
-        Set<String> keysBeforeAdd = new HashSet<>(modelsByName.keySet());
-
-        // Add free models from response that are not yet in registry
-        long now = System.currentTimeMillis();
-        for (OpenRouterModelEntry entry : fetched) {
-            if (!entry.free() || !freeFiltered.contains(entry.id())) {
-                continue;
-            }
-            if (modelsByName.containsKey(entry.id())) {
-                continue;
-            }
-            ModelStats existingStats = statsByModelId.get(entry.id());
-            if (existingStats != null && existingStats.cooldownUntilEpochMs > now) {
-                log.debug("OpenRouter free model skipped (cooldown active): model={}, cooldownRemainingMs={}",
-                        entry.id(), existingStats.cooldownUntilEpochMs - now);
-                continue;
-            }
-            Set<ModelCapabilities> caps = OpenRouterModelCapabilitiesMapper.fromOpenRouterModel(entry.node(), true);
-            SpringAIModelConfig config = getSpringAIModelConfig(entry, caps);
-            modelsByName.put(entry.id(), config);
-            log.debug("Added OpenRouter free model to registry: {}", entry.id());
-        }
-
-        logExcludedAndAlreadyPresent(freeFromApi, freeFiltered, keysBeforeAdd);
-        logRegistrySnapshot("after OpenRouter sync");
     }
 
     private SpringAIModelConfig getSpringAIModelConfig(OpenRouterModelEntry entry, Set<ModelCapabilities> caps) {
@@ -166,17 +170,18 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
      * A whitelist with no include rules matches everything.
      */
     private static boolean matchesWhitelist(String modelId, OpenRouterModelsProperties.Whitelist wl) {
-        boolean hasIncludeIds = wl.getIncludeModelIds() != null && !wl.getIncludeModelIds().isEmpty();
-        boolean hasIncludeContains = wl.getIncludeContains() != null && !wl.getIncludeContains().isEmpty();
-        if (!hasIncludeIds && !hasIncludeContains) {
+        List<String> includeIds = wl.getIncludeModelIds();
+        if (includeIds == null || includeIds.isEmpty()) {
             return true;
         }
-        if (hasIncludeIds && wl.getIncludeModelIds().contains(modelId)) {
-            return true;
-        }
-        if (hasIncludeContains && wl.getIncludeContains().stream().anyMatch(modelId::contains)) {
-            return true;
-        }
+        return includeIds.contains(modelId);
+    }
+
+    private boolean isBlacklisted(String modelId) {
+        OpenRouterModelsProperties.Blacklist blacklist = openRouterProperties.getBlacklist();
+        if (blacklist == null) return false;
+        if (blacklist.getExcludeModelIds() != null && blacklist.getExcludeModelIds().contains(modelId)) return true;
+        if (blacklist.getExcludeContains() != null && blacklist.getExcludeContains().stream().anyMatch(modelId::contains)) return true;
         return false;
     }
 
@@ -188,66 +193,6 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
             return url.substring(0, url.length() - "/v1".length());
         }
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
-    }
-
-    /**
-     * Logs: 1) free models from API excluded from final registry (by filters) and reason;
-     * 2) free models already in registry (yml or previous sync) and not re-added.
-     */
-    private void logExcludedAndAlreadyPresent(List<String> freeFromApi, List<String> freeFiltered, Set<String> keysBeforeAdd) {
-        if (!log.isInfoEnabled()) {
-            return;
-        }
-        Set<String> filteredSet = new HashSet<>(freeFiltered);
-        Set<String> fromApiSet = new HashSet<>(freeFromApi);
-
-        // Excluded by filters (were in API free but filtered out)
-        List<String> excludedByFilters = fromApiSet.stream().filter(id -> !filteredSet.contains(id)).sorted().toList();
-        if (!excludedByFilters.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("OpenRouter free models NOT in final registry (excluded by filters), count=").append(excludedByFilters.size()).append(":\n");
-            for (String id : excludedByFilters) {
-                String reason = explainExcludedByFilter(id);
-                sb.append("  - ").append(id).append(" | reason: ").append(reason).append("\n");
-            }
-            log.info(sb.toString());
-        }
-
-        // In freeFiltered but already in registry (not added again)
-        List<String> alreadyPresent = freeFiltered.stream().filter(keysBeforeAdd::contains).sorted().toList();
-        if (!alreadyPresent.isEmpty()) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("OpenRouter free models already in registry (from yml or previous sync), not added again, count=").append(alreadyPresent.size()).append(":\n");
-            for (String id : alreadyPresent) {
-                sb.append("  - ").append(id).append("\n");
-            }
-            log.info(sb.toString());
-        }
-    }
-
-    /**
-     * Explains why model was excluded by filters (which filter excluded it).
-     */
-    private String explainExcludedByFilter(String modelId) {
-        OpenRouterModelsProperties.Blacklist blacklist = openRouterProperties.getBlacklist();
-        if (blacklist != null) {
-            if (blacklist.getExcludeModelIds() != null && blacklist.getExcludeModelIds().contains(modelId)) {
-                return "in blacklist.exclude-model-ids";
-            }
-            if (blacklist.getExcludeContains() != null && !blacklist.getExcludeContains().isEmpty()) {
-                if (blacklist.getExcludeContains().stream().anyMatch(modelId::contains)) {
-                    return "matches blacklist.exclude-contains";
-                }
-            }
-        }
-        List<OpenRouterModelsProperties.Whitelist> whitelists = openRouterProperties.getWhitelist();
-        if (whitelists != null && !whitelists.isEmpty()) {
-            boolean matchesAny = whitelists.stream().anyMatch(wl -> matchesWhitelist(modelId, wl));
-            if (!matchesAny) {
-                return "not matched by any whitelist entry";
-            }
-        }
-        return "filter step removed it (check filter order)";
     }
 
     /**
@@ -277,37 +222,6 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
                     .append("\n");
         }
         log.info(sb.toString());
-    }
-
-    private List<String> applyPropertyFilters(List<String> modelIds) {
-        if (modelIds == null || modelIds.isEmpty()) {
-            return modelIds;
-        }
-        List<String> result = new ArrayList<>(modelIds);
-
-        // 1. Apply blacklist first
-        OpenRouterModelsProperties.Blacklist blacklist = openRouterProperties.getBlacklist();
-        if (blacklist != null) {
-            if (blacklist.getExcludeModelIds() != null && !blacklist.getExcludeModelIds().isEmpty()) {
-                Set<String> deny = new HashSet<>(blacklist.getExcludeModelIds());
-                result = result.stream().filter(id -> !deny.contains(id)).toList();
-            }
-            if (blacklist.getExcludeContains() != null && !blacklist.getExcludeContains().isEmpty()) {
-                result = result.stream()
-                        .filter(id -> blacklist.getExcludeContains().stream().noneMatch(id::contains))
-                        .toList();
-            }
-        }
-
-        // 2. Apply whitelist: keep only models matched by at least one whitelist entry
-        List<OpenRouterModelsProperties.Whitelist> whitelists = openRouterProperties.getWhitelist();
-        if (whitelists != null && !whitelists.isEmpty()) {
-            result = result.stream()
-                    .filter(id -> whitelists.stream().anyMatch(wl -> matchesWhitelist(id, wl)))
-                    .toList();
-        }
-
-        return result;
     }
 
     /**

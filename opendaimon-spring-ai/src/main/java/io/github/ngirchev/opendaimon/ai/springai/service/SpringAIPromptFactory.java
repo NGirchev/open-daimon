@@ -78,9 +78,9 @@ public class SpringAIPromptFactory {
     private void addWebToolsIfEnabled(ChatClient.ChatClientRequestSpec promptBuilder, boolean webEnabled) {
         if (webEnabled) {
             promptBuilder.tools(webTools);
-            log.info("Web tools added to prompt (web_search, fetch_url). Model may invoke them.");
+            log.debug("Web tools added to prompt (web_search, fetch_url). Model may invoke them.");
         } else {
-            log.info("Web tools NOT added to prompt (webEnabled=false). Serper/fetch_url are only registered when the AI command requests WEB in required or optional capabilities.");
+            log.debug("Web tools NOT added to prompt (webEnabled=false). Serper/fetch_url are only registered when the AI command requests WEB in required or optional capabilities.");
         }
     }
 
@@ -151,6 +151,9 @@ public class SpringAIPromptFactory {
             }
             if (!extraBody.isEmpty()) {
                 optionsBuilder.extraBody(extraBody);
+                log.debug("OpenRouter request: model={}, extraBody={}", modelName, extraBody);
+            } else {
+                log.debug("OpenRouter request: model={}, extraBody=(none)", modelName);
             }
 
             return optionsBuilder.build();

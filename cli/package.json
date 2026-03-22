@@ -1,0 +1,34 @@
+{
+  "name": "@ngirchev/open-daimon",
+  "version": "1.0.0",
+  "description": "OpenDaimon AI Telegram bot — interactive setup wizard",
+  "type": "module",
+  "bin": {
+    "open-daimon": "./bin/setup.js"
+  },
+  "files": [
+    "bin/",
+    "templates/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "ai",
+    "spring-boot",
+    "openrouter",
+    "ollama"
+  ],
+  "author": "ngirchev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NGirchev/open-daimon"
+  },
+  "homepage": "https://github.com/NGirchev/open-daimon#readme"
+}
