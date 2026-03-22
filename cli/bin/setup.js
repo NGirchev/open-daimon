@@ -311,6 +311,8 @@ async function main() {
   console.log('  3. Watch logs:');
   console.log('       docker compose logs -f opendaimon-app');
   console.log('');
+  console.log('  ── URLs ──────────────────────────────────────');
+  console.log('  App:        http://localhost:8080');
   console.log('  Swagger UI: http://localhost:8080/swagger-ui/index.html');
   if (services.includes('monitoring')) {
     console.log('  Grafana:    http://localhost:3000  (admin / admin123456)');
