@@ -93,9 +93,18 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
             // Add VISION dynamically if there are images
             Set<ModelCapabilities> modelCapabilities = addVisionIfNeeded(baseModelCapabilities, attachments);
 
+            String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
+            String routingModelLabel = StringUtils.hasText(fixedModelId) ? fixedModelId : "(auto)";
+            log.info(
+                    "Chat routing: priority={}, preferredModelId={}, maxPrice={}, requiredCapabilities={}, optionalCapabilities={}",
+                    priority,
+                    routingModelLabel,
+                    body.get(MAX_PRICE),
+                    modelCapabilities,
+                    optionalModelCapabilities);
+
             // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
             String systemRole = resolveLanguagePlaceholder(metadata.get(ROLE_FIELD), metadata.get(LANGUAGE_CODE_FIELD));
-            String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
             if (StringUtils.hasText(fixedModelId)) {
                 Set<ModelCapabilities> fixedModelCapabilities;
                 if (modelDescriptionCache != null) {
