@@ -26,7 +26,6 @@
 .DS_Store
 **/.DS_Store
 /.env
-/application-local.yml
 /.cursor/mcp.json
 /target/
 /.claude/worktrees/flamboyant-heyrovsky/
