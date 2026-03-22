@@ -84,7 +84,11 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
                         case VIP -> coreCommonProperties.getChatRouting().getVip();
                         default -> coreCommonProperties.getChatRouting().getRegular();
                     };
-            if (tier.getMaxPrice() != null) {
+            String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
+            // max_price is an OpenRouter routing hint — only meaningful for auto model selection.
+            // When the user explicitly picks a model, do not send max_price so OpenRouter doesn't
+            // reject a valid paid model because the tier cap is lower than its completion price.
+            if (tier.getMaxPrice() != null && !StringUtils.hasText(fixedModelId)) {
                 body.put(MAX_PRICE, tier.getMaxPrice());
             }
             Set<ModelCapabilities> optionalModelCapabilities = Set.copyOf(tier.getOptionalCapabilities());
@@ -92,8 +96,6 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
 
             // Add VISION dynamically if there are images
             Set<ModelCapabilities> modelCapabilities = addVisionIfNeeded(baseModelCapabilities, attachments);
-
-            String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
             String routingModelLabel = StringUtils.hasText(fixedModelId) ? fixedModelId : "(auto)";
             log.info(
                     "Chat routing: priority={}, preferredModelId={}, maxPrice={}, requiredCapabilities={}, optionalCapabilities={}",
