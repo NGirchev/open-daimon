@@ -1,4 +1,15 @@
-# OpenDaimon
+# 😈 OpenDaimon — Personal AI Assistant
+
+<table>
+  <tr>
+    <td><img src="img.jpg" alt="OpenDaimon Logo" width="100"></td>
+    <td>
+      <svg height="60" xmlns="http://www.w3.org/2000/svg">
+        <text x="0" y="45" font-size="48" font-weight="bold" fill="#A78EEF">OpenDaimon</text>
+      </svg>
+    </td>
+  </tr>
+</table>
 
 [![Build Status](https://github.com/NGirchev/open-daimon/actions/workflows/maven.yml/badge.svg)](https://github.com/NGirchev/open-daimon/actions)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.ngirchev/opendaimon)](https://central.sonatype.com/namespace/io.github.ngirchev)
@@ -27,6 +38,7 @@ npx @ngirchev/open-daimon
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Node.js 18+.
 
 The wizard will:
+
 - Configure `.env` with your credentials
 - Let you choose AI provider (OpenRouter or Ollama)
 - For Ollama — check the connection and pull `gemma3:1b` automatically
@@ -34,10 +46,13 @@ The wizard will:
 - Offer to start the stack immediately
 
 Before running the wizard, prepare:
+
 - [Create a Telegram bot](docs/setup-telegram.md) — get a token from @BotFather and your user ID from @userinfobot
-- [Get an OpenRouter API key](docs/setup-openrouter.md) — free models available; or skip if you plan to use Ollama locally
+- [Get an OpenRouter API key](docs/setup-openrouter.md) — free models available; or skip if you plan to use Ollama
+  locally
 
 After the wizard completes, check that the app started:
+
 ```bash
 docker compose logs -f opendaimon-app
 ```
@@ -46,36 +61,56 @@ docker compose logs -f opendaimon-app
 
 ---
 
-**OpenDaimon** (formerly **ai-bot**) is a multi-module Java platform for building AI-powered chat agents and chatbots. It connects to various AI providers via **Spring AI** (OpenRouter, Ollama) and exposes them through Telegram, REST API, and Web UI. Use it as a library to assemble your own pipelines and integrations, or run the full app as a private, self-hosted chat assistant.
+**OpenDaimon** (formerly **ai-bot**) is a multi-module Java platform for building AI-powered chat agents and chatbots.
+It connects to various AI providers via **Spring AI** (OpenRouter, Ollama) and exposes them through Telegram, REST API,
+and Web UI. Use it as a library to assemble your own pipelines and integrations, or run the full app as a private,
+self-hosted chat assistant.
 
 ### Who it's for
 
-Java/Spring teams building conversational AI or internal bots; developers who want one backend with Telegram, REST, and Web UI; users who prefer to run a chat agent on their own infrastructure with local or OpenRouter models and no external subscriptions; anyone who needs trusted group access (e.g. family or team) without per-user signups elsewhere.
+Java/Spring teams building conversational AI or internal bots; developers who want one backend with Telegram, REST, and
+Web UI; users who prefer to run a chat agent on their own infrastructure with local or OpenRouter models and no external
+subscriptions; anyone who needs trusted group access (e.g. family or team) without per-user signups elsewhere.
 
 ## Why OpenDaimon?
 
 ### For developers and teams
 
-- **Spring AI as a library** — Integrate conversational AI into your apps with agent-style capabilities; plug in only the modules you need (Telegram, REST, UI, Spring AI).
-- **Easy to customize for business** — Configure the chat agent (prompts, roles, memory, RAG) via properties and optional extensions; no need to fork the whole project.
-- **Resilience and prioritization** — Built-in bulkhead (Resilience4j) and **two user tiers**: VIP and regular (plus admin), with configurable concurrency and wait limits.
-- **Custom dialog summarization** — Long conversations are summarized automatically; context window and triggers are configurable.
-- **Open, modular architecture** — Spring Boot auto-configurations let you enable/disable features and replace components without touching core code.
-- **Ready-made interfaces** — Telegram bot, REST API, and Web UI out of the box; **two UI languages** supported; **default and custom system roles** for the assistant.
-- **Foundation for pipelines** — Solid base for building pipelines and integrations with various systems and AI providers for chatbots and automation.
+- **Spring AI as a library** — Integrate conversational AI into your apps with agent-style capabilities; plug in only
+  the modules you need (Telegram, REST, UI, Spring AI).
+- **Easy to customize for business** — Configure the chat agent (prompts, roles, memory, RAG) via properties and
+  optional extensions; no need to fork the whole project.
+- **Resilience and prioritization** — Built-in bulkhead (Resilience4j) and **two user tiers**: VIP and regular (plus
+  admin), with configurable concurrency and wait limits.
+- **Custom dialog summarization** — Long conversations are summarized automatically; context window and triggers are
+  configurable.
+- **Open, modular architecture** — Spring Boot auto-configurations let you enable/disable features and replace
+  components without touching core code.
+- **Ready-made interfaces** — Telegram bot, REST API, and Web UI out of the box; **two UI languages** supported; *
+  *default and custom system roles** for the assistant.
+- **Foundation for pipelines** — Solid base for building pipelines and integrations with various systems and AI
+  providers for chatbots and automation.
 
 ### For end users (self-hosted)
 
-- **Your data stays with you** — Run the agent on **your own machine** or server. Use **OpenRouter** or **Ollama** (local models); all conversations are stored **locally** in your database. No need to send private data to third-party APIs or pay for external chat subscriptions.
-- **Trusted Telegram groups** — Add **Telegram groups** (e.g. family, friends) as trusted; members get access without signing up on other services and without dealing with per-user limits on external platforms.
+- **Your data stays with you** — Run the agent on **your own machine** or server. Use **OpenRouter** or **Ollama** (
+  local models); all conversations are stored **locally** in your database. No need to send private data to third-party
+  APIs or pay for external chat subscriptions.
+- **Trusted Telegram groups** — Add **Telegram groups** (e.g. family, friends) as trusted; members get access without
+  signing up on other services and without dealing with per-user limits on external platforms.
 
 ### Technical highlights
 
 - **Streaming** — SSE for REST and Web UI; Telegram receives replies as they are generated (chunk-by-chunk).
-- **OpenRouter intelligence** — Automatic retry with model switch on rate limits (429) or errors; capability-based model selection (chat, tool calling, web, vision); optional **free-model rotation** with scheduled registry refresh so VIP/regular users can use free OpenRouter models without manual switching.
-- **Multimodal** — Images from Telegram (or REST) stored in MinIO and sent to vision-capable models; optional **RAG** pipeline for PDFs (chunking, embeddings, similarity search).
-- **Production-ready** — Published to **Maven Central**; CI (GitHub Actions), SonarCloud, Testcontainers, Flyway migrations, Docker Compose; API keys only in environment variables (no secrets in config files).
-- **Observability** — Micrometer, Prometheus, Grafana, optional Elasticsearch/Kibana; custom metrics for request timing, bulkhead usage, and OpenRouter stream retries.
+- **OpenRouter intelligence** — Automatic retry with model switch on rate limits (429) or errors; capability-based model
+  selection (chat, tool calling, web, vision); optional **free-model rotation** with scheduled registry refresh so
+  VIP/regular users can use free OpenRouter models without manual switching.
+- **Multimodal** — Images from Telegram (or REST) stored in MinIO and sent to vision-capable models; optional **RAG**
+  pipeline for PDFs (chunking, embeddings, similarity search).
+- **Production-ready** — Published to **Maven Central**; CI (GitHub Actions), SonarCloud, Testcontainers, Flyway
+  migrations, Docker Compose; API keys only in environment variables (no secrets in config files).
+- **Observability** — Micrometer, Prometheus, Grafana, optional Elasticsearch/Kibana; custom metrics for request timing,
+  bulkhead usage, and OpenRouter stream retries.
 
 ## Table of contents
 
@@ -106,7 +141,8 @@ Java/Spring teams building conversational AI or internal bots; developers who wa
 - **Streaming**: SSE (REST/UI) and chunk-by-chunk replies in Telegram
 - **Multimodal**: image uploads (MinIO + vision models), optional PDF RAG (embeddings, similarity search)
 - **Modular architecture**: enable only the modules you need; extensible via Spring auto-configurations
-- **Request prioritization**: bulkhead (ADMIN/VIP/REGULAR) and per-user concurrency; trusted Telegram groups for shared access
+- **Request prioritization**: bulkhead (ADMIN/VIP/REGULAR) and per-user concurrency; trusted Telegram groups for shared
+  access
 - **Dialog summarization**: configurable long-conversation summarization and context window
 - **Roles and i18n**: default and custom system roles; two UI languages
 - **Observability**: Prometheus, Grafana, Elasticsearch, Kibana; custom metrics
@@ -118,12 +154,12 @@ The system uses a **Bulkhead pattern** to manage AI request limits based on user
 
 ### Priority Levels
 
-| Priority  | Description                              | Max Concurrent Requests | Max Wait Time |
-|-----------|------------------------------------------|------------------------|---------------|
-| ADMIN     | Bot administrators                       | 10 (configurable)      | 1s            |
-| VIP       | Paid users or channel members           | 5 (configurable)       | 1s            |
-| REGULAR   | Free users in whitelist                  | 1 (configurable)      | 500ms         |
-| BLOCKED   | Not in whitelist — access denied        | 0                      | —             |
+| Priority | Description                      | Max Concurrent Requests | Max Wait Time |
+|----------|----------------------------------|-------------------------|---------------|
+| ADMIN    | Bot administrators               | 10 (configurable)       | 1s            |
+| VIP      | Paid users or channel members    | 5 (configurable)        | 1s            |
+| REGULAR  | Free users in whitelist          | 1 (configurable)        | 500ms         |
+| BLOCKED  | Not in whitelist — access denied | 0                       | —             |
 
 ### How Priority is Determined
 
@@ -201,7 +237,13 @@ open-daimon:
 - **Add to whitelist (REGULAR)**: Use TelegramWhitelistService or DB table `telegram_whitelist`
 - **Database fields**: `isAdmin`, `isPremium` in user tables (legacy, config takes priority)
 
-**Startup initialization of direct users**: On application startup, all users listed in `REST_ACCESS_*_EMAILS` and `TELEGRAM_ACCESS_*_IDS` (admin, vip, regular) are created or updated in the database with flags set by level. If a user appears in more than one level, the highest level wins (ADMIN > VIP > REGULAR). Groups/channels are not used for this; only the direct ids/emails from config are initialized. For Telegram, when the bot is available, the initializer calls the getChat API for each configured id to fetch real username, first name, and last name; new users are then created with these values instead of a placeholder (e.g. `id_<telegramId>`). If getChat fails (e.g. user never chatted with the bot), the placeholder is used.
+**Startup initialization of direct users**: On application startup, all users listed in `REST_ACCESS_*_EMAILS` and
+`TELEGRAM_ACCESS_*_IDS` (admin, vip, regular) are created or updated in the database with flags set by level. If a user
+appears in more than one level, the highest level wins (ADMIN > VIP > REGULAR). Groups/channels are not used for this;
+only the direct ids/emails from config are initialized. For Telegram, when the bot is available, the initializer calls
+the getChat API for each configured id to fetch real username, first name, and last name; new users are then created
+with these values instead of a placeholder (e.g. `id_<telegramId>`). If getChat fails (e.g. user never chatted with the
+bot), the placeholder is used.
 
 ### Related Files
 
@@ -226,7 +268,8 @@ open-daimon:
 
 ## Modules
 
-You can add only the modules you need. All modules use `groupId` `io.github.ngirchev`; set `opendaimon.version` in your POM or use a concrete version.
+You can add only the modules you need. All modules use `groupId` `io.github.ngirchev`; set `opendaimon.version` in your
+POM or use a concrete version.
 
 ### Module dependency graph
 
@@ -242,29 +285,30 @@ graph TD
 
 ### Module overview
 
-| Module | Description | Depends on |
-|--------|-------------|------------|
-| `opendaimon-common` | Core: entities, services, request prioritization | — |
-| `opendaimon-telegram` | Telegram Bot interface | `opendaimon-common` |
-| `opendaimon-rest` | REST API (controllers, Swagger) | `opendaimon-common` |
-| `opendaimon-ui` | Web UI (Thymeleaf) | `opendaimon-rest` |
-| `opendaimon-spring-ai` | Spring AI (OpenRouter, Ollama, chat memory, RAG) | `opendaimon-common` |
-| `opendaimon-gateway-mock` | Mock AI provider for tests | `opendaimon-common` |
+| Module                    | Description                                      | Depends on          |
+|---------------------------|--------------------------------------------------|---------------------|
+| `opendaimon-common`       | Core: entities, services, request prioritization | —                   |
+| `opendaimon-telegram`     | Telegram Bot interface                           | `opendaimon-common` |
+| `opendaimon-rest`         | REST API (controllers, Swagger)                  | `opendaimon-common` |
+| `opendaimon-ui`           | Web UI (Thymeleaf)                               | `opendaimon-rest`   |
+| `opendaimon-spring-ai`    | Spring AI (OpenRouter, Ollama, chat memory, RAG) | `opendaimon-common` |
+| `opendaimon-gateway-mock` | Mock AI provider for tests                       | `opendaimon-common` |
 
 ### Example: Telegram bot + Spring AI
 
 Minimal setup for a Telegram bot with AI:
 
 ```xml
+
 <dependency>
     <groupId>io.github.ngirchev</groupId>
     <artifactId>opendaimon-telegram</artifactId>
     <version>${opendaimon.version}</version>
 </dependency>
 <dependency>
-    <groupId>io.github.ngirchev</groupId>
-    <artifactId>opendaimon-spring-ai</artifactId>
-    <version>${opendaimon.version}</version>
+<groupId>io.github.ngirchev</groupId>
+<artifactId>opendaimon-spring-ai</artifactId>
+<version>${opendaimon.version}</version>
 </dependency>
 ```
 
@@ -273,15 +317,16 @@ Minimal setup for a Telegram bot with AI:
 No Telegram; REST and browser UI only:
 
 ```xml
+
 <dependency>
     <groupId>io.github.ngirchev</groupId>
     <artifactId>opendaimon-ui</artifactId>
     <version>${opendaimon.version}</version>
 </dependency>
 <dependency>
-    <groupId>io.github.ngirchev</groupId>
-    <artifactId>opendaimon-spring-ai</artifactId>
-    <version>${opendaimon.version}</version>
+<groupId>io.github.ngirchev</groupId>
+<artifactId>opendaimon-spring-ai</artifactId>
+<version>${opendaimon.version}</version>
 </dependency>
 ```
 
@@ -290,6 +335,7 @@ No Telegram; REST and browser UI only:
 Use the assembled application module (includes Telegram, REST, UI, Spring AI, gateway-mock):
 
 ```xml
+
 <dependency>
     <groupId>io.github.ngirchev</groupId>
     <artifactId>opendaimon-app</artifactId>
@@ -313,29 +359,36 @@ docker run -p 8080:8080 --env-file .env ghcr.io/ngirchev/open-daimon:latest
 
 Specific version: `docker pull ghcr.io/ngirchev/open-daimon:1.2.3`
 
-> **Note:** The app requires PostgreSQL, MinIO, and other services. Use `docker-compose.yml` for a full local setup (see below).
+> **Note:** The app requires PostgreSQL, MinIO, and other services. Use `docker-compose.yml` for a full local setup (see
+> below).
 
 ### Running the app (no Java experience)
 
-If you are new to Java, follow these steps. You will need a **terminal** (command line): on Windows use PowerShell or Command Prompt; on macOS/Linux use Terminal.
+If you are new to Java, follow these steps. You will need a **terminal** (command line): on Windows use PowerShell or
+Command Prompt; on macOS/Linux use Terminal.
 
 **1. Install Java 21**
 
 The app runs on **Java** (a runtime). You need **Java 21** specifically.
 
-- **Windows / macOS / Linux:** download and install from [Eclipse Temurin (Adoptium)](https://adoptium.net/temurin/releases/?version=21&os=windows&arch=x64) — choose your OS and install the JDK 21.
-- After installation, open a **new** terminal and run: `java -version`. You should see something like `openjdk version "21.x.x"`.
+- **Windows / macOS / Linux:** download and install
+  from [Eclipse Temurin (Adoptium)](https://adoptium.net/temurin/releases/?version=21&os=windows&arch=x64) — choose your
+  OS and install the JDK 21.
+- After installation, open a **new** terminal and run: `java -version`. You should see something like
+  `openjdk version "21.x.x"`.
 
 **2. Install Docker**
 
 The app uses **PostgreSQL** (a database). The easiest way is to run it in **Docker**.
 
-- Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose). Start Docker so it is running in the background.
+- Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose). Start Docker so
+  it is running in the background.
 
 **3. Prepare configuration**
 
 - In the project folder, copy the example config: copy `.env.example` to a new file named `.env`.
-- Open `.env` in a text editor and set at least: `TELEGRAM_USERNAME`, `TELEGRAM_TOKEN`, `OPENROUTER_KEY`, `POSTGRES_PASSWORD`. Do not commit `.env` (it contains secrets).
+- Open `.env` in a text editor and set at least: `TELEGRAM_USERNAME`, `TELEGRAM_TOKEN`, `OPENROUTER_KEY`,
+  `POSTGRES_PASSWORD`. Do not commit `.env` (it contains secrets).
 
 **4. Start the database**
 
@@ -347,21 +400,25 @@ docker-compose up -d postgres prometheus grafana
 
 **5. Build and run**
 
-- **If you have the source code** and want to build yourself: install [Maven](https://maven.apache.org/download.cgi) (build tool for Java). Then in the project folder run:
+- **If you have the source code** and want to build yourself: install [Maven](https://maven.apache.org/download.cgi) (
+  build tool for Java). Then in the project folder run:
   ```bash
   mvn clean install
   java -jar opendaimon-app/target/opendaimon-app-1.0.0-SNAPSHOT.jar
   ```
-- **If someone gave you a ready JAR file:** put the JAR in a folder, put your `.env` in the same folder (or set the same variables in the environment), then run:
+- **If someone gave you a ready JAR file:** put the JAR in a folder, put your `.env` in the same folder (or set the same
+  variables in the environment), then run:
   ```bash
   java -jar opendaimon-app-1.0.0-SNAPSHOT.jar
   ```
 
-The app will start. You can open the Web UI or use the Telegram bot according to your configuration. For more options (e.g. run everything in Docker), see the sections below.
+The app will start. You can open the Web UI or use the Telegram bot according to your configuration. For more options (
+e.g. run everything in Docker), see the sections below.
 
 ### Environment variables
 
-Create a `.env` file in the project root (do **not** commit it; add `.env` to `.gitignore`). Use [.env.example](.env.example) as a template:
+Create a `.env` file in the project root (do **not** commit it; add `.env` to `.gitignore`).
+Use [.env.example](.env.example) as a template:
 
 ```bash
 cp .env.example .env
@@ -389,7 +446,8 @@ For local run without Docker Compose you can also `export` variables in the shel
 
 ### Run with Docker Compose (recommended)
 
-1. **Create `.env`** from [.env.example](.env.example) and set required values (see [Environment variables](#environment-variables) above).
+1. **Create `.env`** from [.env.example](.env.example) and set required values (
+   see [Environment variables](#environment-variables) above).
 
    Create `application-local.yml` for app overrides (optional but recommended):
    ```bash
@@ -448,7 +506,8 @@ mvn spring-boot:run -pl opendaimon-app
 
 **Option 2: Run the built JAR**
 
-After `mvn clean install` (or `mvn clean package -pl opendaimon-app -am`), run the executable JAR. Set environment variables or use a `.env` file in the current directory (see [Environment variables](#environment-variables)).
+After `mvn clean install` (or `mvn clean package -pl opendaimon-app -am`), run the executable JAR. Set environment
+variables or use a `.env` file in the current directory (see [Environment variables](#environment-variables)).
 
 ```bash
 java -jar opendaimon-app/target/opendaimon-app-1.0.0-SNAPSHOT.jar
@@ -472,14 +531,14 @@ Detailed production deployment guide: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 
 After starting the application:
 
-| Service        | URL |
-|----------------|-----|
-| Swagger UI     | http://localhost:8080/swagger-ui/index.html |
-| Actuator Health| http://localhost:8080/actuator/health |
-| Prometheus metrics | http://localhost:8080/actuator/prometheus |
-| Prometheus UI  | http://localhost:9090 |
-| Grafana        | http://localhost:3000 (admin/admin123456) |
-| Kibana         | http://localhost:5601 |
+| Service            | URL                                         |
+|--------------------|---------------------------------------------|
+| Swagger UI         | http://localhost:8080/swagger-ui/index.html |
+| Actuator Health    | http://localhost:8080/actuator/health       |
+| Prometheus metrics | http://localhost:8080/actuator/prometheus   |
+| Prometheus UI      | http://localhost:9090                       |
+| Grafana            | http://localhost:3000 (admin/admin123456)   |
+| Kibana             | http://localhost:5601                       |
 
 ## Testing
 
@@ -510,17 +569,22 @@ mvn test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
 ```
 
 ### Running tests on Windows
-- **mvnw.cmd** requires **JAVA_HOME** (JDK 21). Common path: `C:\Users\<user>\.jdks\corretto-21.0.10` (IDEA) or File → Project Structure → SDKs.
+
+- **mvnw.cmd** requires **JAVA_HOME** (JDK 21). Common path: `C:\Users\<user>\.jdks\corretto-21.0.10` (IDEA) or File →
+  Project Structure → SDKs.
 - **PowerShell** from project root:
   ```powershell
   $env:JAVA_HOME = "C:\Users\<user>\.jdks\corretto-21.0.10"; cd c:\path\to\open-daimon; .\mvnw.cmd test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
   ```
   (replace `<user>` and path with your JDK and project location).
-- If a single-module test fails with "Could not find artifact opendaimon-common", run `.\mvnw.cmd install -DskipTests` first, then the `test` command.
+- If a single-module test fails with "Could not find artifact opendaimon-common", run `.\mvnw.cmd install -DskipTests`
+  first, then the `test` command.
 - **From IntelliJ IDEA**: right-click `SpringAIGatewayIT` → Run 'SpringAIGatewayIT'.
 
 ### Integration tests
+
 Uses **Testcontainers** for PostgreSQL:
+
 - Docker container with PostgreSQL is started automatically
 - Flyway migrations are applied
 - Container is removed after tests
@@ -531,6 +595,7 @@ Uses **Testcontainers** for PostgreSQL:
 ## Monitoring and debugging
 
 ### Endpoints
+
 - **Swagger UI**: http://localhost:8080/swagger-ui/index.html
 - **Actuator Metrics**: http://localhost:8080/actuator/metrics/telegram.message.processing.time
 - **Prometheus**: http://localhost:9090/query
@@ -547,23 +612,27 @@ To view logs in Kibana:
 1. Open **Kibana** (http://localhost:5601)
 2. **Stack Management** → **Data Views** → **Create data view**
 3. Configure:
-   - **Name**: `opendaimon-logs`
-   - **Index pattern**: `opendaimon-logs-*`
-   - **Timestamp field**: `@timestamp`
+    - **Name**: `opendaimon-logs`
+    - **Index pattern**: `opendaimon-logs-*`
+    - **Timestamp field**: `@timestamp`
 4. **Save**, then go to **Observability** → **Logs**
 
 Query logs via Dev Tools:
+
 ```
 GET opendaimon-logs-*/_search?size=10
 ```
 
 Check log count:
+
 ```bash
 curl "http://localhost:9200/opendaimon-logs-*/_count"
 ```
 
 ### Metrics
-Metrics are sent to **Prometheus** and visualized in **Grafana**. See [Monitoring and debugging](#monitoring-and-debugging) section above.
+
+Metrics are sent to **Prometheus** and visualized in **Grafana**.
+See [Monitoring and debugging](#monitoring-and-debugging) section above.
 
 ## Troubleshooting
 
@@ -581,14 +650,17 @@ mvn flyway:baseline
 ```
 
 ### Tests fail with DB error
+
 - Ensure Docker is running
 - Testcontainers starts PostgreSQL automatically
 - Check logs: `docker logs open-daimon-postgres`
 
 ### "Could not find a valid Docker environment" / Status 400 (Windows)
+
 On Windows, Docker Desktop may return 400 over npipe and Testcontainers cannot connect. Enable TCP access to the daemon:
 
-1. **Docker Desktop** → Settings → General → enable **"Expose daemon on tcp://localhost:2375 without TLS"** → Apply & Restart.
+1. **Docker Desktop** → Settings → General → enable **"Expose daemon on tcp://localhost:2375 without TLS"** → Apply &
+   Restart.
 2. Before running tests, set (PowerShell):
    ```powershell
    $env:DOCKER_HOST = "tcp://localhost:2375"
@@ -610,11 +682,13 @@ File -> Invalidate Caches / Restart
 ```
 
 ### Metrics not showing in Grafana
+
 - Check Prometheus: http://localhost:9090/targets
 - Ensure the app exports metrics: http://localhost:8080/actuator/prometheus
 - Restart Grafana: `docker-compose restart grafana`
 
 ### Logs not appearing in Kibana
+
 - Verify Elasticsearch has logs: `curl "http://localhost:9200/opendaimon-logs-*/_count"`
 - Create a **Data View** in Kibana (see [Kibana Setup for Logs](#logging-elasticsearch--kibana))
 - Check Logstash is running: `docker compose logs logstash`
@@ -622,11 +696,13 @@ File -> Invalidate Caches / Restart
 ## Documentation
 
 ### Setup guides
+
 - **[docs/setup-telegram.md](docs/setup-telegram.md)** — Create a Telegram bot and get your user ID
 - **[docs/setup-openrouter.md](docs/setup-openrouter.md)** — Get an OpenRouter API key (free models available)
 - **[docs/setup-serper.md](docs/setup-serper.md)** — Enable web search (optional)
 
 ### Project docs
+
 - **[AGENTS.md](AGENTS.md)** — Detailed documentation for AI agents (architecture, module structure, code style)
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — How to contribute (setup, code style, testing, PR requirements)
 - **[SECURITY.md](SECURITY.md)** — How to report security vulnerabilities

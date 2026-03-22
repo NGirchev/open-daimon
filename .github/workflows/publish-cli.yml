@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Update npm to OIDC-capable version
-        run: npm install -g npm@latest
+        run: sudo npm install -g npm@latest
 
       - uses: actions/setup-node@v4
         with:
