@@ -105,9 +105,7 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
 
             // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
             String systemRole = metadata.get(ROLE_FIELD);
-            String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
-            if (StringUtils.hasText(
-            )) {
+            if (StringUtils.hasText(fixedModelId)) {
                 Set<ModelCapabilities> fixedModelCapabilities;
                 if (modelDescriptionCache != null) {
                     fixedModelCapabilities = modelDescriptionCache.getCapabilities(fixedModelId);

@@ -212,7 +212,6 @@ class TelegramConversationThreadRepositoryIT {
         // Verify data saved correctly via list
         List<ConversationThread> allActive = threadRepository.findByUserAndIsActiveTrueOrderByLastActivityAtDesc(user);
         assertEquals(2, allActive.size(), "Must have 2 active threads");
-      
         assertEquals("thread-2", allActive.getFirst().getThreadKey(), "First in list must be thread-2");
 
         // Verify findFirstByUserAndIsActiveTrueOrderByLastActivityAtDesc works
