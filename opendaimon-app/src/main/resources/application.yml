@@ -345,6 +345,22 @@ spring:
           jdbc:
             initialize-schema: never
 
+# MCP (Model Context Protocol) client configuration.
+# Uncomment and configure to connect MCP servers. Each connection's tools become available to AI models.
+# spring:
+#   ai:
+#     mcp:
+#       client:
+#         stdio:
+#           connections:
+#             my-server:
+#               command: npx
+#               args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+#         sse:
+#           connections:
+#             my-remote:
+#               url: http://localhost:9000/mcp
+
 logging:
   level:
     root: INFO

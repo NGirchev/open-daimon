@@ -45,6 +45,7 @@ import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelRotationAspect;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UnknownToolFallbackResolver;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.tool.resolution.DelegatingToolCallbackResolver;
@@ -146,14 +147,16 @@ public class SpringAIAutoConfig {
             @Qualifier("openAiChatClient") ChatClient openAiChatClient,
             WebTools webTools,
             ChatMemory chatMemory,
-            SpringAIModelType springAIModelType
+            SpringAIModelType springAIModelType,
+            ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider
     ) {
         return new SpringAIPromptFactory(
                 ollamaChatClient,
                 openAiChatClient,
                 webTools,
                 chatMemory,
-                springAIModelType
+                springAIModelType,
+                mcpToolCallbackProvider
         );
     }
 

@@ -18,6 +18,9 @@ import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,6 +41,7 @@ public class SpringAIPromptFactory {
     private final WebTools webTools;
     private final ChatMemory chatMemory;
     private final SpringAIModelType springAIModelType;
+    private final ObjectProvider<ToolCallbackProvider> mcpToolCallbackProvider;
 
     public ChatClient.ChatClientRequestSpec preparePrompt(
             SpringAIModelConfig modelConfig,
@@ -61,6 +65,7 @@ public class SpringAIPromptFactory {
         }
         addSystemMessagesIfPresent(promptBuilder, messages);
         addWebToolsIfEnabled(promptBuilder, webEnabled);
+        addMcpToolsIfAvailable(promptBuilder);
         addUserOrAllMessages(promptBuilder, messages);
 
         return promptBuilder;
@@ -82,6 +87,16 @@ public class SpringAIPromptFactory {
         } else {
             log.debug("Web tools NOT added to prompt (webEnabled=false). Serper/fetch_url are only registered when the AI command requests WEB in required or optional capabilities.");
         }
+    }
+
+    private void addMcpToolsIfAvailable(ChatClient.ChatClientRequestSpec promptBuilder) {
+        mcpToolCallbackProvider.ifAvailable(provider -> {
+            ToolCallback[] callbacks = provider.getToolCallbacks();
+            if (callbacks != null && callbacks.length > 0) {
+                promptBuilder.tools(callbacks);
+                log.info("MCP tools added to prompt ({} tools).", callbacks.length);
+            }
+        });
     }
 
     private void addUserOrAllMessages(ChatClient.ChatClientRequestSpec promptBuilder, List<Message> messages) {

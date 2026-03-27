@@ -24,6 +24,7 @@
         <module>opendaimon-rest</module>
         <module>opendaimon-telegram</module>
         <module>opendaimon-gateway-mock</module>
+        <module>opendaimon-mcp</module>
         <module>opendaimon-app</module>
     </modules>
 

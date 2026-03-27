@@ -58,6 +58,11 @@
             <artifactId>opendaimon-gateway-mock</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>io.github.ngirchev</groupId>
+            <artifactId>opendaimon-mcp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>io.github.ngirchev</groupId>
