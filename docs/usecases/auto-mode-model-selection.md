@@ -101,7 +101,7 @@ sequenceDiagram
     participant Ollama as OllamaChatModel
     participant OR as OpenAiChatModel<br/>(OpenRouter)
 
-    Note over Reg: Registry contains both providers:<br/>OLLAMA: qwen2.5:3b, gemma3:1b<br/>OPENAI: openrouter/auto, meta-llama/...
+    Note over Reg: Registry contains both providers:<br/>OLLAMA: qwen2.5:3b, gemma3:4b<br/>OPENAI: openrouter/auto, meta-llama/...
 
     Note over Reg: Init Phase
 
@@ -139,19 +139,19 @@ sequenceDiagram
     participant PF as SpringAIPromptFactory
     participant Ollama as OllamaChatModel
 
-    Note over Reg: Registry: OLLAMA models only<br/>qwen2.5:3b [CHAT, TOOL_CALLING, WEB]<br/>gemma3:1b [VISION, CHAT]<br/>nomic-embed-text:v1.5 [EMBEDDING]
+    Note over Reg: Registry: OLLAMA models only<br/>qwen2.5:3b [CHAT, TOOL_CALLING, WEB]<br/>gemma3:4b [VISION, CHAT]<br/>nomic-embed-text:v1.5 [EMBEDDING]
 
     Note over Reg: No OpenRouter API configured<br/>→ no refreshOpenRouterModels()
 
     alt User sends text message
         Reg->>Reg: Required: [CHAT]
-        Reg->>Reg: Candidates: qwen2.5:3b, gemma3:1b
+        Reg->>Reg: Candidates: qwen2.5:3b, gemma3:4b
         Reg->>Reg: Sort by priority → qwen2.5:3b wins
         Reg-->>PF: qwen2.5:3b (OLLAMA)
     else User sends image
         Reg->>Reg: Required: [CHAT, VISION]
-        Reg->>Reg: Candidates: gemma3:1b (only one with VISION)
-        Reg-->>PF: gemma3:1b (OLLAMA)
+        Reg->>Reg: Candidates: gemma3:4b (only one with VISION)
+        Reg-->>PF: gemma3:4b (OLLAMA)
     else User requests EMBEDDING
         Note over Reg: nomic-embed-text:v1.5 used<br/>for VectorStore embeddings
     end

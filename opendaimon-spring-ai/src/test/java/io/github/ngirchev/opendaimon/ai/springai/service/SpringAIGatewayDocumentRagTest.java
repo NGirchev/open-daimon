@@ -25,13 +25,27 @@ import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+
+import java.io.ByteArrayOutputStream;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+
+/**
+ * Minimal valid PDF (one blank page) that PDFBox can parse and render.
+ * Used by tests that exercise the image-only PDF fallback path.
+ */
 
 /**
  * Test for PDF attachment flow from command to DocumentProcessingService.processPdf call.
@@ -56,6 +70,24 @@ class SpringAIGatewayDocumentRagTest {
     @Mock
     private ChatMemory chatMemory;
     private SpringAIGateway springAIGateway;
+
+    /**
+     * Creates a minimal valid PDF (one blank page) that PDFBox can parse and render.
+     * Required for tests that exercise the image-only PDF → vision fallback path,
+     * because renderPdfToImageAttachments uses PDFBox internally.
+     */
+    private static byte[] createMinimalPdf() {
+        try {
+            PDDocument doc = new PDDocument();
+            doc.addPage(new PDPage());
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            doc.save(baos);
+            doc.close();
+            return baos.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create minimal test PDF", e);
+        }
+    }
 
     @BeforeEach
     void setUp() {
@@ -94,6 +126,7 @@ class SpringAIGatewayDocumentRagTest {
         prompts.setDocumentExtractErrorPdf("Could not extract text from file \"%s\".");
         prompts.setDocumentExtractErrorDocument("Could not extract text from file \"%s\" (type: %s).");
         prompts.setAugmentedPromptTemplate("Context:\n%s\n\nQuestion: %s");
+        prompts.setVisionExtractionPrompt("Extract all text content from this image");
         ragProperties.setPrompts(prompts);
 
         springAIGateway = new SpringAIGateway(
@@ -119,7 +152,7 @@ class SpringAIGatewayDocumentRagTest {
                 AttachmentType.PDF,
                 pdfData
         );
-        Map<String, Object> body = new java.util.HashMap<>();
+        Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");
         ChatAICommand command = new ChatAICommand(
                 Set.of(ModelCapabilities.CHAT),
@@ -146,7 +179,7 @@ class SpringAIGatewayDocumentRagTest {
 
     @Test
     void whenPdfHasNoTextLayer_thenRenderedAsImagesForVision() {
-        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
+        byte[] pdfData = createMinimalPdf();
         Attachment pdfAttachment = new Attachment(
                 "doc/scan.pdf",
                 "application/pdf",
@@ -159,7 +192,7 @@ class SpringAIGatewayDocumentRagTest {
         when(documentProcessingService.processPdf(any(byte[].class), anyString()))
                 .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
 
-        Map<String, Object> body = new java.util.HashMap<>();
+        Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");
         ChatAICommand command = new ChatAICommand(
                 Set.of(ModelCapabilities.CHAT),
@@ -184,36 +217,250 @@ class SpringAIGatewayDocumentRagTest {
                 "Gateway should require VISION when final user message contains rendered PDF page images");
 
         verify(documentProcessingService, times(1)).processPdf(any(byte[].class), eq("scan.pdf"));
-        
+
         // Verify chatService was called with correct messages
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
+        ArgumentCaptor<List<Message>> messagesCaptor =
                 ArgumentCaptor.forClass(List.class);
         verify(chatService, times(1)).streamChat(
-                any(SpringAIModelConfig.class), 
-                any(), 
-                any(), 
+                any(SpringAIModelConfig.class),
+                any(),
+                any(),
                 messagesCaptor.capture()
         );
-        
-        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
+
+        List<Message> messages = messagesCaptor.getValue();
         assertNotNull(messages);
         assertTrue(messages.size() >= 2, "Should have at least SystemMessage with attachment context and UserMessage");
-        
+
         // Verify SystemMessage with PDF context is present
         boolean hasSystemMessageWithPdfContext = messages.stream()
-                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
-                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
+                .filter(msg -> msg instanceof SystemMessage)
+                .map(msg -> ((SystemMessage) msg).getText())
                 .anyMatch(text -> text.contains("PDF document") && text.contains("scan.pdf") && text.contains("images"));
-        
+
         assertTrue(hasSystemMessageWithPdfContext, "Should have SystemMessage with PDF attachment context");
 
         // In this test ChatMemory is not used because there is no threadKey in metadata
     }
 
+    /**
+     * Reproduces the production bug: Telegram sends AUTO capability, image-only PDF adds VISION,
+     * resulting in [AUTO, VISION] — which no model satisfies unless AUTO is stripped.
+     * Before the fix this threw: "No model found for capabilities: [AUTO, VISION]"
+     */
+    @Test
+    void whenAutoModeAndPdfHasNoTextLayer_thenAutoStrippedAndVisionModelSelected() {
+        byte[] pdfData = createMinimalPdf();
+        Attachment pdfAttachment = new Attachment(
+                "doc/scan.pdf",
+                "application/pdf",
+                "scan.pdf",
+                pdfData.length,
+                AttachmentType.PDF,
+                pdfData
+        );
+
+        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
+                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
+
+        // Configure registry: VISION model does NOT have AUTO (realistic setup matching production)
+        SpringAIModelConfig visionModel = new SpringAIModelConfig();
+        visionModel.setName("vision-model");
+        visionModel.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION));
+        visionModel.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
+
+        // [AUTO, VISION] returns empty (the bug scenario) — no model has both
+        when(springAIModelRegistry.getCandidatesByCapabilities(
+                eq(Set.of(ModelCapabilities.AUTO, ModelCapabilities.VISION)), isNull(), any()))
+                .thenReturn(List.of());
+        // [VISION] returns the vision model (the fix: AUTO stripped)
+        when(springAIModelRegistry.getCandidatesByCapabilities(
+                eq(Set.of(ModelCapabilities.VISION)), isNull(), any()))
+                .thenReturn(List.of(visionModel));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("someKey", "value");
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.AUTO),  // <-- realistic: Telegram sends AUTO
+                Set.of(),
+                0.35,
+                1000,
+                null,
+                null,
+                "Analyze this document",
+                true,
+                Map.of(),
+                body,
+                List.of(pdfAttachment)
+        );
+
+        // Before the fix this threw RuntimeException: "No model found for capabilities: [AUTO, VISION]"
+        springAIGateway.generateResponse(command);
+
+        // Verify AUTO was stripped and VISION-only query was used
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Set<ModelCapabilities>> capsCaptor = ArgumentCaptor.forClass(Set.class);
+        verify(springAIModelRegistry, atLeastOnce()).getCandidatesByCapabilities(capsCaptor.capture(), isNull(), any());
+
+        Set<ModelCapabilities> lastQuery = capsCaptor.getValue();
+        assertTrue(lastQuery.contains(ModelCapabilities.VISION), "Should require VISION");
+        assertFalse(lastQuery.contains(ModelCapabilities.AUTO), "AUTO should be stripped when VISION is needed");
+
+        verify(chatService, times(1)).streamChat(
+                argThat(config -> "vision-model".equals(config.getName())),
+                any(), any(), any());
+    }
+
+    /**
+     * When vision extraction fails (e.g. model returns HTTP 500), the system should continue
+     * without RAG cache. Images are still sent to the final model for direct visual analysis.
+     */
+    @Test
+    void whenVisionExtractionFails_thenContinuesWithoutRagCache() {
+        byte[] pdfData = createMinimalPdf();
+        Attachment pdfAttachment = new Attachment(
+                "doc/scan.pdf",
+                "application/pdf",
+                "scan.pdf",
+                pdfData.length,
+                AttachmentType.PDF,
+                pdfData
+        );
+
+        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
+                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
+
+        // extractTextFromImagesViaVision calls the 2-arg getCandidatesByCapabilities(Set, String);
+        // mock it so a vision model is found and callSimpleVision is actually invoked
+        SpringAIModelConfig visionModel = new SpringAIModelConfig();
+        visionModel.setName("vision-model");
+        visionModel.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION));
+        visionModel.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
+        doReturn(List.of(visionModel)).when(springAIModelRegistry)
+                .getCandidatesByCapabilities(any(Set.class), nullable(String.class));
+
+        // Simulate vision extraction failure (callSimpleVision throws after retries)
+        when(chatService.callSimpleVision(any(), any()))
+                .thenThrow(new RuntimeException("HTTP 500 - model is missing data required for image input"));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("someKey", "value");
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT),
+                Set.of(),
+                0.35,
+                1000,
+                null,
+                null,
+                "What is in the file?",
+                true,
+                Map.of(),
+                body,
+                List.of(pdfAttachment)
+        );
+
+        // Should NOT throw — vision extraction failure is handled gracefully
+        springAIGateway.generateResponse(command);
+
+        // Verify extractTextFromImagesViaVision was invoked (it calls the 2-arg getCandidatesByCapabilities)
+        verify(springAIModelRegistry, atLeastOnce())
+                .getCandidatesByCapabilities(any(Set.class), nullable(String.class));
+        // Vision extraction was attempted
+        verify(chatService, times(1)).callSimpleVision(any(), any());
+        // No text was extracted, so processExtractedText should NOT be called
+        verify(documentProcessingService, never()).processExtractedText(anyString(), anyString());
+        // Final chat call still happens (images are in the payload for direct visual analysis)
+        verify(chatService, times(1)).streamChat(any(), any(), any(), any());
+    }
+
+    /**
+     * After successful vision extraction, images are no longer needed — the text is in RAG.
+     * The final message should NOT contain images, so a TEXT model (not VISION) is selected.
+     * The user gets an augmented prompt with RAG context answered by the text model.
+     */
+    @Test
+    void whenVisionExtractionSucceeds_thenImagesRemovedAndTextModelSelected() {
+        byte[] pdfData = createMinimalPdf();
+        Attachment pdfAttachment = new Attachment(
+                "doc/scan.pdf",
+                "application/pdf",
+                "scan.pdf",
+                pdfData.length,
+                AttachmentType.PDF,
+                pdfData
+        );
+
+        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
+                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
+
+        // Vision model for extraction step
+        SpringAIModelConfig visionModel = new SpringAIModelConfig();
+        visionModel.setName("vision-model");
+        visionModel.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION));
+        visionModel.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
+        doReturn(List.of(visionModel)).when(springAIModelRegistry)
+                .getCandidatesByCapabilities(any(Set.class), nullable(String.class));
+
+        // Text model for final answer
+        SpringAIModelConfig textModel = new SpringAIModelConfig();
+        textModel.setName("text-model");
+        textModel.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.AUTO));
+        textModel.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
+        when(springAIModelRegistry.getCandidatesByCapabilities(any(Set.class), isNull(), any()))
+                .thenReturn(List.of(textModel));
+
+        // Vision extraction succeeds — text is now in RAG, images no longer needed
+        when(chatService.callSimpleVision(any(), any()))
+                .thenReturn("Certificate of Completion. John Doe completed Advanced Java.");
+
+        when(documentProcessingService.processExtractedText(anyString(), anyString()))
+                .thenReturn("vision-doc-id");
+
+        Document visionChunk = new Document("Certificate of Completion. John Doe completed Advanced Java.");
+        when(fileRagService.findAllByDocumentId("vision-doc-id"))
+                .thenReturn(List.of(visionChunk));
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("someKey", "value");
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT),
+                Set.of(),
+                0.35,
+                1000,
+                null,
+                null,
+                "Сколько раз встречается слово Attorney?",
+                true,
+                Map.of(),
+                body,
+                List.of(pdfAttachment)
+        );
+
+        springAIGateway.generateResponse(command);
+
+        // Vision extraction was used
+        verify(chatService, times(1)).callSimpleVision(any(), any());
+        // RAG stores extracted text
+        verify(fileRagService, times(1)).findAllByDocumentId("vision-doc-id");
+        verify(fileRagService, times(1)).createAugmentedPrompt(anyString(), anyList());
+
+        // KEY: final message has NO images — text model is used, not vision
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(any(), any(), any(), messagesCaptor.capture());
+
+        List<Message> finalMessages = messagesCaptor.getValue();
+        boolean hasMedia = finalMessages.stream()
+                .filter(UserMessage.class::isInstance)
+                .map(UserMessage.class::cast)
+                .anyMatch(m -> m.getMedia() != null && !m.getMedia().isEmpty());
+        assertFalse(hasMedia, "After successful vision extraction, images should NOT be in the final message");
+    }
+
     @Test
     void whenFixedModelAndPdfFallbackAddsImages_thenModelWithoutVisionFails() {
-        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
+        byte[] pdfData = createMinimalPdf();
         Attachment pdfAttachment = new Attachment(
                 "doc/scan.pdf",
                 "application/pdf",
@@ -231,7 +478,7 @@ class SpringAIGatewayDocumentRagTest {
         fixedModelWithoutVision.setCapabilities(Set.of(ModelCapabilities.CHAT));
         fixedModelWithoutVision.setProviderType(SpringAIModelConfig.ProviderType.OPENAI);
         when(springAIModelRegistry.getByModelName("fixed-chat-only"))
-                .thenReturn(java.util.Optional.of(fixedModelWithoutVision));
+                .thenReturn(Optional.of(fixedModelWithoutVision));
 
         FixedModelChatAICommand command = new FixedModelChatAICommand(
                 "fixed-chat-only",
@@ -263,7 +510,7 @@ class SpringAIGatewayDocumentRagTest {
                 imageData
         );
 
-        Map<String, Object> body = new java.util.HashMap<>();
+        Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");
         ChatAICommand command = new ChatAICommand(
                 Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
@@ -292,14 +539,14 @@ class SpringAIGatewayDocumentRagTest {
                 messagesCaptor.capture()
         );
 
-        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
+        List<Message> messages = messagesCaptor.getValue();
         assertNotNull(messages);
         assertTrue(messages.size() >= 2, "Should have at least SystemMessage with attachment context and UserMessage");
 
         // Verify SystemMessage with image context is present
         boolean hasSystemMessageWithImageContext = messages.stream()
-                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
-                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
+                .filter(msg -> msg instanceof SystemMessage)
+                .map(msg -> ((SystemMessage) msg).getText())
                 .anyMatch(text -> text.contains("attached") && text.contains("image"));
 
         assertTrue(hasSystemMessageWithImageContext, "Should have SystemMessage with image attachment context");
@@ -319,7 +566,7 @@ class SpringAIGatewayDocumentRagTest {
                 imageData
         );
 
-        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
+        byte[] pdfData = createMinimalPdf();
         Attachment pdfAttachment = new Attachment(
                 "doc/scan.pdf",
                 "application/pdf",
@@ -332,7 +579,7 @@ class SpringAIGatewayDocumentRagTest {
         when(documentProcessingService.processPdf(any(byte[].class), anyString()))
                 .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
 
-        Map<String, Object> body = new java.util.HashMap<>();
+        Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");
         ChatAICommand command = new ChatAICommand(
                 Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
@@ -361,13 +608,13 @@ class SpringAIGatewayDocumentRagTest {
                 messagesCaptor.capture()
         );
 
-        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
+        List<Message> messages = messagesCaptor.getValue();
         assertNotNull(messages);
 
         // Verify SystemMessage with both PDF and image context is present
         boolean hasSystemMessageWithBothContexts = messages.stream()
-                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
-                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
+                .filter(msg -> msg instanceof SystemMessage)
+                .map(msg -> ((SystemMessage) msg).getText())
                 .anyMatch(text -> text.contains("PDF document") && text.contains("scan.pdf") && 
                                  text.contains("attached") && text.contains("image"));
 

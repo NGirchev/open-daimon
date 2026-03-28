@@ -160,6 +160,7 @@ public class DocumentProcessingService {
 
         log.info("Processing vision-extracted text for '{}' with documentId={} (length={})",
                 originalName, documentId, extractedText.length());
+        log.debug("Vision-extracted text content for '{}': [{}]", originalName, extractedText);
 
         Document document = new Document(extractedText);
 

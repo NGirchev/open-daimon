@@ -2,7 +2,10 @@ package io.github.ngirchev.opendaimon.it.fixture;
 
 import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.config.RAGProperties;
+import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
+import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
+import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,7 @@ import org.springframework.context.annotation.Bean;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -179,6 +183,85 @@ class ImagePdfVisionCacheFixtureIT {
                 .as("Augmented prompt should include vision-extracted invoice data")
                 .contains("$5,000")
                 .contains("What is the invoice amount?");
+    }
+
+    /**
+     * Reproduces the production bug: findRelevantContext with similarityThreshold=0.7
+     * returns 0 chunks when query language differs from extracted text language.
+     * The fix: use findAllByDocumentId for freshly vision-extracted text — it bypasses
+     * similarity threshold and returns ALL chunks for the document.
+     */
+    @Test
+    @DisplayName("findAllByDocumentId — returns all vision chunks regardless of query similarity")
+    void findAllByDocumentId_returnsAllVisionChunks() {
+        String extractedText =
+                "Certificate of Completion. This certifies that John Doe " +
+                "has successfully completed the Advanced Java course " +
+                "on March 15, 2025. Issued by OpenDaimon Academy.";
+
+        String documentId = documentProcessingService.processExtractedText(
+                extractedText, "certificate-scan.pdf");
+
+        // findAllByDocumentId must return ALL stored chunks regardless of query
+        List<Document> allChunks = fileRagService.findAllByDocumentId(documentId);
+
+        assertThat(allChunks)
+                .as("findAllByDocumentId should return all stored chunks for the document")
+                .isNotEmpty();
+
+        String allContent = allChunks.stream()
+                .map(Document::getText)
+                .reduce("", (a, b) -> a + " " + b);
+        assertThat(allContent)
+                .as("All vision-extracted content should be present")
+                .contains("John Doe")
+                .contains("Advanced Java");
+    }
+
+    /**
+     * Reproduces the production bug: model registry configured like real deployment
+     * (AUTO model without VISION, VISION model without AUTO). When the gateway adds
+     * VISION requirement for image-only PDF payload, AUTO must be stripped so that
+     * the VISION model is found. Before the fix, searching for [AUTO, VISION] returned
+     * no candidates and threw RuntimeException.
+     */
+    @Test
+    @DisplayName("Model selection — AUTO + VISION: registry finds vision model when AUTO is stripped")
+    void modelSelection_autoWithVision_findsVisionModel() {
+        // Production-like model config: separate text and vision models
+        SpringAIModelConfig textModel = new SpringAIModelConfig();
+        textModel.setName("qwen2.5:3b");
+        textModel.setCapabilities(Set.of(
+                ModelCapabilities.AUTO, ModelCapabilities.CHAT,
+                ModelCapabilities.TOOL_CALLING, ModelCapabilities.SUMMARIZATION));
+        textModel.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
+        textModel.setPriority(1);
+
+        SpringAIModelConfig visionModel = new SpringAIModelConfig();
+        visionModel.setName("gemma3:4b");
+        visionModel.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION));
+        visionModel.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
+        visionModel.setPriority(1);
+
+        SpringAIModelRegistry registry = new SpringAIModelRegistry(
+                List.of(textModel, visionModel), null, null);
+
+        // The bug scenario: command has AUTO, payload has images → system needs [AUTO, VISION]
+        // No model has both → empty candidates
+        List<SpringAIModelConfig> bugQuery = registry.getCandidatesByCapabilities(
+                Set.of(ModelCapabilities.AUTO, ModelCapabilities.VISION), null);
+        assertThat(bugQuery)
+                .as("[AUTO, VISION] should return NO candidates — this is the bug scenario")
+                .isEmpty();
+
+        // The fix: strip AUTO when VISION is needed → search for [VISION] only
+        List<SpringAIModelConfig> fixedQuery = registry.getCandidatesByCapabilities(
+                Set.of(ModelCapabilities.VISION), null);
+        assertThat(fixedQuery)
+                .as("[VISION] alone should find gemma3:4b")
+                .isNotEmpty()
+                .extracting(SpringAIModelConfig::getName)
+                .contains("gemma3:4b");
     }
 
     /**

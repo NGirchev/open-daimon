@@ -55,7 +55,7 @@ open-daimon:
               - WEB
             provider-type: OLLAMA
             priority: 1
-          - name: "gemma3:1b"
+          - name: "gemma3:4b"
             capabilities:
               - VISION
               - CHAT

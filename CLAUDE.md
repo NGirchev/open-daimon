@@ -18,6 +18,7 @@
 - Run only the specific failing test, not the full suite, unless the user asks otherwise.
 - After each edit, verify compilation passes before proceeding to the next change.
 - When fixing a bug in a specific service (e.g. `TelegramUserPriorityService`), do NOT touch other services with similar names (e.g. `DefaultUserPriorityService`).
+- Always use proper `import` statements for all types. Never use fully-qualified class names inline (e.g. `java.io.ByteArrayOutputStream`) — add an import and use the short name.
 
 ## Fixture Smoke Tests
 

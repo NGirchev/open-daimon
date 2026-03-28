@@ -161,6 +161,9 @@ public class SpringAIGateway implements AIGateway {
             // AUTO mode — use capability-based selection
             Set<ModelCapabilities> requiredForSelection = new HashSet<>(command.modelCapabilities());
             if (requiresVisionForPayload) {
+                // AUTO is a meta-capability ("auto-select best model"), not a real model capability.
+                // VISION models typically don't declare AUTO, so requiring both yields no candidates.
+                requiredForSelection.remove(ModelCapabilities.AUTO);
                 requiredForSelection.add(ModelCapabilities.VISION);
             }
             List<SpringAIModelConfig> candidates = springAIModelRegistry
@@ -572,17 +575,32 @@ public class SpringAIGateway implements AIGateway {
                 pdfAsImageFilenames.add(documentAttachment.filename());
                 log.info("Added {} image attachment(s) from PDF '{}' for vision model", imageAttachments.size(), documentAttachment.filename());
 
-                // Vision cache: extract text via vision model and store in VectorStore for follow-up queries
-                String extractedText = extractTextFromImagesViaVision(imageAttachments, documentAttachment.filename());
+                // Vision extraction: use vision model to read text from images, store in RAG.
+                // After successful extraction, images are no longer needed — remove them
+                // so the final answer uses a TEXT model with RAG context, not VISION.
+                String extractedText = null;
+                try {
+                    extractedText = extractTextFromImagesViaVision(imageAttachments, documentAttachment.filename());
+                } catch (Exception ex) {
+                    log.warn("Vision text extraction failed for '{}', proceeding with images for direct vision: {}",
+                            documentAttachment.filename(), ex.getMessage());
+                }
                 if (extractedText != null) {
+                    // Text extracted — images served their purpose, remove from final message
+                    attachments.removeAll(imageAttachments);
+                    pdfAsImageFilenames.remove(documentAttachment.filename());
+                    log.info("Vision extraction succeeded, removed images from final message for '{}'",
+                            documentAttachment.filename());
+
                     String visionDocId = documentProcessingService.processExtractedText(extractedText, documentAttachment.filename());
                     if (visionDocId != null) {
-                        List<Document> relevantChunks = fileRagService.findRelevantContext(userQuery, visionDocId);
-                        allRelevantChunks.addAll(relevantChunks);
-                        log.info("Vision cache: stored extracted text for '{}', documentId={}, relevantChunks={}",
-                                documentAttachment.filename(), visionDocId, relevantChunks.size());
+                        List<Document> visionChunks = fileRagService.findAllByDocumentId(visionDocId);
+                        allRelevantChunks.addAll(visionChunks);
+                        log.info("Vision cache: stored extracted text for '{}', documentId={}, chunks={}",
+                                documentAttachment.filename(), visionDocId, visionChunks.size());
                     }
                 }
+                // If extractedText is null — images stay in attachments as fallback for direct vision
                 return;
             }
         } else {
@@ -862,6 +880,7 @@ public class SpringAIGateway implements AIGateway {
             String extractedText = chatService.callSimpleVision(visionModel, List.of(userMessage));
             if (extractedText != null && !extractedText.isBlank()) {
                 log.info("Vision extraction succeeded for '{}': {} chars", filename, extractedText.length());
+                log.debug("Vision extracted text for '{}': [{}]", filename, extractedText);
                 return extractedText;
             }
             log.warn("Vision extraction returned empty text for '{}'", filename);

@@ -47,10 +47,13 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @Getter
 public class TelegramBot extends TelegramLongPollingBot {
+
+    private static final int DEBUG_TEXT_PREVIEW_LIMIT = 400;
 
     private final TelegramProperties config;
     private final CommandSyncService commandSyncService;
@@ -101,6 +104,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     @Override
     public void onUpdateReceived(Update update) {
+        logIncomingUpdateDebug(update);
         TelegramCommand command = mapUpdateToCommand(update);
         if (command == null) return;
         try {
@@ -109,6 +113,119 @@ public class TelegramBot extends TelegramLongPollingBot {
             log.error("Internal error with handling message", e);
             sendErrorReplyIfPossible(update, command);
         }
+    }
+
+    private void logIncomingUpdateDebug(Update update) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
+        if (update == null) {
+            log.debug("Telegram update snapshot: update is null");
+            return;
+        }
+
+        Message message = update.getMessage();
+        CallbackQuery callbackQuery = update.getCallbackQuery();
+        Message callbackMessage = callbackQuery != null && callbackQuery.getMessage() instanceof Message cbMessage
+                ? cbMessage
+                : null;
+
+        org.telegram.telegrambots.meta.api.objects.User from = message != null
+                ? message.getFrom()
+                : callbackQuery != null ? callbackQuery.getFrom() : null;
+        org.telegram.telegrambots.meta.api.objects.Chat chat = message != null
+                ? message.getChat()
+                : callbackMessage != null ? callbackMessage.getChat() : null;
+
+        String text = message != null ? message.getText() : null;
+        String caption = message != null ? message.getCaption() : null;
+        String callbackData = callbackQuery != null ? callbackQuery.getData() : null;
+        boolean hasText = message != null && message.hasText();
+        boolean hasCaption = StringUtils.isNotBlank(caption);
+        boolean startsWithSlash = hasText && text.strip().startsWith("/");
+        String forwardOriginType = message != null && message.getForwardOrigin() != null
+                ? message.getForwardOrigin().getClass().getSimpleName()
+                : null;
+        Integer replyToMessageId = message != null && message.getReplyToMessage() != null
+                ? message.getReplyToMessage().getMessageId()
+                : null;
+
+        log.debug(
+                "Telegram update snapshot: updateId={}, kind={}, chatId={}, chatType={}, messageId={}, fromId={}, fromUsername={}, fromIsBot={}, replyToMessageId={}, forwardOriginType={}, hasText={}, hasCaption={}, hasEntities={}, hasPhoto={}, hasDocument={}, hasCallback={}, hasInlineQuery={}, startsWithSlash={}, entities={}, textLength={}, text='{}', captionLength={}, caption='{}', callbackLength={}, callback='{}'",
+                update.getUpdateId(),
+                resolveUpdateKind(update),
+                chat != null ? chat.getId() : null,
+                chat != null ? chat.getType() : null,
+                message != null ? message.getMessageId() : callbackMessage != null ? callbackMessage.getMessageId() : null,
+                from != null ? from.getId() : null,
+                from != null ? from.getUserName() : null,
+                from != null ? from.getIsBot() : null,
+                replyToMessageId,
+                forwardOriginType,
+                hasText,
+                hasCaption,
+                message != null && message.hasEntities(),
+                message != null && message.hasPhoto(),
+                message != null && message.hasDocument(),
+                callbackQuery != null,
+                update.hasInlineQuery(),
+                startsWithSlash,
+                formatEntities(message),
+                text != null ? text.length() : null,
+                trimForLog(text),
+                caption != null ? caption.length() : null,
+                trimForLog(caption),
+                callbackData != null ? callbackData.length() : null,
+                trimForLog(callbackData)
+        );
+    }
+
+    private String resolveUpdateKind(Update update) {
+        if (update.hasMessage()) {
+            return "message";
+        }
+        if (update.hasCallbackQuery()) {
+            return "callback_query";
+        }
+        if (update.hasInlineQuery()) {
+            return "inline_query";
+        }
+        if (update.hasChannelPost()) {
+            return "channel_post";
+        }
+        if (update.hasEditedMessage()) {
+            return "edited_message";
+        }
+        if (update.hasEditedChannelPost()) {
+            return "edited_channel_post";
+        }
+        return "other";
+    }
+
+    private String formatEntities(Message message) {
+        if (message == null || message.getEntities() == null || message.getEntities().isEmpty()) {
+            return "[]";
+        }
+        return message.getEntities()
+                .stream()
+                .filter(Objects::nonNull)
+                .map(entity -> entity.getType() + "@" + entity.getOffset() + ":" + entity.getLength())
+                .toList()
+                .toString();
+    }
+
+    private String trimForLog(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .strip();
+        if (normalized.length() <= DEBUG_TEXT_PREVIEW_LIMIT) {
+            return normalized;
+        }
+        return normalized.substring(0, DEBUG_TEXT_PREVIEW_LIMIT) + "...(truncated)";
     }
 
     private TelegramCommand mapUpdateToCommand(Update update) {

@@ -77,7 +77,7 @@ spring.ai.ollama.base-url: ${OLLAMA_BASE_URL}
 
 **Explicit `models.list`:**
 - `qwen2.5:3b` — chat / tool calling / web / summarization
-- `gemma3:1b` — vision / chat
+- `gemma3:4b` — vision / chat
 - `nomic-embed-text:v1.5` — embeddings
 
 OpenRouter auto-rotation is disabled.
@@ -103,7 +103,7 @@ spring.ai.model.embedding: ollama  # local embeddings
 **Explicit `models.list`:**
 - `openrouter/auto` — cloud chat (ADMIN + VIP only)
 - `qwen2.5:3b` — local chat / tool calling / web (all roles)
-- `gemma3:1b` — local vision / chat (all roles)
+- `gemma3:4b` — local vision / chat (all roles)
 - `nomic-embed-text:v1.5` — local embeddings
 
 ---

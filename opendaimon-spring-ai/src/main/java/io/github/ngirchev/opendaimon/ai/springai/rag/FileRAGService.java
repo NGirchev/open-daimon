@@ -57,6 +57,35 @@ public class FileRAGService {
     }
 
     /**
+     * Returns all chunks belonging to a specific document, bypassing similarity threshold.
+     *
+     * <p>Used for freshly vision-extracted text where all chunks are inherently relevant
+     * (the user just uploaded this document). Avoids false negatives from cross-language
+     * similarity mismatch (e.g. Russian query vs English extracted text).
+     *
+     * @param documentId document id (from processExtractedText or processPdf)
+     * @return all chunks for the document
+     */
+    public List<Document> findAllByDocumentId(String documentId) {
+        log.debug("Fetching all chunks for documentId={} (no similarity threshold)", documentId);
+
+        FilterExpressionBuilder filterBuilder = new FilterExpressionBuilder();
+
+        SearchRequest searchRequest = SearchRequest.builder()
+                .query("document content")
+                .topK(ragProperties.getTopK())
+                .similarityThreshold(0.0)
+                .filterExpression(filterBuilder.eq("documentId", documentId).build())
+                .build();
+
+        List<Document> results = vectorStore.similaritySearch(searchRequest);
+
+        log.info("Found {} total chunks for documentId={}", results.size(), documentId);
+
+        return results;
+    }
+
+    /**
      * Finds relevant chunks for the query across all documents.
      *
      * @param query user query text

@@ -23,7 +23,7 @@ open-daimon:
               - WEB
             provider-type: OLLAMA
             priority: 1
-          - name: "gemma3:1b"
+          - name: "gemma3:4b"
             capabilities:
               - VISION
               - CHAT
@@ -37,6 +37,7 @@ open-daimon:
 
 logging:
   level:
+    io.github.ngirchev.opendaimon.telegram.TelegramBot: DEBUG
     io.github.ngirchev.opendaimon.ai.springai: DEBUG
     io.github.ngirchev.opendaimon.ai.springai.rest: INFO
     io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer: DEBUG
