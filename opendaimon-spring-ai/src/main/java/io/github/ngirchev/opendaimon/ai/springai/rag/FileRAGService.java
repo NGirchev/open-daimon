@@ -26,6 +26,14 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class FileRAGService {
 
+    /**
+     * Upper bound for "fetch all by documentId" retrieval.
+     *
+     * <p>VectorStore API is similarity-search based and requires topK; using the regular rag.top-k (often 5)
+     * can truncate context and break follow-up questions that reference later chunks.
+     */
+    private static final int FIND_ALL_TOP_K = 10_000;
+
     private final VectorStore vectorStore;
     private final RAGProperties ragProperties;
 
@@ -70,17 +78,18 @@ public class FileRAGService {
         log.debug("Fetching all chunks for documentId={} (no similarity threshold)", documentId);
 
         FilterExpressionBuilder filterBuilder = new FilterExpressionBuilder();
+        int topK = Math.max(ragProperties.getTopK(), FIND_ALL_TOP_K);
 
         SearchRequest searchRequest = SearchRequest.builder()
                 .query("document content")
-                .topK(ragProperties.getTopK())
+                .topK(topK)
                 .similarityThreshold(0.0)
                 .filterExpression(filterBuilder.eq("documentId", documentId).build())
                 .build();
 
         List<Document> results = vectorStore.similaritySearch(searchRequest);
 
-        log.info("Found {} total chunks for documentId={}", results.size(), documentId);
+        log.info("Found {} total chunks for documentId={} (topK={})", results.size(), documentId, topK);
 
         return results;
     }

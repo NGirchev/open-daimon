@@ -110,7 +110,7 @@ Preconditions for RAG to activate: RAG enabled + document attachments present (`
 for each document attachment:
   ├─ PDF → PagePdfDocumentReader
   │    └─ no text extracted → DocumentContentNotExtractableException
-  │         └─ renderPdfToImageAttachments() — up to 10 pages at 200 DPI → IMAGE attachments
+  │         └─ renderPdfToImageAttachments() — up to 10 pages at 300 DPI (PNG, lossless) → IMAGE attachments
   └─ other → TikaDocumentReader (DOCX, XLSX, PPT, TXT, etc.)
        └─ TokenTextSplitter → EmbeddingModel → SimpleVectorStore
 
@@ -118,6 +118,14 @@ similaritySearch(userQuery, topK, threshold, documentId filter)
   ├─ results empty → userText unchanged
   └─ results found → augmentedPrompt = template % (context, userQuery)
 ```
+
+Follow-up flow (no new attachments): document IDs are read from thread `memoryBullets`,
+then `findAllByDocumentId()` loads chunks with `similarityThreshold = 0.0` and a high `topK` cap
+(`max(rag.top-k, 10000)`) to avoid truncating large documents to only the first 5 semantic hits.
+
+For image-only PDF OCR, gateway calls a VISION model up to 3 times and keeps the longest extracted text.
+The OCR call is deterministic (`temperature=0`, `top_p=1`) to reduce creative drift/hallucinated text.
+This mitigates short/partial OCR outputs from small local multimodal models.
 
 ---
 
@@ -215,7 +223,7 @@ Intercepts `callChat()` and `streamChat()`. Retries across candidates on retryab
 ### UC-8: Telegram — scanned PDF (no text), RAG enabled
 **Input:** scanned PDF, RAG enabled
 **Gateway:** `processRagIfEnabled()` → `PagePdfDocumentReader` → `DocumentContentNotExtractableException`
-→ `renderPdfToImageAttachments()` — renders up to 10 pages as JPEG → added as IMAGE attachments
+→ `renderPdfToImageAttachments()` — renders up to 10 pages as PNG (300 DPI, lossless) → added as IMAGE attachments
 → final payload contains media, so model selection requires `VISION` capability
 → `UserMessage` built with image media (PDF pages)
 **Output:** model reads pages visually

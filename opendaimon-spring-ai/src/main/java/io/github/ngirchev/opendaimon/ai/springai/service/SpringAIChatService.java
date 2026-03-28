@@ -187,8 +187,13 @@ public class SpringAIChatService {
         String modelName = modelConfig.getName();
         log.info("Vision extraction call. model={}, messages={}", modelName, messages.size());
 
+        // OCR should be deterministic and literal — keep sampling stable.
+        Map<String, Object> visionOverrides = Map.of(
+                "temperature", 0.0d,
+                "top_p", 1.0d
+        );
         var promptBuilder = promptFactory.preparePrompt(
-                modelConfig, modelName, null, null, false, messages, null);
+                modelConfig, modelName, visionOverrides, null, false, messages, null);
 
         try {
             ChatResponse response = promptBuilder.call().chatResponse();

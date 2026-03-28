@@ -177,6 +177,7 @@ public class SpringAIGateway implements AIGateway {
             }
             List<SpringAIModelConfig> candidates = springAIModelRegistry
                     .getCandidatesByCapabilities(requiredForSelection, null, userPriority);
+            candidates = preferTextOnlyModelsForTextPayload(candidates, requiresVisionForPayload);
             // Prefer models that also cover optional capabilities (stable sort — preserves priority order within same score)
             Set<ModelCapabilities> optional = command.optionalCapabilities();
             if (!optional.isEmpty() && !candidates.isEmpty()) {
@@ -983,16 +984,17 @@ public class SpringAIGateway implements AIGateway {
             for (int pageIndex = 0; pageIndex < pagesToRender; pageIndex++) {
                 java.awt.image.BufferedImage image = renderer.renderImageWithDPI(pageIndex, 300);
                 
+                // Use PNG for OCR/vision extraction to avoid lossy JPEG artifacts on small text.
                 java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-                javax.imageio.ImageIO.write(image, "JPEG", baos);
+                javax.imageio.ImageIO.write(image, "PNG", baos);
                 byte[] imageBytes = baos.toByteArray();
                 
-                String imageFilename = String.format("page_%d_%s.jpg", pageIndex + 1, 
+                String imageFilename = String.format("page_%d_%s.png", pageIndex + 1,
                         filename.replaceAll("\\.pdf$", ""));
                 
                 Attachment imageAttachment = new Attachment(
                         null,
-                        "image/jpeg",
+                        "image/png",
                         imageFilename,
                         imageBytes.length,
                         AttachmentType.IMAGE,
@@ -1021,6 +1023,9 @@ public class SpringAIGateway implements AIGateway {
      * @param filename         original PDF filename (for logging)
      * @return extracted text or null if extraction failed or no vision model available
      */
+    private static final int VISION_EXTRACTION_MAX_ATTEMPTS = 3;
+    private static final int VISION_EXTRACTION_LIKELY_COMPLETE_MIN_CHARS = 600;
+
     private String extractTextFromImagesViaVision(List<Attachment> imageAttachments, String filename) {
         // Find a vision-capable model
         List<SpringAIModelConfig> visionCandidates = springAIModelRegistry
@@ -1044,13 +1049,35 @@ public class SpringAIGateway implements AIGateway {
                 .build();
 
         try {
-            String extractedText = chatService.callSimpleVision(visionModel, List.of(userMessage));
-            if (extractedText != null && !extractedText.isBlank()) {
+            String bestExtractedText = null;
+            for (int attempt = 1; attempt <= VISION_EXTRACTION_MAX_ATTEMPTS; attempt++) {
+                String extractedText = chatService.callSimpleVision(visionModel, List.of(userMessage));
+                if (extractedText == null || extractedText.isBlank()) {
+                    log.warn("Vision extraction attempt {}/{} returned empty text for '{}'",
+                            attempt, VISION_EXTRACTION_MAX_ATTEMPTS, filename);
+                    continue;
+                }
+
                 extractedText = stripModelInternalTokens(extractedText);
-                log.info("Vision extraction succeeded for '{}': {} chars", filename, extractedText.length());
-                log.debug("Vision extracted text for '{}': [{}]", filename, extractedText);
-                return extractedText.isBlank() ? null : extractedText;
+                log.info("Vision extraction attempt {}/{} for '{}': {} chars",
+                        attempt, VISION_EXTRACTION_MAX_ATTEMPTS, filename, extractedText.length());
+
+                if (!extractedText.isBlank()
+                        && (bestExtractedText == null || extractedText.length() > bestExtractedText.length())) {
+                    bestExtractedText = extractedText;
+                }
+
+                if (isLikelyCompleteVisionExtraction(bestExtractedText)) {
+                    break;
+                }
             }
+
+            if (bestExtractedText != null && !bestExtractedText.isBlank()) {
+                log.info("Vision extraction succeeded for '{}': {} chars", filename, bestExtractedText.length());
+                log.debug("Vision extracted text for '{}': [{}]", filename, bestExtractedText);
+                return bestExtractedText;
+            }
+
             log.warn("Vision extraction returned empty text for '{}'", filename);
             return null;
         } catch (Exception e) {
@@ -1067,6 +1094,10 @@ public class SpringAIGateway implements AIGateway {
         if (text == null) return null;
         return text.replaceAll("<start_of_image>|<end_of_image>|<end_of_turn>|<start_of_turn>", "")
                 .strip();
+    }
+
+    private static boolean isLikelyCompleteVisionExtraction(String text) {
+        return text != null && text.length() >= VISION_EXTRACTION_LIKELY_COMPLETE_MIN_CHARS;
     }
 
     private static int countMatchingCaps(Set<ModelCapabilities> modelCaps, Set<ModelCapabilities> optional) {
@@ -1086,6 +1117,33 @@ public class SpringAIGateway implements AIGateway {
                 .filter(UserMessage.class::isInstance)
                 .map(UserMessage.class::cast)
                 .anyMatch(message -> message.getMedia() != null && !message.getMedia().isEmpty());
+    }
+
+    /**
+     * For text-only payloads in AUTO mode, prefer non-VISION candidates when available.
+     *
+     * <p>This avoids routing plain follow-up questions to compact multimodal models when
+     * dedicated text models are configured in the same pool.
+     */
+    private List<SpringAIModelConfig> preferTextOnlyModelsForTextPayload(
+            List<SpringAIModelConfig> candidates,
+            boolean requiresVisionForPayload
+    ) {
+        if (requiresVisionForPayload || candidates == null || candidates.isEmpty()) {
+            return candidates;
+        }
+        List<SpringAIModelConfig> textOnlyCandidates = candidates.stream()
+                .filter(model -> model.getCapabilities() == null
+                        || !model.getCapabilities().contains(ModelCapabilities.VISION))
+                .toList();
+        if (textOnlyCandidates.isEmpty()) {
+            return candidates;
+        }
+        if (textOnlyCandidates.size() != candidates.size()) {
+            log.info("AUTO selection: text-only payload, preferring non-VISION models ({} of {} candidates)",
+                    textOnlyCandidates.size(), candidates.size());
+        }
+        return textOnlyCandidates;
     }
 
 }

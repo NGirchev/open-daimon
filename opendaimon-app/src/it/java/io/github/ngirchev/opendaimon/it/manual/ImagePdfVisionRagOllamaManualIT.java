@@ -1,5 +1,8 @@
 package io.github.ngirchev.opendaimon.it.manual;
 
+import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
+import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
@@ -44,8 +47,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -63,7 +68,9 @@ import static org.mockito.Mockito.reset;
  * ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
  *   -Dit.test=ImagePdfVisionRagOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
- *   -Dmanual.ollama.e2e=true
+ *   -Dmanual.ollama.e2e=true \
+ *   -Dmanual.ollama.chat-model=qwen2.5:3b \
+ *   -Dmanual.ollama.vision-model=gemma3:4b
  * </pre>
  */
 @Tag("manual")
@@ -100,11 +107,11 @@ import static org.mockito.Mockito.reset;
                 "open-daimon.telegram.access.ADMIN.channels=",
                 "open-daimon.telegram.access.VIP.channels=",
                 "open-daimon.telegram.access.REGULAR.channels=",
-                "open-daimon.ai.spring-ai.models.list[0].name=qwen2.5:3b",
-                "open-daimon.ai.spring-ai.models.list[0].capabilities=AUTO,CHAT,TOOL_CALLING,SUMMARIZATION,WEB",
+                "open-daimon.ai.spring-ai.models.list[0].name=${manual.ollama.chat-model:qwen2.5:3b}",
+                "open-daimon.ai.spring-ai.models.list[0].capabilities=AUTO,CHAT",
                 "open-daimon.ai.spring-ai.models.list[0].provider-type=OLLAMA",
                 "open-daimon.ai.spring-ai.models.list[0].priority=1",
-                "open-daimon.ai.spring-ai.models.list[1].name=gemma3:4b",
+                "open-daimon.ai.spring-ai.models.list[1].name=${manual.ollama.vision-model:gemma3:4b}",
                 "open-daimon.ai.spring-ai.models.list[1].capabilities=CHAT,VISION",
                 "open-daimon.ai.spring-ai.models.list[1].provider-type=OLLAMA",
                 "open-daimon.ai.spring-ai.models.list[1].priority=1",
@@ -112,7 +119,8 @@ import static org.mockito.Mockito.reset;
                 "open-daimon.ai.spring-ai.models.list[2].name=nomic-embed-text:v1.5",
                 "open-daimon.ai.spring-ai.models.list[2].capabilities=EMBEDDING",
                 "open-daimon.ai.spring-ai.models.list[2].provider-type=OLLAMA",
-                "open-daimon.ai.spring-ai.models.list[2].priority=1"
+                "open-daimon.ai.spring-ai.models.list[2].priority=1",
+                "logging.level.io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway=DEBUG"
         }
 )
 @ActiveProfiles("integration-test")
@@ -125,8 +133,16 @@ class ImagePdfVisionRagOllamaManualIT {
     private static final String PDF_RESOURCE = "image-based-pdf-sample.pdf";
     private static final String RAG_PREFIX = "[RAG:documentId:";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
+    private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
+    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
+    private static final String VISION_MODEL_PROPERTY = "manual.ollama.vision-model";
+    private static final String DEFAULT_VISION_MODEL = "gemma3:4b";
+    private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
+    private static final String VISION_MODEL = System.getProperty(VISION_MODEL_PROPERTY, DEFAULT_VISION_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS =
-            List.of("qwen2.5:3b", "gemma3:4b", "nomic-embed-text:v1.5");
+            Stream.of(CHAT_MODEL, VISION_MODEL, "nomic-embed-text:v1.5")
+                    .distinct()
+                    .toList();
 
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
@@ -139,6 +155,12 @@ class ImagePdfVisionRagOllamaManualIT {
 
     @Autowired
     private OpenDaimonMessageRepository messageRepository;
+
+    @Autowired
+    private FileRAGService fileRagService;
+
+    @Autowired
+    private DocumentProcessingService documentProcessingService;
 
     @MockBean
     private TelegramBotRegistrar telegramBotRegistrar;
@@ -208,6 +230,26 @@ class ImagePdfVisionRagOllamaManualIT {
                 .isNotNull()
                 .anyMatch(bullet -> bullet != null && bullet.startsWith(RAG_PREFIX) && bullet.contains(PDF_RESOURCE));
 
+        List<String> ragDocumentIds = SpringAIGateway.extractRagDocumentIds(thread.getMemoryBullets());
+        assertThat(ragDocumentIds)
+                .as("RAG documentId should be stored in thread memoryBullets")
+                .isNotEmpty();
+
+        List<String> storedChunkTexts = fileRagService.findAllByDocumentId(ragDocumentIds.getFirst()).stream()
+                .map(document -> document.getText() == null ? "" : document.getText())
+                .toList();
+        assertThat(storedChunkTexts)
+                .as("RAG VectorStore should contain extracted text chunks for stored documentId")
+                .isNotEmpty();
+
+        String extractedTextForRag = String.join("\n---\n", storedChunkTexts);
+        assertThat(containsExpectedFollowUpAnswer(extractedTextForRag))
+                .withFailMessage(
+                        "OCR/vision extracted text in RAG does not contain expected phrase. Extracted text: [%s]",
+                        extractedTextForRag
+                )
+                .isTrue();
+
         String firstAssistantReply = latestAssistantReply(thread);
         assertThat(firstAssistantReply)
                 .as("First answer should not be blank")
@@ -245,6 +287,66 @@ class ImagePdfVisionRagOllamaManualIT {
         assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.ASSISTANT))
                 .as("Two assistant messages expected in thread")
                 .isEqualTo(2);
+    }
+
+    @Test
+    @Timeout(3 * 60)
+    @DisplayName("Manual E2E: follow-up uses seeded RAG context without vision step")
+    void followUp_withSeededRagContext_usesTextModel() {
+        TelegramCommand bootstrapCommand = createMessageCommand(
+                TEST_CHAT_ID,
+                101,
+                "привет",
+                List.of()
+        );
+        messageHandler.handle(bootstrapCommand);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        String seededContext = """
+                This is the first sentence.
+                The answer in the last sentence is (as far as they know).
+                """;
+        String seededFilename = "seeded-rag-context.txt";
+        String seededDocumentId = documentProcessingService.processExtractedText(seededContext, seededFilename);
+
+        List<String> memoryBullets = thread.getMemoryBullets() != null
+                ? new ArrayList<>(thread.getMemoryBullets())
+                : new ArrayList<>();
+        memoryBullets.add(RAG_PREFIX + seededDocumentId + ":filename:" + seededFilename + "]");
+        thread.setMemoryBullets(memoryBullets);
+        threadRepository.save(thread);
+
+        List<String> seededChunkTexts = fileRagService.findAllByDocumentId(seededDocumentId).stream()
+                .map(document -> document.getText() == null ? "" : document.getText())
+                .toList();
+        assertThat(seededChunkTexts)
+                .as("Seeded RAG chunks should contain expected phrase before follow-up")
+                .isNotEmpty();
+        assertThat(containsExpectedFollowUpAnswer(String.join("\n---\n", seededChunkTexts)))
+                .as("Seeded RAG context should contain expected bracket phrase")
+                .isTrue();
+
+        TelegramCommand followUpCommand = createMessageCommand(
+                TEST_CHAT_ID,
+                102,
+                "а что было в последнем предложении в скобках?",
+                List.of()
+        );
+        messageHandler.handle(followUpCommand);
+
+        ConversationThread threadAfterFollowUp = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist after follow-up"));
+        String followUpReply = latestAssistantReply(threadAfterFollowUp);
+        assertThat(followUpReply)
+                .as("Follow-up answer should not be blank")
+                .isNotBlank();
+        assertThat(containsExpectedFollowUpAnswer(followUpReply))
+                .withFailMessage("Follow-up with seeded RAG should include expected phrase. Actual reply: [%s]", followUpReply)
+                .isTrue();
     }
 
     private Attachment loadPdfAttachment() throws IOException {
