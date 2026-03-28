@@ -43,3 +43,4 @@
 /cli/application-simple.yml.example
 /logs/
 /.mcp.json
+/opendaimon-app/logs/opendaimon.log

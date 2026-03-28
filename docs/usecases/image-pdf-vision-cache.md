@@ -16,6 +16,7 @@ sequenceDiagram
     participant CS as SpringAIChatService
     participant VS as VectorStore
     participant LLM as Vision Model
+    participant DB as ConversationThread
     participant Chat as Chat Model
 
     User->>TG: Send image-only PDF + question
@@ -30,32 +31,35 @@ sequenceDiagram
     Note over GW: Fallback: render PDF pages as JPEG images
 
     GW->>GW: renderPdfToImageAttachments(pdfBytes)
-    GW->>GW: Add JPEG images to attachments list
 
     Note over GW,LLM: Vision Cache: extract text via vision model
 
     GW->>GW: extractTextFromImagesViaVision()
-    GW->>GW: Select VISION+CHAT model from registry
     GW->>CS: callSimpleVision(visionModel, [UserMessage + Media])
     CS->>LLM: Send images + extraction prompt
     LLM-->>CS: Extracted text content
     CS-->>GW: extractedText
 
+    Note over GW: Vision succeeded — remove images from final message
+
+    GW->>GW: Remove JPEG images from attachments
     GW->>DPS: processExtractedText(extractedText, filename)
     DPS->>DPS: TokenTextSplitter: split into chunks
     DPS->>VS: add(chunks) with metadata type="pdf-vision"
     DPS-->>GW: documentId
 
-    GW->>VS: findRelevantContext(userQuery, documentId)
-    VS-->>GW: relevantChunks
+    GW->>VS: findAllByDocumentId(documentId)
+    VS-->>GW: allChunks
 
-    GW->>GW: createAugmentedPrompt(userQuery, relevantChunks)
+    Note over GW,DB: Store documentId in thread for follow-up RAG
 
-    Note over GW: Build UserMessage: augmented prompt + JPEG images
+    GW->>DB: Save documentId in memoryBullets
+    GW->>GW: Inject RAG context as transient SystemMessage
+    GW->>GW: Build UserMessage: original query + placeholder
 
-    GW->>Chat: Send augmented prompt + images
-    Chat-->>GW: Response
-    GW-->>User: Answer (with both visual and RAG context)
+    GW->>Chat: Send SystemMessage(RAG context) + UserMessage(query + placeholder)
+    Chat-->>GW: Response (TEXT model, not VISION)
+    GW-->>User: Answer based on extracted text via RAG
 ```
 
 ## Follow-Up Message (No Attachments)
@@ -64,42 +68,54 @@ sequenceDiagram
 sequenceDiagram
     actor User
     participant GW as SpringAIGateway
-    participant Mem as SummarizingChatMemory
+    participant DB as ConversationThread
     participant VS as VectorStore
+    participant Mem as ChatMemory
     participant Chat as Chat Model
 
     User->>GW: Follow-up question (no attachments)
 
     GW->>GW: processRagIfEnabled()
-    Note over GW: No attachments — skip embedding
+    Note over GW: No attachments — check thread for stored RAG documentIds
 
-    GW->>Mem: get(conversationId)
-    Mem-->>GW: Chat history (includes "[Attached files: ...]" annotation)
+    GW->>DB: findByThreadKey(threadKey)
+    DB-->>GW: thread.memoryBullets contains [RAG:documentId:uuid:filename:file.pdf]
 
-    Note over GW,VS: VectorStore still has chunks from vision extraction
+    GW->>GW: extractRagDocumentIds(memoryBullets)
+    GW->>VS: findAllByDocumentId(documentId) — threshold=0.0
+    VS-->>GW: allChunks
 
-    GW->>Chat: Send chat history + user question
-    Chat->>Chat: Model sees previous context in history
+    GW->>GW: Inject RAG context as transient SystemMessage
+    GW->>Mem: get(conversationId) — chat history (placeholder only, no inline RAG text)
+
+    GW->>Chat: Send SystemMessage(fresh RAG context) + chat history + UserMessage(query)
     Chat-->>GW: Response
-    GW-->>User: Answer based on chat history
-
-    Note over User,VS: If RAG re-query is needed (e.g. new document question),<br/>VectorStore chunks with type="pdf-vision" are available
+    GW-->>User: Answer with dynamically retrieved RAG context
 ```
 
 ## Key Design Decisions
 
-1. **Vision extraction is a separate internal call** — uses `callSimpleVision()` without
+1. **RAG context is NOT stored inline in chat memory** — instead, a short placeholder
+   `[Documents loaded for context: filename.pdf]` is stored in the UserMessage. The full
+   document text lives only in VectorStore, not in `spring_ai_chat_memory`.
+
+2. **DocumentId stored in `ConversationThread.memoryBullets`** — format:
+   `[RAG:documentId:<uuid>:filename:<name>]`. On follow-up messages, the gateway reads
+   these markers and fetches relevant chunks from VectorStore dynamically.
+
+3. **RAG context injected as transient SystemMessage** — this SystemMessage is added to the
+   prompt for the LLM but is NOT persisted by `MessageChatMemoryAdvisor` (which only stores
+   User/Assistant messages). This keeps chat memory lean.
+
+4. **After successful vision extraction, images are removed** — the text model (not VISION)
+   answers using RAG context. Images are only kept as fallback if vision extraction fails.
+
+5. **Vision extraction is a separate internal call** — uses `callSimpleVision()` without
    ChatMemory, web tools, or conversationId to avoid polluting chat history.
-   Internal token budget is resolved safely even when command chat options are absent.
 
-2. **Extracted text stored as regular RAG chunks** — `type="pdf-vision"` in metadata
-   distinguishes them from PDFBox-extracted chunks, but they are searchable via the
-   same `FileRAGService.findRelevantContext()`.
+6. **Both first message and follow-up use `findAllByDocumentId()`** — with threshold=0.0
+   to bypass cross-language similarity mismatch (e.g. Russian query vs English document).
+   Since chunks are filtered by documentId, all returned chunks belong to the user's document.
 
-3. **First message gets both visual and RAG context** — JPEG images are still sent as
-   Media objects for the current message, so the model can "see" the document.
-   The augmented prompt with extracted text provides searchable context.
-   If final payload contains media, model selection requires `VISION`.
-
-4. **Follow-up messages use RAG** — the vision-extracted text persists in VectorStore,
-   so subsequent questions can find relevant chunks via semantic search.
+7. **Graceful degradation on restart** — if VectorStore data is lost (SimpleVectorStore
+   is in-memory), follow-up returns no chunks and the model answers from chat history only.

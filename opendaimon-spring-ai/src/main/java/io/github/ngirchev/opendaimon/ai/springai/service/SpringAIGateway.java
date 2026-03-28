@@ -35,6 +35,8 @@ import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtracta
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
@@ -66,6 +68,11 @@ public class SpringAIGateway implements AIGateway {
     private final RAGProperties ragProperties;
     private final ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider;
     private final ObjectProvider<FileRAGService> ragServiceProvider;
+    private final ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider;
+
+    /** Prefix for RAG document references stored in ConversationThread.memoryBullets. */
+    static final String RAG_BULLET_PREFIX = "[RAG:documentId:";
+    static final String RAG_BULLET_FILENAME_SEPARATOR = ":filename:";
 
     public SpringAIGateway(
             SpringAIProperties springAiProperties,
@@ -75,7 +82,8 @@ public class SpringAIGateway implements AIGateway {
             ObjectProvider<ChatMemory> chatMemoryProvider,
             RAGProperties ragProperties,
             ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-            ObjectProvider<FileRAGService> ragServiceProvider) {
+            ObjectProvider<FileRAGService> ragServiceProvider,
+            ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider) {
         this.springAiProperties = springAiProperties;
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.springAIModelRegistry = springAIModelRegistry;
@@ -84,6 +92,7 @@ public class SpringAIGateway implements AIGateway {
         this.ragProperties = ragProperties;
         this.documentProcessingServiceProvider = documentProcessingServiceProvider;
         this.ragServiceProvider = ragServiceProvider;
+        this.conversationThreadRepositoryProvider = conversationThreadRepositoryProvider;
     }
 
     @PostConstruct
@@ -390,7 +399,7 @@ public class SpringAIGateway implements AIGateway {
         List<Attachment> mutableAttachments = new ArrayList<>(attachments);
         long originalImageCount = attachments.stream().filter(att -> att.type() == AttachmentType.IMAGE).count();
         List<String> pdfAsImageFilenames = new ArrayList<>();
-        String finalUserRole = processRagIfEnabled(userRole, mutableAttachments, pdfAsImageFilenames);
+        String finalUserRole = processRagIfEnabled(userRole, mutableAttachments, pdfAsImageFilenames, messages, command);
         addAttachmentContextToMessagesAndMemory(messages, (int) originalImageCount, pdfAsImageFilenames, command);
         messages.add(createUserMessage(finalUserRole, mutableAttachments));
     }
@@ -494,9 +503,12 @@ public class SpringAIGateway implements AIGateway {
      * @param userQuery original user query
      * @param attachments mutable list of attachments (may get image-attachments from PDF fallback)
      * @param pdfAsImageFilenames mutable list to collect PDF filenames converted to images
-     * @return augmented prompt with document context (or original query if RAG disabled)
+     * @param messages mutable list of messages — RAG context is injected as transient SystemMessage
+     * @param command AI command with metadata (threadKey for looking up stored documentIds)
+     * @return user query (original or with placeholder reference); RAG context goes into SystemMessage, not here
      */
-    private String processRagIfEnabled(String userQuery, List<Attachment> attachments, List<String> pdfAsImageFilenames) {
+    private String processRagIfEnabled(String userQuery, List<Attachment> attachments, List<String> pdfAsImageFilenames,
+                                        List<Message> messages, AICommand command) {
         int totalAttachments = attachments != null ? attachments.size() : 0;
         List<Attachment> documentAttachments = attachments != null
                 ? attachments.stream().filter(Attachment::isDocument).toList()
@@ -509,10 +521,8 @@ public class SpringAIGateway implements AIGateway {
         }
 
         if (documentAttachments.isEmpty()) {
-            // RAG context from previous file processing is already in chat history
-            // (augmented prompt was saved as part of the message). No need to re-embed.
-            log.debug("RAG: No attachments, skipping embedding — context available from chat history");
-            return userQuery;
+            // No new documents — check if thread has stored RAG documentIds for follow-up
+            return processFollowUpRagIfAvailable(userQuery, messages, command, fileRagService);
         }
 
         log.debug("RAG: Processing new document attachments, chunking and indexing to VectorStore");
@@ -532,30 +542,185 @@ public class SpringAIGateway implements AIGateway {
 
         log.info("Processing {} document attachment(s) for RAG", documentAttachments.size());
         List<Document> allRelevantChunks = new ArrayList<>();
+        List<String> processedDocumentIds = new ArrayList<>();
         for (Attachment documentAttachment : documentAttachments) {
             try {
-                processOneDocumentForRag(documentAttachment, userQuery, documentProcessingService, fileRagService, allRelevantChunks, attachments, pdfAsImageFilenames);
+                processOneDocumentForRag(documentAttachment, userQuery, documentProcessingService, fileRagService,
+                        allRelevantChunks, attachments, pdfAsImageFilenames, processedDocumentIds);
             } catch (DocumentContentNotExtractableException e) {
                 throw e;
             } catch (Exception e) {
                 log.error("Failed to process document '{}': {}", documentAttachment.filename(), e.getMessage(), e);
             }
         }
-        
+
+        // Store documentIds in thread memoryBullets for follow-up RAG lookups
+        storeDocumentIdsInThread(processedDocumentIds, documentAttachments, command);
+
         if (allRelevantChunks.isEmpty()) {
             log.info("No relevant context found in documents");
             return userQuery;
         }
-        String augmentedPrompt = fileRagService.createAugmentedPrompt(userQuery, allRelevantChunks);
-        log.info("Created augmented prompt with {} relevant chunks from {} document(s)", 
+
+        // Inject RAG context as transient SystemMessage (not stored in chat memory)
+        injectRagContextAsSystemMessage(messages, allRelevantChunks);
+
+        // Build placeholder for UserMessage (instead of full augmented prompt)
+        String placeholder = buildRagPlaceholder(documentAttachments);
+        log.info("Created RAG context SystemMessage with {} chunks from {} document(s); UserMessage gets placeholder",
                 allRelevantChunks.size(), documentAttachments.size());
-        
-        return augmentedPrompt;
+
+        return userQuery + "\n" + placeholder;
+    }
+
+    /**
+     * On follow-up messages (no new attachments), checks if the thread has stored RAG documentIds
+     * in memoryBullets and fetches relevant chunks from VectorStore.
+     */
+    private String processFollowUpRagIfAvailable(String userQuery, List<Message> messages,
+                                                   AICommand command, FileRAGService fileRagService) {
+        if (fileRagService == null || command == null || command.metadata() == null) {
+            log.debug("RAG: No attachments, no thread context available");
+            return userQuery;
+        }
+
+        String threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
+        if (threadKey == null) {
+            log.debug("RAG: No threadKey in command metadata, skipping follow-up RAG");
+            return userQuery;
+        }
+
+        ConversationThreadRepository threadRepo = conversationThreadRepositoryProvider != null
+                ? conversationThreadRepositoryProvider.getIfAvailable() : null;
+        if (threadRepo == null) {
+            log.debug("RAG: ConversationThreadRepository not available, skipping follow-up RAG");
+            return userQuery;
+        }
+
+        Optional<ConversationThread> threadOpt = threadRepo.findByThreadKey(threadKey);
+        if (threadOpt.isEmpty()) {
+            log.debug("RAG: Thread not found for threadKey={}", threadKey);
+            return userQuery;
+        }
+
+        ConversationThread thread = threadOpt.get();
+        List<String> ragDocumentIds = extractRagDocumentIds(thread.getMemoryBullets());
+        if (ragDocumentIds.isEmpty()) {
+            log.debug("RAG: No stored RAG documentIds in thread memoryBullets for threadKey={}", threadKey);
+            return userQuery;
+        }
+
+        log.info("RAG follow-up: found {} stored documentId(s) in thread, fetching relevant chunks", ragDocumentIds.size());
+
+        List<Document> allChunks = new ArrayList<>();
+        for (String docId : ragDocumentIds) {
+            // Use findAllByDocumentId (threshold=0.0) to bypass cross-language similarity mismatch
+            // (e.g. Russian query vs English extracted text would fail with threshold=0.7)
+            List<Document> chunks = fileRagService.findAllByDocumentId(docId);
+            allChunks.addAll(chunks);
+        }
+
+        if (allChunks.isEmpty()) {
+            log.info("RAG follow-up: VectorStore returned no chunks for stored documentIds (may be lost after restart)");
+            return userQuery;
+        }
+
+        injectRagContextAsSystemMessage(messages, allChunks);
+        log.info("RAG follow-up: injected {} relevant chunks as transient SystemMessage", allChunks.size());
+
+        return userQuery;
+    }
+
+    /**
+     * Injects RAG document context as a transient SystemMessage.
+     * This message is added to the prompt for the LLM but is NOT persisted in chat memory
+     * (MessageChatMemoryAdvisor only stores User/Assistant messages from the conversation).
+     */
+    private static final String RAG_SYSTEM_MESSAGE_TEMPLATE =
+            "The user uploaded document(s). Below is the relevant content extracted from those documents. " +
+            "Use this context to answer the user's question.\n\nDocument context:\n%s";
+
+    private void injectRagContextAsSystemMessage(List<Message> messages, List<Document> chunks) {
+        String contextText = chunks.stream()
+                .map(Document::getText)
+                .collect(java.util.stream.Collectors.joining("\n\n---\n\n"));
+
+        String ragSystemPrompt = String.format(RAG_SYSTEM_MESSAGE_TEMPLATE, contextText);
+        messages.add(new SystemMessage(ragSystemPrompt));
+    }
+
+    /**
+     * Stores processed documentIds in thread's memoryBullets for follow-up RAG lookups.
+     */
+    private void storeDocumentIdsInThread(List<String> documentIds, List<Attachment> documentAttachments,
+                                           AICommand command) {
+        if (documentIds.isEmpty() || command == null || command.metadata() == null) {
+            return;
+        }
+        String threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
+        if (threadKey == null) {
+            return;
+        }
+        ConversationThreadRepository threadRepo = conversationThreadRepositoryProvider != null
+                ? conversationThreadRepositoryProvider.getIfAvailable() : null;
+        if (threadRepo == null) {
+            log.debug("RAG: ConversationThreadRepository not available, cannot store documentIds");
+            return;
+        }
+
+        threadRepo.findByThreadKey(threadKey).ifPresent(thread -> {
+            List<String> bullets = thread.getMemoryBullets() != null
+                    ? new ArrayList<>(thread.getMemoryBullets()) : new ArrayList<>();
+            for (int i = 0; i < documentIds.size(); i++) {
+                String docId = documentIds.get(i);
+                String filename = i < documentAttachments.size() ? documentAttachments.get(i).filename() : "unknown";
+                String bullet = RAG_BULLET_PREFIX + docId + RAG_BULLET_FILENAME_SEPARATOR + filename + "]";
+                if (!bullets.contains(bullet)) {
+                    bullets.add(bullet);
+                }
+            }
+            thread.setMemoryBullets(bullets);
+            threadRepo.save(thread);
+            log.info("RAG: stored {} documentId(s) in thread memoryBullets for threadKey={}", documentIds.size(), threadKey);
+        });
+    }
+
+    /**
+     * Extracts RAG documentIds from thread memoryBullets.
+     */
+    public static List<String> extractRagDocumentIds(List<String> memoryBullets) {
+        if (memoryBullets == null) {
+            return List.of();
+        }
+        List<String> docIds = new ArrayList<>();
+        for (String bullet : memoryBullets) {
+            if (bullet.startsWith(RAG_BULLET_PREFIX)) {
+                int endOfDocId = bullet.indexOf(RAG_BULLET_FILENAME_SEPARATOR);
+                if (endOfDocId > RAG_BULLET_PREFIX.length()) {
+                    docIds.add(bullet.substring(RAG_BULLET_PREFIX.length(), endOfDocId));
+                }
+            }
+        }
+        return docIds;
+    }
+
+    /**
+     * Builds a short placeholder reference for the UserMessage instead of full inline RAG text.
+     */
+    private String buildRagPlaceholder(List<Attachment> documentAttachments) {
+        StringBuilder sb = new StringBuilder("[Documents loaded for context: ");
+        for (int i = 0; i < documentAttachments.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(documentAttachments.get(i).filename());
+        }
+        sb.append("]");
+        return sb.toString();
     }
 
     private void processOneDocumentForRag(Attachment documentAttachment, String userQuery,
             DocumentProcessingService documentProcessingService, FileRAGService fileRagService,
-            List<Document> allRelevantChunks, List<Attachment> attachments, List<String> pdfAsImageFilenames) {
+            List<Document> allRelevantChunks, List<Attachment> attachments, List<String> pdfAsImageFilenames,
+            List<String> processedDocumentIds) {
         String mimeType = documentAttachment.mimeType() != null ? documentAttachment.mimeType().toLowerCase() : "";
         String documentType = extractDocumentType(mimeType, documentAttachment.filename());
         log.info("processRagIfEnabled: processing document filename={}, mimeType={}, dataLength={}, documentType={}",
@@ -594,6 +759,7 @@ public class SpringAIGateway implements AIGateway {
 
                     String visionDocId = documentProcessingService.processExtractedText(extractedText, documentAttachment.filename());
                     if (visionDocId != null) {
+                        processedDocumentIds.add(visionDocId);
                         List<Document> visionChunks = fileRagService.findAllByDocumentId(visionDocId);
                         allRelevantChunks.addAll(visionChunks);
                         log.info("Vision cache: stored extracted text for '{}', documentId={}, chunks={}",
@@ -606,6 +772,7 @@ public class SpringAIGateway implements AIGateway {
         } else {
             documentId = documentProcessingService.processWithTika(documentAttachment.data(), documentAttachment.filename(), documentType);
         }
+        processedDocumentIds.add(documentId);
         List<Document> relevantChunks = fileRagService.findRelevantContext(userQuery, documentId);
         allRelevantChunks.addAll(relevantChunks);
         log.info("processRagIfEnabled: documentId={}, relevantChunks={}", documentId, relevantChunks.size());
@@ -814,7 +981,7 @@ public class SpringAIGateway implements AIGateway {
             List<Attachment> imageAttachments = new ArrayList<>();
             
             for (int pageIndex = 0; pageIndex < pagesToRender; pageIndex++) {
-                java.awt.image.BufferedImage image = renderer.renderImageWithDPI(pageIndex, 200);
+                java.awt.image.BufferedImage image = renderer.renderImageWithDPI(pageIndex, 300);
                 
                 java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
                 javax.imageio.ImageIO.write(image, "JPEG", baos);
@@ -879,9 +1046,10 @@ public class SpringAIGateway implements AIGateway {
         try {
             String extractedText = chatService.callSimpleVision(visionModel, List.of(userMessage));
             if (extractedText != null && !extractedText.isBlank()) {
+                extractedText = stripModelInternalTokens(extractedText);
                 log.info("Vision extraction succeeded for '{}': {} chars", filename, extractedText.length());
                 log.debug("Vision extracted text for '{}': [{}]", filename, extractedText);
-                return extractedText;
+                return extractedText.isBlank() ? null : extractedText;
             }
             log.warn("Vision extraction returned empty text for '{}'", filename);
             return null;
@@ -889,6 +1057,16 @@ public class SpringAIGateway implements AIGateway {
             log.error("Vision extraction failed for '{}': {}", filename, e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Strips model-internal tokens (e.g. {@code <start_of_image>}, {@code <end_of_turn>})
+     * that some vision models (gemma3, llava) leak into their text output.
+     */
+    public static String stripModelInternalTokens(String text) {
+        if (text == null) return null;
+        return text.replaceAll("<start_of_image>|<end_of_image>|<end_of_turn>|<start_of_turn>", "")
+                .strip();
     }
 
     private static int countMatchingCaps(Set<ModelCapabilities> modelCaps, Set<ModelCapabilities> optional) {

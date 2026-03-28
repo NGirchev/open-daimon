@@ -23,6 +23,8 @@ import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtracta
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -69,6 +71,8 @@ class SpringAIGatewayDocumentRagTest {
     private FileRAGService fileRagService;
     @Mock
     private ChatMemory chatMemory;
+    @Mock
+    private ConversationThreadRepository conversationThreadRepository;
     private SpringAIGateway springAIGateway;
 
     /**
@@ -129,6 +133,10 @@ class SpringAIGatewayDocumentRagTest {
         prompts.setVisionExtractionPrompt("Extract all text content from this image");
         ragProperties.setPrompts(prompts);
 
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ConversationThreadRepository> threadRepoProvider = mock(ObjectProvider.class);
+        lenient().when(threadRepoProvider.getIfAvailable()).thenReturn(conversationThreadRepository);
+
         springAIGateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
@@ -137,7 +145,8 @@ class SpringAIGatewayDocumentRagTest {
                 chatMemoryProvider,
                 ragProperties,
                 docProvider,
-                ragProvider
+                ragProvider,
+                threadRepoProvider
         );
     }
 
@@ -443,7 +452,8 @@ class SpringAIGatewayDocumentRagTest {
         verify(chatService, times(1)).callSimpleVision(any(), any());
         // RAG stores extracted text
         verify(fileRagService, times(1)).findAllByDocumentId("vision-doc-id");
-        verify(fileRagService, times(1)).createAugmentedPrompt(anyString(), anyList());
+        // createAugmentedPrompt is no longer called — RAG context goes into transient SystemMessage
+        verify(fileRagService, never()).createAugmentedPrompt(anyString(), anyList());
 
         // KEY: final message has NO images — text model is used, not vision
         @SuppressWarnings("unchecked")
@@ -552,6 +562,151 @@ class SpringAIGatewayDocumentRagTest {
         assertTrue(hasSystemMessageWithImageContext, "Should have SystemMessage with image attachment context");
 
         // In this test ChatMemory is not used because there is no threadKey in metadata
+    }
+
+    /**
+     * When a PDF is processed for RAG, the documentId should be stored in the thread's
+     * memoryBullets so that follow-up messages can find the RAG data.
+     * The UserMessage should NOT contain the full document text — only a placeholder.
+     */
+    @Test
+    void whenPdfProcessedForRag_thenDocumentIdStoredInThreadAndUserMessageHasPlaceholder() {
+        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
+        Attachment pdfAttachment = new Attachment(
+                "doc/key.pdf",
+                "application/pdf",
+                "report.pdf",
+                pdfData.length,
+                AttachmentType.PDF,
+                pdfData
+        );
+
+        when(documentProcessingService.processPdf(any(byte[].class), anyString())).thenReturn("rag-doc-123");
+        when(fileRagService.findRelevantContext(anyString(), eq("rag-doc-123")))
+                .thenReturn(List.of(new Document("chunk text from document")));
+
+        // Thread exists in DB
+        ConversationThread thread = new ConversationThread();
+        thread.setThreadKey("thread-abc");
+        thread.setMemoryBullets(new java.util.ArrayList<>());
+        when(conversationThreadRepository.findByThreadKey("thread-abc"))
+                .thenReturn(Optional.of(thread));
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("threadKey", "thread-abc");
+
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT),
+                Set.of(),
+                0.35,
+                1000,
+                null,
+                null,
+                "What is in the file?",
+                true,
+                metadata,
+                Map.of(),
+                List.of(pdfAttachment)
+        );
+
+        springAIGateway.generateResponse(command);
+
+        // Verify documentId was stored in thread memoryBullets
+        verify(conversationThreadRepository).save(argThat(t ->
+                t.getMemoryBullets().stream().anyMatch(b -> b.contains("rag-doc-123"))
+        ));
+
+        // Verify UserMessage does NOT contain full document text (inline RAG)
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(any(), any(), any(), messagesCaptor.capture());
+
+        List<Message> finalMessages = messagesCaptor.getValue();
+        String userMessageText = finalMessages.stream()
+                .filter(UserMessage.class::isInstance)
+                .map(UserMessage.class::cast)
+                .map(UserMessage::getText)
+                .findFirst()
+                .orElse("");
+
+        // UserMessage should have placeholder, NOT full augmented prompt
+        assertFalse(userMessageText.contains("chunk text from document"),
+                "UserMessage should NOT contain inline RAG text — only a placeholder reference");
+        assertTrue(userMessageText.contains("report.pdf") || userMessageText.contains("rag-doc-123"),
+                "UserMessage should contain a placeholder referencing the document");
+
+        // But a transient SystemMessage with RAG context should be present for the LLM
+        boolean hasRagSystemMessage = finalMessages.stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(SystemMessage.class::cast)
+                .anyMatch(m -> m.getText().contains("chunk text from document")
+                        && m.getText().contains("Document context:"));
+        assertTrue(hasRagSystemMessage,
+                "A transient SystemMessage with RAG document context should be present for the LLM");
+    }
+
+    /**
+     * On follow-up messages (no new attachments), if the thread has RAG documentIds
+     * in memoryBullets, the gateway should fetch relevant chunks from VectorStore
+     * and inject them as a transient SystemMessage.
+     */
+    @Test
+    void whenFollowUpMessageWithRagDocumentInThread_thenFetchesFromVectorStore() {
+        // No attachments — this is a follow-up message
+        ConversationThread thread = new ConversationThread();
+        thread.setThreadKey("thread-xyz");
+        thread.setMemoryBullets(List.of("[RAG:documentId:rag-doc-456:filename:invoice.pdf]"));
+        when(conversationThreadRepository.findByThreadKey("thread-xyz"))
+                .thenReturn(Optional.of(thread));
+
+        when(fileRagService.findAllByDocumentId("rag-doc-456"))
+                .thenReturn(List.of(new Document("Invoice total: $5,000")));
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("threadKey", "thread-xyz");
+
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT),
+                Set.of(),
+                0.35,
+                1000,
+                null,
+                null,
+                "What was the total?",
+                true,
+                metadata,
+                Map.of(),
+                List.of()  // No attachments — follow-up
+        );
+
+        springAIGateway.generateResponse(command);
+
+        // Should fetch ALL chunks by documentId (threshold=0.0) to bypass cross-language similarity mismatch
+        verify(fileRagService).findAllByDocumentId("rag-doc-456");
+
+        // Should inject RAG context as transient SystemMessage
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(any(), any(), any(), messagesCaptor.capture());
+
+        List<Message> finalMessages = messagesCaptor.getValue();
+        boolean hasRagSystemMessage = finalMessages.stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(SystemMessage.class::cast)
+                .anyMatch(m -> m.getText().contains("Invoice total: $5,000")
+                        && m.getText().contains("Document context:"));
+        assertTrue(hasRagSystemMessage,
+                "Follow-up should have a transient SystemMessage with RAG context from VectorStore");
+
+        // UserMessage should be the original query, NOT augmented
+        String userMessageText = finalMessages.stream()
+                .filter(UserMessage.class::isInstance)
+                .map(UserMessage.class::cast)
+                .map(UserMessage::getText)
+                .findFirst()
+                .orElse("");
+        assertEquals("What was the total?", userMessageText,
+                "UserMessage should contain the original query, not an augmented prompt");
     }
 
     @Test

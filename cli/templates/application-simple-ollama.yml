@@ -48,6 +48,7 @@ open-daimon:
               - CHAT
             provider-type: OLLAMA
             priority: 1
+            max-output-tokens: 16384
           - name: "nomic-embed-text:v1.5"
             capabilities:
               - EMBEDDING
