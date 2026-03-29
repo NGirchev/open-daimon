@@ -108,11 +108,22 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             // Get or create user session
             TelegramUserSession session = telegramUserSessionService.getOrCreateSession(telegramUser);
 
+            boolean hasNoText = command.userText() == null || command.userText().isBlank();
+            boolean hasNoAttachments = command.attachments() == null || command.attachments().isEmpty();
+            if (hasNoText && hasNoAttachments) {
+                String emptyRequestText = messageLocalizationService.getMessage(
+                        "telegram.message.empty.after.mention",
+                        command.languageCode(),
+                        formatBotMention());
+                sendErrorMessage(command.telegramId(), emptyRequestText, message.getMessageId());
+                return null;
+            }
+
             // Save user request (including attachment refs when present)
             // Thread and role are obtained or created inside saveUserMessage
             userMessage = telegramMessageService.saveUserMessage(
                     telegramUser, session, command.userText(),
-                    RequestType.TEXT, null, command.attachments());
+                    RequestType.TEXT, null, command.attachments(), command.telegramId());
 
             // Get thread and role from saved message for further use
             thread = userMessage.getThread();
@@ -131,7 +142,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             // ConversationHistoryAiCommandFactory uses ContextBuilderService for context
             // If metadata has threadKey - ConversationHistoryAiCommandFactory is used
             // Otherwise DefaultAiCommandFactory (fallback)
-            Map<String, String> metadata = prepareMetadata(thread, assistantRoleContent, assistantRoleId, telegramUser);
+            Map<String, String> metadata = prepareMetadata(
+                    thread, assistantRoleContent, assistantRoleId, telegramUser);
 
             List<Attachment> atts = command.attachments() != null ? command.attachments() : List.of();
             String attachmentTypes = atts.stream().map(a -> a.type().toString()).toList().toString();
@@ -169,7 +181,14 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             }
 
             if (ctx.responseTextOpt().isPresent()) {
-                SavedResponse saved = saveSuccessResponse(telegramUser, aiResponse, ctx, modelCapabilities, assistantRoleContent, startTime);
+                SavedResponse saved = saveSuccessResponse(
+                        telegramUser,
+                        userMessage.getThread(),
+                        aiResponse,
+                        ctx,
+                        modelCapabilities,
+                        assistantRoleContent,
+                        startTime);
                 // Use thread from saved assistant message — it has up-to-date totalTokens after updateThreadCounters
                 ConversationThread updatedThread = saved.thread();
                 if (ctx.alreadySentInStream()) {
@@ -186,7 +205,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                             keyboard);
                 }
             } else {
-                sendEmptyContentError(command, telegramUser, message, ctx, modelCapabilities, assistantRoleContent);
+                sendEmptyContentError(command, telegramUser, userMessage.getThread(), message, ctx, modelCapabilities, assistantRoleContent);
                 return null;
             }
         } catch (UserMessageTooLongException e) {
@@ -228,7 +247,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                     e.getMessage(),
                     modelCapabilities.toString(),
                     errorRoleContent,
-                    null);
+                    null,
+                    userMessage.getThread());
         }
         sendErrorMessage(command.telegramId(), e.getMessage(), replyToMessageId);
     }
@@ -250,7 +270,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             String errorRoleContent = userMessage.getAssistantRole() != null
                     ? userMessage.getAssistantRole().getContent() : null;
             telegramMessageService.saveAssistantErrorMessage(
-                    telegramUser, errorText, modelCapabilities.toString(), errorRoleContent, null);
+                    telegramUser, errorText, modelCapabilities.toString(), errorRoleContent, null, userMessage.getThread());
         }
         sendErrorMessage(command.telegramId(), errorText, replyToMessageId);
     }
@@ -282,7 +302,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                     userFacingMessage,
                     modelCapabilities.toString(),
                     errorRoleContent,
-                    null);
+                    null,
+                    userMessage.getThread());
         }
         Integer replyToMessageId = message != null ? message.getMessageId() : null;
         sendErrorMessage(command.telegramId(), userFacingMessage, replyToMessageId);
@@ -339,7 +360,9 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
 
     private record SavedResponse(String model, ConversationThread thread) {}
 
-    private SavedResponse saveSuccessResponse(TelegramUser telegramUser, AIResponse aiResponse, ResponseContext ctx,
+    private SavedResponse saveSuccessResponse(TelegramUser telegramUser,
+                                              ConversationThread thread,
+                                              AIResponse aiResponse, ResponseContext ctx,
                                               Set<ModelCapabilities> modelCapabilities, String assistantRoleContent,
                                               long startTime) {
         String responseText = ctx.responseTextOpt().orElseThrow();
@@ -354,12 +377,13 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 modelCapabilities.toString(),
                 assistantRoleContent,
                 (int) processingTime,
-                ctx.usefulResponseData());
+                ctx.usefulResponseData(),
+                thread);
         messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
         return new SavedResponse(model, assistantMessage.getThread());
     }
 
-    private void sendEmptyContentError(TelegramCommand command, TelegramUser telegramUser, Message message,
+    private void sendEmptyContentError(TelegramCommand command, TelegramUser telegramUser, ConversationThread thread, Message message,
                                        ResponseContext ctx, Set<ModelCapabilities> modelCapabilities,
                                        String assistantRoleContent) {
         String detailedError = ctx.errorOpt().orElse(AIUtils.CONTENT_IS_EMPTY);
@@ -373,7 +397,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 assistantRoleContent,
                 ctx.usefulResponseData() != null && !ctx.usefulResponseData().isEmpty()
                         ? ctx.usefulResponseData().toString()
-                        : null);
+                        : null,
+                thread);
         String userMessage = messageLocalizationService.getMessage("common.error.processing", command.languageCode());
         sendErrorMessage(command.telegramId(), userMessage, message.getMessageId());
     }
@@ -388,8 +413,9 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         metadata.put(THREAD_KEY_FIELD, thread.getThreadKey());
         metadata.put(ASSISTANT_ROLE_ID_FIELD, assistantRoleId.toString());
         metadata.put(USER_ID_FIELD, telegramUser.getId().toString());
-        // For backward compatibility also pass role (for fallback to DefaultAiCommandFactory)
-        metadata.put(ROLE_FIELD, assistantRoleContent);
+        // For backward compatibility also pass role (for fallback to DefaultAiCommandFactory).
+        // Telegram-specific bot identity is composed in this module.
+        metadata.put(ROLE_FIELD, withTelegramBotIdentity(assistantRoleContent));
         if (telegramUser.getLanguageCode() != null) {
             metadata.put(LANGUAGE_CODE_FIELD, telegramUser.getLanguageCode());
         }
@@ -398,11 +424,47 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         return metadata;
     }
 
+    private String withTelegramBotIdentity(String assistantRoleContent) {
+        String baseRole = assistantRoleContent != null ? assistantRoleContent.trim() : "";
+        String normalizedBotUsername = normalizeBotUsername(telegramProperties.getUsername());
+        if (normalizedBotUsername == null) {
+            return baseRole;
+        }
+        String identityClause = "You are bot with name " + normalizedBotUsername;
+        if (baseRole.contains(identityClause)) {
+            return baseRole;
+        }
+        if (baseRole.isEmpty()) {
+            return identityClause;
+        }
+        String separator = baseRole.endsWith(".") ? " " : ". ";
+        return baseRole + separator + identityClause;
+    }
+
     // createResponseMetadata and serializeToJson were removed;
     // all data is already stored in message table and need not be duplicated in response_data
 
     @Override
     public String getSupportedCommandText(String languageCode) {
         return null;
+    }
+
+    private String formatBotMention() {
+        String normalizedBotUsername = normalizeBotUsername(telegramProperties.getUsername());
+        if (normalizedBotUsername == null) {
+            return "@bot";
+        }
+        return normalizedBotUsername;
+    }
+
+    private String normalizeBotUsername(String username) {
+        if (username == null) {
+            return null;
+        }
+        String trimmed = username.trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        return trimmed.startsWith("@") ? trimmed : "@" + trimmed;
     }
 }

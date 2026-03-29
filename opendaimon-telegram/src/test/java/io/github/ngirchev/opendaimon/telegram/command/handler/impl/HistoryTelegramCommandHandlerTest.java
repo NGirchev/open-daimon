@@ -3,6 +3,7 @@ package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
@@ -125,7 +126,7 @@ class HistoryTelegramCommandHandlerTest {
 
         TelegramUser telegramUser = new TelegramUser();
         when(userService.getOrCreateUser(any())).thenReturn(telegramUser);
-        when(threadRepository.findMostRecentActiveThread(telegramUser)).thenReturn(Optional.empty());
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.empty());
 
         TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
                 new TelegramCommandType(TelegramCommand.HISTORY), update);
@@ -147,7 +148,7 @@ class HistoryTelegramCommandHandlerTest {
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey("thread-key-12");
         when(userService.getOrCreateUser(any())).thenReturn(telegramUser);
-        when(threadRepository.findMostRecentActiveThread(telegramUser)).thenReturn(Optional.of(thread));
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.of(thread));
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread)).thenReturn(List.of());
 
         TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
@@ -171,7 +172,7 @@ class HistoryTelegramCommandHandlerTest {
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey("thread-key-ab");
         when(userService.getOrCreateUser(any())).thenReturn(telegramUser);
-        when(threadRepository.findMostRecentActiveThread(telegramUser)).thenReturn(Optional.of(thread));
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.of(thread));
 
         OpenDaimonMessage userMsg = new OpenDaimonMessage();
         userMsg.setRole(MessageRole.USER);

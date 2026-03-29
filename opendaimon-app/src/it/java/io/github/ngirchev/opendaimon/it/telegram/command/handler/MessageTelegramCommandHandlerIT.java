@@ -10,12 +10,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -238,6 +238,7 @@ class MessageTelegramCommandHandlerIT {
                 CoreCommonProperties coreCommonProperties,
                 MessageLocalizationService messageLocalizationService,
                 ObjectProvider<StorageProperties> storagePropertiesProvider,
+                ConversationThreadService conversationThreadService,
                 ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider) {
             return new TelegramMessageService(
                     messageService,
@@ -245,6 +246,7 @@ class MessageTelegramCommandHandlerIT {
                     coreCommonProperties,
                     messageLocalizationService,
                     storagePropertiesProvider,
+                    conversationThreadService,
                     telegramMessageServiceSelfProvider
             );
         }
@@ -328,7 +330,7 @@ class MessageTelegramCommandHandlerIT {
     @Autowired
     private TelegramBot mockTelegramBot;
 
-    @MockBean
+    @MockitoBean
     private TelegramBotRegistrar telegramBotRegistrar;
 
     private TelegramUser testUser;
@@ -533,4 +535,3 @@ class MessageTelegramCommandHandlerIT {
         return new TelegramCommand(1L, 12345L, commandType, update, text);
     }
 }
-

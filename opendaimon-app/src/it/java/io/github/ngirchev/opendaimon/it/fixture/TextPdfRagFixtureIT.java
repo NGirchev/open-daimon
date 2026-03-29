@@ -80,7 +80,6 @@ class TextPdfRagFixtureIT {
             prompts.setAugmentedPromptTemplate("Context:\n%s\n\nQuestion: %s");
             prompts.setDocumentExtractErrorPdf("PDF error: %s");
             prompts.setDocumentExtractErrorDocument("Doc error: %s %s");
-            prompts.setVisionExtractionPrompt("Extract text from this image");
             props.setPrompts(prompts);
             return props;
         }

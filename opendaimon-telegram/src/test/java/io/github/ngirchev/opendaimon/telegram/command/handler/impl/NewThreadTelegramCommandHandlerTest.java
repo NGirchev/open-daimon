@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
@@ -132,11 +133,11 @@ class NewThreadTelegramCommandHandlerTest {
         telegramUser.setTelegramId(100L);
         telegramUser.setLanguageCode("en");
         when(userService.getOrCreateUser(from)).thenReturn(telegramUser);
-        when(threadRepository.findMostRecentActiveThread(telegramUser)).thenReturn(Optional.empty());
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.empty());
 
         ConversationThread newThread = new ConversationThread();
         newThread.setThreadKey("thread-key-abcdef12");
-        when(threadService.createNewThread(telegramUser)).thenReturn(newThread);
+        when(threadService.createNewThread(telegramUser, ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(newThread);
 
         TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
                 new TelegramCommandType(TelegramCommand.NEWTHREAD), update);
@@ -146,8 +147,8 @@ class NewThreadTelegramCommandHandlerTest {
         assertNotNull(result);
         assertTrue(result.contains("New conversation started"));
         assertTrue(result.contains("Thread ID:"));
-        verify(threadService).createNewThread(telegramUser);
-        verify(threadRepository).findMostRecentActiveThread(telegramUser);
+        verify(threadService).createNewThread(telegramUser, ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
+        verify(threadRepository).findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
     }
 
     @Test
@@ -166,11 +167,11 @@ class NewThreadTelegramCommandHandlerTest {
         ConversationThread oldThread = new ConversationThread();
         oldThread.setId(1L);
         oldThread.setThreadKey("old-key");
-        when(threadRepository.findMostRecentActiveThread(telegramUser)).thenReturn(Optional.of(oldThread));
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.of(oldThread));
 
         ConversationThread newThread = new ConversationThread();
         newThread.setThreadKey("new-thread-key-12");
-        when(threadService.createNewThread(telegramUser)).thenReturn(newThread);
+        when(threadService.createNewThread(telegramUser, ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(newThread);
 
         TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
                 new TelegramCommandType(TelegramCommand.NEWTHREAD), update);
@@ -180,7 +181,7 @@ class NewThreadTelegramCommandHandlerTest {
         assertNotNull(result);
         assertTrue(result.contains("Previous conversation history was saved"));
         verify(threadService).closeThread(oldThread);
-        verify(threadService).createNewThread(telegramUser);
+        verify(threadService).createNewThread(telegramUser, ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
     }
 
     @Test

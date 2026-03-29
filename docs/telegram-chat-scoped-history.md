@@ -13,21 +13,21 @@ This plan defines a single business logic for Telegram bot interactions, with tr
 - Group thread control (`/history`, `/threads`, `/newthread`) is allowed for any member who passes access control.
 
 ## Progress Checklist
-- [ ] Add thread scope fields to `conversation_thread` (`scope_kind`, `scope_id`) with indexes.
-- [ ] Add Flyway migration for scope fields and backfill legacy rows with `scope_kind=USER`.
-- [ ] Extend thread selection service to resolve active thread by `(scope_kind, scope_id)`.
-- [ ] Update Telegram message flow to map all dialog requests to `TELEGRAM_CHAT` scope using `message.chat.id`.
-- [ ] Keep non-Telegram channels on existing user-scoped behavior.
-- [ ] Add group filter: process only mention/reply/command, ignore other group messages.
-- [ ] Add mention normalization: remove self-mention `@<bot_username>` before AI call.
-- [ ] Add fallback when normalized message is empty (no AI call).
-- [ ] Add dedicated inline handler that always returns guidance via `AnswerInlineQuery`.
-- [ ] Add i18n keys for inline-disabled guidance in `telegram_en.properties` and `telegram_ru.properties`.
-- [ ] Ensure inline updates are no longer logged as unsupported warnings.
-- [ ] Update `/history`, `/threads`, `/newthread` handlers to work with chat-scoped thread ownership.
-- [ ] Update `opendaimon-telegram/TELEGRAM_MODULE.md` with new behavior and use cases.
-- [ ] Add/adjust unit tests for routing, scope resolution, inline guidance, and group command behavior.
-- [ ] Run compile and target tests for affected modules.
+- [x] Add thread scope fields to `conversation_thread` (`scope_kind`, `scope_id`) with indexes.
+- [x] Add Flyway migration for scope fields and backfill legacy rows with `scope_kind=USER`.
+- [x] Extend thread selection service to resolve active thread by `(scope_kind, scope_id)`.
+- [x] Update Telegram message flow to map all dialog requests to `TELEGRAM_CHAT` scope using `message.chat.id`.
+- [x] Keep non-Telegram channels on existing user-scoped behavior.
+- [x] Add group filter: process only mention/reply/command, ignore other group messages.
+- [x] Add mention normalization: remove self-mention `@<bot_username>` before AI call.
+- [x] Add fallback when normalized message is empty (no AI call).
+- [x] Add dedicated inline handler that always returns guidance via `AnswerInlineQuery`.
+- [x] Add i18n keys for inline-disabled guidance in `telegram_en.properties` and `telegram_ru.properties`.
+- [x] Ensure inline updates are no longer logged as unsupported warnings.
+- [x] Update `/history`, `/threads`, `/newthread` handlers to work with chat-scoped thread ownership.
+- [x] Update `opendaimon-telegram/TELEGRAM_MODULE.md` with new behavior and use cases.
+- [x] Add/adjust unit tests for routing, scope resolution, inline guidance, and group command behavior.
+- [x] Run compile and target tests for affected modules.
 
 ## Acceptance Criteria
 - Group conversation memory is shared across participants through the same `chat.id` thread.

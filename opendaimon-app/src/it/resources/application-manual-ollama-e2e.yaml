@@ -1,0 +1,79 @@
+# Dedicated overrides for manual Ollama PDF+RAG integration tests.
+
+spring:
+  main:
+    banner-mode: off
+  ai:
+    model:
+      chat: ollama
+      embedding: ollama
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+  autoconfigure:
+    exclude:
+      - io.github.ngirchev.opendaimon.rest.config.RestAutoConfig
+      - io.github.ngirchev.opendaimon.ui.config.UIAutoConfig
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+
+open-daimon:
+  common:
+    bulkhead:
+      enabled: false
+  telegram:
+    enabled: true
+    token: test-token
+    username: test-bot
+    file-upload:
+      enabled: false
+    access:
+      ADMIN:
+        channels: []
+      VIP:
+        channels: []
+      REGULAR:
+        channels: []
+  ai:
+    gateway-mock:
+      enabled: false
+    spring-ai:
+      enabled: true
+      mock: false
+      openrouter-auto-rotation:
+        models:
+          enabled: false
+      rag:
+        enabled: true
+        similarity-threshold: 0.0
+      serper:
+        api:
+          key: test-key
+          url: https://google.serper.dev/search
+      models:
+        list:
+          - name: ${manual.ollama.chat-model:qwen2.5:3b}
+            capabilities:
+              - AUTO
+              - CHAT
+            provider-type: OLLAMA
+            priority: 1
+          - name: ${manual.ollama.vision-model:gemma3:4b}
+            capabilities:
+              - CHAT
+              - VISION
+            provider-type: OLLAMA
+            priority: 1
+            max-output-tokens: 16384
+          - name: nomic-embed-text:v1.5
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 1
+
+logging:
+  level:
+    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway: DEBUG

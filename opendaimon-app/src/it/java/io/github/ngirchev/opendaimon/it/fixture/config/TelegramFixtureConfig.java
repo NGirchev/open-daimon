@@ -225,6 +225,7 @@ public class TelegramFixtureConfig {
             CoreCommonProperties coreCommonProperties,
             MessageLocalizationService messageLocalizationService,
             ObjectProvider<StorageProperties> storagePropertiesProvider,
+            ConversationThreadService conversationThreadService,
             ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider) {
         return new TelegramMessageService(
                 messageService,
@@ -232,6 +233,7 @@ public class TelegramFixtureConfig {
                 coreCommonProperties,
                 messageLocalizationService,
                 storagePropertiesProvider,
+                conversationThreadService,
                 telegramMessageServiceSelfProvider);
     }
 

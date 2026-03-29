@@ -14,6 +14,7 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
@@ -131,7 +132,8 @@ class ThreadsTelegramCommandHandlerTest {
         TelegramUser user = new TelegramUser();
         user.setTelegramId(200L);
         when(userService.getOrCreateUser(any(User.class))).thenReturn(user);
-        when(threadRepository.findByUserOrderByLastActivityAtDesc(user)).thenReturn(List.of());
+        when(threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
+                ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(List.of());
 
         TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.THREADS), update);
 
@@ -155,9 +157,12 @@ class ThreadsTelegramCommandHandlerTest {
         thread.setTitle("My chat");
         thread.setIsActive(true);
         thread.setUser(user);
+        thread.setScopeKind(ThreadScopeKind.TELEGRAM_CHAT);
+        thread.setScopeId(CHAT_ID);
 
         when(userService.getOrCreateUser(from)).thenReturn(user);
-        when(threadRepository.findByUserOrderByLastActivityAtDesc(user)).thenReturn(List.of(thread));
+        when(threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
+                ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(List.of(thread));
 
         TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.THREADS), update);
 
@@ -207,6 +212,8 @@ class ThreadsTelegramCommandHandlerTest {
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey(threadKey);
         thread.setUser(otherUser);
+        thread.setScopeKind(ThreadScopeKind.TELEGRAM_CHAT);
+        thread.setScopeId(999L);
 
         when(userService.getOrCreateUser(from)).thenReturn(currentUser);
         when(threadService.findByThreadKey(threadKey)).thenReturn(Optional.of(thread));
@@ -238,16 +245,19 @@ class ThreadsTelegramCommandHandlerTest {
         thread.setUser(user);
         thread.setTitle("My conversation");
         thread.setTotalMessages(5);
+        thread.setScopeKind(ThreadScopeKind.TELEGRAM_CHAT);
+        thread.setScopeId(CHAT_ID);
 
         when(userService.getOrCreateUser(from)).thenReturn(user);
         when(threadService.findByThreadKey(threadKey)).thenReturn(Optional.of(thread));
-        when(threadService.activateThread(eq(user), eq(thread))).thenReturn(thread);
+        when(threadService.activateThread(eq(user), eq(thread), eq(ThreadScopeKind.TELEGRAM_CHAT), eq(CHAT_ID)))
+                .thenReturn(thread);
 
         TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.THREADS), update);
 
         assertNull(handler.handleInner(command));
 
-        verify(threadService).activateThread(user, thread);
+        verify(threadService).activateThread(user, thread, ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
         verify(telegramBot, atLeast(1)).execute(any(org.telegram.telegrambots.meta.api.methods.BotApiMethod.class));
         verify(telegramBot).sendMessage(eq(CHAT_ID), anyString(), isNull(), isNull(ReplyKeyboard.class));
     }

@@ -20,9 +20,11 @@ import java.util.List;
 @Table(name = "conversation_thread", indexes = {
         @Index(name = "idx_conversation_thread_user_id", columnList = "user_id"),
         @Index(name = "idx_conversation_thread_thread_key", columnList = "thread_key"),
+        @Index(name = "idx_conversation_thread_scope", columnList = "scope_kind, scope_id"),
         @Index(name = "idx_conversation_thread_is_active", columnList = "is_active"),
         @Index(name = "idx_conversation_thread_last_activity", columnList = "last_activity_at"),
-        @Index(name = "idx_conversation_thread_user_active", columnList = "user_id, is_active, last_activity_at")
+        @Index(name = "idx_conversation_thread_user_active", columnList = "user_id, is_active, last_activity_at"),
+        @Index(name = "idx_conversation_thread_scope_active", columnList = "scope_kind, scope_id, is_active, last_activity_at")
 })
 @Getter
 @Setter
@@ -46,6 +48,19 @@ public class ConversationThread extends AbstractEntity<Long> {
      */
     @Column(name = "thread_key", nullable = false, unique = true)
     private String threadKey;
+
+    /**
+     * Logical scope kind of this thread.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scope_kind", nullable = false, length = 32)
+    private ThreadScopeKind scopeKind = ThreadScopeKind.USER;
+
+    /**
+     * Logical scope identifier (e.g. user id for USER, chat id for TELEGRAM_CHAT).
+     */
+    @Column(name = "scope_id", nullable = false)
+    private Long scopeId;
     
     /**
      * Optional conversation topic title.
@@ -126,6 +141,12 @@ public class ConversationThread extends AbstractEntity<Long> {
         if (memoryBullets == null) {
             memoryBullets = new ArrayList<>();
         }
+        if (scopeKind == null) {
+            scopeKind = ThreadScopeKind.USER;
+        }
+        if (scopeId == null && user != null && user.getId() != null) {
+            scopeId = user.getId();
+        }
     }
     
     @PreUpdate
@@ -133,4 +154,3 @@ public class ConversationThread extends AbstractEntity<Long> {
         lastActivityAt = OffsetDateTime.now();
     }
 }
-

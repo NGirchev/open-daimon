@@ -214,7 +214,7 @@ class OpenDaimonMessageServiceTest {
         assertNotNull(saved);
         verify(messageRepository).save(any(OpenDaimonMessage.class));
         verify(assistantRoleService).getOrCreateDefaultRole(user, "Default role");
-        verify(messageServiceSelfProvider).getObject();
+        verify(messageServiceSelfProvider, times(2)).getObject();
     }
 
     @Test
@@ -331,4 +331,3 @@ class OpenDaimonMessageServiceTest {
         verify(messageRepository).save(any(OpenDaimonMessage.class));
     }
 }
-

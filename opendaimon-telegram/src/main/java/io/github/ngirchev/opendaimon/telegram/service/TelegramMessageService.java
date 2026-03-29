@@ -7,8 +7,11 @@ import org.springframework.transaction.annotation.Transactional;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AssistantRole;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.RequestType;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
@@ -35,6 +38,7 @@ public class TelegramMessageService {
     private final CoreCommonProperties coreCommonProperties;
     private final MessageLocalizationService messageLocalizationService;
     private final ObjectProvider<StorageProperties> storagePropertiesProvider;
+    private final ConversationThreadService conversationThreadService;
     /** Self-reference for transactional proxy (avoids bypassing @Transactional on internal calls). */
     private final ObjectProvider<TelegramMessageService> selfProvider;
     
@@ -53,6 +57,30 @@ public class TelegramMessageService {
             RequestType requestType,
             String assistantRoleContent,
             List<Attachment> attachments) {
+        return selfProvider.getObject().saveUserMessage(
+                telegramUser,
+                session,
+                content,
+                requestType,
+                assistantRoleContent,
+                attachments,
+                null);
+    }
+
+    /**
+     * Saves USER message for Telegram chat scope.
+     *
+     * @param chatId Telegram chat id; when null, falls back to legacy user scope
+     */
+    @Transactional
+    public OpenDaimonMessage saveUserMessage(
+            TelegramUser telegramUser,
+            TelegramUserSession session,
+            String content,
+            RequestType requestType,
+            String assistantRoleContent,
+            List<Attachment> attachments,
+            Long chatId) {
         
         // Get or create assistant role for user via TelegramUserService
         String roleContent = assistantRoleContent != null 
@@ -68,6 +96,9 @@ public class TelegramMessageService {
         }
         
         List<Map<String, Object>> attachmentRefs = buildAttachmentRefs(attachments);
+        ConversationThread thread = chatId != null
+                ? conversationThreadService.getOrCreateThread(telegramUser, ThreadScopeKind.TELEGRAM_CHAT, chatId)
+                : conversationThreadService.getOrCreateThread(telegramUser);
         
         return messageService.saveUserMessage(
                 telegramUser, 
@@ -75,7 +106,8 @@ public class TelegramMessageService {
                 requestType, 
                 assistantRole, 
                 metadata,
-                attachmentRefs);
+                attachmentRefs,
+                thread);
     }
     
     /**
@@ -120,6 +152,28 @@ public class TelegramMessageService {
             String assistantRoleContent,
             Integer processingTimeMs,
             Map<String, Object> responseDataMap) {
+        return selfProvider.getObject().saveAssistantMessage(
+                telegramUser,
+                content,
+                serviceName,
+                assistantRoleContent,
+                processingTimeMs,
+                responseDataMap,
+                null);
+    }
+
+    /**
+     * Saves ASSISTANT message to explicit thread.
+     */
+    @Transactional
+    public OpenDaimonMessage saveAssistantMessage(
+            TelegramUser telegramUser,
+            String content,
+            String serviceName,
+            String assistantRoleContent,
+            Integer processingTimeMs,
+            Map<String, Object> responseDataMap,
+            ConversationThread thread) {
         
         String roleContent = assistantRoleContent != null
                 ? assistantRoleContent 
@@ -131,7 +185,8 @@ public class TelegramMessageService {
                 serviceName, 
                 assistantRole, 
                 processingTimeMs, 
-                responseDataMap);
+                responseDataMap,
+                thread);
     }
     
     /**
@@ -145,7 +200,7 @@ public class TelegramMessageService {
             String serviceName,
             String assistantRoleContent,
             Integer processingTimeMs) {
-        return selfProvider.getObject().saveAssistantMessage(telegramUser, content, serviceName, assistantRoleContent, processingTimeMs, null);
+        return selfProvider.getObject().saveAssistantMessage(telegramUser, content, serviceName, assistantRoleContent, processingTimeMs, null, null);
     }
     
     /**
@@ -161,6 +216,26 @@ public class TelegramMessageService {
             String serviceName,
             String assistantRoleContent,
             String errorData) {
+        return selfProvider.getObject().saveAssistantErrorMessage(
+                telegramUser,
+                errorMessage,
+                serviceName,
+                assistantRoleContent,
+                errorData,
+                null);
+    }
+
+    /**
+     * Saves ASSISTANT error message to explicit thread.
+     */
+    @Transactional
+    public OpenDaimonMessage saveAssistantErrorMessage(
+            TelegramUser telegramUser,
+            String errorMessage,
+            String serviceName,
+            String assistantRoleContent,
+            String errorData,
+            ConversationThread thread) {
         
         // Get or create assistant role for user via TelegramUserService
         String roleContent = assistantRoleContent != null 
@@ -174,7 +249,7 @@ public class TelegramMessageService {
                 errorMessage, 
                 serviceName, 
                 assistantRole, 
-                errorData);
+                errorData,
+                thread);
     }
 }
-

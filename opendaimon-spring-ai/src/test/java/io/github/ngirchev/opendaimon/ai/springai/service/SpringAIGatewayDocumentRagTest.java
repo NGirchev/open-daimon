@@ -130,7 +130,7 @@ class SpringAIGatewayDocumentRagTest {
         prompts.setDocumentExtractErrorPdf("Could not extract text from file \"%s\".");
         prompts.setDocumentExtractErrorDocument("Could not extract text from file \"%s\" (type: %s).");
         prompts.setAugmentedPromptTemplate("Context:\n%s\n\nQuestion: %s");
-        prompts.setVisionExtractionPrompt("Extract all text content from this image");
+        prompts.setVisionExtractionPrompt("I need text from this image");
         ragProperties.setPrompts(prompts);
 
         @SuppressWarnings("unchecked")

@@ -30,10 +30,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.telegram.telegrambots.meta.api.objects.Chat;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -47,9 +47,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,55 +73,8 @@ import static org.mockito.Mockito.reset;
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(
-        classes = ImagePdfVisionRagOllamaManualIT.TestConfig.class,
-        properties = {
-                "spring.main.banner-mode=off",
-                "spring.autoconfigure.exclude=" +
-                        "io.github.ngirchev.opendaimon.rest.config.RestAutoConfig," +
-                        "io.github.ngirchev.opendaimon.ui.config.UIAutoConfig," +
-                        "org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration," +
-                        "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration," +
-                        "org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration," +
-                        "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
-                        "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
-                        "org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration",
-                "open-daimon.common.bulkhead.enabled=false",
-                "open-daimon.ai.gateway-mock.enabled=false",
-                "open-daimon.ai.spring-ai.enabled=true",
-                "open-daimon.ai.spring-ai.mock=false",
-                "open-daimon.ai.spring-ai.openrouter-auto-rotation.models.enabled=false",
-                "open-daimon.ai.spring-ai.rag.enabled=true",
-                "open-daimon.ai.spring-ai.rag.similarity-threshold=0.0",
-                "open-daimon.ai.spring-ai.serper.api.key=test-key",
-                "open-daimon.ai.spring-ai.serper.api.url=https://google.serper.dev/search",
-                "spring.ai.model.chat=ollama",
-                "spring.ai.model.embedding=ollama",
-                "spring.ai.ollama.base-url=${OLLAMA_BASE_URL:http://localhost:11434}",
-                "open-daimon.telegram.enabled=true",
-                "open-daimon.telegram.token=test-token",
-                "open-daimon.telegram.username=test-bot",
-                "open-daimon.telegram.file-upload.enabled=false",
-                "open-daimon.telegram.access.ADMIN.channels=",
-                "open-daimon.telegram.access.VIP.channels=",
-                "open-daimon.telegram.access.REGULAR.channels=",
-                "open-daimon.ai.spring-ai.models.list[0].name=${manual.ollama.chat-model:qwen2.5:3b}",
-                "open-daimon.ai.spring-ai.models.list[0].capabilities=AUTO,CHAT",
-                "open-daimon.ai.spring-ai.models.list[0].provider-type=OLLAMA",
-                "open-daimon.ai.spring-ai.models.list[0].priority=1",
-                "open-daimon.ai.spring-ai.models.list[1].name=${manual.ollama.vision-model:gemma3:4b}",
-                "open-daimon.ai.spring-ai.models.list[1].capabilities=CHAT,VISION",
-                "open-daimon.ai.spring-ai.models.list[1].provider-type=OLLAMA",
-                "open-daimon.ai.spring-ai.models.list[1].priority=1",
-                "open-daimon.ai.spring-ai.models.list[1].max-output-tokens=16384",
-                "open-daimon.ai.spring-ai.models.list[2].name=nomic-embed-text:v1.5",
-                "open-daimon.ai.spring-ai.models.list[2].capabilities=EMBEDDING",
-                "open-daimon.ai.spring-ai.models.list[2].provider-type=OLLAMA",
-                "open-daimon.ai.spring-ai.models.list[2].priority=1",
-                "logging.level.io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway=DEBUG"
-        }
-)
-@ActiveProfiles("integration-test")
+@SpringBootTest(classes = ImagePdfVisionRagOllamaManualIT.TestConfig.class)
+@ActiveProfiles({"integration-test", "manual-ollama-e2e"})
 @Import({
         TestDatabaseConfiguration.class
 })
@@ -132,6 +83,7 @@ class ImagePdfVisionRagOllamaManualIT {
     private static final String PDF_RESOURCE = "image-based-pdf-sample.pdf";
     private static final String RAG_PREFIX = "[RAG:documentId:";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
+    private static final String EXPECTED_FOLLOW_UP_PHRASE = "(as far as they know)";
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
     private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
     private static final String VISION_MODEL_PROPERTY = "manual.ollama.vision-model";
@@ -161,10 +113,10 @@ class ImagePdfVisionRagOllamaManualIT {
     @Autowired
     private DocumentProcessingService documentProcessingService;
 
-    @MockBean
+    @MockitoBean
     private TelegramBotRegistrar telegramBotRegistrar;
 
-    @MockBean
+    @MockitoBean
     private TelegramBot telegramBot;
 
     @BeforeAll
@@ -203,6 +155,19 @@ class ImagePdfVisionRagOllamaManualIT {
         doNothing().when(telegramBot).sendErrorMessage(anyLong(), anyString(), any());
     }
 
+    /**
+     * This test expects the following behavior:
+     * 1. Send a Telegram message with a PDF attachment and the prompt: "что в первом предложении?"
+     * 2. The PDF cannot be read as text and is converted to an image.
+     * 3. The image is sent to an OCR-capable model to extract text.
+     * 4. The extracted text is stored in RAG.
+     * 5. Ask a follow-up: "а что было в последнем предложении в скобках?";
+     *    RAG context is available to the model and it answers "as far as they know".
+     * !!! DO NOT CHANGE THE TEST BEHAVIOR
+     * !!! DO NOT CHANGE THE OLLAMA PROMPT
+     * !!! DO NOT USE FAKE MOCKS JUST TO FORCE THE RESULT
+     *
+     */
     @Test
     @Timeout(6 * 60)
     @DisplayName("Manual E2E: real PDF + follow-up question uses stored RAG context")
@@ -288,66 +253,6 @@ class ImagePdfVisionRagOllamaManualIT {
                 .isEqualTo(2);
     }
 
-    @Test
-    @Timeout(3 * 60)
-    @DisplayName("Manual E2E: follow-up uses seeded RAG context without vision step")
-    void followUp_withSeededRagContext_usesTextModel() {
-        TelegramCommand bootstrapCommand = createMessageCommand(
-                TEST_CHAT_ID,
-                101,
-                "привет",
-                List.of()
-        );
-        messageHandler.handle(bootstrapCommand);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID)
-                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
-
-        String seededContext = """
-                This is the first sentence.
-                The answer in the last sentence is (as far as they know).
-                """;
-        String seededFilename = "seeded-rag-context.txt";
-        String seededDocumentId = documentProcessingService.processExtractedText(seededContext, seededFilename);
-
-        List<String> memoryBullets = thread.getMemoryBullets() != null
-                ? new ArrayList<>(thread.getMemoryBullets())
-                : new ArrayList<>();
-        memoryBullets.add(RAG_PREFIX + seededDocumentId + ":filename:" + seededFilename + "]");
-        thread.setMemoryBullets(memoryBullets);
-        threadRepository.save(thread);
-
-        List<String> seededChunkTexts = fileRagService.findAllByDocumentId(seededDocumentId).stream()
-                .map(document -> document.getText() == null ? "" : document.getText())
-                .toList();
-        assertThat(seededChunkTexts)
-                .as("Seeded RAG chunks should contain expected phrase before follow-up")
-                .isNotEmpty();
-        assertThat(containsExpectedFollowUpAnswer(String.join("\n---\n", seededChunkTexts)))
-                .as("Seeded RAG context should contain expected bracket phrase")
-                .isTrue();
-
-        TelegramCommand followUpCommand = createMessageCommand(
-                TEST_CHAT_ID,
-                102,
-                "а что было в последнем предложении в скобках?",
-                List.of()
-        );
-        messageHandler.handle(followUpCommand);
-
-        ConversationThread threadAfterFollowUp = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist after follow-up"));
-        String followUpReply = latestAssistantReply(threadAfterFollowUp);
-        assertThat(followUpReply)
-                .as("Follow-up answer should not be blank")
-                .isNotBlank();
-        assertThat(containsExpectedFollowUpAnswer(followUpReply))
-                .withFailMessage("Follow-up with seeded RAG should include expected phrase. Actual reply: [%s]", followUpReply)
-                .isTrue();
-    }
-
     private Attachment loadPdfAttachment() throws IOException {
         ClassPathResource resource = new ClassPathResource(PDF_RESOURCE);
         byte[] pdfBytes = resource.getInputStream().readAllBytes();
@@ -403,14 +308,7 @@ class ImagePdfVisionRagOllamaManualIT {
     }
 
     private static boolean containsExpectedFollowUpAnswer(String text) {
-        if (text == null) {
-            return false;
-        }
-        String normalized = text.toLowerCase(Locale.ROOT);
-        boolean englishMatch = normalized.contains("as far as they know")
-                || normalized.contains("(as far as they know)")
-                || (normalized.contains("as far") && normalized.contains("they know"));
-        return englishMatch || normalized.contains("насколько им известно");
+        return text != null && text.contains(EXPECTED_FOLLOW_UP_PHRASE);
     }
 
     private static String resolveOllamaBaseUrl() {

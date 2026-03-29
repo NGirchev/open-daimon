@@ -4,7 +4,7 @@
 
     <!-- Exception message-only converter: cause chain without stack frames or suppressed exceptions -->
     <conversionRule conversionWord="exmsg"
-                    converterClass="io.github.ngirchev.opendaimon.logging.ExceptionMessageConverter"/>
+                    class="io.github.ngirchev.opendaimon.logging.ExceptionMessageConverter"/>
 
     <!-- Pattern with limited stacktrace (first 15 lines) -->
     <property name="CONSOLE_LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n%ex{15}"/>

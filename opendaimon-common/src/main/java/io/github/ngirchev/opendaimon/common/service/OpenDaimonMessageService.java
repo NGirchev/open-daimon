@@ -82,6 +82,31 @@ public class OpenDaimonMessageService {
             AssistantRole assistantRole,
             Map<String, Object> metadata,
             List<Map<String, Object>> attachmentRefs) {
+        return selfProvider.getObject().saveUserMessage(
+                user,
+                content,
+                requestType,
+                assistantRole,
+                metadata,
+                attachmentRefs,
+                null);
+    }
+
+    /**
+     * Saves USER message with ready assistant role to a specific thread.
+     * If thread is null, active thread is resolved by user (legacy behavior).
+     *
+     * @param attachmentRefs optional attachment refs (storageKey, expiresAt, mimeType, filename)
+     */
+    @Transactional
+    public OpenDaimonMessage saveUserMessage(
+            User user,
+            String content,
+            RequestType requestType,
+            AssistantRole assistantRole,
+            Map<String, Object> metadata,
+            List<Map<String, Object>> attachmentRefs,
+            ConversationThread thread) {
 
         int estimatedTokens = tokenCounter.estimateTokens(content);
         int maxAllowed = coreCommonProperties.getMaxUserMessageTokens();
@@ -93,7 +118,9 @@ public class OpenDaimonMessageService {
         assistantRoleService.incrementUsage(assistantRole);
 
         // Get or create active thread for user
-        ConversationThread thread = conversationThreadService.getOrCreateThread(user);
+        ConversationThread resolvedThread = thread != null
+                ? thread
+                : conversationThreadService.getOrCreateThread(user);
 
         OpenDaimonMessage message = new OpenDaimonMessage();
         message.setUser(user);
@@ -101,7 +128,7 @@ public class OpenDaimonMessageService {
         message.setContent(content);
         message.setRequestType(requestType);
         message.setAssistantRole(assistantRole);
-        message.setThread(thread);
+        message.setThread(resolvedThread);
         message.setTokenCount(tokenCounter.estimateTokens(content));
 
         if (metadata != null) {
@@ -111,7 +138,7 @@ public class OpenDaimonMessageService {
             message.setAttachments(attachmentRefs);
         }
 
-        return saveMessageWithSequence(message, thread, true, content);
+        return saveMessageWithSequence(message, resolvedThread, true, content);
     }
 
     /**
@@ -150,16 +177,41 @@ public class OpenDaimonMessageService {
             AssistantRole assistantRole,
             Integer processingTimeMs,
             Map<String, Object> responseDataMap) {
+        return selfProvider.getObject().saveAssistantMessage(
+                user,
+                content,
+                serviceName,
+                assistantRole,
+                processingTimeMs,
+                responseDataMap,
+                null);
+    }
+
+    /**
+     * Saves ASSISTANT message with ready assistant role to a specific thread.
+     * If thread is null, active thread is resolved by user (legacy behavior).
+     */
+    @Transactional
+    public OpenDaimonMessage saveAssistantMessage(
+            User user,
+            String content,
+            String serviceName,
+            AssistantRole assistantRole,
+            Integer processingTimeMs,
+            Map<String, Object> responseDataMap,
+            ConversationThread thread) {
 
         // Get or create active thread for user
-        ConversationThread thread = conversationThreadService.getOrCreateThread(user);
+        ConversationThread resolvedThread = thread != null
+                ? thread
+                : conversationThreadService.getOrCreateThread(user);
 
         OpenDaimonMessage message = new OpenDaimonMessage();
         message.setUser(user);
         message.setRole(MessageRole.ASSISTANT);
         message.setContent(content);
         message.setServiceName(serviceName);
-        message.setThread(thread);
+        message.setThread(resolvedThread);
         message.setAssistantRole(assistantRole);
         message.setProcessingTimeMs(processingTimeMs);
         message.setStatus(ResponseStatus.PENDING);
@@ -170,7 +222,7 @@ public class OpenDaimonMessageService {
         } else {
             log.info("✗ response_data NOT set (responseDataMap={})", responseDataMap);
         }
-        return saveMessageWithSequence(message, thread, true, null);
+        return saveMessageWithSequence(message, resolvedThread, true, null);
     }
 
     /**
@@ -207,9 +259,32 @@ public class OpenDaimonMessageService {
             String serviceName,
             AssistantRole assistantRole,
             String errorData) {
+        return selfProvider.getObject().saveAssistantErrorMessage(
+                user,
+                errorMessage,
+                serviceName,
+                assistantRole,
+                errorData,
+                null);
+    }
+
+    /**
+     * Saves ASSISTANT error message with ready assistant role to a specific thread.
+     * If thread is null, active thread is resolved by user (legacy behavior).
+     */
+    @Transactional
+    public OpenDaimonMessage saveAssistantErrorMessage(
+            User user,
+            String errorMessage,
+            String serviceName,
+            AssistantRole assistantRole,
+            String errorData,
+            ConversationThread thread) {
 
         // Get or create active thread for user
-        ConversationThread thread = conversationThreadService.getOrCreateThread(user);
+        ConversationThread resolvedThread = thread != null
+                ? thread
+                : conversationThreadService.getOrCreateThread(user);
 
         OpenDaimonMessage message = new OpenDaimonMessage();
         message.setUser(user);
@@ -217,7 +292,7 @@ public class OpenDaimonMessageService {
         message.setContent(""); // Empty content for errors
         message.setServiceName(serviceName);
         message.setErrorMessage(errorMessage);
-        message.setThread(thread);
+        message.setThread(resolvedThread);
         message.setAssistantRole(assistantRole);
         message.setStatus(ResponseStatus.ERROR);
         message.setTokenCount(0); // No tokens for errors
@@ -229,7 +304,7 @@ public class OpenDaimonMessageService {
         }
         // If errorData is null or empty, responseData stays null
 
-        return saveMessageWithSequence(message, thread, false, null);
+        return saveMessageWithSequence(message, resolvedThread, false, null);
     }
 
     /**
@@ -310,4 +385,3 @@ public class OpenDaimonMessageService {
         return savedMessage;
     }
 }
-

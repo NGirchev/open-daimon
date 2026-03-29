@@ -260,6 +260,7 @@ class TelegramMockGatewayIT {
                 CoreCommonProperties coreCommonProperties,
                 MessageLocalizationService messageLocalizationService,
                 ObjectProvider<StorageProperties> storagePropertiesProvider,
+                ConversationThreadService conversationThreadService,
                 ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider
         ) {
             return new TelegramMessageService(
@@ -268,6 +269,7 @@ class TelegramMockGatewayIT {
                     coreCommonProperties,
                     messageLocalizationService,
                     storagePropertiesProvider,
+                    conversationThreadService,
                     telegramMessageServiceSelfProvider
             );
         }

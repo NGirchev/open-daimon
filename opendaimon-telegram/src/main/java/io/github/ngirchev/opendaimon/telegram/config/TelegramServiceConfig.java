@@ -14,6 +14,7 @@ import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.meter.OpenDaimonMeterRegistry;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
@@ -88,6 +89,7 @@ public class TelegramServiceConfig {
             CoreCommonProperties coreCommonProperties,
             MessageLocalizationService messageLocalizationService,
             ObjectProvider<StorageProperties> storagePropertiesProvider,
+            ConversationThreadService conversationThreadService,
             ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider) {
         return new TelegramMessageService(
                 messageService,
@@ -95,6 +97,7 @@ public class TelegramServiceConfig {
                 coreCommonProperties,
                 messageLocalizationService,
                 storagePropertiesProvider,
+                conversationThreadService,
                 telegramMessageServiceSelfProvider);
     }
 

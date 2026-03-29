@@ -17,6 +17,7 @@ import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.MessageEntity;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.messageorigin.MessageOrigin;
 import org.telegram.telegrambots.meta.api.objects.messageorigin.MessageOriginChannel;
@@ -49,12 +50,14 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Getter
 public class TelegramBot extends TelegramLongPollingBot {
 
     private static final int DEBUG_TEXT_PREVIEW_LIMIT = 400;
+    private static final String INLINE_GUIDANCE_RESULT_ID = "inline-disabled-guidance";
 
     private final TelegramProperties config;
     private final CommandSyncService commandSyncService;
@@ -336,6 +339,15 @@ public class TelegramBot extends TelegramLongPollingBot {
         if (update.hasCallbackQuery()) {
             return mapToTelegramCommand(update);
         }
+        if (update.hasInlineQuery()) {
+            handleInlineQueryInstruction(update.getInlineQuery());
+            return null;
+        }
+        if (update.hasMessage() && isGroupLikeChat(update.getMessage()) && !isGroupMessageForBot(update.getMessage())) {
+            log.debug("Skipping group message not addressed to this bot: chatId={}, messageId={}",
+                    update.getMessage().getChatId(), update.getMessage().getMessageId());
+            return null;
+        }
         if (update.hasMessage() && update.getMessage().hasText()) {
             return mapToTelegramTextCommand(update);
         }
@@ -351,6 +363,48 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
         log.warn("Unsupported message {}", update);
         return null;
+    }
+
+    private void handleInlineQueryInstruction(InlineQuery query) {
+        if (query == null) {
+            return;
+        }
+        try {
+            String languageCode = query.getFrom() != null ? query.getFrom().getLanguageCode() : null;
+            if (query.getFrom() != null) {
+                try {
+                    TelegramUser user = userService.getOrCreateUser(query.getFrom());
+                    if (user.getLanguageCode() != null) {
+                        languageCode = user.getLanguageCode();
+                    }
+                } catch (Exception e) {
+                    log.debug("Could not resolve user language for inline query {}: {}", query.getId(), e.getMessage());
+                }
+            }
+
+            String botMention = getBotMention();
+            String title = messageLocalizationService != null
+                    ? messageLocalizationService.getMessage("telegram.inline.disabled.title", languageCode)
+                    : "Inline mode is disabled";
+            String body = messageLocalizationService != null
+                    ? messageLocalizationService.getMessage("telegram.inline.disabled.body", languageCode, botMention)
+                    : "Inline queries are disabled. Mention " + botMention + " in chat or reply to a bot message.";
+
+            InlineQueryResultArticle result = new InlineQueryResultArticle();
+            result.setId(INLINE_GUIDANCE_RESULT_ID);
+            result.setTitle(title);
+            result.setDescription(body);
+            result.setInputMessageContent(new InputTextMessageContent(body));
+
+            AnswerInlineQuery answer = new AnswerInlineQuery();
+            answer.setInlineQueryId(query.getId());
+            answer.setIsPersonal(true);
+            answer.setCacheTime(1);
+            answer.setResults(List.of(result));
+            execute(answer);
+        } catch (TelegramApiException e) {
+            log.error("Failed to answer inline query with guidance", e);
+        }
     }
 
     private void sendFileUploadDisabledReply(Update update) {
@@ -456,9 +510,11 @@ public class TelegramBot extends TelegramLongPollingBot {
         } else if (stripped.startsWith("/")) {
             clearStatus(telegramUser.getTelegramId());
             int spaceIndex = stripped.indexOf(' ');
-            String commandText = stripped.substring(0, spaceIndex == -1 ? stripped.length() : spaceIndex);
+            String commandToken = stripped.substring(0, spaceIndex == -1 ? stripped.length() : spaceIndex);
+            String normalizedCommand = normalizeBotCommand(commandToken);
+            String commandText = normalizedCommand != null ? normalizedCommand : commandToken;
             telegramCommandType = new TelegramCommandType(commandText);
-            userText = stripped.replace(commandText, "");
+            userText = spaceIndex == -1 ? "" : stripped.substring(spaceIndex).strip();
         } else if (stripped.startsWith(TelegramCommand.MODEL_KEYBOARD_PREFIX)
                 || stripped.startsWith(TelegramCommand.CONTEXT_KEYBOARD_PREFIX)) {
             telegramCommandType = new TelegramCommandType(TelegramCommand.MODEL);
@@ -470,7 +526,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             } else {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
             }
-            userText = stripped;
+            userText = hasSelfMentionInText(message) ? stripSelfMentionTokens(stripped) : stripped;
         }
         TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true);
         cmd.forwardedFrom(forwardInfo);
@@ -492,6 +548,9 @@ public class TelegramBot extends TelegramLongPollingBot {
                 : messageLocalizationService != null
                         ? messageLocalizationService.getMessage("telegram.photo.default.prompt", telegramUser.getLanguageCode())
                         : "What is this?";
+        if (caption != null && hasSelfMentionInCaption(message)) {
+            baseText = stripSelfMentionTokens(baseText);
+        }
         String userText = enrichWithForwardContext(baseText, forwardInfo, telegramUser.getLanguageCode());
         TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
 
@@ -532,6 +591,9 @@ public class TelegramBot extends TelegramLongPollingBot {
                 : messageLocalizationService != null
                         ? messageLocalizationService.getMessage("telegram.document.default.prompt", telegramUser.getLanguageCode())
                         : "Analyze this document and provide a brief summary.";
+        if (caption != null && hasSelfMentionInCaption(message)) {
+            baseText = stripSelfMentionTokens(baseText);
+        }
         String userText = enrichWithForwardContext(baseText, forwardInfo, telegramUser.getLanguageCode());
         TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
 
@@ -836,5 +898,133 @@ public class TelegramBot extends TelegramLongPollingBot {
             log.error("Error setting bot commands menu", e);
             throw e;
         }
+    }
+
+    private boolean isGroupLikeChat(Message message) {
+        if (message == null || message.getChat() == null || message.getChat().getType() == null) {
+            return false;
+        }
+        String chatType = message.getChat().getType();
+        return "group".equalsIgnoreCase(chatType) || "supergroup".equalsIgnoreCase(chatType);
+    }
+
+    private boolean isGroupMessageForBot(Message message) {
+        if (message == null) {
+            return false;
+        }
+        return isCommandForThisBot(message)
+                || isReplyToThisBot(message)
+                || hasSelfMentionInText(message)
+                || hasSelfMentionInCaption(message);
+    }
+
+    private boolean isCommandForThisBot(Message message) {
+        if (message == null || !message.hasText()) {
+            return false;
+        }
+        String stripped = message.getText().strip();
+        if (!stripped.startsWith("/")) {
+            return false;
+        }
+        int spaceIndex = stripped.indexOf(' ');
+        String commandToken = stripped.substring(0, spaceIndex == -1 ? stripped.length() : spaceIndex);
+        return normalizeBotCommand(commandToken) != null;
+    }
+
+    private String normalizeBotCommand(String commandToken) {
+        if (commandToken == null || commandToken.isBlank() || !commandToken.startsWith("/")) {
+            return null;
+        }
+        int atIndex = commandToken.indexOf('@');
+        if (atIndex < 0) {
+            return commandToken;
+        }
+        String base = commandToken.substring(0, atIndex);
+        String target = commandToken.substring(atIndex + 1);
+        if (target.isBlank()) {
+            return base;
+        }
+        return isSelfUsername(target) ? base : null;
+    }
+
+    private boolean isReplyToThisBot(Message message) {
+        if (message == null || message.getReplyToMessage() == null || message.getReplyToMessage().getFrom() == null) {
+            return false;
+        }
+        org.telegram.telegrambots.meta.api.objects.User replyFrom = message.getReplyToMessage().getFrom();
+        if (!Boolean.TRUE.equals(replyFrom.getIsBot())) {
+            return false;
+        }
+        String replyUsername = replyFrom.getUserName();
+        return isSelfUsername(replyUsername);
+    }
+
+    private boolean hasSelfMentionInText(Message message) {
+        if (message == null || !message.hasText()) {
+            return false;
+        }
+        return containsSelfMention(message.getText(), message.getEntities());
+    }
+
+    private boolean hasSelfMentionInCaption(Message message) {
+        if (message == null || message.getCaption() == null || message.getCaption().isBlank()) {
+            return false;
+        }
+        return containsSelfMention(message.getCaption(), message.getCaptionEntities());
+    }
+
+    private boolean containsSelfMention(String text, List<MessageEntity> entities) {
+        if (text == null || text.isBlank() || entities == null || entities.isEmpty()) {
+            return false;
+        }
+        for (MessageEntity entity : entities) {
+            if (entity == null || entity.getType() == null) {
+                continue;
+            }
+            if (!"mention".equalsIgnoreCase(entity.getType())) {
+                continue;
+            }
+            int start = Math.max(entity.getOffset(), 0);
+            int end = Math.min(start + entity.getLength(), text.length());
+            if (start >= end) {
+                continue;
+            }
+            String mention = text.substring(start, end);
+            if (mention.startsWith("@") && isSelfUsername(mention.substring(1))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String stripSelfMentionTokens(String text) {
+        if (text == null || text.isBlank()) {
+            return text;
+        }
+        String username = config.getUsername();
+        if (username == null || username.isBlank()) {
+            return text.strip();
+        }
+        String pattern = "(?i)@" + Pattern.quote(username) + "\\b";
+        return text.replaceAll(pattern, "").replaceAll("\\s{2,}", " ").strip();
+    }
+
+    private boolean isSelfUsername(String candidate) {
+        if (candidate == null || candidate.isBlank()) {
+            return false;
+        }
+        String self = config.getUsername();
+        if (self == null || self.isBlank()) {
+            return false;
+        }
+        return self.equalsIgnoreCase(candidate.startsWith("@") ? candidate.substring(1) : candidate);
+    }
+
+    private String getBotMention() {
+        String username = config.getUsername();
+        if (username == null || username.isBlank()) {
+            return "@bot";
+        }
+        return username.startsWith("@") ? username : "@" + username;
     }
 }

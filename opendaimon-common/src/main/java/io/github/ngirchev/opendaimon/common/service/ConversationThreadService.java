@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
@@ -36,25 +37,46 @@ public class ConversationThreadService {
      * Gets or creates active thread for user.
      */
     public ConversationThread getOrCreateThread(User user) {
-        return threadRepository.findMostRecentActiveThread(user)
+        Long userId = requirePersistedUserId(user);
+        return getOrCreateThread(user, ThreadScopeKind.USER, userId);
+    }
+
+    /**
+     * Gets or creates active thread for explicit scope.
+     */
+    public ConversationThread getOrCreateThread(User user, ThreadScopeKind scopeKind, Long scopeId) {
+        validateScope(scopeKind, scopeId);
+        return threadRepository.findMostRecentActiveThread(scopeKind, scopeId)
             .filter(this::isThreadStillActive)
-            .orElseGet(() -> createNewThread(user));
+            .orElseGet(() -> createNewThread(user, scopeKind, scopeId));
     }
     
     /**
      * Creates new thread.
      */
     public ConversationThread createNewThread(User user) {
+        Long userId = requirePersistedUserId(user);
+        return createNewThread(user, ThreadScopeKind.USER, userId);
+    }
+
+    /**
+     * Creates new thread for explicit scope.
+     */
+    public ConversationThread createNewThread(User user, ThreadScopeKind scopeKind, Long scopeId) {
+        validateScope(scopeKind, scopeId);
         ConversationThread thread = new ConversationThread();
         thread.setUser(user);
         thread.setThreadKey(UUID.randomUUID().toString());
+        thread.setScopeKind(scopeKind);
+        thread.setScopeId(scopeId);
         thread.setIsActive(true);
         thread.setLastActivityAt(OffsetDateTime.now());
         thread.setTotalMessages(0);
         thread.setTotalTokens(0L);
         thread.setMemoryBullets(new ArrayList<>());
         
-        log.info("Created new conversation thread {} for user {}", thread.getThreadKey(), user.getId());
+        log.info("Created new conversation thread {} for user {} in scope {}:{}",
+                thread.getThreadKey(), user.getId(), scopeKind, scopeId);
         return threadRepository.save(thread);
     }
     
@@ -150,7 +172,17 @@ public class ConversationThreadService {
      */
     @Transactional(readOnly = true)
     public Optional<ConversationThread> findCurrentThread(User user) {
-        return threadRepository.findMostRecentActiveThread(user)
+        Long userId = requirePersistedUserId(user);
+        return findCurrentThread(ThreadScopeKind.USER, userId);
+    }
+
+    /**
+     * Returns current active thread for explicit scope without creating a new one.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ConversationThread> findCurrentThread(ThreadScopeKind scopeKind, Long scopeId) {
+        validateScope(scopeKind, scopeId);
+        return threadRepository.findMostRecentActiveThread(scopeKind, scopeId)
             .filter(this::isThreadStillActive);
     }
 
@@ -165,8 +197,24 @@ public class ConversationThreadService {
      * Activates thread for user (closes current active and activates selected).
      */
     public ConversationThread activateThread(User user, ConversationThread threadToActivate) {
+        Long userId = requirePersistedUserId(user);
+        return activateThread(user, threadToActivate, ThreadScopeKind.USER, userId);
+    }
+
+    /**
+     * Activates thread in explicit scope (closes current active and activates selected).
+     */
+    public ConversationThread activateThread(User user, ConversationThread threadToActivate,
+                                             ThreadScopeKind scopeKind, Long scopeId) {
+        validateScope(scopeKind, scopeId);
+
+        // Guard against switching threads across scopes accidentally.
+        if (threadToActivate.getScopeKind() != scopeKind || !scopeId.equals(threadToActivate.getScopeId())) {
+            throw new IllegalArgumentException("Thread scope does not match requested scope");
+        }
+
         // Close current active thread (if any)
-        threadRepository.findMostRecentActiveThread(user)
+        threadRepository.findMostRecentActiveThread(scopeKind, scopeId)
             .ifPresent(currentThread -> {
                 if (!currentThread.getId().equals(threadToActivate.getId())) {
                     closeThread(currentThread);
@@ -179,8 +227,24 @@ public class ConversationThreadService {
         threadToActivate.setClosedAt(null); // Clear close date if set
         threadRepository.save(threadToActivate);
         
-        log.info("Activated conversation thread {} for user {}", threadToActivate.getThreadKey(), user.getId());
+        log.info("Activated conversation thread {} for user {} in scope {}:{}",
+                threadToActivate.getThreadKey(), user.getId(), scopeKind, scopeId);
         return threadToActivate;
     }
-}
 
+    private static void validateScope(ThreadScopeKind scopeKind, Long scopeId) {
+        if (scopeKind == null) {
+            throw new IllegalArgumentException("scopeKind is required");
+        }
+        if (scopeId == null) {
+            throw new IllegalArgumentException("scopeId is required");
+        }
+    }
+
+    private static Long requirePersistedUserId(User user) {
+        if (user == null || user.getId() == null) {
+            throw new IllegalArgumentException("Persisted user with id is required");
+        }
+        return user.getId();
+    }
+}

@@ -21,7 +21,7 @@ Core pipeline: command factory → AIGateway → model rotation → response.
 | `threadKey`      | `ConversationThread.threadKey` (from `saveUserMessage`) |
 | `assistantRoleId`| `AssistantRole.id` |
 | `userId`         | `TelegramUser.id` |
-| `role`           | `AssistantRole.content` |
+| `role`           | `AssistantRole.content` + Telegram bot identity suffix (`You are bot with name @<bot_username>`) |
 | `languageCode`   | `TelegramUser.languageCode` (optional) |
 | `preferredModelId`| `UserModelPreferenceService.getPreferredModel(userId)` (optional) |
 
@@ -171,6 +171,7 @@ Intercepts `callChat()` and `streamChat()`. Retries across candidates on retryab
 **Input:** user text, no attachments, no `preferredModelId`, `languageCode = "ru"`
 **Factory:** `DefaultAICommandFactory` → `ChatAICommand(capabilities={CHAT})`
 **Gateway:** AUTO mode → selects model by `CHAT` capability → appends `"Always respond in Russian language."` to system role
+Telegram-specific bot identity is already part of `role` metadata from Telegram handler (not added inside SpringAIGateway).
 **Output:** `SpringAIStreamResponse` → Telegram accumulates chunks → sends reply
 
 ---

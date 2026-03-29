@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
@@ -49,7 +50,7 @@ class ConversationThreadServiceTest {
         User user = createTestUser();
         ConversationThread existingThread = createThread(user, true, OffsetDateTime.now().minusHours(1));
 
-        when(threadRepository.findMostRecentActiveThread(user))
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.USER, user.getId()))
                 .thenReturn(Optional.of(existingThread));
 
         // Act
@@ -66,7 +67,7 @@ class ConversationThreadServiceTest {
         // Arrange
         User user = createTestUser();
 
-        when(threadRepository.findMostRecentActiveThread(user))
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.USER, user.getId()))
                 .thenReturn(Optional.empty());
 
         ConversationThread newThread = createThread(user, true, OffsetDateTime.now());
@@ -86,7 +87,7 @@ class ConversationThreadServiceTest {
         User user = createTestUser();
         ConversationThread inactiveThread = createThread(user, false, OffsetDateTime.now().minusHours(25));
 
-        when(threadRepository.findMostRecentActiveThread(user))
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.USER, user.getId()))
                 .thenReturn(Optional.of(inactiveThread));
 
         ConversationThread newThread = createThread(user, true, OffsetDateTime.now());
@@ -240,7 +241,8 @@ class ConversationThreadServiceTest {
         User user = createTestUser();
         ConversationThread existingThread = createThread(user, true, null);
 
-        when(threadRepository.findMostRecentActiveThread(user)).thenReturn(Optional.of(existingThread));
+        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.USER, user.getId()))
+                .thenReturn(Optional.of(existingThread));
 
         ConversationThread result = threadService.getOrCreateThread(user);
 
@@ -339,6 +341,8 @@ class ConversationThreadServiceTest {
         thread.setId(1L);
         thread.setUser(user);
         thread.setThreadKey(UUID.randomUUID().toString());
+        thread.setScopeKind(ThreadScopeKind.USER);
+        thread.setScopeId(user.getId());
         thread.setIsActive(isActive);
         thread.setLastActivityAt(lastActivity);
         thread.setTotalMessages(0);
@@ -358,4 +362,3 @@ class ConversationThreadServiceTest {
         return message;
     }
 }
-

@@ -5,6 +5,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
@@ -66,14 +67,16 @@ public class NewThreadTelegramCommandHandler extends AbstractTelegramCommandHand
         }
         
         TelegramUser user = userService.getOrCreateUser(message.getFrom());
+        Long chatId = command.telegramId();
         
         // Close current thread (if any active)
-        Optional<ConversationThread> currentThread = threadRepository.findMostRecentActiveThread(user);
+        Optional<ConversationThread> currentThread = threadRepository.findMostRecentActiveThread(
+                ThreadScopeKind.TELEGRAM_CHAT, chatId);
         boolean hadPreviousThread = currentThread.isPresent();
         currentThread.ifPresent(threadService::closeThread);
         
         // Create new thread
-        ConversationThread newThread = threadService.createNewThread(user);
+        ConversationThread newThread = threadService.createNewThread(user, ThreadScopeKind.TELEGRAM_CHAT, chatId);
 
         // Reset the context-usage button to 0% immediately
         PersistentKeyboardService keyboardService = persistentKeyboardServiceProvider.getIfAvailable();
