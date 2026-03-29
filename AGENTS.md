@@ -16,6 +16,13 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 - If Serena reports `Active Project: None`, immediately call `activate_project("open-daimon")`.
 - Do this before any code exploration or edits to ensure project-aware symbol tooling works correctly.
 
+### MCP tools for information lookup
+
+- Two MCP servers are available and should be used for information lookup when relevant:
+  - `Serena` — codebase navigation, symbol search, and project-aware exploration.
+  - `Context7` — library/framework documentation lookup and API usage search.
+- Prefer these MCP tools first for discovery and verification before broader ad-hoc searching.
+
 ### Documentation maintenance
 
 - Every module that has a behavior reference doc (e.g. `SPRING_AI_MODULE.md`, `TELEGRAM_MODULE.md`) must be updated when the behavior it describes changes.

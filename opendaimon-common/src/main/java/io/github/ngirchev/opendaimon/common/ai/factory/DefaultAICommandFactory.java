@@ -23,13 +23,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.MAX_PRICE;
-import static io.github.ngirchev.opendaimon.common.ai.command.AICommand.LANGUAGE_CODE_FIELD;
 import static io.github.ngirchev.opendaimon.common.ai.command.AICommand.PREFERRED_MODEL_ID_FIELD;
 import static io.github.ngirchev.opendaimon.common.ai.command.AICommand.ROLE_FIELD;
 @Slf4j
 public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICommand<?>> {
+    private static final Pattern URL_PATTERN = Pattern.compile("(?i)\\b(?:https?://|www\\.)\\S+");
 
     private final IUserPriorityService userPriorityService;
     private final ModelDescriptionCache modelDescriptionCache;
@@ -91,14 +92,16 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
             if (tier.getMaxPrice() != null && !StringUtils.hasText(fixedModelId)) {
                 body.put(MAX_PRICE, tier.getMaxPrice());
             }
-            Set<ModelCapabilities> optionalModelCapabilities = Set.copyOf(tier.getOptionalCapabilities());
+            Set<ModelCapabilities> optionalModelCapabilities = addWebIfNeeded(
+                    Set.copyOf(tier.getOptionalCapabilities()),
+                    chatCommand.userText());
             Set<ModelCapabilities> baseModelCapabilities = Set.copyOf(tier.getRequiredCapabilities());
 
             // Add VISION dynamically if there are images
             Set<ModelCapabilities> modelCapabilities = addVisionIfNeeded(baseModelCapabilities, attachments);
             String routingModelLabel = StringUtils.hasText(fixedModelId) ? fixedModelId : "(auto)";
-            log.info("[{}] model={}, maxPrice={}, caps={}, attachments={}",
-                    priority, routingModelLabel, body.get(MAX_PRICE), modelCapabilities, attachments.size());
+            log.info("[{}] model={}, maxPrice={}, requiredCaps={}, optionalCaps={}, attachments={}",
+                    priority, routingModelLabel, body.get(MAX_PRICE), modelCapabilities, optionalModelCapabilities, attachments.size());
 
             // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
             String systemRole = metadata.get(ROLE_FIELD);
@@ -162,5 +165,21 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
             return withVision;
         }
         return baseTypes;
+    }
+
+    /**
+     * Adds WEB to optional capabilities when user text contains at least one URL.
+     * Keeps WEB optional so requests still work even if no WEB-capable model is available.
+     */
+    private Set<ModelCapabilities> addWebIfNeeded(Set<ModelCapabilities> optionalCapabilities, String userText) {
+        if (!StringUtils.hasText(userText) || !URL_PATTERN.matcher(userText).find()) {
+            return optionalCapabilities;
+        }
+        if (optionalCapabilities.contains(ModelCapabilities.WEB)) {
+            return optionalCapabilities;
+        }
+        Set<ModelCapabilities> withWeb = new HashSet<>(optionalCapabilities);
+        withWeb.add(ModelCapabilities.WEB);
+        return Set.copyOf(withWeb);
     }
 }

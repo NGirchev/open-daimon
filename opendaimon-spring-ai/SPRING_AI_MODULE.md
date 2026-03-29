@@ -65,6 +65,7 @@ Tier fields come from `open-daimon.common.chat-routing` (`required-capabilities`
 | `REGULAR` | `{CHAT}` | (from config) | — |
 
 Adds `VISION` if image attachments are present.
+Adds `WEB` to optional capabilities when `userText` contains a URL (`http(s)://...` or `www...`), so web tools are enabled automatically for link-based prompts.
 If `preferredModelId` in metadata → `FixedModelChatAICommand`, otherwise → `ChatAICommand`.
 
 ---
@@ -98,7 +99,8 @@ If `springAiProperties.mock = true` → return mock response immediately, no mod
 - `stream = true` → `SpringAIChatService.streamChat()` → returns `SpringAIStreamResponse(Flux<ChatResponse>)`
 - `stream = false` → `SpringAIChatService.callChat()` → returns `SpringAIResponse(ChatResponse)`
 
-Web tools (`WebTools` / Serper) are attached to the prompt when the command requests `WEB` in **required** (`modelCapabilities`) **or** **optional** (`optionalCapabilities`) — so VIP-style routing (WEB optional) still registers tools.
+Web tools (`WebTools` / Serper) are attached to the prompt when:
+- command requests `WEB` in **required** (`modelCapabilities`) or **optional** (`optionalCapabilities`).
 
 ---
 

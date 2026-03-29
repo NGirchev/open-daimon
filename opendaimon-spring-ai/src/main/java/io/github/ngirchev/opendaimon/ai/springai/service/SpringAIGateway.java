@@ -971,7 +971,7 @@ public class SpringAIGateway implements AIGateway {
      * @param filename original file name
      * @return list of Attachment with type=IMAGE per page
      */
-    private List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
+    List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
         try (PDDocument document = Loader.loadPDF(pdfData)) {
             org.apache.pdfbox.rendering.PDFRenderer renderer = new org.apache.pdfbox.rendering.PDFRenderer(document);
             

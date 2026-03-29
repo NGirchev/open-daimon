@@ -137,7 +137,7 @@ class SpringAIGatewayDocumentRagTest {
         ObjectProvider<ConversationThreadRepository> threadRepoProvider = mock(ObjectProvider.class);
         lenient().when(threadRepoProvider.getIfAvailable()).thenReturn(conversationThreadRepository);
 
-        springAIGateway = new SpringAIGateway(
+        springAIGateway = spy(new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
                 springAIModelRegistry,
@@ -147,7 +147,23 @@ class SpringAIGatewayDocumentRagTest {
                 docProvider,
                 ragProvider,
                 threadRepoProvider
-        );
+        ));
+
+        // Avoid native PDF renderer instability (Abort trap) in unit tests:
+        // we only need deterministic "PDF rendered to image attachment" behavior here.
+        lenient().doAnswer(invocation -> {
+            String filename = invocation.getArgument(1, String.class);
+            byte[] pngHeader = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+            String imageFilename = String.format("page_1_%s.png", filename.replaceAll("\\.pdf$", ""));
+            return List.of(new Attachment(
+                    null,
+                    "image/png",
+                    imageFilename,
+                    pngHeader.length,
+                    AttachmentType.IMAGE,
+                    pngHeader
+            ));
+        }).when(springAIGateway).renderPdfToImageAttachments(any(byte[].class), anyString());
     }
 
     @Test
