@@ -419,14 +419,23 @@ class SpringAIGatewayDocumentRagTest {
         when(springAIModelRegistry.getCandidatesByCapabilities(any(Set.class), isNull(), any()))
                 .thenReturn(List.of(textModel));
 
-        // Vision extraction succeeds — text is now in RAG, images no longer needed
+        // Vision extraction succeeds — text is now in RAG, images no longer needed.
+        // Response must be ≥ VISION_EXTRACTION_LIKELY_COMPLETE_MIN_CHARS (600) to avoid retries.
+        String visionExtractedText = "Certificate of Completion. John Doe completed Advanced Java. "
+                + "This certifies that the above-named individual has successfully fulfilled all requirements "
+                + "for the Advanced Java Programming course offered by OpenDaimon Academy. "
+                + "The course covered topics including concurrency, design patterns, JVM internals, "
+                + "performance tuning, and modern Java features from Java 17 through Java 21. "
+                + "The participant demonstrated exceptional understanding of the material and completed "
+                + "all practical assignments with distinction. Issued on March 15, 2025 by the Board "
+                + "of Certification at OpenDaimon Academy, Silicon Valley Campus.";
         when(chatService.callSimpleVision(any(), any()))
-                .thenReturn("Certificate of Completion. John Doe completed Advanced Java.");
+                .thenReturn(visionExtractedText);
 
         when(documentProcessingService.processExtractedText(anyString(), anyString()))
                 .thenReturn("vision-doc-id");
 
-        Document visionChunk = new Document("Certificate of Completion. John Doe completed Advanced Java.");
+        Document visionChunk = new Document(visionExtractedText);
         when(fileRagService.findAllByDocumentId("vision-doc-id"))
                 .thenReturn(List.of(visionChunk));
 
@@ -629,20 +638,14 @@ class SpringAIGatewayDocumentRagTest {
                 .findFirst()
                 .orElse("");
 
-        // UserMessage should have placeholder, NOT full augmented prompt
-        assertFalse(userMessageText.contains("chunk text from document"),
-                "UserMessage should NOT contain inline RAG text — only a placeholder reference");
-        assertTrue(userMessageText.contains("report.pdf") || userMessageText.contains("rag-doc-123"),
+        // RAG context is now prepended to the UserMessage (not a separate SystemMessage)
+        // so that small models (qwen2.5:3b) reliably see the context.
+        assertTrue(userMessageText.contains("chunk text from document"),
+                "UserMessage should contain RAG context as prefix");
+        assertTrue(userMessageText.contains("Document context"),
+                "UserMessage should contain document context header");
+        assertTrue(userMessageText.contains("report.pdf"),
                 "UserMessage should contain a placeholder referencing the document");
-
-        // But a transient SystemMessage with RAG context should be present for the LLM
-        boolean hasRagSystemMessage = finalMessages.stream()
-                .filter(SystemMessage.class::isInstance)
-                .map(SystemMessage.class::cast)
-                .anyMatch(m -> m.getText().contains("chunk text from document")
-                        && m.getText().contains("Document context:"));
-        assertTrue(hasRagSystemMessage,
-                "A transient SystemMessage with RAG document context should be present for the LLM");
     }
 
     /**
@@ -684,29 +687,24 @@ class SpringAIGatewayDocumentRagTest {
         // Should fetch ALL chunks by documentId (threshold=0.0) to bypass cross-language similarity mismatch
         verify(fileRagService).findAllByDocumentId("rag-doc-456");
 
-        // Should inject RAG context as transient SystemMessage
+        // Should inject RAG context as prefix in UserMessage (not SystemMessage)
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
         verify(chatService, times(1)).streamChat(any(), any(), any(), messagesCaptor.capture());
 
         List<Message> finalMessages = messagesCaptor.getValue();
-        boolean hasRagSystemMessage = finalMessages.stream()
-                .filter(SystemMessage.class::isInstance)
-                .map(SystemMessage.class::cast)
-                .anyMatch(m -> m.getText().contains("Invoice total: $5,000")
-                        && m.getText().contains("Document context:"));
-        assertTrue(hasRagSystemMessage,
-                "Follow-up should have a transient SystemMessage with RAG context from VectorStore");
-
-        // UserMessage should be the original query, NOT augmented
         String userMessageText = finalMessages.stream()
                 .filter(UserMessage.class::isInstance)
                 .map(UserMessage.class::cast)
                 .map(UserMessage::getText)
                 .findFirst()
                 .orElse("");
-        assertEquals("What was the total?", userMessageText,
-                "UserMessage should contain the original query, not an augmented prompt");
+        assertTrue(userMessageText.contains("Invoice total: $5,000"),
+                "UserMessage should contain RAG document content as prefix");
+        assertTrue(userMessageText.contains("Document context"),
+                "UserMessage should contain RAG context header");
+        assertTrue(userMessageText.contains("What was the total?"),
+                "UserMessage should contain the original query after RAG prefix");
     }
 
     @Test

@@ -115,10 +115,15 @@ public class SpringAIPromptFactory {
 
     private void addSystemMessagesIfPresent(ChatClient.ChatClientRequestSpec promptBuilder, List<Message> messages) {
         if (messages == null || messages.isEmpty()) return;
-        for (Message message : messages) {
-            if (message instanceof SystemMessage systemMessage) {
-                promptBuilder.system(systemMessage.getText());
-            }
+        // Concatenate all SystemMessages into a single system() call.
+        // Spring AI's ChatClient.system() replaces on each invocation —
+        // calling it multiple times would keep only the last one.
+        String combined = messages.stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(Message::getText)
+                .collect(java.util.stream.Collectors.joining("\n\n"));
+        if (!combined.isEmpty()) {
+            promptBuilder.system(combined);
         }
     }
 
@@ -224,6 +229,7 @@ public class SpringAIPromptFactory {
                 .model(modelName)
                 .frequencyPenalty(getDouble(safeOverrides, FREQUENCY_PENALTY))
                 .temperature(temperature)
+                .seed(getInteger(safeOverrides, SEED))
                 .numPredict(ollamaPredict)
                 .topK(getInteger(safeOverrides, TOP_K))
                 .topP(getDouble(safeOverrides, TOP_P));

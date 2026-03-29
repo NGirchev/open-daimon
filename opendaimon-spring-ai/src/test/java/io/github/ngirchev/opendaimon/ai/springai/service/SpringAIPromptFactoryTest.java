@@ -117,6 +117,28 @@ class SpringAIPromptFactoryTest {
     }
 
     @Test
+    void preparePrompt_withBodySeed_setsOllamaSeed() {
+        Map<String, Object> body = Map.of(SEED, 42, MAX_TOKENS, 500);
+        var spec = promptFactory.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                body,
+                null,
+                false,
+                List.of(new UserMessage("Seeded OCR")),
+                new OpenDaimonChatOptions(0.7, 1000, null, "Seeded OCR", false, Map.of())
+        );
+
+        spec.call().chatResponse();
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(ollamaChatModel, atLeastOnce()).call(captor.capture());
+
+        ChatOptions options = captor.getValue().getOptions();
+        assertInstanceOf(OllamaChatOptions.class, options);
+        assertEquals(42, ((OllamaChatOptions) options).getSeed());
+    }
+
+    @Test
     void preparePrompt_withSystemAndUserMessages_includesBoth() {
         var spec = promptFactory.preparePrompt(
                 ollamaModelConfig,

@@ -28,7 +28,7 @@ sequenceDiagram
     DPS->>DPS: PDFBox: extract text
     DPS-->>GW: throw DocumentContentNotExtractableException
 
-    Note over GW: Fallback: render PDF pages as JPEG images
+    Note over GW: Fallback: render PDF pages as preprocessed PNG images
 
     GW->>GW: renderPdfToImageAttachments(pdfBytes)
 
@@ -42,7 +42,7 @@ sequenceDiagram
 
     Note over GW: Vision succeeded — remove images from final message
 
-    GW->>GW: Remove JPEG images from attachments
+    GW->>GW: Remove temporary PNG images from attachments
     GW->>DPS: processExtractedText(extractedText, filename)
     DPS->>DPS: TokenTextSplitter: split into chunks
     DPS->>VS: add(chunks) with metadata type="pdf-vision"
@@ -119,3 +119,37 @@ sequenceDiagram
 
 7. **Graceful degradation on restart** — if VectorStore data is lost (SimpleVectorStore
    is in-memory), follow-up returns no chunks and the model answers from chat history only.
+
+## Direct Ollama Findings (Local Validation, March 29, 2026)
+
+These findings were validated with direct `POST /api/chat` calls to local Ollama using the
+same PDF sample from IT resources.
+
+1. **`gemma3:4b` is the viable vision OCR path** — direct image OCR works when the page is
+   sent as a lossless PNG (300 DPI) with a full extraction prompt and deterministic options
+   (`temperature=0`, `top_p=1`, fixed `seed`, high `num_predict`).
+
+2. **Two-step dialog is reproducible with `gemma3:4b` vision input** — asking first
+   `"что в первом предложении?"` and then
+   `"а что было в последнем предложении в скобках?"`
+   returns the expected phrase `(as far as they know)` in repeated direct runs.
+
+3. **`gemma3:1b` should not be used for image input** — local direct calls with image payload
+   returned HTTP 500:
+   `"this model is missing data required for image input"`.
+
+4. **`gemma3:1b` is valid for text-only follow-up (RAG-style)** — when OCR text is already
+   available as plain context, `gemma3:1b` can answer follow-up correctly and include
+   `(as far as they know)`.
+
+5. **Operational model split** — for this local setup, reliable image-PDF flow is:
+   vision OCR on `gemma3:4b` -> store text in RAG -> follow-up on text model (`gemma3:1b`
+   or another text-capable model).
+
+## Prompting Caveat
+
+Direct narrow prompts such as "return only the final parentheses phrase" were less reliable
+than full-page OCR extraction prompts. The robust sequence is:
+
+1. Extract full page text via vision.
+2. Ask follow-up question over extracted text context.

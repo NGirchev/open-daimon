@@ -3,6 +3,8 @@ package io.github.ngirchev.opendaimon.ai.springai.service;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -41,6 +43,7 @@ import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
+import java.awt.image.BufferedImage;
 import java.net.MalformedURLException;
 import java.util.*;
 import java.util.Base64;
@@ -563,15 +566,13 @@ public class SpringAIGateway implements AIGateway {
             return userQuery;
         }
 
-        // Inject RAG context as transient SystemMessage (not stored in chat memory)
-        injectRagContextAsSystemMessage(messages, allRelevantChunks);
-
-        // Build placeholder for UserMessage (instead of full augmented prompt)
+        // Build RAG context as prefix for user query (not SystemMessage — small models ignore it)
+        String ragPrefix = buildRagContextPrefix(allRelevantChunks);
         String placeholder = buildRagPlaceholder(documentAttachments);
-        log.info("Created RAG context SystemMessage with {} chunks from {} document(s); UserMessage gets placeholder",
-                allRelevantChunks.size(), documentAttachments.size());
+        log.info("Created RAG context prefix ({} chars) with {} chunks from {} document(s); UserMessage gets placeholder",
+                ragPrefix.length(), allRelevantChunks.size(), documentAttachments.size());
 
-        return userQuery + "\n" + placeholder;
+        return ragPrefix + userQuery + "\n" + placeholder;
     }
 
     /**
@@ -626,28 +627,33 @@ public class SpringAIGateway implements AIGateway {
             return userQuery;
         }
 
-        injectRagContextAsSystemMessage(messages, allChunks);
-        log.info("RAG follow-up: injected {} relevant chunks as transient SystemMessage", allChunks.size());
+        String ragPrefix = buildRagContextPrefix(allChunks);
+        log.info("RAG follow-up: prepended {} relevant chunks as user query prefix ({} chars)", allChunks.size(), ragPrefix.length());
 
-        return userQuery;
+        return ragPrefix + userQuery;
     }
 
     /**
-     * Injects RAG document context as a transient SystemMessage.
-     * This message is added to the prompt for the LLM but is NOT persisted in chat memory
-     * (MessageChatMemoryAdvisor only stores User/Assistant messages from the conversation).
+     * Template for RAG document context injected as a prefix to the user query.
+     * Prepended directly to the UserMessage (not a separate SystemMessage) because
+     * small local models (e.g. qwen2.5:3b) may ignore system messages, especially
+     * when ChatMemoryAdvisor loads conversation history.
      */
-    private static final String RAG_SYSTEM_MESSAGE_TEMPLATE =
-            "The user uploaded document(s). Below is the relevant content extracted from those documents. " +
-            "Use this context to answer the user's question.\n\nDocument context:\n%s";
+    private static final String RAG_USER_CONTEXT_TEMPLATE =
+            "Below is content extracted from the user's uploaded document(s). " +
+            "Use this context to answer the question that follows.\n\n" +
+            "--- Document context ---\n%s\n--- End of document context ---\n\n";
 
-    private void injectRagContextAsSystemMessage(List<Message> messages, List<Document> chunks) {
+    /**
+     * Builds a RAG context prefix to be prepended to the user query.
+     * Using user message prefix (not SystemMessage) ensures small models reliably
+     * see the context even when ChatMemoryAdvisor loads conversation history.
+     */
+    private String buildRagContextPrefix(List<Document> chunks) {
         String contextText = chunks.stream()
                 .map(Document::getText)
                 .collect(java.util.stream.Collectors.joining("\n\n---\n\n"));
-
-        String ragSystemPrompt = String.format(RAG_SYSTEM_MESSAGE_TEMPLATE, contextText);
-        messages.add(new SystemMessage(ragSystemPrompt));
+        return String.format(RAG_USER_CONTEXT_TEMPLATE, contextText);
     }
 
     /**
@@ -966,8 +972,7 @@ public class SpringAIGateway implements AIGateway {
      * @return list of Attachment with type=IMAGE per page
      */
     private List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
-        try {
-            org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.Loader.loadPDF(pdfData);
+        try (PDDocument document = Loader.loadPDF(pdfData)) {
             org.apache.pdfbox.rendering.PDFRenderer renderer = new org.apache.pdfbox.rendering.PDFRenderer(document);
             
             int pageCount = document.getNumberOfPages();
@@ -982,7 +987,7 @@ public class SpringAIGateway implements AIGateway {
             List<Attachment> imageAttachments = new ArrayList<>();
             
             for (int pageIndex = 0; pageIndex < pagesToRender; pageIndex++) {
-                java.awt.image.BufferedImage image = renderer.renderImageWithDPI(pageIndex, 300);
+                BufferedImage image = renderer.renderImageWithDPI(pageIndex, 300);
                 
                 // Use PNG for OCR/vision extraction to avoid lossy JPEG artifacts on small text.
                 java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
@@ -1003,7 +1008,6 @@ public class SpringAIGateway implements AIGateway {
                 imageAttachments.add(imageAttachment);
             }
             
-            document.close();
             log.info("Rendered {} pages from PDF '{}' as images for vision", pagesToRender, filename);
             return imageAttachments;
             
@@ -1011,6 +1015,56 @@ public class SpringAIGateway implements AIGateway {
             log.error("Failed to render PDF '{}' pages as images", filename, e);
             return List.of();
         }
+    }
+
+    /**
+     * Preprocesses a rendered PDF page for more stable OCR on compact local vision models.
+     *
+     * <p>Pipeline:
+     * <ol>
+     *   <li>convert to grayscale</li>
+     *   <li>auto-contrast (stretch min..max to full 0..255 range)</li>
+     * </ol>
+     */
+    private static BufferedImage preprocessPdfPageForVisionOcr(BufferedImage source) {
+        BufferedImage gray = new BufferedImage(
+                source.getWidth(), source.getHeight(), BufferedImage.TYPE_BYTE_GRAY);
+        java.awt.Graphics2D graphics = gray.createGraphics();
+        graphics.drawImage(source, 0, 0, null);
+        graphics.dispose();
+        return autoContrastGray(gray);
+    }
+
+    private static BufferedImage autoContrastGray(BufferedImage gray) {
+        java.awt.image.Raster raster = gray.getRaster();
+        int width = gray.getWidth();
+        int height = gray.getHeight();
+        int min = 255;
+        int max = 0;
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int value = raster.getSample(x, y, 0);
+                if (value < min) min = value;
+                if (value > max) max = value;
+            }
+        }
+
+        if (max <= min) {
+            return gray;
+        }
+
+        byte[] lut = new byte[256];
+        double scale = 255.0d / (max - min);
+        for (int i = 0; i < 256; i++) {
+            int stretched = (int) Math.round((i - min) * scale);
+            if (stretched < 0) stretched = 0;
+            if (stretched > 255) stretched = 255;
+            lut[i] = (byte) stretched;
+        }
+
+        java.awt.image.LookupOp op = new java.awt.image.LookupOp(new java.awt.image.ByteLookupTable(0, lut), null);
+        return op.filter(gray, null);
     }
 
     /**

@@ -128,7 +128,6 @@ import static org.mockito.Mockito.reset;
         TestDatabaseConfiguration.class
 })
 class ImagePdfVisionRagOllamaManualIT {
-
     private static final Long TEST_CHAT_ID = 350009001L;
     private static final String PDF_RESOURCE = "image-based-pdf-sample.pdf";
     private static final String RAG_PREFIX = "[RAG:documentId:";

@@ -108,3 +108,7 @@ sequenceDiagram
 
 4. **Similarity threshold** (0.7) filters out low-relevance chunks, preventing noise
    in the augmented prompt.
+
+5. **Image-only PDFs follow a different path** — for scanned/image PDFs and local Ollama
+   model constraints, see
+   [`docs/usecases/image-pdf-vision-cache.md`](./image-pdf-vision-cache.md).

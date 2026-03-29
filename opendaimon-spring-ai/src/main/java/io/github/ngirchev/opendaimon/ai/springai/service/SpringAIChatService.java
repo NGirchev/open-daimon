@@ -31,6 +31,7 @@ public class SpringAIChatService {
     private final SpringAIPromptFactory promptFactory;
     private final ObjectProvider<OpenRouterStreamMetricsTracker> openRouterStreamMetricsTrackerProvider;
     private static final int MAX_ERROR_BODY_CHARS = 4_000;
+    private static final int VISION_OCR_SEED = 42;
 
     @RotateOpenRouterModels(stream = true)
     public AIResponse streamChat(
@@ -190,7 +191,8 @@ public class SpringAIChatService {
         // OCR should be deterministic and literal — keep sampling stable.
         Map<String, Object> visionOverrides = Map.of(
                 "temperature", 0.0d,
-                "top_p", 1.0d
+                "top_p", 1.0d,
+                "seed", VISION_OCR_SEED
         );
         var promptBuilder = promptFactory.preparePrompt(
                 modelConfig, modelName, visionOverrides, null, false, messages, null);
