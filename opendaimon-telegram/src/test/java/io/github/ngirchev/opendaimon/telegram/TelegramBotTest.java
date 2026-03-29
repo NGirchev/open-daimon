@@ -836,6 +836,127 @@ class TelegramBotTest {
         assertEquals("[Forwarded from Alice]\nHello", result);
     }
 
+    // --- enrichWithReplyContext tests ---
+
+    @Test
+    void enrichWithReplyContext_whenReplyToMessageWithText_prependsReplyContext() {
+        Message replyTo = new Message();
+        replyTo.setText("https://www.bbc.com/russian");
+
+        String result = bot.enrichWithReplyContext("Что тут", replyTo, "en");
+
+        assertEquals("[Reply to: https://www.bbc.com/russian]\nЧто тут", result);
+    }
+
+    @Test
+    void enrichWithReplyContext_whenReplyToMessageWithCaption_prependsCaptionContext() {
+        Message replyTo = new Message();
+        replyTo.setCaption("Photo of a sunset");
+
+        String result = bot.enrichWithReplyContext("What is this", replyTo, "en");
+
+        assertEquals("[Reply to: Photo of a sunset]\nWhat is this", result);
+    }
+
+    @Test
+    void enrichWithReplyContext_whenReplyToMessageWithNoTextOrCaption_returnsOriginalText() {
+        Message replyTo = new Message();
+
+        String result = bot.enrichWithReplyContext("Hello", replyTo, "en");
+
+        assertEquals("Hello", result);
+    }
+
+    @Test
+    void enrichWithReplyContext_whenReplyToMessageNull_returnsOriginalText() {
+        String result = bot.enrichWithReplyContext("Hello", null, "en");
+
+        assertEquals("Hello", result);
+    }
+
+    @Test
+    void enrichWithReplyContext_whenReplyTextLong_preservesFull() {
+        Message replyTo = new Message();
+        String longText = "A".repeat(4000);
+        replyTo.setText(longText);
+
+        String result = bot.enrichWithReplyContext("Question", replyTo, "en");
+
+        assertEquals("[Reply to: " + longText + "]\nQuestion", result);
+    }
+
+    @Test
+    void enrichWithReplyContext_whenLocalizationAvailable_usesLocalizedPrefix() {
+        TelegramBot localizedBot = new TelegramBot(config, new DefaultBotOptions(), commandSyncService, userService,
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider);
+        Message replyTo = new Message();
+        replyTo.setText("some text");
+        when(messageLocalizationService.getMessage("telegram.reply.prefix", "ru", "some text"))
+                .thenReturn("[Ответ на: some text]");
+
+        String result = localizedBot.enrichWithReplyContext("Вопрос", replyTo, "ru");
+
+        assertEquals("[Ответ на: some text]\nВопрос", result);
+    }
+
+    @Test
+    void mapToTelegramTextCommand_whenReplyToMessageWithText_includesReplyContext() {
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        Chat chat = new Chat();
+        chat.setId(100L);
+        message.setChat(chat);
+        User from = new User(200L, "testUser", false);
+        message.setFrom(from);
+        message.setText("What is this?");
+
+        Message replyTo = new Message();
+        replyTo.setMessageId(99);
+        replyTo.setText("https://www.bbc.com/russian");
+        message.setReplyToMessage(replyTo);
+
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setId(1L);
+        telegramUser.setTelegramId(200L);
+        TelegramUserSession session = new TelegramUserSession();
+        when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
+        when(userService.getOrCreateSession(any(User.class))).thenReturn(session);
+
+        var command = bot.mapToTelegramTextCommand(update);
+
+        assertNotNull(command);
+        assertEquals("[Reply to: https://www.bbc.com/russian]\nWhat is this?", command.userText());
+    }
+
+    @Test
+    void mapToTelegramTextCommand_whenNoReplyToMessage_noReplyContext() {
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        Chat chat = new Chat();
+        chat.setId(100L);
+        message.setChat(chat);
+        User from = new User(200L, "testUser", false);
+        message.setFrom(from);
+        message.setText("Hello bot");
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setId(1L);
+        telegramUser.setTelegramId(200L);
+        TelegramUserSession session = new TelegramUserSession();
+        when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
+        when(userService.getOrCreateSession(any(User.class))).thenReturn(session);
+
+        var command = bot.mapToTelegramTextCommand(update);
+
+        assertNotNull(command);
+        assertEquals("Hello bot", command.userText());
+    }
+
     @Test
     void mapToTelegramDocumentCommand_whenBlankCaption_usesLocalizedFallbackPrompt() throws Exception {
         TelegramBot docBot = new TelegramBot(config, new DefaultBotOptions(), commandSyncService, userService,

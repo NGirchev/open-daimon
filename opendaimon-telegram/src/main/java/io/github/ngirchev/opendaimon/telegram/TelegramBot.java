@@ -343,10 +343,18 @@ public class TelegramBot extends TelegramLongPollingBot {
             handleInlineQueryInstruction(update.getInlineQuery());
             return null;
         }
-        if (update.hasMessage() && isGroupLikeChat(update.getMessage()) && !isGroupMessageForBot(update.getMessage())) {
-            log.debug("Skipping group message not addressed to this bot: chatId={}, messageId={}",
-                    update.getMessage().getChatId(), update.getMessage().getMessageId());
-            return null;
+        if (update.hasMessage() && isGroupLikeChat(update.getMessage())) {
+            Message msg = update.getMessage();
+            boolean forBot = isGroupMessageForBot(msg);
+            log.debug("Group message check: chatId={}, messageId={}, forBot={}, isCommand={}, isReply={}, textMention={}, captionMention={}",
+                    msg.getChatId(), msg.getMessageId(), forBot,
+                    isCommandForThisBot(msg), isReplyToThisBot(msg),
+                    hasSelfMentionInText(msg), hasSelfMentionInCaption(msg));
+            if (!forBot) {
+                log.debug("Skipping group message not addressed to this bot: chatId={}, messageId={}",
+                        msg.getChatId(), msg.getMessageId());
+                return null;
+            }
         }
         if (update.hasMessage() && update.getMessage().hasText()) {
             return mapToTelegramTextCommand(update);
@@ -528,6 +536,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
             userText = hasSelfMentionInText(message) ? stripSelfMentionTokens(stripped) : stripped;
         }
+        userText = enrichWithReplyContext(userText, message.getReplyToMessage(), telegramUser.getLanguageCode());
         TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true);
         cmd.forwardedFrom(forwardInfo);
         return cmd.languageCode(telegramUser.getLanguageCode());
@@ -552,6 +561,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             baseText = stripSelfMentionTokens(baseText);
         }
         String userText = enrichWithForwardContext(baseText, forwardInfo, telegramUser.getLanguageCode());
+        userText = enrichWithReplyContext(userText, message.getReplyToMessage(), telegramUser.getLanguageCode());
         TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
 
         List<Attachment> attachments = new ArrayList<>();
@@ -595,6 +605,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             baseText = stripSelfMentionTokens(baseText);
         }
         String userText = enrichWithForwardContext(baseText, forwardInfo, telegramUser.getLanguageCode());
+        userText = enrichWithReplyContext(userText, message.getReplyToMessage(), telegramUser.getLanguageCode());
         TelegramCommandType telegramCommandType = new TelegramCommandType(TelegramCommand.MESSAGE);
 
         List<Attachment> attachments = new ArrayList<>();
@@ -845,6 +856,29 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     /**
+     * Prepends reply-to message context to user text if the message is a reply.
+     */
+    String enrichWithReplyContext(String userText, Message replyToMessage, String languageCode) {
+        if (replyToMessage == null) {
+            return userText;
+        }
+        String replyText = replyToMessage.getText();
+        if (replyText == null || replyText.isBlank()) {
+            replyText = replyToMessage.getCaption();
+        }
+        if (replyText == null || replyText.isBlank()) {
+            return userText;
+        }
+        String prefix;
+        if (messageLocalizationService != null) {
+            prefix = messageLocalizationService.getMessage("telegram.reply.prefix", languageCode, replyText);
+        } else {
+            prefix = "[Reply to: " + replyText + "]";
+        }
+        return userText != null ? prefix + "\n" + userText : prefix;
+    }
+
+    /**
      * Prepends forwarding context to user text if the message is forwarded.
      */
     String enrichWithForwardContext(String userText, String forwardInfo, String languageCode) {
@@ -975,12 +1009,17 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private boolean containsSelfMention(String text, List<MessageEntity> entities) {
         if (text == null || text.isBlank() || entities == null || entities.isEmpty()) {
+            log.debug("containsSelfMention: no text or entities (text={}, entitiesCount={})",
+                    text != null ? text.length() : "null",
+                    entities != null ? entities.size() : "null");
             return false;
         }
         for (MessageEntity entity : entities) {
             if (entity == null || entity.getType() == null) {
                 continue;
             }
+            log.debug("containsSelfMention: entity type={}, offset={}, length={}",
+                    entity.getType(), entity.getOffset(), entity.getLength());
             if (!"mention".equalsIgnoreCase(entity.getType())) {
                 continue;
             }
@@ -990,6 +1029,8 @@ public class TelegramBot extends TelegramLongPollingBot {
                 continue;
             }
             String mention = text.substring(start, end);
+            log.debug("containsSelfMention: extracted mention='{}', selfUsername='{}'",
+                    mention, config.getUsername());
             if (mention.startsWith("@") && isSelfUsername(mention.substring(1))) {
                 return true;
             }
