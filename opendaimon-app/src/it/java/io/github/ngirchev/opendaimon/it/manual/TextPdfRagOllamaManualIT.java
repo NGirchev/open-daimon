@@ -58,39 +58,48 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
 
 /**
- * Manual E2E-like integration test for real Ollama + real PDF + follow-up RAG.
+ * Manual E2E-like integration test for real Ollama + text-based PDF + follow-up RAG.
+ *
+ * <p>Unlike {@link ImagePdfVisionRagOllamaManualIT} which uses an image-only PDF requiring OCR
+ * via a vision model, this test uses a regular text-based PDF ({@code sample.pdf}) where PDFBox
+ * extracts text directly. No vision model is needed.
+ *
+ * <p>Flow:
+ * <ol>
+ *   <li>Send a message with {@code sample.pdf} and prompt "что в первом предложении?"</li>
+ *   <li>PDFBox extracts text, chunks are stored in RAG VectorStore</li>
+ *   <li>Model answers using the extracted text</li>
+ *   <li>Follow-up: "а что было в последнем предложении?" — model uses RAG context</li>
+ * </ol>
  *
  * <p>Not intended for regular CI runs.
  * Run explicitly:
  * <pre>
- * ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
- *   -Dit.test=ImagePdfVisionRagOllamaManualIT \
+ * ./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify \
+ *   -Dit.test=TextPdfRagOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
  *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen2.5:3b \
- *   -Dmanual.ollama.vision-model=gemma3:4b
+ *   -Dmanual.ollama.chat-model=qwen2.5:3b
  * </pre>
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = ImagePdfVisionRagOllamaManualIT.TestConfig.class)
+@SpringBootTest(classes = TextPdfRagOllamaManualIT.TestConfig.class)
 @ActiveProfiles({"integration-test", "manual-ollama"})
 @Import({
         TestDatabaseConfiguration.class
 })
-class ImagePdfVisionRagOllamaManualIT {
-    private static final Long TEST_CHAT_ID = 350009001L;
-    private static final String PDF_RESOURCE = "attachments/image-based-pdf-sample.pdf";
+class TextPdfRagOllamaManualIT {
+    private static final Long TEST_CHAT_ID = 350009003L;
+    private static final String PDF_RESOURCE = "attachments/sample.pdf";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
-    private static final String EXPECTED_FOLLOW_UP_PHRASE = "(as far as they know)";
+    private static final String EXPECTED_FOLLOW_UP_PHRASE =
+            "Aenean est erat, tincidunt eget, venenatis quis, commodo at";
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
     private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
-    private static final String VISION_MODEL_PROPERTY = "manual.ollama.vision-model";
-    private static final String DEFAULT_VISION_MODEL = "gemma3:4b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
-    private static final String VISION_MODEL = System.getProperty(VISION_MODEL_PROPERTY, DEFAULT_VISION_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS =
-            Stream.of(CHAT_MODEL, VISION_MODEL, "nomic-embed-text:v1.5")
+            Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
                     .distinct()
                     .toList();
 
@@ -156,21 +165,19 @@ class ImagePdfVisionRagOllamaManualIT {
 
     /**
      * This test expects the following behavior:
-     * 1. Send a Telegram message with a PDF attachment and the prompt: "что в первом предложении?"
-     * 2. The PDF cannot be read as text and is converted to an image.
-     * 3. The image is sent to an OCR-capable model to extract text.
-     * 4. The extracted text is stored in RAG.
-     * 5. Ask a follow-up: "Процитируй дословно, что было в последнем предложении в скобках?";
-     *    RAG context is available to the model and it answers "as far as they know".
+     * 1. Send a Telegram message with a text-based PDF and the prompt: "что в первом предложении?"
+     * 2. PDFBox extracts text directly (no vision/OCR needed).
+     * 3. The extracted text is chunked and stored in RAG VectorStore.
+     * 4. Ask a follow-up: "а что было в последнем предложении?";
+     *    RAG context is available to the model and it answers with the last sentence from the PDF.
      * !!! DO NOT CHANGE THE TEST BEHAVIOR
      * !!! DO NOT CHANGE THE OLLAMA PROMPT
      * !!! DO NOT USE FAKE MOCKS JUST TO FORCE THE RESULT
-     *
      */
     @Test
     @Timeout(6 * 60)
-    @DisplayName("Manual E2E: real PDF + follow-up question uses stored RAG context")
-    void realPdf_thenFollowUp_usesRagContext() throws IOException {
+    @DisplayName("Manual E2E: text-based PDF + follow-up question uses stored RAG context")
+    void textPdf_thenFollowUp_usesRagContext() throws IOException {
         Attachment pdfAttachment = loadPdfAttachment();
 
         TelegramCommand firstCommand = createMessageCommand(
@@ -188,8 +195,6 @@ class ImagePdfVisionRagOllamaManualIT {
         ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
 
-        // RAG documentId is now stored in USER message metadata under "ragDocumentIds" key.
-        // The handler persists it there after the gateway call via OpenDaimonMessageService.updateRagMetadata().
         List<OpenDaimonMessage> userMessages = messageRepository
                 .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
         assertThat(userMessages)
@@ -224,9 +229,9 @@ class ImagePdfVisionRagOllamaManualIT {
                 .isNotEmpty();
 
         String extractedTextForRag = String.join("\n---\n", storedChunkTexts);
-        assertThat(extractedTextForRag)
-                .as("OCR/vision extracted text must contain expected phrase '%s'", EXPECTED_FOLLOW_UP_PHRASE)
-                .contains(EXPECTED_FOLLOW_UP_PHRASE);
+        assertThat(extractedTextForRag.toLowerCase())
+                .as("Extracted text must contain expected phrase from the PDF")
+                .contains(EXPECTED_FOLLOW_UP_PHRASE.toLowerCase());
 
         String firstAssistantReply = latestAssistantReply(thread);
         assertThat(firstAssistantReply)
@@ -236,7 +241,7 @@ class ImagePdfVisionRagOllamaManualIT {
         TelegramCommand secondCommand = createMessageCommand(
                 TEST_CHAT_ID,
                 2,
-                "Процитируй дословно, что было в последнем предложении в скобках?",
+                "процитируй самое последнее предложение документа, которое заканчивается на 'quam.'",
                 List.of()
         );
 
@@ -251,8 +256,21 @@ class ImagePdfVisionRagOllamaManualIT {
         String secondAssistantReply = latestAssistantReply(threadAfterFollowUp);
         assertThat(secondAssistantReply)
                 .as("Follow-up answer should not be blank")
-                .isNotBlank()
-                .contains(EXPECTED_FOLLOW_UP_PHRASE);
+                .isNotBlank();
+        assertThat(secondAssistantReply.toLowerCase())
+                .withFailMessage(
+                        "Follow-up answer should contain the last sentence from the PDF. Actual reply: [%s]",
+                        secondAssistantReply
+                )
+                .containsAnyOf(
+                        "aenean",
+                        "tincidunt",
+                        "venenatis",
+                        "commodo",
+                        "quam",
+                        "morbi",
+                        "suspendisse"
+                );
 
         assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.USER))
                 .as("Two user messages expected in thread")

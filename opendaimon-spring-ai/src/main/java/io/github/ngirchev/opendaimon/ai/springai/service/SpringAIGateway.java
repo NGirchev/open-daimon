@@ -464,7 +464,7 @@ public class SpringAIGateway implements AIGateway {
             case "zh" -> "Chinese";
             default -> languageCode;
         };
-        return systemRole + "\nIMPORTANT: Always respond in " + languageName + " (" + languageCode + ").";
+        return systemRole + "\nPrefer responding in " + languageName + " (" + languageCode + "). When quoting text from documents or context, preserve the original language exactly.";
     }
 
     private UserPriority resolveUserPriority(AICommand command) {

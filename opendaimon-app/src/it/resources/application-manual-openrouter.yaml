@@ -1,0 +1,87 @@
+# Dedicated overrides for manual OpenRouter integration tests.
+# Requires OPENROUTER_KEY in .env and local Ollama for embeddings.
+
+spring:
+  main:
+    banner-mode: off
+  ai:
+    model:
+      embedding: ollama
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+    openai:
+      base-url: https://openrouter.ai/api
+      api-key: ${OPENROUTER_KEY:sk-placeholder}
+  autoconfigure:
+    exclude:
+      - io.github.ngirchev.opendaimon.rest.config.RestAutoConfig
+      - io.github.ngirchev.opendaimon.ui.config.UIAutoConfig
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+
+open-daimon:
+  common:
+    bulkhead:
+      enabled: false
+    chat-routing:
+      REGULAR:
+        max-price: 5.0
+  telegram:
+    enabled: true
+    token: test-token
+    username: test-bot
+    file-upload:
+      enabled: false
+    access:
+      ADMIN:
+        ids:
+          - 350009004
+          - 350009005
+        channels: []
+      VIP:
+        channels: []
+      REGULAR:
+        channels: []
+  ai:
+    gateway-mock:
+      enabled: false
+    spring-ai:
+      enabled: true
+      mock: false
+      openrouter-auto-rotation:
+        models:
+          enabled: false
+      rag:
+        enabled: true
+        similarity-threshold: 0.0
+      serper:
+        api:
+          key: test-key
+          url: https://google.serper.dev/search
+      models:
+        list:
+          - name: "openrouter/auto"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - VISION
+            provider-type: OPENAI
+            priority: 1
+          - name: nomic-embed-text:v1.5
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 1
+
+logging:
+  level:
+    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer: DEBUG

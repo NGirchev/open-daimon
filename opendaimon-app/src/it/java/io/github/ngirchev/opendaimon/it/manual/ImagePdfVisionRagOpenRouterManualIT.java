@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.it.manual;
 
+import io.github.ngirchev.dotenv.DotEnvLoader;
 import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
@@ -46,9 +47,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -58,41 +59,53 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
 
 /**
- * Manual E2E-like integration test for real Ollama + real PDF + follow-up RAG.
+ * Manual E2E integration test for OpenRouter auto + image-based PDF + follow-up RAG.
+ *
+ * <p>Same scenario as {@link ImagePdfVisionRagOllamaManualIT} but uses {@code openrouter/auto} model
+ * via OpenRouter API instead of local Ollama chat/vision models. Ollama is still required for
+ * embeddings ({@code nomic-embed-text:v1.5}).
+ *
+ * <p>Flow:
+ * <ol>
+ *   <li>Send a message with an image-based PDF and prompt "что в первом предложении?"</li>
+ *   <li>PDF cannot be read as text, converted to image, sent to vision model for OCR</li>
+ *   <li>Extracted text is stored in RAG VectorStore</li>
+ *   <li>Follow-up: model uses stored RAG context to answer about bracket phrase</li>
+ * </ol>
+ *
+ * <p>Requires:
+ * <ul>
+ *   <li>{@code OPENROUTER_KEY} environment variable with a valid OpenRouter API key</li>
+ *   <li>Local Ollama running with {@code nomic-embed-text:v1.5} for embeddings</li>
+ * </ul>
  *
  * <p>Not intended for regular CI runs.
  * Run explicitly:
  * <pre>
- * ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
- *   -Dit.test=ImagePdfVisionRagOllamaManualIT \
+ * OPENROUTER_KEY=sk-or-... ./mvnw -pl opendaimon-app -am clean test-compile \
+ *   failsafe:integration-test failsafe:verify \
+ *   -Dit.test=ImagePdfVisionRagOpenRouterManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
- *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen2.5:3b \
- *   -Dmanual.ollama.vision-model=gemma3:4b
+ *   -Dmanual.ollama.e2e=true
  * </pre>
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = ImagePdfVisionRagOllamaManualIT.TestConfig.class)
-@ActiveProfiles({"integration-test", "manual-ollama"})
+@SpringBootTest(classes = ImagePdfVisionRagOpenRouterManualIT.TestConfig.class)
+@ActiveProfiles({"integration-test", "manual-openrouter"})
 @Import({
         TestDatabaseConfiguration.class
 })
-class ImagePdfVisionRagOllamaManualIT {
-    private static final Long TEST_CHAT_ID = 350009001L;
+class ImagePdfVisionRagOpenRouterManualIT {
+
+    static {
+        DotEnvLoader.loadDotEnv(Path.of("../.env"));
+    }
+
+    private static final Long TEST_CHAT_ID = 350009005L;
     private static final String PDF_RESOURCE = "attachments/image-based-pdf-sample.pdf";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String EXPECTED_FOLLOW_UP_PHRASE = "(as far as they know)";
-    private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
-    private static final String VISION_MODEL_PROPERTY = "manual.ollama.vision-model";
-    private static final String DEFAULT_VISION_MODEL = "gemma3:4b";
-    private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
-    private static final String VISION_MODEL = System.getProperty(VISION_MODEL_PROPERTY, DEFAULT_VISION_MODEL);
-    private static final List<String> REQUIRED_OLLAMA_MODELS =
-            Stream.of(CHAT_MODEL, VISION_MODEL, "nomic-embed-text:v1.5")
-                    .distinct()
-                    .toList();
 
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
@@ -119,7 +132,11 @@ class ImagePdfVisionRagOllamaManualIT {
     private TelegramBot telegramBot;
 
     @BeforeAll
-    static void requireLocalOllamaWithModels() {
+    static void requireOllamaForEmbeddings() {
+        String openRouterKey = System.getProperty("OPENROUTER_KEY", System.getenv("OPENROUTER_KEY"));
+        Assumptions.assumeTrue(openRouterKey != null && !openRouterKey.isBlank() && !openRouterKey.equals("sk-placeholder"),
+                "Skipping manual test: OPENROUTER_KEY not set in .env or environment");
+
         String baseUrl = resolveOllamaBaseUrl();
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(OLLAMA_TIMEOUT)
@@ -132,9 +149,9 @@ class ImagePdfVisionRagOllamaManualIT {
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             boolean statusOk = response.statusCode() == 200;
-            boolean modelsPresent = REQUIRED_OLLAMA_MODELS.stream().allMatch(response.body()::contains);
-            Assumptions.assumeTrue(statusOk && modelsPresent,
-                    "Skipping manual test: Ollama/models unavailable at " + baseUrl + ". Required: " + REQUIRED_OLLAMA_MODELS);
+            boolean embeddingModelPresent = response.body().contains("nomic-embed-text:v1.5");
+            Assumptions.assumeTrue(statusOk && embeddingModelPresent,
+                    "Skipping manual test: Ollama unavailable or nomic-embed-text:v1.5 not found at " + baseUrl);
         } catch (Exception ex) {
             Assumptions.assumeTrue(false,
                     "Skipping manual test: cannot connect to Ollama at " + baseUrl + ". " + ex.getMessage());
@@ -158,19 +175,18 @@ class ImagePdfVisionRagOllamaManualIT {
      * This test expects the following behavior:
      * 1. Send a Telegram message with a PDF attachment and the prompt: "что в первом предложении?"
      * 2. The PDF cannot be read as text and is converted to an image.
-     * 3. The image is sent to an OCR-capable model to extract text.
+     * 3. The image is sent to an OCR-capable model (openrouter/auto with VISION) to extract text.
      * 4. The extracted text is stored in RAG.
      * 5. Ask a follow-up: "Процитируй дословно, что было в последнем предложении в скобках?";
      *    RAG context is available to the model and it answers "as far as they know".
      * !!! DO NOT CHANGE THE TEST BEHAVIOR
-     * !!! DO NOT CHANGE THE OLLAMA PROMPT
+     * !!! DO NOT CHANGE THE PROMPT
      * !!! DO NOT USE FAKE MOCKS JUST TO FORCE THE RESULT
-     *
      */
     @Test
-    @Timeout(6 * 60)
-    @DisplayName("Manual E2E: real PDF + follow-up question uses stored RAG context")
-    void realPdf_thenFollowUp_usesRagContext() throws IOException {
+    @Timeout(3 * 60)
+    @DisplayName("Manual E2E: OpenRouter auto + image-based PDF + follow-up RAG")
+    void imagePdf_openRouterAuto_thenFollowUp_usesRagContext() throws IOException {
         Attachment pdfAttachment = loadPdfAttachment();
 
         TelegramCommand firstCommand = createMessageCommand(
@@ -188,8 +204,7 @@ class ImagePdfVisionRagOllamaManualIT {
         ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
 
-        // RAG documentId is now stored in USER message metadata under "ragDocumentIds" key.
-        // The handler persists it there after the gateway call via OpenDaimonMessageService.updateRagMetadata().
+        // RAG documentId is stored in USER message metadata under "ragDocumentIds" key.
         List<OpenDaimonMessage> userMessages = messageRepository
                 .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
         assertThat(userMessages)
@@ -251,8 +266,13 @@ class ImagePdfVisionRagOllamaManualIT {
         String secondAssistantReply = latestAssistantReply(threadAfterFollowUp);
         assertThat(secondAssistantReply)
                 .as("Follow-up answer should not be blank")
-                .isNotBlank()
-                .contains(EXPECTED_FOLLOW_UP_PHRASE);
+                .isNotBlank();
+        assertThat(containsExpectedFollowUpAnswer(secondAssistantReply))
+                .withFailMessage(
+                        "Follow-up answer should include expected bracket phrase meaning. Actual reply: [%s]",
+                        secondAssistantReply
+                )
+                .isTrue();
 
         assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.USER))
                 .as("Two user messages expected in thread")
@@ -280,9 +300,9 @@ class ImagePdfVisionRagOllamaManualIT {
 
         User from = new User();
         from.setId(chatId);
-        from.setUserName("manual-ollama-user");
+        from.setUserName("manual-openrouter-vision-user");
         from.setFirstName("Manual");
-        from.setLastName("Ollama");
+        from.setLastName("OpenRouterVision");
         from.setLanguageCode("ru");
 
         Message message = new Message();
@@ -314,6 +334,10 @@ class ImagePdfVisionRagOllamaManualIT {
                 .as("Assistant message should be saved")
                 .isNotEmpty();
         return assistantMessages.getLast().getContent();
+    }
+
+    private static boolean containsExpectedFollowUpAnswer(String text) {
+        return text != null && text.contains(EXPECTED_FOLLOW_UP_PHRASE);
     }
 
     private static String resolveOllamaBaseUrl() {

@@ -55,7 +55,7 @@ public class DocumentProcessingService {
                         .withPagesPerDocument(1) // One page per Document
                         .build()
         );
-        List<Document> documents = reader.read();
+        List<Document> documents = normalizeWhitespace(reader.read());
         logExtractedText(originalName, "PDF", documents);
         log.debug("Extracted {} pages from PDF", documents.size());
 
@@ -108,7 +108,7 @@ public class DocumentProcessingService {
         
         // 1. Extract: read document via TikaDocumentReader
         TikaDocumentReader reader = new TikaDocumentReader(new ByteArrayResource(documentData));
-        List<Document> documents = reader.read();
+        List<Document> documents = normalizeWhitespace(reader.read());
         logExtractedText(originalName, documentType, documents);
         log.debug("Extracted {} document(s) from {}", documents.size(), documentType);
 
@@ -191,6 +191,29 @@ public class DocumentProcessingService {
                 originalName, chunks.size(), documentId);
 
         return documentId;
+    }
+
+    /**
+     * Collapses runs of whitespace (spaces, tabs) within each line into a single space.
+     * Preserves line breaks so that paragraph structure is not lost during chunking.
+     * Returns a new list since {@link Document} text is immutable.
+     */
+    private static List<Document> normalizeWhitespace(List<Document> documents) {
+        return documents.stream()
+                .map(doc -> {
+                    String text = doc.getText();
+                    if (text == null || text.isEmpty()) {
+                        return doc;
+                    }
+                    String normalized = text.lines()
+                            .map(line -> line.replaceAll("[ \\t]+", " ").trim())
+                            .filter(line -> !line.isEmpty())
+                            .collect(java.util.stream.Collectors.joining("\n"));
+                    var cleanMetadata = new java.util.HashMap<>(doc.getMetadata());
+                    cleanMetadata.values().removeIf(java.util.Objects::isNull);
+                    return new Document(doc.getId(), normalized, cleanMetadata);
+                })
+                .toList();
     }
 
     private static final int EXTRACTED_TEXT_SAMPLE_MAX_LEN = 300;
