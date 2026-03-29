@@ -632,7 +632,9 @@ public class SpringAIGateway implements AIGateway {
         String contextText = chunks.stream()
                 .map(Document::getText)
                 .collect(java.util.stream.Collectors.joining("\n\n---\n\n"));
-        return String.format(ragProperties.getPrompts().getAugmentedPromptTemplate(), contextText, userQuery);
+        String ragQuery = String.format(ragProperties.getPrompts().getAugmentedPromptTemplate(), contextText, userQuery);
+        log.debug("RAG augmented query:\n{}", ragQuery);
+        return ragQuery;
     }
 
     /**

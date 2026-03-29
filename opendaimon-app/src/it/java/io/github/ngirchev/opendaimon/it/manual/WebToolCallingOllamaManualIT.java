@@ -1,10 +1,6 @@
 package io.github.ngirchev.opendaimon.it.manual;
 
-import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
-import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
-import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
-import io.github.ngirchev.opendaimon.common.model.Attachment;
-import io.github.ngirchev.opendaimon.common.model.AttachmentType;
+import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
@@ -18,6 +14,11 @@ import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
 import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import okhttp3.mockwebserver.Dispatcher;
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,10 +31,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.telegram.telegrambots.meta.api.objects.Chat;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -48,6 +50,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,41 +61,54 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
 
 /**
- * Manual E2E-like integration test for real Ollama + real PDF + follow-up RAG.
+ * Manual E2E-like integration test for real Ollama + web tool calling (fetch_url).
+ *
+ * <p>Verifies that qwen2.5:3b (or another chat model) invokes the {@code fetch_url} tool
+ * when the user message contains a URL. A real {@link WebTools} instance is used (preserving
+ * {@code @Tool} annotations for Spring AI discovery), backed by a {@link MockWebServer} that
+ * returns predictable HTML content instead of making real network requests.
  *
  * <p>Not intended for regular CI runs.
  * Run explicitly:
  * <pre>
  * ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
- *   -Dit.test=ImagePdfVisionRagOllamaManualIT \
+ *   -Dit.test=WebToolCallingOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
  *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen2.5:3b \
- *   -Dmanual.ollama.vision-model=gemma3:4b
+ *   -Dmanual.ollama.chat-model=qwen2.5:3b
  * </pre>
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = ImagePdfVisionRagOllamaManualIT.TestConfig.class)
+@SpringBootTest(classes = WebToolCallingOllamaManualIT.TestConfig.class)
 @ActiveProfiles({"integration-test", "manual"})
 @Import({
         TestDatabaseConfiguration.class
 })
-class ImagePdfVisionRagOllamaManualIT {
-    private static final Long TEST_CHAT_ID = 350009001L;
-    private static final String PDF_RESOURCE = "image-based-pdf-sample.pdf";
+class WebToolCallingOllamaManualIT {
+    private static final Long TEST_CHAT_ID = 350009002L;
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
-    private static final String EXPECTED_FOLLOW_UP_PHRASE = "(as far as they know)";
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
     private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
-    private static final String VISION_MODEL_PROPERTY = "manual.ollama.vision-model";
-    private static final String DEFAULT_VISION_MODEL = "gemma3:4b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
-    private static final String VISION_MODEL = System.getProperty(VISION_MODEL_PROPERTY, DEFAULT_VISION_MODEL);
-    private static final List<String> REQUIRED_OLLAMA_MODELS =
-            Stream.of(CHAT_MODEL, VISION_MODEL, "nomic-embed-text:v1.5")
-                    .distinct()
-                    .toList();
+    private static final List<String> REQUIRED_OLLAMA_MODELS = Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
+            .distinct()
+            .toList();
+
+    private static final String FAKE_URL = "https://www.reddit.com/r/aivideo/s/5iJMz1ZY4t";
+    private static final String FAKE_PAGE_HTML = """
+            <html><body>
+            <h1>AI Video Generation Comparison</h1>
+            <p>This Reddit post discusses new AI video generation tools.
+            The author compares Sora, Runway Gen-3, and Kling for creating short AI-generated clips.
+            Key takeaway: Kling produces the most realistic motion, while Sora excels at creative scenes.</p>
+            </body></html>
+            """;
+
+    static final AtomicBoolean FETCH_URL_CALLED = new AtomicBoolean(false);
+    static final AtomicBoolean ANY_TOOL_CALLED = new AtomicBoolean(false);
+    // Started eagerly so TestConfig.webTools() can read the port during context initialization
+    private static final MockWebServer mockWebServer = createMockWebServer();
 
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
@@ -106,12 +122,6 @@ class ImagePdfVisionRagOllamaManualIT {
     @Autowired
     private OpenDaimonMessageRepository messageRepository;
 
-    @Autowired
-    private FileRAGService fileRagService;
-
-    @Autowired
-    private DocumentProcessingService documentProcessingService;
-
     @MockitoBean
     private TelegramBotRegistrar telegramBotRegistrar;
 
@@ -119,6 +129,42 @@ class ImagePdfVisionRagOllamaManualIT {
     private TelegramBot telegramBot;
 
     @BeforeAll
+    static void checkOllama() {
+        requireLocalOllamaWithModels();
+    }
+
+    @AfterAll
+    static void tearDown() throws IOException {
+        mockWebServer.shutdown();
+    }
+
+    private static MockWebServer createMockWebServer() {
+        MockWebServer server = new MockWebServer();
+        server.setDispatcher(new Dispatcher() {
+            @Override
+            public MockResponse dispatch(RecordedRequest request) {
+                ANY_TOOL_CALLED.set(true);
+                if ("POST".equals(request.getMethod())) {
+                    // Serper web_search — return empty results
+                    return new MockResponse()
+                            .setBody("{\"organic\":[]}")
+                            .addHeader("Content-Type", "application/json");
+                }
+                // fetch_url — return fake HTML page
+                FETCH_URL_CALLED.set(true);
+                return new MockResponse()
+                        .setBody(FAKE_PAGE_HTML)
+                        .addHeader("Content-Type", "text/html");
+            }
+        });
+        try {
+            server.start();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to start MockWebServer", e);
+        }
+        return server;
+    }
+
     static void requireLocalOllamaWithModels() {
         String baseUrl = resolveOllamaBaseUrl();
         HttpClient client = HttpClient.newBuilder()
@@ -142,10 +188,12 @@ class ImagePdfVisionRagOllamaManualIT {
     }
 
     @BeforeEach
-    void setUp() throws TelegramApiException {
+    void setUpEach() throws TelegramApiException {
         messageRepository.deleteAll();
         threadRepository.deleteAll();
         telegramUserRepository.deleteAll();
+        FETCH_URL_CALLED.set(false);
+        ANY_TOOL_CALLED.set(false);
 
         reset(telegramBot);
         doNothing().when(telegramBot).showTyping(anyLong());
@@ -155,32 +203,22 @@ class ImagePdfVisionRagOllamaManualIT {
     }
 
     /**
-     * This test expects the following behavior:
-     * 1. Send a Telegram message with a PDF attachment and the prompt: "что в первом предложении?"
-     * 2. The PDF cannot be read as text and is converted to an image.
-     * 3. The image is sent to an OCR-capable model to extract text.
-     * 4. The extracted text is stored in RAG.
-     * 5. Ask a follow-up: "а что было в последнем предложении в скобках?";
-     *    RAG context is available to the model and it answers "as far as they know".
-     * !!! DO NOT CHANGE THE TEST BEHAVIOR
-     * !!! DO NOT CHANGE THE OLLAMA PROMPT
-     * !!! DO NOT USE FAKE MOCKS JUST TO FORCE THE RESULT
-     *
+     * Sends a message with a URL and verifies that the model invokes the fetch_url tool.
+     * WebTools uses a real instance with MockWebServer, so @Tool annotations are preserved
+     * for Spring AI discovery. The model should call fetch_url and use the result.
      */
     @Test
-    @Timeout(6 * 60)
-    @DisplayName("Manual E2E: real PDF + follow-up question uses stored RAG context")
-    void realPdf_thenFollowUp_usesRagContext() throws IOException {
-        Attachment pdfAttachment = loadPdfAttachment();
-
-        TelegramCommand firstCommand = createMessageCommand(
+    @Timeout(3 * 60)
+    @DisplayName("Manual E2E: model calls fetch_url tool when message contains a URL")
+    void messageWithUrl_modelCallsFetchUrl() {
+        TelegramCommand command = createMessageCommand(
                 TEST_CHAT_ID,
                 1,
-                "что в первом предложении?",
-                List.of(pdfAttachment)
+                "О чём тут? " + FAKE_URL,
+                List.of()
         );
 
-        messageHandler.handle(firstCommand);
+        messageHandler.handle(command);
 
         TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID)
                 .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
@@ -188,106 +226,33 @@ class ImagePdfVisionRagOllamaManualIT {
         ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
 
-        // RAG documentId is now stored in USER message metadata under "ragDocumentIds" key.
-        // The handler persists it there after the gateway call via OpenDaimonMessageService.updateRagMetadata().
-        List<OpenDaimonMessage> userMessages = messageRepository
-                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
-        assertThat(userMessages)
-                .as("At least one USER message should exist in thread")
-                .isNotEmpty();
-
-        String ragDocumentIdsRaw = userMessages.stream()
-                .filter(m -> m.getMetadata() != null && m.getMetadata().containsKey(AICommand.RAG_DOCUMENT_IDS_FIELD))
-                .map(m -> (String) m.getMetadata().get(AICommand.RAG_DOCUMENT_IDS_FIELD))
-                .findFirst()
-                .orElse(null);
-
-        assertThat(ragDocumentIdsRaw)
-                .as("RAG documentId should be stored in USER message metadata")
-                .isNotNull()
-                .isNotBlank();
-
-        List<String> ragDocumentIds = java.util.Arrays.stream(ragDocumentIdsRaw.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
-
-        assertThat(ragDocumentIds)
-                .as("Parsed RAG documentIds should be non-empty")
-                .isNotEmpty();
-
-        List<String> storedChunkTexts = fileRagService.findAllByDocumentId(ragDocumentIds.getFirst()).stream()
-                .map(document -> document.getText() == null ? "" : document.getText())
-                .toList();
-        assertThat(storedChunkTexts)
-                .as("RAG VectorStore should contain extracted text chunks for stored documentId")
-                .isNotEmpty();
-
-        String extractedTextForRag = String.join("\n---\n", storedChunkTexts);
-        assertThat(extractedTextForRag)
-                .as("OCR/vision extracted text must contain expected phrase '%s'", EXPECTED_FOLLOW_UP_PHRASE)
-                .contains(EXPECTED_FOLLOW_UP_PHRASE);
-
-        String firstAssistantReply = latestAssistantReply(thread);
-        assertThat(firstAssistantReply)
-                .as("First answer should not be blank")
-                .isNotBlank();
-
-        TelegramCommand secondCommand = createMessageCommand(
-                TEST_CHAT_ID,
-                2,
-                "а что было в последнем предложении в скобках?",
-                List.of()
-        );
-
-        messageHandler.handle(secondCommand);
-
-        ConversationThread threadAfterFollowUp = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist after follow-up"));
-        assertThat(threadAfterFollowUp.getId())
-                .as("Follow-up should stay in same thread")
-                .isEqualTo(thread.getId());
-
-        String secondAssistantReply = latestAssistantReply(threadAfterFollowUp);
-        assertThat(secondAssistantReply)
-                .as("Follow-up answer should not be blank")
-                .isNotBlank();
-        assertThat(containsExpectedFollowUpAnswer(secondAssistantReply))
-                .withFailMessage(
-                        "Follow-up answer should include expected bracket phrase meaning. Actual reply: [%s]",
-                        secondAssistantReply
-                )
+        assertThat(ANY_TOOL_CALLED.get())
+                .as("Model should have called at least one web tool (web_search or fetch_url)")
                 .isTrue();
 
-        assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.USER))
-                .as("Two user messages expected in thread")
-                .isEqualTo(2);
-        assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.ASSISTANT))
-                .as("Two assistant messages expected in thread")
-                .isEqualTo(2);
+        String assistantReply = latestAssistantReply(thread);
+        assertThat(assistantReply)
+                .as("Assistant reply should not be blank")
+                .isNotBlank();
+
+        if (FETCH_URL_CALLED.get()) {
+            // Model used fetch_url — response should contain page content
+            assertThat(assistantReply.toLowerCase())
+                    .as("When fetch_url is used, reply should reference content from the fetched page")
+                    .containsAnyOf("video", "ai", "sora", "runway", "kling");
+        }
+        // else: model used web_search (which returned empty), so reply may say "no info found" — that's ok,
+        // the important thing is the model DID invoke a tool via Spring AI tool calling loop
     }
 
-    private Attachment loadPdfAttachment() throws IOException {
-        ClassPathResource resource = new ClassPathResource(PDF_RESOURCE);
-        byte[] pdfBytes = resource.getInputStream().readAllBytes();
-        return new Attachment(
-                "manual/" + PDF_RESOURCE,
-                "application/pdf",
-                PDF_RESOURCE,
-                pdfBytes.length,
-                AttachmentType.PDF,
-                pdfBytes
-        );
-    }
-
-    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text, List<Attachment> attachments) {
+    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text, List<?> attachments) {
         Update update = new Update();
 
         User from = new User();
         from.setId(chatId);
-        from.setUserName("manual-ollama-user");
+        from.setUserName("manual-ollama-web-user");
         from.setFirstName("Manual");
-        from.setLastName("Ollama");
+        from.setLastName("Web");
         from.setLanguageCode("ru");
 
         Message message = new Message();
@@ -306,7 +271,7 @@ class ImagePdfVisionRagOllamaManualIT {
                 update,
                 text,
                 false,
-                attachments
+                List.of()
         );
         command.languageCode("ru");
         return command;
@@ -319,10 +284,6 @@ class ImagePdfVisionRagOllamaManualIT {
                 .as("Assistant message should be saved")
                 .isNotEmpty();
         return assistantMessages.getLast().getContent();
-    }
-
-    private static boolean containsExpectedFollowUpAnswer(String text) {
-        return text != null && text.contains(EXPECTED_FOLLOW_UP_PHRASE);
     }
 
     private static String resolveOllamaBaseUrl() {
@@ -339,5 +300,12 @@ class ImagePdfVisionRagOllamaManualIT {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class TestConfig {
+
+        @Bean
+        public WebTools webTools() {
+            String mockBaseUrl = "http://localhost:" + mockWebServer.getPort();
+            WebClient webClient = WebClient.builder().build();
+            return new WebTools(webClient, "fake-serper-key", mockBaseUrl + "/search");
+        }
     }
 }

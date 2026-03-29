@@ -1,4 +1,4 @@
-# Dedicated overrides for manual Ollama PDF+RAG integration tests.
+# Dedicated overrides for manual Ollama integration tests (PDF+RAG, web tool calling, etc.).
 
 spring:
   main:
@@ -59,6 +59,9 @@ open-daimon:
             capabilities:
               - AUTO
               - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
             provider-type: OLLAMA
             priority: 1
           - name: ${manual.ollama.vision-model:gemma3:4b}
@@ -77,3 +80,7 @@ open-daimon:
 logging:
   level:
     io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.tool.WebTools: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer: DEBUG

@@ -8,12 +8,6 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-  ai:
-    openai:
-      api-key: ${OPENROUTER_KEY:}
-      base-url: https://openrouter.ai/api
-    ollama:
-      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
   autoconfigure:
     exclude:
       - org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration
@@ -30,12 +24,7 @@ open-daimon:
     start-message: Hello from integration test
     file-upload:
       enabled: false
-      max-file-size-mb: 10
-      supported-image-types: jpeg,png,gif,webp,svg,bmp,tiff
-      supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub
   common:
-    bulkhead:
-      enabled: true
     assistant-role: You are a helpful assistant
     max-output-tokens: 1000
     max-reasoning-tokens: 500
@@ -89,7 +78,6 @@ open-daimon:
             latency-ewma-alpha: 0.2
             cooldown429: 10m
             cooldown5xx: 5m
-      mock: false
       history-window-size: 10
       timeouts:
         response-timeout-seconds: 120
@@ -97,17 +85,8 @@ open-daimon:
       serper:
         api:
           key: test-key
-          url: https://google.serper.dev/search
       rag:
         enabled: false
-        chunk-size: 800
-        chunk-overlap: 100
-        top-k: 5
-        similarity-threshold: 0.7
-        prompts:
-          document-extract-error-pdf: "Could not extract text from file \"%s\". The file may be a scan or image."
-          document-extract-error-document: "Could not extract text from file \"%s\" (type: %s)."
-          augmented-prompt-template: "Context:\n%s\n\nQuestion: %s"
       models:
         list:
           - name: openrouter/auto
