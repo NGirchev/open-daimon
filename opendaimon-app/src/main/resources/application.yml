@@ -118,6 +118,12 @@ open-daimon:
       threads-enabled: true
       language-enabled: true
       model-enabled: true
+    message-coalescing:
+      enabled: true
+      wait-window-ms: 1200
+      max-leading-text-length: 160
+      allow-media-second-message: true
+      require-explicit-link: true
   rest:
     enabled: true
     # User access configuration via environment variables

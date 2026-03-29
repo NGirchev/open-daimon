@@ -12,11 +12,16 @@ calls AI via `AICommandFactoryRegistry` + `AIGatewayRegistry`, persists messages
 
 ```
 onUpdateReceived(Update)
-  ├─ callback query         → mapToTelegramCommand()
-  ├─ message with text      → mapToTelegramTextCommand()
-  ├─ message with photo     → mapToTelegramPhotoCommand()   (file-upload.enabled required)
-  ├─ message with document  → mapToTelegramDocumentCommand()(file-upload.enabled required)
-  └─ anything else          → null → skip
+  ├─ message-coalescing pre-step (optional, config-driven)
+  │    ├─ WAIT                      → hold first short text (up to wait-window-ms)
+  │    ├─ PROCESS_MERGED            → merge first text + second linked forward/media into one command
+  │    ├─ PROCESS_PENDING_AND_CURRENT → flush first + process current separately
+  │    └─ PROCESS_SINGLE            → continue normal mapping
+  ├─ callback query                → mapToTelegramCommand()
+  ├─ message with text             → mapToTelegramTextCommand()
+  ├─ message with photo            → mapToTelegramPhotoCommand()   (file-upload.enabled required)
+  ├─ message with document         → mapToTelegramDocumentCommand() (file-upload.enabled required)
+  └─ anything else                 → null → skip
 ```
 
 ### mapToTelegramTextCommand()
@@ -26,6 +31,16 @@ onUpdateReceived(Update)
 | text starts with `🤖` or `💬` | `MODEL` command |
 | session has `botStatus` | use `botStatus` as command type |
 | otherwise | `MESSAGE` command |
+
+### message-coalescing (first text + second linked message)
+Enabled by `open-daimon.telegram.message-coalescing.enabled=true`.
+
+| Rule | Effect |
+|------|--------|
+| First candidate: short plain text, non-command, no forward origin, no media | held for `wait-window-ms` |
+| Second candidate: same user+chat, within window, linked by `forward_origin` or `reply_to_message` | merged into one command |
+| Second has no explicit link or not eligible | first is flushed, second is processed separately |
+| No second in window | first is processed as-is |
 
 ### mapToTelegramCommand() — callbacks
 | Callback data prefix | Command |
@@ -104,6 +119,26 @@ Evaluated in order — first match wins:
 6. `AIUtils.processStreamingResponseByParagraphs()` → sends paragraphs as they arrive
 7. `saveAssistantMessage()` with processing time and model name
 8. `PersistentKeyboardService.sendKeyboard()` — shows model + context % buttons
+
+---
+
+### UC-1A: Telegram split input (text + forwarded/media) is coalesced
+**Trigger:** client sends two updates for one user intent:
+1) short text (e.g. "Что тут?")
+2) related forwarded/media message from same user/chat
+
+**Preconditions:** coalescing enabled; second update has explicit link (`forward_origin` or `reply_to_message`) and arrives within `wait-window-ms`.
+
+**Behavior:**
+1. First update is buffered in memory (not sent to AI immediately)
+2. Second update arrives and passes link checks
+3. Bot builds one merged command: `firstText + "\n\n" + secondUserText`
+4. Only one AI request is executed
+5. If second update does not match or times out, first is processed normally
+
+**Limitations:**
+- There is no deterministic "future-pair" marker in the first update.
+- Coalescing is heuristic and in-memory only (not persisted across restart).
 
 ---
 

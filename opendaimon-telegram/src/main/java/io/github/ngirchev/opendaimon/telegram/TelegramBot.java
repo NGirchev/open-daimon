@@ -43,6 +43,7 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageCoalescingService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 
 import java.util.ArrayList;
@@ -61,11 +62,12 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final MessageLocalizationService messageLocalizationService;
     private final ObjectProvider<TelegramFileService> fileServiceProvider;
     private final ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider;
+    private final ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider;
 
     public TelegramBot(TelegramProperties config,
                        CommandSyncService commandSyncService,
                        TelegramUserService userService) {
-        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null, null);
+        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null, null, null);
     }
 
     /**
@@ -78,6 +80,18 @@ public class TelegramBot extends TelegramLongPollingBot {
                        MessageLocalizationService messageLocalizationService,
                        ObjectProvider<TelegramFileService> fileServiceProvider,
                        ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
+        this(config, botOptions, commandSyncService, userService, messageLocalizationService,
+                fileServiceProvider, fileUploadPropertiesProvider, null);
+    }
+
+    public TelegramBot(TelegramProperties config,
+                       DefaultBotOptions botOptions,
+                       CommandSyncService commandSyncService,
+                       TelegramUserService userService,
+                       MessageLocalizationService messageLocalizationService,
+                       ObjectProvider<TelegramFileService> fileServiceProvider,
+                       ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
+                       ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider) {
         super(botOptions, config.getToken());
         this.config = config;
         this.commandSyncService = commandSyncService;
@@ -85,6 +99,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         this.messageLocalizationService = messageLocalizationService;
         this.fileServiceProvider = fileServiceProvider;
         this.fileUploadPropertiesProvider = fileUploadPropertiesProvider;
+        this.messageCoalescingServiceProvider = messageCoalescingServiceProvider;
     }
 
     @Override
@@ -105,14 +120,103 @@ public class TelegramBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
         logIncomingUpdateDebug(update);
+        TelegramMessageCoalescingService coalescingService = getCoalescingService();
+        if (coalescingService == null || !coalescingService.isEnabled()) {
+            processSingleUpdate(update);
+            return;
+        }
+
+        TelegramMessageCoalescingService.CoalescingAction action =
+                coalescingService.onIncomingUpdate(update, this::processSingleUpdate);
+        processCoalescingAction(action);
+    }
+
+    private TelegramMessageCoalescingService getCoalescingService() {
+        return messageCoalescingServiceProvider != null ? messageCoalescingServiceProvider.getIfAvailable() : null;
+    }
+
+    private void processCoalescingAction(TelegramMessageCoalescingService.CoalescingAction action) {
+        if (action instanceof TelegramMessageCoalescingService.WaitForPossiblePair) {
+            return;
+        }
+        if (action instanceof TelegramMessageCoalescingService.ProcessMerged merged) {
+            processMergedUpdates(merged.firstUpdate(), merged.secondUpdate(), merged.linkType());
+            return;
+        }
+        if (action instanceof TelegramMessageCoalescingService.ProcessPendingAndCurrent both) {
+            processSingleUpdate(both.pendingUpdate());
+            processSingleUpdate(both.currentUpdate());
+            return;
+        }
+        if (action instanceof TelegramMessageCoalescingService.ProcessSingle single) {
+            processSingleUpdate(single.update());
+            return;
+        }
+        log.warn("Unknown coalescing action type: {}", action != null ? action.getClass().getName() : "null");
+    }
+
+    private void processSingleUpdate(Update update) {
+        if (update == null) {
+            return;
+        }
         TelegramCommand command = mapUpdateToCommand(update);
         if (command == null) return;
+        executeCommandWithErrorHandling(update, command);
+    }
+
+    private void processMergedUpdates(Update firstUpdate, Update secondUpdate, String linkType) {
+        TelegramCommand mergedCommand = mapMergedCommand(firstUpdate, secondUpdate);
+        if (mergedCommand == null) {
+            log.warn("Merged processing fallback to separate handling. firstMessageId={}, secondMessageId={}, linkType={}",
+                    extractMessageId(firstUpdate), extractMessageId(secondUpdate), linkType);
+            processSingleUpdate(firstUpdate);
+            processSingleUpdate(secondUpdate);
+            return;
+        }
+        executeCommandWithErrorHandling(secondUpdate, mergedCommand);
+    }
+
+    private TelegramCommand mapMergedCommand(Update firstUpdate, Update secondUpdate) {
+        if (firstUpdate == null || secondUpdate == null
+                || !firstUpdate.hasMessage() || firstUpdate.getMessage() == null
+                || !firstUpdate.getMessage().hasText()) {
+            return null;
+        }
+
+        TelegramCommand secondCommand = mapUpdateToCommand(secondUpdate);
+        if (secondCommand == null) {
+            return null;
+        }
+
+        String firstText = StringUtils.trimToEmpty(firstUpdate.getMessage().getText());
+        if (firstText.isEmpty()) {
+            return secondCommand;
+        }
+
+        String secondText = secondCommand.userText();
+        if (StringUtils.isBlank(secondText)) {
+            secondCommand.userText(firstText);
+            return secondCommand;
+        }
+
+        secondCommand.userText(firstText + "\n\n" + secondText);
+        return secondCommand;
+    }
+
+    private void executeCommandWithErrorHandling(Update update, TelegramCommand command) {
         try {
             commandSyncService.syncAndHandle(command);
         } catch (Exception e) {
             log.error("Internal error with handling message", e);
             sendErrorReplyIfPossible(update, command);
         }
+    }
+
+    private Integer extractMessageId(Update update) {
+        if (update != null && update.hasMessage() && update.getMessage() != null) {
+            return update.getMessage().getMessageId();
+        }
+        return null;
     }
 
     private void logIncomingUpdateDebug(Update update) {

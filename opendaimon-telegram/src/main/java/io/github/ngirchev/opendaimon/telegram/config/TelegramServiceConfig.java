@@ -3,6 +3,7 @@ package io.github.ngirchev.opendaimon.telegram.config;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
@@ -111,8 +112,31 @@ public class TelegramServiceConfig {
     @ConditionalOnMissingBean
     public TypingIndicatorService typingIndicatorService(
             ObjectProvider<TelegramBot> telegramBotProvider,
+            @Qualifier("typingIndicatorScheduledExecutor")
             ScheduledExecutorService typingIndicatorScheduledExecutor) {
         return new TypingIndicatorService(telegramBotProvider, typingIndicatorScheduledExecutor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "messageCoalescingScheduledExecutor")
+    public ScheduledExecutorService messageCoalescingScheduledExecutor() {
+        return Executors.newScheduledThreadPool(1, r -> {
+            Thread thread = new Thread(r, "telegram-message-coalescing-");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TelegramMessageCoalescingService telegramMessageCoalescingService(
+            TelegramProperties telegramProperties,
+            @Qualifier("messageCoalescingScheduledExecutor")
+            ScheduledExecutorService messageCoalescingScheduledExecutor) {
+        return new TelegramMessageCoalescingService(
+                telegramProperties.getMessageCoalescing(),
+                messageCoalescingScheduledExecutor
+        );
     }
 
     @Bean

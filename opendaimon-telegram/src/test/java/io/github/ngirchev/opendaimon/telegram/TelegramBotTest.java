@@ -9,11 +9,13 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageCoalescingService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -59,6 +61,10 @@ class TelegramBotTest {
     private ObjectProvider<TelegramFileService> fileServiceProvider;
     @Mock
     private ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider;
+    @Mock
+    private ObjectProvider<TelegramMessageCoalescingService> coalescingServiceProvider;
+    @Mock
+    private TelegramMessageCoalescingService coalescingService;
     @Mock
     private TelegramFileService fileService;
 
@@ -126,6 +132,122 @@ class TelegramBotTest {
         bot.onUpdateReceived(update);
 
         verify(commandSyncService).syncAndHandle(any());
+    }
+
+    @Test
+    void onUpdateReceived_whenCoalescingReturnsMerged_callsSyncAndHandleOnceWithMergedText() {
+        TelegramBot coalescingBot = new TelegramBot(
+                config,
+                new DefaultBotOptions(),
+                commandSyncService,
+                userService,
+                messageLocalizationService,
+                fileServiceProvider,
+                fileUploadPropertiesProvider,
+                coalescingServiceProvider
+        );
+        when(coalescingServiceProvider.getIfAvailable()).thenReturn(coalescingService);
+        when(coalescingService.isEnabled()).thenReturn(true);
+
+        Update first = new Update();
+        Message firstMessage = new Message();
+        firstMessage.setMessageId(10);
+        Chat firstChat = new Chat();
+        firstChat.setId(100L);
+        firstMessage.setChat(firstChat);
+        User firstFrom = new User(200L, "u", false);
+        firstMessage.setFrom(firstFrom);
+        firstMessage.setText("Что тут?");
+        first.setMessage(firstMessage);
+
+        Update second = new Update();
+        Message secondMessage = new Message();
+        secondMessage.setMessageId(11);
+        Chat secondChat = new Chat();
+        secondChat.setId(100L);
+        secondMessage.setChat(secondChat);
+        User secondFrom = new User(200L, "u", false);
+        secondMessage.setFrom(secondFrom);
+        secondMessage.setText("Пересланный текст");
+        MessageOriginUser origin = new MessageOriginUser();
+        User sender = new User(300L, "Alice", false);
+        origin.setSenderUser(sender);
+        origin.setDate(1000);
+        secondMessage.setForwardOrigin(origin);
+        second.setMessage(secondMessage);
+
+        when(coalescingService.onIncomingUpdate(eq(first), any()))
+                .thenReturn(new TelegramMessageCoalescingService.ProcessMerged(first, second, "forward_origin"));
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setId(1L);
+        telegramUser.setTelegramId(200L);
+        telegramUser.setLanguageCode("en");
+        when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
+        when(messageLocalizationService.getMessage("telegram.forward.prefix", "en", "Alice"))
+                .thenReturn("[Forwarded from Alice]");
+
+        coalescingBot.onUpdateReceived(first);
+
+        ArgumentCaptor<io.github.ngirchev.opendaimon.common.command.ICommand> captor =
+                ArgumentCaptor.forClass(io.github.ngirchev.opendaimon.common.command.ICommand.class);
+        verify(commandSyncService, times(1)).syncAndHandle(captor.capture());
+        assertInstanceOf(TelegramCommand.class, captor.getValue());
+        TelegramCommand telegramCommand = (TelegramCommand) captor.getValue();
+        assertEquals("Что тут?\n\n[Forwarded from Alice]\nПересланный текст", telegramCommand.userText());
+    }
+
+    @Test
+    void onUpdateReceived_whenCoalescingReturnsPendingAndCurrent_processesBothUpdates() {
+        TelegramBot coalescingBot = new TelegramBot(
+                config,
+                new DefaultBotOptions(),
+                commandSyncService,
+                userService,
+                messageLocalizationService,
+                fileServiceProvider,
+                fileUploadPropertiesProvider,
+                coalescingServiceProvider
+        );
+        when(coalescingServiceProvider.getIfAvailable()).thenReturn(coalescingService);
+        when(coalescingService.isEnabled()).thenReturn(true);
+
+        Update first = new Update();
+        Message firstMessage = new Message();
+        firstMessage.setMessageId(20);
+        Chat firstChat = new Chat();
+        firstChat.setId(100L);
+        firstMessage.setChat(firstChat);
+        User from = new User(200L, "u", false);
+        firstMessage.setFrom(from);
+        firstMessage.setText("Первый текст");
+        first.setMessage(firstMessage);
+
+        Update second = new Update();
+        Message secondMessage = new Message();
+        secondMessage.setMessageId(21);
+        Chat secondChat = new Chat();
+        secondChat.setId(100L);
+        secondMessage.setChat(secondChat);
+        User fromSecond = new User(200L, "u", false);
+        secondMessage.setFrom(fromSecond);
+        secondMessage.setText("Второй текст");
+        second.setMessage(secondMessage);
+
+        when(coalescingService.onIncomingUpdate(eq(first), any()))
+                .thenReturn(new TelegramMessageCoalescingService.ProcessPendingAndCurrent(first, second, "no_merge"));
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setId(1L);
+        telegramUser.setTelegramId(200L);
+        telegramUser.setLanguageCode("en");
+        when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
+        TelegramUserSession session = new TelegramUserSession();
+        when(userService.getOrCreateSession(any(User.class))).thenReturn(session);
+
+        coalescingBot.onUpdateReceived(first);
+
+        verify(commandSyncService, times(2)).syncAndHandle(any());
     }
 
     @Test

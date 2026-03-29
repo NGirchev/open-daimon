@@ -17,6 +17,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramCommandSyncService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageCoalescingService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 
 /**
@@ -43,7 +44,8 @@ public class TelegramAutoConfig {
                                    TelegramUserService userService,
                                    MessageLocalizationService messageLocalizationService,
                                    ObjectProvider<TelegramFileService> fileServiceProvider,
-                                   ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
+                                   ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
+                                   ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider) {
         Integer socketTimeoutSec = properties.getLongPollingSocketTimeoutSeconds();
         Integer getUpdatesTimeoutSec = properties.getGetUpdatesTimeoutSeconds();
         DefaultBotOptions options = new DefaultBotOptions();
@@ -58,7 +60,7 @@ public class TelegramAutoConfig {
             options.setRequestConfig(requestConfig);
         }
         return new TelegramBot(properties, options, commandSyncService, userService,
-                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider);
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider, messageCoalescingServiceProvider);
     }
 
     @Bean
@@ -68,4 +70,3 @@ public class TelegramAutoConfig {
         return new TelegramBotRegistrar(telegramBot, menuServiceProvider);
     }
 }
-

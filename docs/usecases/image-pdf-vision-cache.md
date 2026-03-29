@@ -54,10 +54,10 @@ sequenceDiagram
     Note over GW,DB: Store documentId in thread for follow-up RAG
 
     GW->>DB: Save documentId in memoryBullets
-    GW->>GW: Inject RAG context as transient SystemMessage
-    GW->>GW: Build UserMessage: original query + placeholder
+    GW->>GW: Build RAG context prefix from chunks
+    GW->>GW: Build UserMessage: RAG prefix + original query + placeholder
 
-    GW->>Chat: Send SystemMessage(RAG context) + UserMessage(query + placeholder)
+    GW->>Chat: Send SystemMessage(role/lang) + UserMessage(RAG prefix + query + placeholder)
     Chat-->>GW: Response (TEXT model, not VISION)
     GW-->>User: Answer based on extracted text via RAG
 ```
@@ -85,27 +85,26 @@ sequenceDiagram
     GW->>VS: findAllByDocumentId(documentId) — threshold=0.0
     VS-->>GW: allChunks
 
-    GW->>GW: Inject RAG context as transient SystemMessage
-    GW->>Mem: get(conversationId) — chat history (placeholder only, no inline RAG text)
+    GW->>GW: Build RAG context prefix from chunks
+    GW->>Mem: get(conversationId) — chat history (User/Assistant turns)
 
-    GW->>Chat: Send SystemMessage(fresh RAG context) + chat history + UserMessage(query)
+    GW->>Chat: Send SystemMessage(role/lang) + chat history + UserMessage(RAG prefix + query)
     Chat-->>GW: Response
     GW-->>User: Answer with dynamically retrieved RAG context
 ```
 
 ## Key Design Decisions
 
-1. **RAG context is NOT stored inline in chat memory** — instead, a short placeholder
-   `[Documents loaded for context: filename.pdf]` is stored in the UserMessage. The full
-   document text lives only in VectorStore, not in `spring_ai_chat_memory`.
+1. **RAG context is prepended to UserMessage** — gateway builds a RAG prefix from
+   retrieved chunks and prepends it to the user query. A short placeholder
+   `[Documents loaded for context: filename.pdf]` is also appended for traceability.
 
 2. **DocumentId stored in `ConversationThread.memoryBullets`** — format:
    `[RAG:documentId:<uuid>:filename:<name>]`. On follow-up messages, the gateway reads
    these markers and fetches relevant chunks from VectorStore dynamically.
 
-3. **RAG context injected as transient SystemMessage** — this SystemMessage is added to the
-   prompt for the LLM but is NOT persisted by `MessageChatMemoryAdvisor` (which only stores
-   User/Assistant messages). This keeps chat memory lean.
+3. **No transient RAG SystemMessage** — document context is injected directly into
+   `UserMessage` as a prefix so small local models reliably consume it.
 
 4. **After successful vision extraction, images are removed** — the text model (not VISION)
    answers using RAG context. Images are only kept as fallback if vision extraction fails.
