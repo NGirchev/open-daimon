@@ -566,13 +566,13 @@ public class SpringAIGateway implements AIGateway {
             return userQuery;
         }
 
-        // Build RAG context as prefix for user query (not SystemMessage — small models ignore it)
-        String ragPrefix = buildRagContextPrefix(allRelevantChunks);
+        // Build RAG-augmented query using configurable template (not SystemMessage — small models ignore it)
+        String ragQuery = buildRagAugmentedQuery(allRelevantChunks, userQuery);
         String placeholder = buildRagPlaceholder(documentAttachments);
-        log.info("Created RAG context prefix ({} chars) with {} chunks from {} document(s); UserMessage gets placeholder",
-                ragPrefix.length(), allRelevantChunks.size(), documentAttachments.size());
+        log.info("Created RAG augmented query ({} chars) with {} chunks from {} document(s); UserMessage gets placeholder",
+                ragQuery.length(), allRelevantChunks.size(), documentAttachments.size());
 
-        return ragPrefix + userQuery + "\n" + placeholder;
+        return ragQuery + "\n" + placeholder;
     }
 
     /**
@@ -627,33 +627,23 @@ public class SpringAIGateway implements AIGateway {
             return userQuery;
         }
 
-        String ragPrefix = buildRagContextPrefix(allChunks);
-        log.info("RAG follow-up: prepended {} relevant chunks as user query prefix ({} chars)", allChunks.size(), ragPrefix.length());
+        String ragQuery = buildRagAugmentedQuery(allChunks, userQuery);
+        log.info("RAG follow-up: augmented query with {} relevant chunks ({} chars)", allChunks.size(), ragQuery.length());
 
-        return ragPrefix + userQuery;
+        return ragQuery;
     }
 
     /**
-     * Template for RAG document context injected as a prefix to the user query.
+     * Builds a RAG-augmented query using the configurable template from ragProperties.
      * Prepended directly to the UserMessage (not a separate SystemMessage) because
      * small local models (e.g. qwen2.5:3b) may ignore system messages, especially
      * when ChatMemoryAdvisor loads conversation history.
      */
-    private static final String RAG_USER_CONTEXT_TEMPLATE =
-            "Below is content extracted from the user's uploaded document(s). " +
-            "Use this context to answer the question that follows.\n\n" +
-            "--- Document context ---\n%s\n--- End of document context ---\n\n";
-
-    /**
-     * Builds a RAG context prefix to be prepended to the user query.
-     * Using user message prefix (not SystemMessage) ensures small models reliably
-     * see the context even when ChatMemoryAdvisor loads conversation history.
-     */
-    private String buildRagContextPrefix(List<Document> chunks) {
+    private String buildRagAugmentedQuery(List<Document> chunks, String userQuery) {
         String contextText = chunks.stream()
                 .map(Document::getText)
                 .collect(java.util.stream.Collectors.joining("\n\n---\n\n"));
-        return String.format(RAG_USER_CONTEXT_TEMPLATE, contextText);
+        return String.format(ragProperties.getPrompts().getAugmentedPromptTemplate(), contextText, userQuery);
     }
 
     /**

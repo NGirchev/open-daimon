@@ -658,8 +658,8 @@ class SpringAIGatewayDocumentRagTest {
         // so that small models (qwen2.5:3b) reliably see the context.
         assertTrue(userMessageText.contains("chunk text from document"),
                 "UserMessage should contain RAG context as prefix");
-        assertTrue(userMessageText.contains("Document context"),
-                "UserMessage should contain document context header");
+        assertTrue(userMessageText.contains("Context:"),
+                "UserMessage should contain context header from augmented-prompt-template");
         assertTrue(userMessageText.contains("report.pdf"),
                 "UserMessage should contain a placeholder referencing the document");
     }
@@ -717,8 +717,8 @@ class SpringAIGatewayDocumentRagTest {
                 .orElse("");
         assertTrue(userMessageText.contains("Invoice total: $5,000"),
                 "UserMessage should contain RAG document content as prefix");
-        assertTrue(userMessageText.contains("Document context"),
-                "UserMessage should contain RAG context header");
+        assertTrue(userMessageText.contains("Context:"),
+                "UserMessage should contain context header from augmented-prompt-template");
         assertTrue(userMessageText.contains("What was the total?"),
                 "UserMessage should contain the original query after RAG prefix");
     }

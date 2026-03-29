@@ -201,9 +201,10 @@ public class OpenDaimonMessageService {
             Map<String, Object> responseDataMap,
             ConversationThread thread) {
 
-        // Get or create active thread for user
+        // Re-read thread from DB to pick up changes made by gateway (e.g. memoryBullets for RAG).
+        // The caller may hold a stale detached entity from before the AI gateway call.
         ConversationThread resolvedThread = thread != null
-                ? thread
+                ? conversationThreadService.findByThreadKey(thread.getThreadKey()).orElse(thread)
                 : conversationThreadService.getOrCreateThread(user);
 
         OpenDaimonMessage message = new OpenDaimonMessage();
@@ -281,9 +282,9 @@ public class OpenDaimonMessageService {
             String errorData,
             ConversationThread thread) {
 
-        // Get or create active thread for user
+        // Re-read thread from DB to pick up changes made by gateway (e.g. memoryBullets for RAG).
         ConversationThread resolvedThread = thread != null
-                ? thread
+                ? conversationThreadService.findByThreadKey(thread.getThreadKey()).orElse(thread)
                 : conversationThreadService.getOrCreateThread(user);
 
         OpenDaimonMessage message = new OpenDaimonMessage();

@@ -207,12 +207,9 @@ class ImagePdfVisionRagOllamaManualIT {
                 .isNotEmpty();
 
         String extractedTextForRag = String.join("\n---\n", storedChunkTexts);
-        assertThat(containsExpectedFollowUpAnswer(extractedTextForRag))
-                .withFailMessage(
-                        "OCR/vision extracted text in RAG does not contain expected phrase. Extracted text: [%s]",
-                        extractedTextForRag
-                )
-                .isTrue();
+        assertThat(extractedTextForRag)
+                .as("OCR/vision extracted text must contain expected phrase '%s'", EXPECTED_FOLLOW_UP_PHRASE)
+                .contains(EXPECTED_FOLLOW_UP_PHRASE);
 
         String firstAssistantReply = latestAssistantReply(thread);
         assertThat(firstAssistantReply)
