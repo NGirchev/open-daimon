@@ -37,8 +37,6 @@ import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtracta
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
-import io.github.ngirchev.opendaimon.common.model.ConversationThread;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
@@ -71,11 +69,6 @@ public class SpringAIGateway implements AIGateway {
     private final RAGProperties ragProperties;
     private final ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider;
     private final ObjectProvider<FileRAGService> ragServiceProvider;
-    private final ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider;
-
-    /** Prefix for RAG document references stored in ConversationThread.memoryBullets. */
-    static final String RAG_BULLET_PREFIX = "[RAG:documentId:";
-    static final String RAG_BULLET_FILENAME_SEPARATOR = ":filename:";
 
     public SpringAIGateway(
             SpringAIProperties springAiProperties,
@@ -85,8 +78,7 @@ public class SpringAIGateway implements AIGateway {
             ObjectProvider<ChatMemory> chatMemoryProvider,
             RAGProperties ragProperties,
             ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-            ObjectProvider<FileRAGService> ragServiceProvider,
-            ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider) {
+            ObjectProvider<FileRAGService> ragServiceProvider) {
         this.springAiProperties = springAiProperties;
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.springAIModelRegistry = springAIModelRegistry;
@@ -95,7 +87,6 @@ public class SpringAIGateway implements AIGateway {
         this.ragProperties = ragProperties;
         this.documentProcessingServiceProvider = documentProcessingServiceProvider;
         this.ragServiceProvider = ragServiceProvider;
-        this.conversationThreadRepositoryProvider = conversationThreadRepositoryProvider;
     }
 
     @PostConstruct
@@ -558,8 +549,9 @@ public class SpringAIGateway implements AIGateway {
             }
         }
 
-        // Store documentIds in thread memoryBullets for follow-up RAG lookups
-        storeDocumentIdsInThread(processedDocumentIds, documentAttachments, command);
+        // Publish processed documentIds into command metadata so the caller can persist them
+        // on the USER message via OpenDaimonMessageService.updateRagMetadata().
+        storeDocumentIdsInCommandMetadata(processedDocumentIds, documentAttachments, command);
 
         if (allRelevantChunks.isEmpty()) {
             log.info("No relevant context found in documents");
@@ -576,8 +568,14 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * On follow-up messages (no new attachments), checks if the thread has stored RAG documentIds
-     * in memoryBullets and fetches relevant chunks from VectorStore.
+     * On follow-up messages (no new attachments), checks if the handler has injected stored RAG
+     * documentIds into {@code AICommand.metadata} under {@link AICommand#RAG_DOCUMENT_IDS_FIELD}
+     * and fetches relevant chunks from the VectorStore.
+     *
+     * <p>The handler is responsible for resolving documentIds from message history
+     * (via {@code OpenDaimonMessageService.findRagDocumentIds}) and placing them in the command
+     * metadata before calling the gateway. The gateway never queries the thread or message
+     * repositories directly.
      */
     private String processFollowUpRagIfAvailable(String userQuery, List<Message> messages,
                                                    AICommand command, FileRAGService fileRagService) {
@@ -586,33 +584,24 @@ public class SpringAIGateway implements AIGateway {
             return userQuery;
         }
 
-        String threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
-        if (threadKey == null) {
-            log.debug("RAG: No threadKey in command metadata, skipping follow-up RAG");
+        String rawDocumentIds = command.metadata().get(AICommand.RAG_DOCUMENT_IDS_FIELD);
+        if (rawDocumentIds == null || rawDocumentIds.isBlank()) {
+            log.debug("RAG: No ragDocumentIds in command metadata, skipping follow-up RAG");
             return userQuery;
         }
 
-        ConversationThreadRepository threadRepo = conversationThreadRepositoryProvider != null
-                ? conversationThreadRepositoryProvider.getIfAvailable() : null;
-        if (threadRepo == null) {
-            log.debug("RAG: ConversationThreadRepository not available, skipping follow-up RAG");
-            return userQuery;
-        }
+        List<String> ragDocumentIds = Arrays.stream(rawDocumentIds.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
 
-        Optional<ConversationThread> threadOpt = threadRepo.findByThreadKey(threadKey);
-        if (threadOpt.isEmpty()) {
-            log.debug("RAG: Thread not found for threadKey={}", threadKey);
-            return userQuery;
-        }
-
-        ConversationThread thread = threadOpt.get();
-        List<String> ragDocumentIds = extractRagDocumentIds(thread.getMemoryBullets());
         if (ragDocumentIds.isEmpty()) {
-            log.debug("RAG: No stored RAG documentIds in thread memoryBullets for threadKey={}", threadKey);
+            log.debug("RAG: ragDocumentIds in command metadata is blank after parsing, skipping follow-up RAG");
             return userQuery;
         }
 
-        log.info("RAG follow-up: found {} stored documentId(s) in thread, fetching relevant chunks", ragDocumentIds.size());
+        log.info("RAG follow-up: found {} stored documentId(s) in command metadata, fetching relevant chunks",
+                ragDocumentIds.size());
 
         List<Document> allChunks = new ArrayList<>();
         for (String docId : ragDocumentIds) {
@@ -647,58 +636,31 @@ public class SpringAIGateway implements AIGateway {
     }
 
     /**
-     * Stores processed documentIds in thread's memoryBullets for follow-up RAG lookups.
+     * Publishes processed documentIds into {@code AICommand.metadata} so the caller
+     * can persist them on the USER message via
+     * {@code OpenDaimonMessageService.updateRagMetadata()}.
+     *
+     * <p>If the metadata map is immutable (e.g. {@code Map.of()} in tests), the write is
+     * skipped and a warning is logged — callers that care about persistence must pass a
+     * mutable map.
      */
-    private void storeDocumentIdsInThread(List<String> documentIds, List<Attachment> documentAttachments,
-                                           AICommand command) {
+    private void storeDocumentIdsInCommandMetadata(List<String> documentIds,
+                                                    List<Attachment> documentAttachments,
+                                                    AICommand command) {
         if (documentIds.isEmpty() || command == null || command.metadata() == null) {
             return;
         }
-        String threadKey = command.metadata().get(AICommand.THREAD_KEY_FIELD);
-        if (threadKey == null) {
-            return;
+        List<String> filenames = new ArrayList<>();
+        for (int i = 0; i < documentIds.size(); i++) {
+            filenames.add(i < documentAttachments.size() ? documentAttachments.get(i).filename() : "unknown");
         }
-        ConversationThreadRepository threadRepo = conversationThreadRepositoryProvider != null
-                ? conversationThreadRepositoryProvider.getIfAvailable() : null;
-        if (threadRepo == null) {
-            log.debug("RAG: ConversationThreadRepository not available, cannot store documentIds");
-            return;
+        try {
+            command.metadata().put(AICommand.RAG_DOCUMENT_IDS_FIELD, String.join(",", documentIds));
+            command.metadata().put(AICommand.RAG_FILENAMES_FIELD, String.join(",", filenames));
+            log.info("RAG: stored {} documentId(s) in command metadata", documentIds.size());
+        } catch (UnsupportedOperationException ignored) {
+            log.warn("RAG: command.metadata() is immutable, documentIds not persisted: {}", documentIds);
         }
-
-        threadRepo.findByThreadKey(threadKey).ifPresent(thread -> {
-            List<String> bullets = thread.getMemoryBullets() != null
-                    ? new ArrayList<>(thread.getMemoryBullets()) : new ArrayList<>();
-            for (int i = 0; i < documentIds.size(); i++) {
-                String docId = documentIds.get(i);
-                String filename = i < documentAttachments.size() ? documentAttachments.get(i).filename() : "unknown";
-                String bullet = RAG_BULLET_PREFIX + docId + RAG_BULLET_FILENAME_SEPARATOR + filename + "]";
-                if (!bullets.contains(bullet)) {
-                    bullets.add(bullet);
-                }
-            }
-            thread.setMemoryBullets(bullets);
-            threadRepo.save(thread);
-            log.info("RAG: stored {} documentId(s) in thread memoryBullets for threadKey={}", documentIds.size(), threadKey);
-        });
-    }
-
-    /**
-     * Extracts RAG documentIds from thread memoryBullets.
-     */
-    public static List<String> extractRagDocumentIds(List<String> memoryBullets) {
-        if (memoryBullets == null) {
-            return List.of();
-        }
-        List<String> docIds = new ArrayList<>();
-        for (String bullet : memoryBullets) {
-            if (bullet.startsWith(RAG_BULLET_PREFIX)) {
-                int endOfDocId = bullet.indexOf(RAG_BULLET_FILENAME_SEPARATOR);
-                if (endOfDocId > RAG_BULLET_PREFIX.length()) {
-                    docIds.add(bullet.substring(RAG_BULLET_PREFIX.length(), endOfDocId));
-                }
-            }
-        }
-        return docIds;
     }
 
     /**

@@ -35,7 +35,6 @@ import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
 import java.io.IOException;
@@ -488,13 +487,6 @@ class SpringAIGatewayIT {
         }
 
         @Bean
-        ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider() {
-            ObjectProvider<ConversationThreadRepository> provider = mock(ObjectProvider.class);
-            when(provider.getIfAvailable()).thenReturn(null);
-            return provider;
-        }
-
-        @Bean
         SpringAIGateway springAIGateway(
                 SpringAIProperties springAIProperties,
                 AIGatewayRegistry aiGatewayRegistry,
@@ -503,8 +495,7 @@ class SpringAIGatewayIT {
                 ObjectProvider<org.springframework.ai.chat.memory.ChatMemory> chatMemoryProvider,
                 RAGProperties ragProperties,
                 ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-                ObjectProvider<FileRAGService> fileRAGServiceProvider,
-                ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider
+                ObjectProvider<FileRAGService> fileRAGServiceProvider
         ) {
             return new SpringAIGateway(
                     springAIProperties,
@@ -514,8 +505,7 @@ class SpringAIGatewayIT {
                     chatMemoryProvider,
                     ragProperties,
                     documentProcessingServiceProvider,
-                    fileRAGServiceProvider,
-                    conversationThreadRepositoryProvider
+                    fileRAGServiceProvider
             );
         }
     }

@@ -13,7 +13,6 @@ import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import reactor.core.publisher.Flux;
 import org.junit.jupiter.api.BeforeEach;
@@ -86,9 +85,6 @@ class SpringAIGatewayTest {
         ObjectProvider<io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService> ragProvider = mock(ObjectProvider.class);
         when(ragProvider.getIfAvailable()).thenReturn(null);
 
-        @SuppressWarnings("unchecked")
-        ObjectProvider<ConversationThreadRepository> conversationThreadRepository = mock(ObjectProvider.class);
-
         gateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
@@ -97,8 +93,7 @@ class SpringAIGatewayTest {
                 chatMemoryProvider,
                 null,
                 docProvider,
-                ragProvider,
-                conversationThreadRepository
+                ragProvider
         );
     }
 

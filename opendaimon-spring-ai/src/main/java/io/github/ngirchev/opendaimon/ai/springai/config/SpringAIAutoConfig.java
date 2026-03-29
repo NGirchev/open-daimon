@@ -10,7 +10,6 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
@@ -200,8 +199,7 @@ public class SpringAIAutoConfig {
             ObjectProvider<ChatMemory> chatMemoryProvider,
             ObjectProvider<RAGProperties> ragPropertiesProvider,
             ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-            ObjectProvider<FileRAGService> ragServiceProvider,
-            ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider
+            ObjectProvider<FileRAGService> ragServiceProvider
     ) {
         return new SpringAIGateway(
                 props,
@@ -211,8 +209,7 @@ public class SpringAIAutoConfig {
                 chatMemoryProvider,
                 ragPropertiesProvider.getIfAvailable(),
                 documentProcessingServiceProvider,
-                ragServiceProvider,
-                conversationThreadRepositoryProvider
+                ragServiceProvider
         );
     }
 

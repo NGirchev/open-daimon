@@ -23,8 +23,6 @@ import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtracta
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
-import io.github.ngirchev.opendaimon.common.model.ConversationThread;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -71,8 +69,6 @@ class SpringAIGatewayDocumentRagTest {
     private FileRAGService fileRagService;
     @Mock
     private ChatMemory chatMemory;
-    @Mock
-    private ConversationThreadRepository conversationThreadRepository;
     private SpringAIGateway springAIGateway;
 
     /**
@@ -133,10 +129,6 @@ class SpringAIGatewayDocumentRagTest {
         prompts.setVisionExtractionPrompt("I need text from this image");
         ragProperties.setPrompts(prompts);
 
-        @SuppressWarnings("unchecked")
-        ObjectProvider<ConversationThreadRepository> threadRepoProvider = mock(ObjectProvider.class);
-        lenient().when(threadRepoProvider.getIfAvailable()).thenReturn(conversationThreadRepository);
-
         springAIGateway = spy(new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
@@ -145,8 +137,7 @@ class SpringAIGatewayDocumentRagTest {
                 chatMemoryProvider,
                 ragProperties,
                 docProvider,
-                ragProvider,
-                threadRepoProvider
+                ragProvider
         ));
 
         // Avoid native PDF renderer instability (Abort trap) in unit tests:
@@ -590,12 +581,12 @@ class SpringAIGatewayDocumentRagTest {
     }
 
     /**
-     * When a PDF is processed for RAG, the documentId should be stored in the thread's
-     * memoryBullets so that follow-up messages can find the RAG data.
-     * The UserMessage should NOT contain the full document text — only a placeholder.
+     * When a PDF is processed for RAG, the gateway should publish the documentId into
+     * command.metadata() so the caller can persist it on the USER message.
+     * The UserMessage should NOT contain the full document text — only a placeholder reference.
      */
     @Test
-    void whenPdfProcessedForRag_thenDocumentIdStoredInThreadAndUserMessageHasPlaceholder() {
+    void whenPdfProcessedForRag_thenDocumentIdStoredInCommandMetadataAndUserMessageHasPlaceholder() {
         byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
         Attachment pdfAttachment = new Attachment(
                 "doc/key.pdf",
@@ -609,13 +600,6 @@ class SpringAIGatewayDocumentRagTest {
         when(documentProcessingService.processPdf(any(byte[].class), anyString())).thenReturn("rag-doc-123");
         when(fileRagService.findRelevantContext(anyString(), eq("rag-doc-123")))
                 .thenReturn(List.of(new Document("chunk text from document")));
-
-        // Thread exists in DB
-        ConversationThread thread = new ConversationThread();
-        thread.setThreadKey("thread-abc");
-        thread.setMemoryBullets(new java.util.ArrayList<>());
-        when(conversationThreadRepository.findByThreadKey("thread-abc"))
-                .thenReturn(Optional.of(thread));
 
         Map<String, String> metadata = new HashMap<>();
         metadata.put("threadKey", "thread-abc");
@@ -636,10 +620,11 @@ class SpringAIGatewayDocumentRagTest {
 
         springAIGateway.generateResponse(command);
 
-        // Verify documentId was stored in thread memoryBullets
-        verify(conversationThreadRepository).save(argThat(t ->
-                t.getMemoryBullets().stream().anyMatch(b -> b.contains("rag-doc-123"))
-        ));
+        // Verify documentId was published into command.metadata() for the caller to persist
+        assertTrue(metadata.containsKey("ragDocumentIds"),
+                "command.metadata() should contain ragDocumentIds after RAG processing");
+        assertTrue(metadata.get("ragDocumentIds").contains("rag-doc-123"),
+                "ragDocumentIds should contain the processed documentId");
 
         // Verify UserMessage does NOT contain full document text (inline RAG)
         @SuppressWarnings("unchecked")
@@ -665,24 +650,20 @@ class SpringAIGatewayDocumentRagTest {
     }
 
     /**
-     * On follow-up messages (no new attachments), if the thread has RAG documentIds
-     * in memoryBullets, the gateway should fetch relevant chunks from VectorStore
-     * and inject them as a transient SystemMessage.
+     * On follow-up messages (no new attachments), if the handler has injected RAG documentIds
+     * into command.metadata["ragDocumentIds"], the gateway should fetch relevant chunks from
+     * VectorStore and inject them as a prefix in the UserMessage.
      */
     @Test
-    void whenFollowUpMessageWithRagDocumentInThread_thenFetchesFromVectorStore() {
+    void whenFollowUpMessageWithRagDocumentIdsInMetadata_thenFetchesFromVectorStore() {
         // No attachments — this is a follow-up message
-        ConversationThread thread = new ConversationThread();
-        thread.setThreadKey("thread-xyz");
-        thread.setMemoryBullets(List.of("[RAG:documentId:rag-doc-456:filename:invoice.pdf]"));
-        when(conversationThreadRepository.findByThreadKey("thread-xyz"))
-                .thenReturn(Optional.of(thread));
-
         when(fileRagService.findAllByDocumentId("rag-doc-456"))
                 .thenReturn(List.of(new Document("Invoice total: $5,000")));
 
         Map<String, String> metadata = new HashMap<>();
         metadata.put("threadKey", "thread-xyz");
+        // Handler resolves RAG documentIds from message history and injects them here
+        metadata.put("ragDocumentIds", "rag-doc-456");
 
         ChatAICommand command = new ChatAICommand(
                 Set.of(ModelCapabilities.CHAT),

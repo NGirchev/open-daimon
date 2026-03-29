@@ -13,6 +13,10 @@ public interface AICommand {
     String USER_ID_FIELD = "userId";
     String LANGUAGE_CODE_FIELD = "languageCode";
     String USER_PRIORITY_FIELD = "userPriority";
+    /** Comma-separated RAG documentIds stored on the USER message that had the attachment. */
+    String RAG_DOCUMENT_IDS_FIELD = "ragDocumentIds";
+    /** Comma-separated RAG filenames corresponding to RAG_DOCUMENT_IDS_FIELD entries. */
+    String RAG_FILENAMES_FIELD = "ragFilenames";
 
     Set<ModelCapabilities> modelCapabilities();
 

@@ -2,7 +2,7 @@ package io.github.ngirchev.opendaimon.it.manual;
 
 import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
@@ -81,7 +81,6 @@ import static org.mockito.Mockito.reset;
 class ImagePdfVisionRagOllamaManualIT {
     private static final Long TEST_CHAT_ID = 350009001L;
     private static final String PDF_RESOURCE = "image-based-pdf-sample.pdf";
-    private static final String RAG_PREFIX = "[RAG:documentId:";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String EXPECTED_FOLLOW_UP_PHRASE = "(as far as they know)";
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
@@ -189,14 +188,32 @@ class ImagePdfVisionRagOllamaManualIT {
         ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
 
-        assertThat(thread.getMemoryBullets())
-                .as("Thread should contain stored RAG document marker")
-                .isNotNull()
-                .anyMatch(bullet -> bullet != null && bullet.startsWith(RAG_PREFIX) && bullet.contains(PDF_RESOURCE));
+        // RAG documentId is now stored in USER message metadata under "ragDocumentIds" key.
+        // The handler persists it there after the gateway call via OpenDaimonMessageService.updateRagMetadata().
+        List<OpenDaimonMessage> userMessages = messageRepository
+                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
+        assertThat(userMessages)
+                .as("At least one USER message should exist in thread")
+                .isNotEmpty();
 
-        List<String> ragDocumentIds = SpringAIGateway.extractRagDocumentIds(thread.getMemoryBullets());
+        String ragDocumentIdsRaw = userMessages.stream()
+                .filter(m -> m.getMetadata() != null && m.getMetadata().containsKey(AICommand.RAG_DOCUMENT_IDS_FIELD))
+                .map(m -> (String) m.getMetadata().get(AICommand.RAG_DOCUMENT_IDS_FIELD))
+                .findFirst()
+                .orElse(null);
+
+        assertThat(ragDocumentIdsRaw)
+                .as("RAG documentId should be stored in USER message metadata")
+                .isNotNull()
+                .isNotBlank();
+
+        List<String> ragDocumentIds = java.util.Arrays.stream(ragDocumentIdsRaw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+
         assertThat(ragDocumentIds)
-                .as("RAG documentId should be stored in thread memoryBullets")
+                .as("Parsed RAG documentIds should be non-empty")
                 .isNotEmpty();
 
         List<String> storedChunkTexts = fileRagService.findAllByDocumentId(ragDocumentIds.getFirst()).stream()

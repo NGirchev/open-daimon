@@ -25,7 +25,6 @@ import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
 import java.util.*;
@@ -132,10 +131,6 @@ class SpringAIGatewayMemoryAdvisorTest {
         org.springframework.beans.factory.ObjectProvider<ChatMemory> chatMemoryProvider =
                 mock(org.springframework.beans.factory.ObjectProvider.class);
         lenient().when(chatMemoryProvider.getIfAvailable()).thenReturn(chatMemory);
-        @SuppressWarnings("unchecked")
-        org.springframework.beans.factory.ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider =
-                mock(org.springframework.beans.factory.ObjectProvider.class);
-
         springAIGateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
@@ -144,8 +139,7 @@ class SpringAIGatewayMemoryAdvisorTest {
                 chatMemoryProvider,
                 null, // ragProperties - RAG disabled
                 docProvider,
-                ragProvider,
-                conversationThreadRepositoryProvider
+                ragProvider
         );
     }
 

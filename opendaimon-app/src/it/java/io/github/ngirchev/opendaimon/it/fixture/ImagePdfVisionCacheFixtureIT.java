@@ -218,49 +218,6 @@ class ImagePdfVisionCacheFixtureIT {
                 .contains("Advanced Java");
     }
 
-    /**
-     * Verifies that RAG document bullet markers are correctly parsed to extract documentIds.
-     * This is the mechanism used on follow-up messages to find RAG data in VectorStore.
-     */
-    @Test
-    @DisplayName("extractRagDocumentIds — parses documentIds from memoryBullets format")
-    void extractRagDocumentIds_parsesCorrectly() {
-        List<String> bullets = List.of(
-                "[RAG:documentId:abc-123:filename:report.pdf]",
-                "Some other memory bullet about the conversation",
-                "[RAG:documentId:def-456:filename:invoice.pdf]"
-        );
-
-        List<String> docIds = SpringAIGateway.extractRagDocumentIds(bullets);
-
-        assertThat(docIds)
-                .as("Should extract exactly 2 documentIds from memoryBullets")
-                .hasSize(2)
-                .containsExactly("abc-123", "def-456");
-    }
-
-    @Test
-    @DisplayName("extractRagDocumentIds — returns empty list when no RAG markers")
-    void extractRagDocumentIds_emptyWhenNoMarkers() {
-        List<String> bullets = List.of("Regular memory bullet", "Another note");
-
-        List<String> docIds = SpringAIGateway.extractRagDocumentIds(bullets);
-
-        assertThat(docIds)
-                .as("Should return empty list when no RAG markers present")
-                .isEmpty();
-    }
-
-    @Test
-    @DisplayName("extractRagDocumentIds — handles null memoryBullets")
-    void extractRagDocumentIds_handlesNull() {
-        List<String> docIds = SpringAIGateway.extractRagDocumentIds(null);
-
-        assertThat(docIds)
-                .as("Should return empty list for null input")
-                .isEmpty();
-    }
-
     @Test
     @DisplayName("stripModelInternalTokens — removes gemma3 internal tokens from vision output")
     void stripModelInternalTokens_removesInternalTokens() {

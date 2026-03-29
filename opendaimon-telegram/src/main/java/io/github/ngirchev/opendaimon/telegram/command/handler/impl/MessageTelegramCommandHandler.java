@@ -35,6 +35,7 @@ import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService
 
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -145,6 +146,11 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             Map<String, String> metadata = prepareMetadata(
                     thread, assistantRoleContent, assistantRoleId, telegramUser);
 
+            List<String> ragDocIds = messageService.findRagDocumentIds(thread);
+            if (!ragDocIds.isEmpty()) {
+                metadata.put(RAG_DOCUMENT_IDS_FIELD, String.join(",", ragDocIds));
+            }
+
             List<Attachment> atts = command.attachments() != null ? command.attachments() : List.of();
             String attachmentTypes = atts.stream().map(a -> a.type().toString()).toList().toString();
             log.info("Creating AI command: threadKey={}, userText='{}', attachmentsCount={}, attachmentTypes={}",
@@ -181,6 +187,13 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             }
 
             if (ctx.responseTextOpt().isPresent()) {
+                String newRagDocIds = aiCommand.metadata().get(RAG_DOCUMENT_IDS_FIELD);
+                String newRagFilenames = aiCommand.metadata().get(RAG_FILENAMES_FIELD);
+                if (newRagFilenames != null) {
+                    messageService.updateRagMetadata(userMessage,
+                            Arrays.asList(newRagDocIds.split(",")),
+                            Arrays.asList(newRagFilenames.split(",")));
+                }
                 SavedResponse saved = saveSuccessResponse(
                         telegramUser,
                         userMessage.getThread(),

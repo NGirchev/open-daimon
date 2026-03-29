@@ -14,7 +14,6 @@ import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.command.IChatCommand;
 import io.github.ngirchev.opendaimon.common.command.ICommandType;
@@ -87,11 +86,8 @@ class PreferredModelSelectionTest {
         ObjectProvider<DocumentProcessingService> doc = mock(ObjectProvider.class);
         @SuppressWarnings("unchecked")
         ObjectProvider<io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService> rag = mock(ObjectProvider.class);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<ConversationThreadRepository> conversationThreadRepository = mock(ObjectProvider.class);
-
         gateway = new SpringAIGateway(springAIProperties, aiGatewayRegistry, springAIModelRegistry,
-                chatService, mem, null, doc, rag, conversationThreadRepository);
+                chatService, mem, null, doc, rag);
 
         when(userPriorityService.getUserPriority(any())).thenReturn(UserPriority.VIP);
         factory = new DefaultAICommandFactory(userPriorityService, preferredModelTestCoreProperties());

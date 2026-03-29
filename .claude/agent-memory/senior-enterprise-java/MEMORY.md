@@ -1,0 +1,2 @@
+- [User Role and Expertise](user_role.md) — senior Java developer on open-daimon, expects clean architecture and proper module boundaries
+- [RAG storage refactor](project_rag_storage_refactor.md) — RAG documentIds moved from thread.memoryBullets to message.metadata; handler update still pending

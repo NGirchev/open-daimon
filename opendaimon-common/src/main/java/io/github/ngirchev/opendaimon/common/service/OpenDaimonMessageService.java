@@ -9,6 +9,9 @@ import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongExceptio
 import io.github.ngirchev.opendaimon.common.model.*;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
+
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -339,6 +342,63 @@ public class OpenDaimonMessageService {
     @Transactional
     public OpenDaimonMessage updateMessageStatus(OpenDaimonMessage message, ResponseStatus status) {
         message.setStatus(status);
+        return messageRepository.save(message);
+    }
+
+    /**
+     * Returns comma-separated RAG documentIds collected from USER messages in the given thread.
+     *
+     * <p>Scans all USER messages in the thread and extracts the value of the
+     * {@code ragDocumentIds} metadata key (comma-separated string) from each one.
+     *
+     * @param thread the conversation thread to scan
+     * @return list of individual RAG documentId strings; empty list when none found
+     */
+    @Transactional(readOnly = true)
+    public List<String> findRagDocumentIds(ConversationThread thread) {
+        List<OpenDaimonMessage> userMessages =
+                messageRepository.findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
+        List<String> result = new ArrayList<>();
+        for (OpenDaimonMessage message : userMessages) {
+            Map<String, Object> meta = message.getMetadata();
+            if (meta == null) {
+                continue;
+            }
+            Object rawIds = meta.get(AICommand.RAG_DOCUMENT_IDS_FIELD);
+            if (rawIds instanceof String ids && !ids.isBlank()) {
+                for (String id : ids.split(",")) {
+                    String trimmed = id.trim();
+                    if (!trimmed.isEmpty()) {
+                        result.add(trimmed);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Stores RAG documentIds and filenames in the metadata of a USER message.
+     *
+     * <p>The values are persisted as comma-separated strings under the
+     * {@code ragDocumentIds} and {@code ragFilenames} metadata keys.
+     * Existing metadata entries are preserved.
+     *
+     * @param message    the USER message that had the document attachment
+     * @param documentIds list of RAG documentIds returned by DocumentProcessingService
+     * @param filenames   list of original filenames, parallel to {@code documentIds}
+     * @return the saved message with updated metadata
+     */
+    @Transactional
+    public OpenDaimonMessage updateRagMetadata(OpenDaimonMessage message,
+                                                List<String> documentIds,
+                                                List<String> filenames) {
+        Map<String, Object> meta = message.getMetadata() != null
+                ? new HashMap<>(message.getMetadata())
+                : new HashMap<>();
+        meta.put(AICommand.RAG_DOCUMENT_IDS_FIELD, String.join(",", documentIds));
+        meta.put(AICommand.RAG_FILENAMES_FIELD, String.join(",", filenames));
+        message.setMetadata(meta);
         return messageRepository.save(message);
     }
 
