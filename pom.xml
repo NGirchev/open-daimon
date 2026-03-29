@@ -116,6 +116,7 @@
         <central.publishing.plugin>0.9.0</central.publishing.plugin>
         <jacoco.version>0.8.12</jacoco.version>
         <sonar-maven-plugin.version>5.5.0.6356</sonar-maven-plugin.version>
+        <commons-io.version>2.20.0</commons-io.version>
     </properties>
 
     <dependencyManagement>
@@ -245,6 +246,12 @@
                 <artifactId>mockwebserver</artifactId>
                 <version>${okhttp.version}</version>
                 <scope>test</scope>
+            </dependency>
+            <!-- Force commons-io version required by tika-core (overrides older 2.15.1 from telegrambots) -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>${commons-io.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

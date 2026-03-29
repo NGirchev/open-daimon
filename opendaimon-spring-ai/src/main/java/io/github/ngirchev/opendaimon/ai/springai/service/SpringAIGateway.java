@@ -543,7 +543,13 @@ public class SpringAIGateway implements AIGateway {
                 processOneDocumentForRag(documentAttachment, userQuery, documentProcessingService, fileRagService,
                         allRelevantChunks, attachments, pdfAsImageFilenames, processedDocumentIds);
             } catch (DocumentContentNotExtractableException e) {
-                throw e;
+                // Re-throw only for PDF — enables vision fallback for image-only PDFs.
+                // For other formats (DOC, XLS, etc.) log and skip — no fallback available.
+                String mime = documentAttachment.mimeType() != null ? documentAttachment.mimeType().toLowerCase() : "";
+                if (mime.contains("pdf") || documentAttachment.filename().toLowerCase().endsWith(".pdf")) {
+                    throw e;
+                }
+                log.warn("Cannot extract text from '{}': {}", documentAttachment.filename(), e.getMessage());
             } catch (Exception e) {
                 log.error("Failed to process document '{}': {}", documentAttachment.filename(), e.getMessage(), e);
             }

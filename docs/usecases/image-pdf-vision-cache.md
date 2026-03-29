@@ -1,6 +1,11 @@
 # Image-Only PDF: Vision Cache Sequence Diagram
 
 > **Fixture test:** `ImagePdfVisionCacheFixtureIT` — run with `./mvnw clean verify -pl opendaimon-app -am -Pfixture`
+>
+> **Manual tests:**
+> - `ImagePdfVisionRagOllamaManualIT` — `image-based-pdf-sample.pdf` with OCR via gemma3:4b
+>
+> Run with: `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=ImagePdfVisionRagOllamaManualIT -Dfailsafe.failIfNoSpecifiedTests=false -Dmanual.ollama.e2e=true`
 
 When a user uploads an image-only PDF (scan, certificate, etc.), the system extracts text
 via a vision-capable model and caches it in VectorStore for follow-up queries.
@@ -16,12 +21,12 @@ sequenceDiagram
     participant CS as SpringAIChatService
     participant VS as VectorStore
     participant LLM as Vision Model
-    participant DB as ConversationThread
+    participant CMD as AICommand.metadata
     participant Chat as Chat Model
 
     User->>TG: Send image-only PDF + question
     TG->>TG: Download file from Telegram, save to MinIO
-    TG->>GW: ChatAICommand(text, attachments)
+    TG->>GW: ChatAICommand(text, attachments, metadata={})
 
     GW->>GW: processRagIfEnabled()
     GW->>DPS: processPdf(pdfBytes, filename)
@@ -51,15 +56,18 @@ sequenceDiagram
     GW->>VS: findAllByDocumentId(documentId)
     VS-->>GW: allChunks
 
-    Note over GW,DB: Store documentId in thread for follow-up RAG
+    Note over GW,CMD: Store documentId in command metadata for handler persistence
 
-    GW->>DB: Save documentId in memoryBullets
+    GW->>CMD: metadata.put(RAG_DOCUMENT_IDS_FIELD, documentId)
+    GW->>CMD: metadata.put(RAG_FILENAMES_FIELD, filename)
     GW->>GW: Build RAG context prefix from chunks
     GW->>GW: Build UserMessage: RAG prefix + original query + placeholder
 
     GW->>Chat: Send SystemMessage(role/lang) + UserMessage(RAG prefix + query + placeholder)
     Chat-->>GW: Response (TEXT model, not VISION)
     GW-->>User: Answer based on extracted text via RAG
+
+    Note over GW,CMD: Handler reads metadata, persists to USER message via updateRagMetadata()
 ```
 
 ## Follow-Up Message (No Attachments)
@@ -67,21 +75,25 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor User
+    participant Handler as MessageHandler
+    participant MS as MessageService
     participant GW as SpringAIGateway
-    participant DB as ConversationThread
     participant VS as VectorStore
     participant Mem as ChatMemory
     participant Chat as Chat Model
 
-    User->>GW: Follow-up question (no attachments)
+    User->>Handler: Follow-up question (no attachments)
 
-    GW->>GW: processRagIfEnabled()
-    Note over GW: No attachments — check thread for stored RAG documentIds
+    Handler->>MS: findRagDocumentIds(thread)
+    MS-->>Handler: List<documentId> from USER message metadata
 
-    GW->>DB: findByThreadKey(threadKey)
-    DB-->>GW: thread.memoryBullets contains [RAG:documentId:uuid:filename:file.pdf]
+    Handler->>Handler: metadata.put(RAG_DOCUMENT_IDS_FIELD, documentIds)
+    Handler->>GW: ChatAICommand(text, [], metadata={ragDocumentIds=...})
 
-    GW->>GW: extractRagDocumentIds(memoryBullets)
+    GW->>GW: processFollowUpRagIfAvailable()
+    Note over GW: No attachments — read documentIds from command.metadata()
+
+    GW->>GW: command.metadata().get(RAG_DOCUMENT_IDS_FIELD)
     GW->>VS: findAllByDocumentId(documentId) — threshold=0.0
     VS-->>GW: allChunks
 
@@ -99,9 +111,11 @@ sequenceDiagram
    retrieved chunks and prepends it to the user query. A short placeholder
    `[Documents loaded for context: filename.pdf]` is also appended for traceability.
 
-2. **DocumentId stored in `ConversationThread.memoryBullets`** — format:
-   `[RAG:documentId:<uuid>:filename:<name>]`. On follow-up messages, the gateway reads
-   these markers and fetches relevant chunks from VectorStore dynamically.
+2. **DocumentId stored in USER message metadata** — the gateway writes documentIds into
+   `AICommand.metadata` under `RAG_DOCUMENT_IDS_FIELD`. The handler then persists them
+   on the USER message via `OpenDaimonMessageService.updateRagMetadata()`. On follow-up
+   messages, the handler reads stored documentIds from message history and injects them
+   back into `AICommand.metadata` before calling the gateway.
 
 3. **No transient RAG SystemMessage** — document context is injected directly into
    `UserMessage` as a prefix so small local models reliably consume it.
@@ -111,6 +125,10 @@ sequenceDiagram
 
 5. **Vision extraction is a separate internal call** — uses `callSimpleVision()` without
    ChatMemory, web tools, or conversationId to avoid polluting chat history.
+
+   **Note:** Direct JPEG/PNG images (not wrapped in PDF) follow a completely different path —
+   they go straight to the vision model without OCR extraction or RAG indexing. See
+   [`docs/usecases/image-vision-direct.md`](./image-vision-direct.md).
 
 6. **Both first message and follow-up use `findAllByDocumentId()`** — with threshold=0.0
    to bypass cross-language similarity mismatch (e.g. Russian query vs English document).
