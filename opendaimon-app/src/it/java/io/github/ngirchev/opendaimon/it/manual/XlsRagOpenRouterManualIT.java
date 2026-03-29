@@ -43,12 +43,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
@@ -63,8 +58,8 @@ import static org.mockito.Mockito.reset;
  * Manual E2E integration test for OpenRouter auto + XLS spreadsheet + follow-up RAG.
  *
  * <p>Same scenario as {@code XlsRagOllamaManualIT} but uses {@code openrouter/auto} model
- * via OpenRouter API instead of a local Ollama chat model. Ollama is still required for embeddings
- * ({@code nomic-embed-text:v1.5}).
+ * via OpenRouter API instead of a local Ollama chat model. Embeddings are handled by
+ * {@code intfloat/multilingual-e5-large} via OpenRouter — no local Ollama required.
  *
  * <p>Flow:
  * <ol>
@@ -77,7 +72,6 @@ import static org.mockito.Mockito.reset;
  * <p>Requires:
  * <ul>
  *   <li>{@code OPENROUTER_KEY} environment variable with a valid OpenRouter API key</li>
- *   <li>Local Ollama running with {@code nomic-embed-text:v1.5} for embeddings</li>
  * </ul>
  *
  * <p>Not intended for regular CI runs.
@@ -105,7 +99,6 @@ class XlsRagOpenRouterManualIT {
 
     private static final Long TEST_CHAT_ID = 350009009L;
     private static final String XLS_RESOURCE = "attachments/file_example_XLS_50.xls";
-    private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
 
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
@@ -132,32 +125,10 @@ class XlsRagOpenRouterManualIT {
     private TelegramBot telegramBot;
 
     @BeforeAll
-    static void requireOllamaForEmbeddings() {
+    static void requireOpenRouterKey() {
         String openRouterKey = System.getProperty("OPENROUTER_KEY", System.getenv("OPENROUTER_KEY"));
-        Assumptions.assumeTrue(
-                openRouterKey != null && !openRouterKey.isBlank() && !openRouterKey.equals("sk-placeholder"),
-                "Skipping manual test: OPENROUTER_KEY not set in .env or environment"
-        );
-
-        String baseUrl = resolveOllamaBaseUrl();
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(OLLAMA_TIMEOUT)
-                .build();
-        HttpRequest request = HttpRequest.newBuilder()
-                .GET()
-                .timeout(OLLAMA_TIMEOUT)
-                .uri(URI.create(baseUrl + "/api/tags"))
-                .build();
-        try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            boolean statusOk = response.statusCode() == 200;
-            boolean embeddingModelPresent = response.body().contains("nomic-embed-text:v1.5");
-            Assumptions.assumeTrue(statusOk && embeddingModelPresent,
-                    "Skipping manual test: Ollama unavailable or nomic-embed-text:v1.5 not found at " + baseUrl);
-        } catch (Exception ex) {
-            Assumptions.assumeTrue(false,
-                    "Skipping manual test: cannot connect to Ollama at " + baseUrl + ". " + ex.getMessage());
-        }
+        Assumptions.assumeTrue(openRouterKey != null && !openRouterKey.isBlank() && !openRouterKey.equals("sk-placeholder"),
+                "Skipping manual test: OPENROUTER_KEY not set in .env or environment");
     }
 
     @BeforeEach
@@ -345,17 +316,6 @@ class XlsRagOpenRouterManualIT {
                 .as("Assistant message should be saved")
                 .isNotEmpty();
         return assistantMessages.getLast().getContent();
-    }
-
-    private static String resolveOllamaBaseUrl() {
-        String baseUrl = System.getenv("OLLAMA_BASE_URL");
-        if (baseUrl == null || baseUrl.isBlank()) {
-            baseUrl = "http://localhost:11434";
-        }
-        if (baseUrl.endsWith("/")) {
-            return baseUrl.substring(0, baseUrl.length() - 1);
-        }
-        return baseUrl;
     }
 
     @SpringBootConfiguration

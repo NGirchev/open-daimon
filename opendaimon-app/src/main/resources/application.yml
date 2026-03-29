@@ -102,7 +102,7 @@ open-daimon:
       # Text: txt,rtf,html,md,csv
       # Structured: json,xml
       # E-books: epub
-      supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub
+      supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub,jpeg,png,gif,webp,bmp,tiff,svg,jp2
     # Long polling: socket timeout must be greater than get-updates-timeout (avoids Read timed out)
     long-polling-socket-timeout-seconds: 90
     get-updates-timeout-seconds: 50
@@ -197,7 +197,7 @@ open-daimon:
         response-timeout-seconds: 600  # 10 minutes for HTTP requests to AI providers
         stream-timeout-seconds: 600   # 10 minutes for streaming
       # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
-      # Ollama models (run locally: ollama pull qwen2.5:7b, ollama pull qwen3-embedding:8b).
+      # Ollama models (run locally: ollama pull qwen2.5:7b).
       models:
         list:
           - name: "openrouter/auto"
@@ -207,7 +207,6 @@ open-daimon:
               - TOOL_CALLING
               - WEB
               - SUMMARIZATION
-              - EMBEDDING
               - VISION
             provider-type: OPENAI
             priority: 3
@@ -219,7 +218,6 @@ open-daimon:
               - CHAT
               - TOOL_CALLING
               - WEB
-              - EMBEDDING
               - VISION
             provider-type: OPENAI
             priority: 2
@@ -237,12 +235,6 @@ open-daimon:
             priority: 1
             max-reasoning-tokens: 0  # Ollama does not support reasoning parameter
             think: false  # Disable Qwen3 thinking mode — prevents token budget exhaustion that causes empty responses
-          - name: "qwen3-embedding:8b"
-            capabilities:
-              - EMBEDDING
-            provider-type: OLLAMA
-            priority: 1
-            # allowed-roles not set — accessible to all roles
           # Top 3 OpenRouter free models (explicit capabilities; others from include-model-ids get capabilities from API).
           - name: "openrouter/free"
             capabilities:
@@ -250,7 +242,6 @@ open-daimon:
               - CHAT
               - TOOL_CALLING
               - WEB
-              - EMBEDDING
               - VISION
             provider-type: OPENAI
             priority: 3

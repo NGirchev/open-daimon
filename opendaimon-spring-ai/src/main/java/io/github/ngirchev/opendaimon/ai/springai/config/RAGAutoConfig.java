@@ -1,13 +1,9 @@
 package io.github.ngirchev.opendaimon.ai.springai.config;
 
+import io.github.ngirchev.opendaimon.ai.springai.embedding.DelegatingEmbeddingModel;
+import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.document.MetadataMode;
-import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.ollama.OllamaEmbeddingModel;
 import org.springframework.ai.ollama.api.OllamaApi;
-import org.springframework.ai.ollama.api.OllamaEmbeddingOptions;
-import org.springframework.ai.openai.OpenAiEmbeddingModel;
-import org.springframework.ai.openai.OpenAiEmbeddingOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -19,10 +15,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
 import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIModelType;
-import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
-
-import java.util.Comparator;
 
 /**
  * Auto-configuration for RAG (Retrieval-Augmented Generation).
@@ -53,19 +45,13 @@ import java.util.Comparator;
 public class RAGAutoConfig {
 
     /**
-     * Creates SimpleVectorStore for embeddings.
+     * Creates SimpleVectorStore with a {@link DelegatingEmbeddingModel} that dynamically
+     * resolves the best available embedding model from the registry on each call.
      *
-     * <p>EmbeddingModel is created programmatically with the model name from
-     * {@code open-daimon.ai.spring-ai.models.list} (capability EMBEDDING).
+     * <p>This allows VectorStore to be created at startup while the actual embedding model
+     * can change as OpenRouter models are refreshed by the scheduler.
      *
-     * <p><b>Selection algorithm:</b>
-     * <ol>
-     *   <li>Filter models with EMBEDDING capability whose API provider is available</li>
-     *   <li>Prefer same provider as the primary (AUTO) model — so OpenRouter users get OpenAI embedding</li>
-     *   <li>Tie-break by priority (lower number = higher priority)</li>
-     * </ol>
-     *
-     * @param springAIModelType service to select model by capabilities
+     * @param registry model registry with dynamically loaded models (including OpenRouter embedding models)
      * @param ollamaApiProvider Ollama API client (available when Ollama is configured)
      * @param openAiApiProvider OpenAI API client (available when OpenAI is configured)
      * @return VectorStore instance
@@ -73,59 +59,14 @@ public class RAGAutoConfig {
     @Bean
     @ConditionalOnMissingBean
     public VectorStore simpleVectorStore(
-            SpringAIModelType springAIModelType,
+            SpringAIModelRegistry registry,
             ObjectProvider<OllamaApi> ollamaApiProvider,
             ObjectProvider<OpenAiApi> openAiApiProvider) {
 
-        boolean ollamaAvailable = ollamaApiProvider.getIfAvailable() != null;
-        boolean openAiAvailable = openAiApiProvider.getIfAvailable() != null;
+        DelegatingEmbeddingModel embeddingModel = new DelegatingEmbeddingModel(
+                registry, ollamaApiProvider, openAiApiProvider);
 
-        // Primary provider = provider of the AUTO (main) model
-        SpringAIModelConfig.ProviderType primaryProvider = springAIModelType
-                .getByCapability(ModelCapabilities.AUTO)
-                .map(SpringAIModelConfig::getProviderType)
-                .orElse(null);
-
-        log.debug("RAG: Selecting embedding model. Primary provider: {}, ollamaAvailable={}, openAiAvailable={}",
-                primaryProvider, ollamaAvailable, openAiAvailable);
-
-        // Filter: EMBEDDING capability + available API provider
-        // Prefer: same provider as primary model → then lower priority number
-        SpringAIModelConfig modelConfig = springAIModelType.getModels().stream()
-                .filter(m -> m.getCapabilities() != null && m.getCapabilities().contains(ModelCapabilities.EMBEDDING))
-                .filter(m -> switch (m.getProviderType()) {
-                    case OLLAMA -> ollamaAvailable;
-                    case OPENAI -> openAiAvailable;
-                })
-                .min(Comparator.<SpringAIModelConfig, Integer>comparing(m ->
-                                m.getProviderType() == primaryProvider ? 0 : 1)
-                        .thenComparing(SpringAIModelConfig::getPriority))
-                .orElseThrow(() -> new IllegalStateException(
-                        "No model with EMBEDDING capability and available API provider found in " +
-                        "open-daimon.ai.spring-ai.models.list. Ollama available: " + ollamaAvailable +
-                        ", OpenAI available: " + openAiAvailable));
-
-        log.info("RAG: Selected embedding model '{}' (provider={}, priority={}). Primary provider: {}",
-                modelConfig.getName(), modelConfig.getProviderType(), modelConfig.getPriority(), primaryProvider);
-
-        String modelName = modelConfig.getName();
-        EmbeddingModel embeddingModel = switch (modelConfig.getProviderType()) {
-            case OLLAMA -> {
-                OllamaApi api = ollamaApiProvider.getIfAvailable();
-                yield OllamaEmbeddingModel.builder()
-                        .ollamaApi(api)
-                        .defaultOptions(OllamaEmbeddingOptions.builder().model(modelName).build())
-                        .build();
-            }
-            case OPENAI -> {
-                OpenAiApi api = openAiApiProvider.getIfAvailable();
-                yield new OpenAiEmbeddingModel(api, MetadataMode.EMBED,
-                        OpenAiEmbeddingOptions.builder().model(modelName).build());
-            }
-        };
-
-        log.info("Creating SimpleVectorStore (in-memory) for RAG with model '{}' (provider: {})",
-                modelName, modelConfig.getProviderType());
+        log.info("Creating SimpleVectorStore (in-memory) for RAG with DelegatingEmbeddingModel");
         return SimpleVectorStore.builder(embeddingModel).build();
     }
 

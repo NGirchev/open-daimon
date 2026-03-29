@@ -26,6 +26,8 @@ public final class OpenRouterModelCapabilitiesMapper {
     private static final String RESPONSE_FORMAT = "response_format";
     private static final String JSON_SCHEMA = "json_schema";
     private static final String STRUCTURED_OUTPUT = "structured_output";
+    private static final String DESCRIPTION = "description";
+    private static final String NAME = "name";
 
     private OpenRouterModelCapabilitiesMapper() {
     }
@@ -86,6 +88,40 @@ public final class OpenRouterModelCapabilitiesMapper {
         }
 
         return Set.copyOf(out);
+    }
+
+    /**
+     * Builds capabilities for an embedding model from /v1/embeddings/models endpoint.
+     * All models from this endpoint get EMBEDDING. Multilingual detection uses id/name/description.
+     */
+    public static Set<ModelCapabilities> forEmbeddingModel(JsonNode modelNode, boolean free) {
+        if (modelNode == null || modelNode.isMissingNode() || modelNode.isNull()) {
+            return Set.of();
+        }
+        Set<ModelCapabilities> out = EnumSet.of(ModelCapabilities.EMBEDDING);
+        if (free) {
+            out.add(ModelCapabilities.FREE);
+        }
+        if (isMultilingual(modelNode)) {
+            out.add(ModelCapabilities.MULTILINGUAL);
+        }
+        return Set.copyOf(out);
+    }
+
+    /**
+     * Detects multilingual support from model id, name, or description.
+     * Known multilingual patterns: "multilingual", "m3" (bge-m3), "e5-large" with multilingual prefix.
+     */
+    static boolean isMultilingual(JsonNode modelNode) {
+        String id = modelNode.path("id").asText("").toLowerCase(Locale.ROOT);
+        String name = modelNode.path(NAME).asText("").toLowerCase(Locale.ROOT);
+        String description = modelNode.path(DESCRIPTION).asText("").toLowerCase(Locale.ROOT);
+
+        String combined = id + " " + name + " " + description;
+        return combined.contains("multilingual")
+                || combined.contains("multi-lingual")
+                || id.endsWith("-m3")
+                || id.contains("/bge-m3");
     }
 
     private static boolean hasToolsSupport(JsonNode modelNode) {

@@ -52,7 +52,7 @@ class TelegramFileServiceTest {
         fileUploadProperties.setEnabled(true);
         fileUploadProperties.setMaxFileSizeMb(5);
         fileUploadProperties.setSupportedImageTypes("jpeg,png,gif,webp");
-        fileUploadProperties.setSupportedDocumentTypes("pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub");
+        fileUploadProperties.setSupportedDocumentTypes("pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub,jpeg,png,gif,webp,bmp,tiff,svg,jp2");
 
         lenient().when(fileStorageServiceProvider.getObject()).thenReturn(fileStorageService);
 
@@ -181,6 +181,62 @@ class TelegramFileServiceTest {
         assertTrue(result.filename().startsWith("document"));
         assertTrue(result.filename().endsWith(".pdf"));
         verify(fileStorageService).save(anyString(), any(), eq("application/pdf"), isNull());
+    }
+
+    // --- processDocument: image sent as document ---
+
+    @Test
+    void whenProcessDocument_jpegAsDocument_thenReturnsImageAttachment() {
+        Document doc = createDocument("file-id-jpg", "image/jpeg", "photo.jpg", 500L);
+        ((TestableTelegramFileService) fileService).setDownloadResult(MOCK_PHOTO_DATA);
+
+        Attachment result = fileService.processDocument(doc);
+
+        assertNotNull(result);
+        assertEquals(AttachmentType.IMAGE, result.type());
+        assertEquals("image/jpeg", result.mimeType());
+        assertEquals("photo.jpg", result.filename());
+        assertArrayEquals(MOCK_PHOTO_DATA, result.data());
+        assertTrue(result.key().startsWith("document/"));
+        assertTrue(result.key().endsWith(".jpg"));
+
+        verify(fileStorageService).save(anyString(), eq(MOCK_PHOTO_DATA), eq("image/jpeg"), eq("photo.jpg"));
+    }
+
+    @Test
+    void whenProcessDocument_pngAsDocument_thenReturnsImageAttachment() {
+        Document doc = createDocument("file-id-png", "image/png", "screenshot.png", 300L);
+        ((TestableTelegramFileService) fileService).setDownloadResult(MOCK_PHOTO_DATA);
+
+        Attachment result = fileService.processDocument(doc);
+
+        assertNotNull(result);
+        assertEquals(AttachmentType.IMAGE, result.type());
+        assertEquals("image/png", result.mimeType());
+    }
+
+    @Test
+    void whenProcessDocument_jp2AsDocument_thenReturnsImageAttachment() {
+        Document doc = createDocument("file-id-jp2", "image/jp2", "scan.jp2", 200L);
+        ((TestableTelegramFileService) fileService).setDownloadResult(MOCK_PHOTO_DATA);
+
+        Attachment result = fileService.processDocument(doc);
+
+        assertNotNull(result);
+        assertEquals(AttachmentType.IMAGE, result.type());
+        assertEquals("image/jp2", result.mimeType());
+    }
+
+    @Test
+    void whenProcessDocument_webpAsDocument_thenReturnsImageAttachment() {
+        Document doc = createDocument("file-id-webp", "image/webp", "sticker.webp", 100L);
+        ((TestableTelegramFileService) fileService).setDownloadResult(MOCK_PHOTO_DATA);
+
+        Attachment result = fileService.processDocument(doc);
+
+        assertNotNull(result);
+        assertEquals(AttachmentType.IMAGE, result.type());
+        assertEquals("image/webp", result.mimeType());
     }
 
     // --- getFileInfo ---

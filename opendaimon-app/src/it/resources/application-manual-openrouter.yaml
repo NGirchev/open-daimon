@@ -1,14 +1,10 @@
 # Dedicated overrides for manual OpenRouter integration tests.
-# Requires OPENROUTER_KEY in .env and local Ollama for embeddings.
+# Requires OPENROUTER_KEY in .env. No local Ollama needed.
 
 spring:
   main:
     banner-mode: off
   ai:
-    model:
-      embedding: ollama
-    ollama:
-      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
     openai:
       base-url: https://openrouter.ai/api
       api-key: ${OPENROUTER_KEY:sk-placeholder}
@@ -21,6 +17,7 @@ spring:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaAutoConfiguration
 
 open-daimon:
   common:
@@ -76,10 +73,10 @@ open-daimon:
               - VISION
             provider-type: OPENAI
             priority: 1
-          - name: nomic-embed-text:v1.5
+          - name: "intfloat/multilingual-e5-large"
             capabilities:
               - EMBEDDING
-            provider-type: OLLAMA
+            provider-type: OPENAI
             priority: 1
 
 logging:

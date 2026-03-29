@@ -740,7 +740,10 @@ public class SpringAIGateway implements AIGateway {
             documentId = documentProcessingService.processWithTika(documentAttachment.data(), documentAttachment.filename(), documentType);
         }
         processedDocumentIds.add(documentId);
-        List<Document> relevantChunks = fileRagService.findRelevantContext(userQuery, documentId);
+        // Use findAllByDocumentId (threshold=0.0) — on first upload all chunks are relevant.
+        // findRelevantContext with threshold=0.7 fails for cross-language queries
+        // (e.g. Russian query vs English document text).
+        List<Document> relevantChunks = fileRagService.findAllByDocumentId(documentId);
         allRelevantChunks.addAll(relevantChunks);
         log.info("processRagIfEnabled: documentId={}, relevantChunks={}", documentId, relevantChunks.size());
         log.debug("Found {} relevant chunks from '{}'", relevantChunks.size(), documentAttachment.filename());

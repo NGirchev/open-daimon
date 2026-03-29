@@ -63,6 +63,12 @@ public enum ModelCapabilities {
     VISION,
 
     /**
+     * Multilingual embedding model — supports non-English text.
+     * Preferred over English-only embedding models when available.
+     */
+    MULTILINGUAL,
+
+    /**
      * Free-tier models (OpenRouter free, etc.).
      * Used for ranking and retry; add in yml only for actually free models.
      */
