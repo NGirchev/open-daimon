@@ -18,8 +18,10 @@ import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingServi
 import io.github.ngirchev.opendaimon.ai.springai.service.PdfTextDetector;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentContentAnalyzer;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentOrchestrator;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentOrchestrator;
 import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 
 /**
@@ -144,5 +146,18 @@ public class RAGAutoConfig {
         return new SpringDocumentPreprocessor(
                 documentProcessingService, fileRAGService,
                 springAIModelRegistry, chatService, ragProperties);
+    }
+
+    /**
+     * Document orchestrator — coordinates document preprocessing + RAG query building.
+     * Used by gateway to delegate all document/RAG logic.
+     */
+    @Bean
+    @ConditionalOnMissingBean(IDocumentOrchestrator.class)
+    public SpringDocumentOrchestrator springDocumentOrchestrator(
+            IDocumentPreprocessor documentPreprocessor,
+            FileRAGService fileRAGService,
+            RAGProperties ragProperties) {
+        return new SpringDocumentOrchestrator(documentPreprocessor, fileRAGService, ragProperties);
     }
 }

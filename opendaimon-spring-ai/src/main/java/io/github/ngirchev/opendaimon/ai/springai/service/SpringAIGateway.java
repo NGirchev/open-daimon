@@ -11,26 +11,20 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.content.Media;
-import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.util.MimeTypeUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import io.github.ngirchev.opendaimon.ai.springai.config.RAGProperties;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIProperties;
-import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
-import io.github.ngirchev.opendaimon.common.ai.document.DocumentAnalysisResult;
-import io.github.ngirchev.opendaimon.common.ai.document.DocumentPreprocessingResult;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
@@ -45,6 +39,7 @@ import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import java.net.MalformedURLException;
 import java.util.*;
 import java.util.Base64;
+import java.util.stream.Collectors;
 
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.*;
 
@@ -65,28 +60,17 @@ public class SpringAIGateway implements AIGateway {
     private final SpringAIChatService chatService;
     private final ObjectProvider<ChatMemory> chatMemoryProvider;
     
-    // RAG components (optional - available only when open-daimon.ai.spring-ai.rag.enabled=true)
-    private final RAGProperties ragProperties;
-    private final ObjectProvider<FileRAGService> ragServiceProvider;
-    private final ObjectProvider<IDocumentPreprocessor> documentPreprocessorProvider;
-
     public SpringAIGateway(
             SpringAIProperties springAiProperties,
             AIGatewayRegistry aiGatewayRegistry,
             SpringAIModelRegistry springAIModelRegistry,
             SpringAIChatService chatService,
-            ObjectProvider<ChatMemory> chatMemoryProvider,
-            RAGProperties ragProperties,
-            ObjectProvider<FileRAGService> ragServiceProvider,
-            ObjectProvider<IDocumentPreprocessor> documentPreprocessorProvider) {
+            ObjectProvider<ChatMemory> chatMemoryProvider) {
         this.springAiProperties = springAiProperties;
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.springAIModelRegistry = springAIModelRegistry;
         this.chatService = chatService;
         this.chatMemoryProvider = chatMemoryProvider;
-        this.ragProperties = ragProperties;
-        this.ragServiceProvider = ragServiceProvider;
-        this.documentPreprocessorProvider = documentPreprocessorProvider;
     }
 
     @PostConstruct
@@ -120,11 +104,9 @@ public class SpringAIGateway implements AIGateway {
         } catch (WebClientResponseException e) {
             log.error(LOG_ERROR_CALLING_SPRING_AI, e.getMessage());
             throw new RuntimeException("Failed to generate response from Spring AI", e);
-        } catch (UnsupportedModelCapabilityException e) {
+        } catch (UnsupportedModelCapabilityException | DocumentContentNotExtractableException e) {
             throw e;
-        } catch (DocumentContentNotExtractableException e) {
-            throw e;
-        } catch (Exception e) {
+        }  catch (Exception e) {
             if (AIUtils.shouldLogWithoutStacktrace(e)) {
                 log.error(LOG_ERROR_CALLING_SPRING_AI, AIUtils.getRootCauseMessage(e));
             } else {
@@ -150,14 +132,14 @@ public class SpringAIGateway implements AIGateway {
                     ? modelConfig.getCapabilities() : Set.of();
             Set<ModelCapabilities> requiredCapabilities = new HashSet<>(command.modelCapabilities().stream()
                     .filter(c -> c != ModelCapabilities.AUTO)
-                    .collect(java.util.stream.Collectors.toSet()));
+                    .collect(Collectors.toSet()));
             if (requiresVisionForPayload) {
                 requiredCapabilities.add(ModelCapabilities.VISION);
             }
             if (!requiredCapabilities.isEmpty() && !liveCapabilities.containsAll(requiredCapabilities)) {
                 Set<ModelCapabilities> missing = requiredCapabilities.stream()
                         .filter(c -> !liveCapabilities.contains(c))
-                        .collect(java.util.stream.Collectors.toSet());
+                        .collect(Collectors.toSet());
                 throw new UnsupportedModelCapabilityException(fixed.fixedModelId(), missing);
             }
         } else {
@@ -188,11 +170,11 @@ public class SpringAIGateway implements AIGateway {
                     ? modelConfig.getCapabilities() : Set.of();
             Set<ModelCapabilities> effectiveRequired = requiredForSelection.stream()
                     .filter(c -> c != ModelCapabilities.AUTO)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet());
             if (!effectiveRequired.isEmpty() && !liveCapabilities.containsAll(effectiveRequired)) {
                 Set<ModelCapabilities> missing = effectiveRequired.stream()
                         .filter(c -> !liveCapabilities.contains(c))
-                        .collect(java.util.stream.Collectors.toSet());
+                        .collect(Collectors.toSet());
                 throw new UnsupportedModelCapabilityException(modelConfig.getName(), missing);
             }
         }
@@ -315,12 +297,16 @@ public class SpringAIGateway implements AIGateway {
     private Media mediaFromImageUrlPart(Map<String, Object> part) {
         Object imageUrlObj = part.get(CONTENT_PART_IMAGE_URL);
         String url;
-        if (imageUrlObj instanceof Map<?, ?> urlMap) {
-            url = (String) ((Map<String, ?>) urlMap).get(IMAGE_URL_URL);
-        } else if (imageUrlObj instanceof String s) {
-            url = s;
-        } else {
-            return null;
+        switch (imageUrlObj) {
+            case Map<?, ?> urlMap -> {
+                url = (String) urlMap.get(IMAGE_URL_URL);
+            }
+            case String s -> {
+                url = s;
+            }
+            default -> {
+                return null;
+            }
         }
         if (url == null || url.isBlank()) return null;
         return mediaFromImageUrl(url);
@@ -391,12 +377,19 @@ public class SpringAIGateway implements AIGateway {
         if (userAlreadyPresent) {
             return;
         }
-        List<Attachment> mutableAttachments = new ArrayList<>(attachments);
+        assert attachments != null;
         long originalImageCount = attachments.stream().filter(att -> att.type() == AttachmentType.IMAGE).count();
-        List<String> pdfAsImageFilenames = new ArrayList<>();
-        String finalUserRole = processRagIfEnabled(userRole, mutableAttachments, pdfAsImageFilenames, messages, command);
+
+        // Document orchestration already happened in AIRequestPipeline (before factory).
+        // userRole contains the augmented query, attachments contain modified list (with images from PDF if OCR failed).
+        // pdfAsImageFilenames come from pipeline metadata.
+        List<String> pdfAsImageFilenames = List.of();
+        if (command.metadata() != null && command.metadata().containsKey("pdfAsImageFilenames")) {
+            pdfAsImageFilenames = List.of(command.metadata().get("pdfAsImageFilenames").split(","));
+        }
+
         addAttachmentContextToMessagesAndMemory(messages, (int) originalImageCount, pdfAsImageFilenames, command);
-        messages.add(createUserMessage(finalUserRole, mutableAttachments));
+        messages.add(createUserMessage(userRole, new ArrayList<>(attachments)));
     }
 
     private void addAttachmentContextToMessagesAndMemory(List<Message> messages, int originalImageCount,
@@ -481,228 +474,6 @@ public class SpringAIGateway implements AIGateway {
             log.warn("Unknown userPriority in command metadata: {}", raw);
             return null;
         }
-    }
-
-    /**
-     * Processes documents (PDF, DOCX, etc.) via RAG when feature flag is on.
-     *
-     * <p>Process:
-     * <ol>
-     *   <li>Filter documents (PDF, DOCX, etc.)</li>
-     *   <li>Process each via DocumentProcessingService (embeddings)</li>
-     *   <li>Find relevant context via RAGService</li>
-     *   <li>Build augmented prompt with document context</li>
-     * </ol>
-     * <p><b>Vision fallback for image-only PDF:</b> If PDF has no text layer (DocumentContentNotExtractableException), render pages as images and add to attachments for vision model.
-     *
-     * @param userQuery original user query
-     * @param attachments mutable list of attachments (may get image-attachments from PDF fallback)
-     * @param pdfAsImageFilenames mutable list to collect PDF filenames converted to images
-     * @param messages mutable list of messages — RAG context is injected as transient SystemMessage
-     * @param command AI command with metadata (threadKey for looking up stored documentIds)
-     * @return user query (original or with placeholder reference); RAG context goes into SystemMessage, not here
-     */
-    private String processRagIfEnabled(String userQuery, List<Attachment> attachments, List<String> pdfAsImageFilenames,
-                                        List<Message> messages, AICommand command) {
-        List<Attachment> documentAttachments = attachments != null
-                ? attachments.stream().filter(Attachment::isDocument).toList()
-                : List.of();
-        FileRAGService fileRagService = ragServiceProvider.getIfAvailable();
-        IDocumentPreprocessor documentPreprocessor = documentPreprocessorProvider.getIfAvailable();
-
-        if (ragProperties == null) {
-            return userQuery;
-        }
-
-        if (documentAttachments.isEmpty()) {
-            return processFollowUpRagIfAvailable(userQuery, messages, command, fileRagService);
-        }
-
-        if (userQuery == null || userQuery.isBlank()) {
-            userQuery = "Summarize this document and provide key points.";
-            log.info("processRagIfEnabled: empty user query with attachments, using default summarization prompt");
-        }
-
-        if (documentPreprocessor == null || fileRagService == null) {
-            log.warn("RAG is enabled but preprocessor/ragService not available. Skipping RAG processing.");
-            return userQuery;
-        }
-
-        log.info("Processing {} document attachment(s) for RAG via IDocumentPreprocessor", documentAttachments.size());
-        List<String> allRelevantChunkTexts = new ArrayList<>();
-        List<String> processedDocumentIds = new ArrayList<>();
-
-        for (Attachment documentAttachment : documentAttachments) {
-            try {
-                String documentType = SpringDocumentContentAnalyzer.extractDocumentType(
-                        documentAttachment.mimeType(), documentAttachment.filename());
-                if (documentType == null) {
-                    log.warn("Unsupported document type for RAG: {}", documentAttachment.mimeType());
-                    continue;
-                }
-
-                DocumentAnalysisResult analysisResult = DocumentAnalysisResult.textExtractable();
-                // For PDFs, the analysis was already done by DefaultAICommandFactory via IDocumentContentAnalyzer.
-                // If the command has VISION in required capabilities, the PDF is image-only.
-                if ("pdf".equalsIgnoreCase(documentType)
-                        && command.modelCapabilities().contains(ModelCapabilities.VISION)) {
-                    analysisResult = DocumentAnalysisResult.requiresVision();
-                }
-
-                DocumentPreprocessingResult result = documentPreprocessor.preprocess(
-                        documentAttachment, userQuery, analysisResult);
-
-                if (result.hasDocumentId()) {
-                    processedDocumentIds.add(result.documentId());
-                }
-                allRelevantChunkTexts.addAll(result.relevantChunkTexts());
-
-                if (!result.visionExtractionSucceeded() && !result.imageAttachments().isEmpty()) {
-                    // Vision OCR failed — add images as fallback for direct vision
-                    attachments.addAll(result.imageAttachments());
-                    pdfAsImageFilenames.add(documentAttachment.filename());
-                    log.info("Added {} fallback image(s) from PDF '{}'",
-                            result.imageAttachments().size(), documentAttachment.filename());
-                }
-            } catch (DocumentContentNotExtractableException e) {
-                throw e;
-            } catch (Exception e) {
-                log.error("Failed to process document '{}': {}", documentAttachment.filename(), e.getMessage(), e);
-            }
-        }
-
-        storeDocumentIdsInCommandMetadata(processedDocumentIds, documentAttachments, command);
-
-        if (allRelevantChunkTexts.isEmpty()) {
-            log.info("No relevant context found in documents");
-            return userQuery;
-        }
-
-        String contextText = String.join("\n\n---\n\n", allRelevantChunkTexts);
-        String ragQuery = String.format(ragProperties.getPrompts().getAugmentedPromptTemplate(), contextText, userQuery);
-        String placeholder = buildRagPlaceholder(documentAttachments);
-        log.info("Created RAG augmented query ({} chars) with {} chunks from {} document(s)",
-                ragQuery.length(), allRelevantChunkTexts.size(), documentAttachments.size());
-
-        return ragQuery + "\n" + placeholder;
-    }
-
-    /**
-     * On follow-up messages (no new attachments), checks if the handler has injected stored RAG
-     * documentIds into {@code AICommand.metadata} under {@link AICommand#RAG_DOCUMENT_IDS_FIELD}
-     * and fetches relevant chunks from the VectorStore.
-     *
-     * <p>The handler is responsible for resolving documentIds from message history
-     * (via {@code OpenDaimonMessageService.findRagDocumentIds}) and placing them in the command
-     * metadata before calling the gateway. The gateway never queries the thread or message
-     * repositories directly.
-     */
-    private String processFollowUpRagIfAvailable(String userQuery, List<Message> messages,
-                                                   AICommand command, FileRAGService fileRagService) {
-        if (fileRagService == null || command == null || command.metadata() == null) {
-            log.debug("RAG: No attachments, no thread context available");
-            return userQuery;
-        }
-
-        String rawDocumentIds = command.metadata().get(AICommand.RAG_DOCUMENT_IDS_FIELD);
-        if (rawDocumentIds == null || rawDocumentIds.isBlank()) {
-            log.debug("RAG: No ragDocumentIds in command metadata, skipping follow-up RAG");
-            return userQuery;
-        }
-
-        List<String> ragDocumentIds = Arrays.stream(rawDocumentIds.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
-
-        if (ragDocumentIds.isEmpty()) {
-            log.debug("RAG: ragDocumentIds in command metadata is blank after parsing, skipping follow-up RAG");
-            return userQuery;
-        }
-
-        log.info("RAG follow-up: found {} stored documentId(s) in command metadata, fetching relevant chunks",
-                ragDocumentIds.size());
-
-        List<Document> allChunks = new ArrayList<>();
-        for (String docId : ragDocumentIds) {
-            // Use findAllByDocumentId (threshold=0.0) to bypass cross-language similarity mismatch
-            // (e.g. Russian query vs English extracted text would fail with threshold=0.7)
-            List<Document> chunks = fileRagService.findAllByDocumentId(docId);
-            allChunks.addAll(chunks);
-        }
-
-        if (allChunks.isEmpty()) {
-            log.info("RAG follow-up: VectorStore returned no chunks for stored documentIds (may be lost after restart)");
-            return userQuery;
-        }
-
-        String ragQuery = buildRagAugmentedQuery(allChunks, userQuery);
-        log.info("RAG follow-up: augmented query with {} relevant chunks ({} chars)", allChunks.size(), ragQuery.length());
-
-        return ragQuery;
-    }
-
-    /**
-     * Builds a RAG-augmented query using the configurable template from ragProperties.
-     * Prepended directly to the UserMessage (not a separate SystemMessage) because
-     * small local models (e.g. qwen2.5:3b) may ignore system messages, especially
-     * when ChatMemoryAdvisor loads conversation history.
-     */
-    private String buildRagAugmentedQuery(List<Document> chunks, String userQuery) {
-        String contextText = chunks.stream()
-                .map(Document::getText)
-                .collect(java.util.stream.Collectors.joining("\n\n---\n\n"));
-        String ragQuery = String.format(ragProperties.getPrompts().getAugmentedPromptTemplate(), contextText, userQuery);
-        log.debug("RAG augmented query:\n{}", ragQuery);
-        return ragQuery;
-    }
-
-    /**
-     * Publishes processed documentIds into {@code AICommand.metadata} so the caller
-     * can persist them on the USER message via
-     * {@code OpenDaimonMessageService.updateRagMetadata()}.
-     *
-     * <p>If the metadata map is immutable (e.g. {@code Map.of()} in tests), the write is
-     * skipped and a warning is logged — callers that care about persistence must pass a
-     * mutable map.
-     */
-    private void storeDocumentIdsInCommandMetadata(List<String> documentIds,
-                                                    List<Attachment> documentAttachments,
-                                                    AICommand command) {
-        if (documentIds.isEmpty() || command == null || command.metadata() == null) {
-            return;
-        }
-        List<String> filenames = new ArrayList<>();
-        for (int i = 0; i < documentIds.size(); i++) {
-            filenames.add(i < documentAttachments.size() ? documentAttachments.get(i).filename() : "unknown");
-        }
-        try {
-            command.metadata().put(AICommand.RAG_DOCUMENT_IDS_FIELD, String.join(",", documentIds));
-            command.metadata().put(AICommand.RAG_FILENAMES_FIELD, String.join(",", filenames));
-            log.info("RAG: stored {} documentId(s) in command metadata", documentIds.size());
-        } catch (UnsupportedOperationException ignored) {
-            log.warn("RAG: command.metadata() is immutable, documentIds not persisted: {}", documentIds);
-        }
-    }
-
-    /**
-     * Builds a short placeholder reference for the UserMessage instead of full inline RAG text.
-     */
-    private String buildRagPlaceholder(List<Attachment> documentAttachments) {
-        StringBuilder sb = new StringBuilder("[Documents loaded for context: ");
-        for (int i = 0; i < documentAttachments.size(); i++) {
-            if (i > 0) sb.append(", ");
-            sb.append(documentAttachments.get(i).filename());
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    /**
-     * Checks if RAG feature flag is enabled.
-     */
-    private boolean isRagEnabled() {
-        return ragProperties != null;
     }
 
     /**

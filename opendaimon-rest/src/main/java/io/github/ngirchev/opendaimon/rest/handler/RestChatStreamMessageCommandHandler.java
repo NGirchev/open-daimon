@@ -9,7 +9,7 @@ import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongExceptio
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
@@ -38,7 +38,7 @@ public class RestChatStreamMessageCommandHandler implements
     private final RestUserService restUserService;
     private final OpenDaimonMessageService messageService;
     private final AIGatewayRegistry aiGatewayRegistry;
-    private final AICommandFactoryRegistry aiCommandFactoryRegistry;
+    private final AIRequestPipeline aiRequestPipeline;
     private final RestChatHandlerSupport support;
 
     @Override
@@ -83,7 +83,7 @@ public class RestChatStreamMessageCommandHandler implements
             if (!ragDocIds.isEmpty()) {
                 metadata.put(AICommand.RAG_DOCUMENT_IDS_FIELD, String.join(",", ragDocIds));
             }
-            AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
+            AICommand aiCommand = aiRequestPipeline.prepareCommand(command, metadata);
             modelCapabilities = aiCommand.modelCapabilities();
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()

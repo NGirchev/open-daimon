@@ -2,7 +2,7 @@ package io.github.ngirchev.opendaimon.rest.handler;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -37,7 +37,7 @@ public class RestChatMessageCommandHandler implements
     private final RestUserService restUserService;
     private final OpenDaimonMessageService messageService;
     private final AIGatewayRegistry aiGatewayRegistry;
-    private final AICommandFactoryRegistry aiCommandFactoryRegistry;
+    private final AIRequestPipeline aiRequestPipeline;
     private final RestChatHandlerSupport support;
 
     @Override
@@ -83,7 +83,7 @@ public class RestChatMessageCommandHandler implements
             if (!ragDocIds.isEmpty()) {
                 metadata.put(AICommand.RAG_DOCUMENT_IDS_FIELD, String.join(",", ragDocIds));
             }
-            AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
+            AICommand aiCommand = aiRequestPipeline.prepareCommand(command, metadata);
             modelCapabilities = aiCommand.modelCapabilities();
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()

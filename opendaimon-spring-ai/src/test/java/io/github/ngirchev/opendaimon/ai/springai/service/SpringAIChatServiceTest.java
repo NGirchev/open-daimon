@@ -6,6 +6,7 @@ import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
+import io.github.ngirchev.opendaimon.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,7 @@ class SpringAIChatServiceTest {
     private SpringAIPromptFactory promptFactory;
 
     @Mock
-    private ObjectProvider<io.github.ngirchev.opendaimon.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker> openRouterStreamMetricsTrackerProvider;
+    private ObjectProvider<OpenRouterStreamMetricsTracker> openRouterStreamMetricsTrackerProvider;
 
     private SpringAIChatService chatService;
     private SpringAIModelConfig modelConfig;

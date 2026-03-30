@@ -206,6 +206,56 @@ class ObjectsImageVisionOpenRouterManualIT {
                 .isEqualTo(2);
     }
 
+    /**
+     * Same scenario as above, but the image is sent as a "document" attachment
+     * (as Telegram does when user sends image as a file, not as a photo).
+     * The image should still be processed by the vision model — NOT indexed in RAG.
+     * AttachmentType remains IMAGE (Telegram bot detects image MIME type even for document uploads).
+     */
+    @Test
+    @Timeout(3 * 60)
+    @DisplayName("Manual E2E: OpenRouter auto + objects.jpeg sent as document — vision still works")
+    void objectsImageAsDocument_openRouterVision_describedCorrectly() throws IOException {
+        // Simulate Telegram "send as file" — same image data but sent through document channel.
+        // TelegramFileService detects image/jpeg MIME → sets AttachmentType.IMAGE regardless.
+        Attachment imageAsDocAttachment = loadImageAttachment();
+
+        TelegramCommand command = createMessageCommand(
+                TEST_CHAT_ID + 1, // different chat to avoid thread collision
+                1,
+                "What objects do you see in this image?",
+                List.of(imageAsDocAttachment)
+        );
+
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID + 1)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        String reply = latestAssistantReply(thread);
+        assertThat(reply)
+                .as("Vision model should describe the image content")
+                .isNotBlank();
+
+        assertThat(reply.toLowerCase())
+                .as("Reply should mention objects visible in the image (bunny/rabbit)")
+                .containsAnyOf("bunny", "rabbit", "кролик", "заяц", "зайч", "зайц");
+
+        // Verify NO RAG processing happened — image should go directly to vision, not through RAG
+        List<OpenDaimonMessage> userMessages = messageRepository
+                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
+        boolean hasRagDocIds = userMessages.stream()
+                .anyMatch(m -> m.getMetadata() != null
+                        && m.getMetadata().containsKey("ragDocumentIds")
+                        && m.getMetadata().get("ragDocumentIds") != null);
+        assertThat(hasRagDocIds)
+                .as("Image sent as document should NOT be indexed in RAG")
+                .isFalse();
+    }
+
     private Attachment loadImageAttachment() throws IOException {
         ClassPathResource resource = new ClassPathResource(IMAGE_RESOURCE);
         byte[] imageBytes = resource.getInputStream().readAllBytes();

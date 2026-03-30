@@ -25,7 +25,7 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig;
 import io.github.ngirchev.opendaimon.bulkhead.service.IWhitelistService;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 import io.github.ngirchev.opendaimon.common.config.CoreAutoConfig;
@@ -307,7 +307,7 @@ class MessageTelegramCommandHandlerIT {
                 TelegramMessageService telegramMessageService,
                 AIGatewayRegistry aiGatewayRegistry,
                 OpenDaimonMessageService messageService,
-                AICommandFactoryRegistry aiCommandFactoryRegistry,
+                AIRequestPipeline aiRequestPipeline,
                 TelegramProperties telegramProperties,
                 UserModelPreferenceService userModelPreferenceService,
                 PersistentKeyboardService persistentKeyboardService,
@@ -321,7 +321,7 @@ class MessageTelegramCommandHandlerIT {
                     telegramMessageService,
                     aiGatewayRegistry,
                     messageService,
-                    aiCommandFactoryRegistry,
+                    aiRequestPipeline,
                     telegramProperties,
                     userModelPreferenceService,
                     persistentKeyboardService,

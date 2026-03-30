@@ -2,7 +2,6 @@ package io.github.ngirchev.opendaimon.ai.springai.service;
 
 import io.github.ngirchev.opendaimon.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,7 +20,6 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.OllamaChatModel;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIProperties;
-import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
@@ -124,10 +122,6 @@ class SpringAIGatewayMemoryAdvisorTest {
 
         // Create SpringAIGateway (RAG disabled - pass null/empty providers)
         @SuppressWarnings("unchecked")
-        ObjectProvider<FileRAGService> ragProvider = mock(ObjectProvider.class);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<IDocumentPreprocessor> preprocessorProvider = mock(ObjectProvider.class);
-        @SuppressWarnings("unchecked")
         ObjectProvider<ChatMemory> chatMemoryProvider = mock(ObjectProvider.class);
         lenient().when(chatMemoryProvider.getIfAvailable()).thenReturn(chatMemory);
         springAIGateway = new SpringAIGateway(
@@ -135,10 +129,7 @@ class SpringAIGatewayMemoryAdvisorTest {
                 aiGatewayRegistry,
                 springAIModelRegistry,
                 realChatService,
-                chatMemoryProvider,
-                null, // ragProperties - RAG disabled
-                ragProvider,
-                preprocessorProvider
+                chatMemoryProvider
         );
     }
 

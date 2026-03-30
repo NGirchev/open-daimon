@@ -213,7 +213,10 @@ class ImagePdfVisionRagOpenRouterManualIT {
                 .isNotEmpty();
 
         String extractedTextForRag = String.join("\n---\n", storedChunkTexts);
-        assertThat(extractedTextForRag)
+        // Normalize whitespace: vision OCR may preserve line breaks from the PDF layout
+        // (e.g. "as far as\nthey know" instead of "as far as they know").
+        String normalizedExtracted = extractedTextForRag.replaceAll("\\s+", " ");
+        assertThat(normalizedExtracted)
                 .as("OCR/vision extracted text must contain expected phrase '%s'", EXPECTED_FOLLOW_UP_PHRASE)
                 .contains(EXPECTED_FOLLOW_UP_PHRASE);
 
@@ -311,7 +314,9 @@ class ImagePdfVisionRagOpenRouterManualIT {
     }
 
     private static boolean containsExpectedFollowUpAnswer(String text) {
-        return text != null && text.contains(EXPECTED_FOLLOW_UP_PHRASE);
+        if (text == null) return false;
+        String normalized = text.replaceAll("\\s+", " ");
+        return normalized.contains(EXPECTED_FOLLOW_UP_PHRASE);
     }
 
     @SpringBootConfiguration

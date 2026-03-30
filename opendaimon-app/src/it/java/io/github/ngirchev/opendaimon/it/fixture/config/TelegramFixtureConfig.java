@@ -7,6 +7,7 @@ import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactory;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory;
 import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
@@ -100,6 +101,11 @@ public class TelegramFixtureConfig {
     @Bean
     public AICommandFactoryRegistry aiCommandFactoryRegistry(List<AICommandFactory<?, ?>> factories) {
         return new AICommandFactoryRegistry(factories);
+    }
+
+    @Bean
+    public AIRequestPipeline aiRequestPipeline(AICommandFactoryRegistry aiCommandFactoryRegistry) {
+        return new AIRequestPipeline(null, aiCommandFactoryRegistry);
     }
 
     @Bean
@@ -302,7 +308,7 @@ public class TelegramFixtureConfig {
             TelegramMessageService telegramMessageService,
             AIGatewayRegistry aiGatewayRegistry,
             OpenDaimonMessageService messageService,
-            AICommandFactoryRegistry aiCommandFactoryRegistry,
+            AIRequestPipeline aiRequestPipeline,
             TelegramProperties telegramProperties,
             UserModelPreferenceService userModelPreferenceService,
             PersistentKeyboardService persistentKeyboardService,
@@ -316,7 +322,7 @@ public class TelegramFixtureConfig {
                 telegramMessageService,
                 aiGatewayRegistry,
                 messageService,
-                aiCommandFactoryRegistry,
+                aiRequestPipeline,
                 telegramProperties,
                 userModelPreferenceService,
                 persistentKeyboardService,

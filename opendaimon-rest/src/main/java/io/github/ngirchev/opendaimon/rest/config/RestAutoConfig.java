@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
@@ -94,14 +94,14 @@ public class RestAutoConfig {
             RestUserService restUserService,
             OpenDaimonMessageService messageService,
             AIGatewayRegistry aiGatewayRegistry,
-            AICommandFactoryRegistry aiCommandFactoryRegistry,
+            AIRequestPipeline aiRequestPipeline,
             RestChatHandlerSupport restChatHandlerSupport) {
         return new RestChatMessageCommandHandler(
                 restMessageService,
                 restUserService,
                 messageService,
                 aiGatewayRegistry,
-                aiCommandFactoryRegistry,
+                aiRequestPipeline,
                 restChatHandlerSupport
         );
     }
@@ -113,14 +113,14 @@ public class RestAutoConfig {
             RestUserService restUserService,
             OpenDaimonMessageService messageService,
             AIGatewayRegistry aiGatewayRegistry,
-            AICommandFactoryRegistry aiCommandFactoryRegistry,
+            AIRequestPipeline aiRequestPipeline,
             RestChatHandlerSupport restChatHandlerSupport) {
         return new RestChatStreamMessageCommandHandler(
                 restMessageService,
                 restUserService,
                 messageService,
                 aiGatewayRegistry,
-                aiCommandFactoryRegistry,
+                aiRequestPipeline,
                 restChatHandlerSupport
         );
     }

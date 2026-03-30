@@ -32,8 +32,6 @@ import io.github.ngirchev.opendaimon.ai.springai.memory.SummarizingChatMemory;
 import io.github.ngirchev.opendaimon.ai.springai.rest.OpenRouterSseNormalizingCustomizer;
 import io.github.ngirchev.opendaimon.ai.springai.rest.RestClientLogCustomizer;
 import io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer;
-import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.ai.springai.service.ModelListAIGateway;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterRotationRegistry;
@@ -196,20 +194,14 @@ public class SpringAIAutoConfig {
             AIGatewayRegistry aiGatewayRegistry,
             SpringAIModelRegistry springAIModelRegistry,
             SpringAIChatService chatService,
-            ObjectProvider<ChatMemory> chatMemoryProvider,
-            ObjectProvider<RAGProperties> ragPropertiesProvider,
-            ObjectProvider<FileRAGService> ragServiceProvider,
-            ObjectProvider<IDocumentPreprocessor> documentPreprocessorProvider
+            ObjectProvider<ChatMemory> chatMemoryProvider
     ) {
         return new SpringAIGateway(
                 props,
                 aiGatewayRegistry,
                 springAIModelRegistry,
                 chatService,
-                chatMemoryProvider,
-                ragPropertiesProvider.getIfAvailable(),
-                ragServiceProvider,
-                documentPreprocessorProvider
+                chatMemoryProvider
         );
     }
 

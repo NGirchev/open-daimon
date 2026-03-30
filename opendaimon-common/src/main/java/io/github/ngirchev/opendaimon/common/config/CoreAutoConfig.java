@@ -18,6 +18,9 @@ import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.bulkhead.service.impl.NoOpUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;
 import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentOrchestrator;
+import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactory;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
@@ -183,6 +186,16 @@ public class CoreAutoConfig {
                 modelDescriptionCacheProvider.getIfAvailable(),
                 documentContentAnalyzerProvider.getIfAvailable(),
                 coreCommonProperties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AIRequestPipeline aiRequestPipeline(
+            ObjectProvider<IDocumentOrchestrator> documentOrchestratorProvider,
+            AICommandFactoryRegistry aiCommandFactoryRegistry) {
+        return new AIRequestPipeline(
+                documentOrchestratorProvider.getIfAvailable(),
+                aiCommandFactoryRegistry);
     }
 
     @Bean

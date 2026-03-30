@@ -227,7 +227,8 @@ class ImagesWithTextPdfVisionRagOpenRouterManualIT {
                 .isNotBlank();
         assertThat(firstAssistantReply.toLowerCase())
                 .as("First answer should mention at least one author from the paper")
-                .containsAnyOf("pekka", "nikander", "jane", "long", "aalto", "usenix association");
+                .containsAnyOf("pekka", "nikander", "jane", "long", "aalto", "usenix association",
+                        "пекка", "никандер", "джейн", "лонг");
 
         TelegramCommand secondCommand = createMessageCommand(
                 TEST_CHAT_ID,

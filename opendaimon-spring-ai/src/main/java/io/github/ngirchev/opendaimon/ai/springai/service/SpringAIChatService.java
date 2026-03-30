@@ -189,11 +189,16 @@ public class SpringAIChatService {
         log.info("Vision extraction call. model={}, messages={}", modelName, messages.size());
 
         // OCR should be deterministic and literal — keep sampling stable.
-        Map<String, Object> visionOverrides = Map.of(
+        // Include max_price for OpenRouter models (auto requires it to find endpoints).
+        Map<String, Object> visionOverrides = new java.util.HashMap<>(Map.of(
                 "temperature", 0.0d,
                 "top_p", 1.0d,
                 "seed", VISION_OCR_SEED
-        );
+        ));
+        // Vision OCR is an internal operation — allow paid models up to a reasonable limit.
+        // Without max_price, OpenRouter /auto rejects the request with 404.
+        visionOverrides.put("max_price", 5.0);
+
         var promptBuilder = promptFactory.preparePrompt(
                 modelConfig, modelName, visionOverrides, null, false, messages, null);
 

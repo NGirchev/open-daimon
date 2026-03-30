@@ -4,7 +4,7 @@ import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.bulkhead.exception.AccessDeniedException;
@@ -81,7 +81,7 @@ class MessageTelegramCommandHandlerTest {
     @Mock
     private OpenDaimonMessageService messageService;
     @Mock
-    private AICommandFactoryRegistry aiCommandFactoryRegistry;
+    private AIRequestPipeline aiRequestPipeline;
     @Mock
     private UserModelPreferenceService userModelPreferenceService;
     @Mock
@@ -112,7 +112,7 @@ class MessageTelegramCommandHandlerTest {
 
         handler = new MessageTelegramCommandHandler(botProvider, typingIndicatorService, messageLocalizationService,
                 telegramUserService, telegramUserSessionService, telegramMessageService, aiGatewayRegistry,
-                messageService, aiCommandFactoryRegistry, telegramProperties, userModelPreferenceService,
+                messageService, aiRequestPipeline, telegramProperties, userModelPreferenceService,
                 persistentKeyboardService, replyImageAttachmentService);
     }
 
@@ -239,7 +239,7 @@ class MessageTelegramCommandHandlerTest {
 
         AICommand aiCommand = mock(AICommand.class);
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
-        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
         when(aiGateway.generateResponse(aiCommand)).thenThrow(new DocumentContentNotExtractableException("Cannot extract text"));
 
@@ -284,7 +284,7 @@ class MessageTelegramCommandHandlerTest {
 
         AICommand aiCommand = mock(AICommand.class);
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
-        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
         when(aiGateway.generateResponse(aiCommand)).thenThrow(new RuntimeException("Gateway error"));
 
@@ -330,7 +330,7 @@ class MessageTelegramCommandHandlerTest {
 
         AICommand aiCommand = mock(AICommand.class);
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
-        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
 
         Map<String, Object> responseMap = Map.of(
@@ -390,7 +390,7 @@ class MessageTelegramCommandHandlerTest {
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> metadataCaptor = ArgumentCaptor.forClass((Class<Map<String, String>>) (Class<?>) Map.class);
-        when(aiCommandFactoryRegistry.createCommand(any(), metadataCaptor.capture())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), metadataCaptor.capture())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
 
         Map<String, Object> responseMap = Map.of(
@@ -455,7 +455,7 @@ class MessageTelegramCommandHandlerTest {
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> metadataCaptor = ArgumentCaptor.forClass((Class<Map<String, String>>) (Class<?>) Map.class);
-        when(aiCommandFactoryRegistry.createCommand(any(), metadataCaptor.capture())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), metadataCaptor.capture())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
 
         Map<String, Object> responseMap = Map.of(
@@ -518,7 +518,7 @@ class MessageTelegramCommandHandlerTest {
 
         AICommand aiCommand = mock(AICommand.class);
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
-        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
         when(aiGateway.generateResponse(aiCommand)).thenThrow(new AccessDeniedException("denied"));
 
@@ -560,7 +560,7 @@ class MessageTelegramCommandHandlerTest {
 
         AICommand aiCommand = mock(AICommand.class);
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
-        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
 
         Map<String, Object> responseMap = Map.of(
@@ -613,7 +613,7 @@ class MessageTelegramCommandHandlerTest {
 
         AICommand aiCommand = mock(AICommand.class);
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
-        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
 
         Map<String, Object> responseMap = Map.of(
@@ -665,7 +665,7 @@ class MessageTelegramCommandHandlerTest {
 
         AICommand aiCommand = mock(AICommand.class);
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
-        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
 
         Map<String, Object> emptyMap = Map.of(CHOICES, List.of(Map.of(MESSAGE, Map.of(CONTENT, ""))));
@@ -726,7 +726,7 @@ class MessageTelegramCommandHandlerTest {
 
         AICommand aiCommand = mock(AICommand.class);
         when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
-        when(aiCommandFactoryRegistry.createCommand(any(), any())).thenReturn(aiCommand);
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
         when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
 
         ChatResponse chatResponse = createChatResponse("Streamed reply");

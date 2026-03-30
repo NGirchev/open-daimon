@@ -9,7 +9,6 @@ import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
@@ -78,23 +77,12 @@ class SpringAIGatewayTest {
         ObjectProvider<org.springframework.ai.chat.memory.ChatMemory> chatMemoryProvider = mock(ObjectProvider.class);
         when(chatMemoryProvider.getIfAvailable()).thenReturn(null);
 
-        @SuppressWarnings("unchecked")
-        ObjectProvider<io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService> ragProvider = mock(ObjectProvider.class);
-        when(ragProvider.getIfAvailable()).thenReturn(null);
-
-        @SuppressWarnings("unchecked")
-        ObjectProvider<IDocumentPreprocessor> preprocessorProvider = mock(ObjectProvider.class);
-        when(preprocessorProvider.getIfAvailable()).thenReturn(null);
-
         gateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
                 springAIModelRegistry,
                 chatService,
-                chatMemoryProvider,
-                null,
-                ragProvider,
-                preprocessorProvider
+                chatMemoryProvider
         );
     }
 

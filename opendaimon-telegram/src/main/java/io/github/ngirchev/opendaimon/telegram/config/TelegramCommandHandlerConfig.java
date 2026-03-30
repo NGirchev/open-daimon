@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
@@ -170,7 +170,7 @@ public class TelegramCommandHandlerConfig {
             TelegramMessageService telegramMessageService,
             AIGatewayRegistry aiGatewayRegistry,
             OpenDaimonMessageService messageService,
-            AICommandFactoryRegistry aiCommandFactoryRegistry,
+            AIRequestPipeline aiRequestPipeline,
             TelegramProperties telegramProperties,
             UserModelPreferenceService userModelPreferenceService,
             PersistentKeyboardService persistentKeyboardService,
@@ -184,7 +184,7 @@ public class TelegramCommandHandlerConfig {
                 telegramMessageService,
                 aiGatewayRegistry,
                 messageService,
-                aiCommandFactoryRegistry,
+                aiRequestPipeline,
                 telegramProperties,
                 userModelPreferenceService,
                 persistentKeyboardService,

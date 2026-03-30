@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
+import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
@@ -357,7 +358,7 @@ class ConversationThreadServiceTest {
         message.setThread(thread);
         message.setSequenceNumber(sequenceNumber);
         message.setTokenCount(tokenCount);
-        message.setRole(sequenceNumber % 2 == 1 ? io.github.ngirchev.opendaimon.common.model.MessageRole.USER : io.github.ngirchev.opendaimon.common.model.MessageRole.ASSISTANT);
+        message.setRole(sequenceNumber % 2 == 1 ? MessageRole.USER : MessageRole.ASSISTANT);
         message.setContent("Test message " + sequenceNumber);
         return message;
     }

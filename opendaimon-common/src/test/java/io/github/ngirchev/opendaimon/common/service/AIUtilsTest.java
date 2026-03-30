@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.common.service;
 
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
+import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.MapResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
@@ -486,7 +487,7 @@ class AIUtilsTest {
 
     @Test
     void retrieveMessage_aiResponseNullReturnsEmpty() {
-        assertTrue(AIUtils.retrieveMessage((io.github.ngirchev.opendaimon.common.ai.response.AIResponse) null).isEmpty());
+        assertTrue(AIUtils.retrieveMessage((AIResponse) null).isEmpty());
     }
 
     // --- extractUsefulData(Map) ---
@@ -524,7 +525,7 @@ class AIUtilsTest {
     // --- extractError(Map) / extractError(ChatResponse) ---
     @Test
     void extractError_mapNullReturnsErrorPresent() {
-        assertTrue(AIUtils.extractError((io.github.ngirchev.opendaimon.common.ai.response.AIResponse) null).isEmpty());
+        assertTrue(AIUtils.extractError((AIResponse) null).isEmpty());
     }
 
     @Test
@@ -653,7 +654,7 @@ class AIUtilsTest {
 
     @Test
     void extractUsefulData_aiResponseNullReturnsNull() {
-        assertNull(AIUtils.extractUsefulData((io.github.ngirchev.opendaimon.common.ai.response.AIResponse) null));
+        assertNull(AIUtils.extractUsefulData((AIResponse) null));
     }
 
     @Test

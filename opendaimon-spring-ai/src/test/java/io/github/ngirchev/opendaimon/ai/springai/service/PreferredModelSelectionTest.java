@@ -9,7 +9,6 @@ import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
@@ -83,12 +82,8 @@ class PreferredModelSelectionTest {
 
         @SuppressWarnings("unchecked")
         ObjectProvider<org.springframework.ai.chat.memory.ChatMemory> mem = mock(ObjectProvider.class);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService> rag = mock(ObjectProvider.class);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<IDocumentPreprocessor> preprocessor = mock(ObjectProvider.class);
         gateway = new SpringAIGateway(springAIProperties, aiGatewayRegistry, springAIModelRegistry,
-                chatService, mem, null, rag, preprocessor);
+                chatService, mem);
 
         when(userPriorityService.getUserPriority(any())).thenReturn(UserPriority.VIP);
         factory = new DefaultAICommandFactory(userPriorityService, preferredModelTestCoreProperties());

@@ -6,7 +6,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
@@ -55,7 +55,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     private final TelegramMessageService telegramMessageService;
     private final AIGatewayRegistry aiGatewayRegistry;
     private final OpenDaimonMessageService messageService;
-    private final AICommandFactoryRegistry aiCommandFactoryRegistry;
+    private final AIRequestPipeline aiRequestPipeline;
     private final TelegramProperties telegramProperties;
     private final UserModelPreferenceService userModelPreferenceService;
     private final PersistentKeyboardService persistentKeyboardService;
@@ -70,7 +70,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                                          TelegramMessageService telegramMessageService,
                                          AIGatewayRegistry aiGatewayRegistry,
                                          OpenDaimonMessageService messageService,
-                                         AICommandFactoryRegistry aiCommandFactoryRegistry,
+                                         AIRequestPipeline aiRequestPipeline,
                                          TelegramProperties telegramProperties,
                                          UserModelPreferenceService userModelPreferenceService,
                                          PersistentKeyboardService persistentKeyboardService,
@@ -81,7 +81,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         this.telegramMessageService = telegramMessageService;
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.messageService = messageService;
-        this.aiCommandFactoryRegistry = aiCommandFactoryRegistry;
+        this.aiRequestPipeline = aiRequestPipeline;
         this.telegramProperties = telegramProperties;
         this.userModelPreferenceService = userModelPreferenceService;
         this.persistentKeyboardService = persistentKeyboardService;
@@ -172,7 +172,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             String attachmentTypes = atts.stream().map(a -> a.type().toString()).toList().toString();
             log.info("Creating AI command: threadKey={}, userText='{}', attachmentsCount={}, attachmentTypes={}",
                     thread.getThreadKey(), command.userText(), atts.size(), attachmentTypes);
-            AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
+            AICommand aiCommand = aiRequestPipeline.prepareCommand(command, metadata);
             modelCapabilities = aiCommand.modelCapabilities();
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()
@@ -190,7 +190,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                 sendMessage(command.telegramId(), notifyText, message.getMessageId());
                 userModelPreferenceService.clearPreference(telegramUser.getId());
                 metadata.remove(PREFERRED_MODEL_ID_FIELD);
-                aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
+                aiCommand = aiRequestPipeline.prepareCommand(command, metadata);
                 modelCapabilities = aiCommand.modelCapabilities();
                 aiResponse = aiGateway.generateResponse(aiCommand);
                 ctx = extractResponseContext(aiResponse, command, message);

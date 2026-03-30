@@ -80,7 +80,15 @@ public class SpringDocumentPreprocessor implements IDocumentPreprocessor {
     private DocumentPreprocessingResult preprocessTextExtractable(Attachment attachment, String documentType) {
         String documentId;
         if ("pdf".equalsIgnoreCase(documentType)) {
-            documentId = documentProcessingService.processPdf(attachment.data(), attachment.filename());
+            try {
+                documentId = documentProcessingService.processPdf(attachment.data(), attachment.filename());
+            } catch (DocumentContentNotExtractableException e) {
+                // Text extraction failed at runtime (e.g. PdfTextDetector said "has text" but
+                // TokenTextSplitter produced no chunks). Fallback to vision OCR path.
+                log.info("PDF '{}' text extraction failed at runtime, falling back to vision OCR: {}",
+                        attachment.filename(), e.getMessage());
+                return preprocessImageOnlyPdf(attachment, documentType);
+            }
         } else {
             documentId = documentProcessingService.processWithTika(
                     attachment.data(), attachment.filename(), documentType);
@@ -195,7 +203,12 @@ public class SpringDocumentPreprocessor implements IDocumentPreprocessor {
             log.warn("No VISION-capable model available for text extraction from '{}'", filename);
             return null;
         }
-        SpringAIModelConfig visionModel = visionCandidates.getFirst();
+        // Prefer concrete vision models over meta-models like "openrouter/auto"
+        // which require max_price routing hints and may not find free endpoints.
+        SpringAIModelConfig visionModel = visionCandidates.stream()
+                .filter(m -> !m.getName().contains("/auto"))
+                .findFirst()
+                .orElse(visionCandidates.getFirst());
         log.info("Using vision model '{}' for text extraction from '{}'", visionModel.getName(), filename);
 
         String extractionPrompt = ragProperties.getPrompts().getVisionExtractionPrompt();
