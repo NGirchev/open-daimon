@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
@@ -78,12 +79,12 @@ class SpringAIGatewayTest {
         when(chatMemoryProvider.getIfAvailable()).thenReturn(null);
 
         @SuppressWarnings("unchecked")
-        ObjectProvider<DocumentProcessingService> docProvider = mock(ObjectProvider.class);
-        when(docProvider.getIfAvailable()).thenReturn(null);
-
-        @SuppressWarnings("unchecked")
         ObjectProvider<io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService> ragProvider = mock(ObjectProvider.class);
         when(ragProvider.getIfAvailable()).thenReturn(null);
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<IDocumentPreprocessor> preprocessorProvider = mock(ObjectProvider.class);
+        when(preprocessorProvider.getIfAvailable()).thenReturn(null);
 
         gateway = new SpringAIGateway(
                 springAIProperties,
@@ -92,8 +93,8 @@ class SpringAIGatewayTest {
                 chatService,
                 chatMemoryProvider,
                 null,
-                docProvider,
-                ragProvider
+                ragProvider,
+                preprocessorProvider
         );
     }
 

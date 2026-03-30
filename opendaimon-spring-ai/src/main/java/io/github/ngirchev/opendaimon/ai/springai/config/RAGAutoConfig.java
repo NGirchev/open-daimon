@@ -13,8 +13,14 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
 import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
+import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
+import io.github.ngirchev.opendaimon.ai.springai.service.PdfTextDetector;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentContentAnalyzer;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPreprocessor;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 
 /**
  * Auto-configuration for RAG (Retrieval-Augmented Generation).
@@ -102,5 +108,41 @@ public class RAGAutoConfig {
         log.info("Creating RAGService with topK={}, similarityThreshold={}",
                 ragProperties.getTopK(), ragProperties.getSimilarityThreshold());
         return new FileRAGService(vectorStore, ragProperties);
+    }
+
+    /**
+     * Lightweight PDF text detector — checks if PDFBox can extract text without VectorStore writes.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public PdfTextDetector pdfTextDetector() {
+        return new PdfTextDetector();
+    }
+
+    /**
+     * Document content analyzer — determines required model capabilities for document attachments.
+     * Used by {@code DefaultAICommandFactory} to detect VISION requirement before the gateway call.
+     */
+    @Bean
+    @ConditionalOnMissingBean(IDocumentContentAnalyzer.class)
+    public SpringDocumentContentAnalyzer springDocumentContentAnalyzer(PdfTextDetector pdfTextDetector) {
+        return new SpringDocumentContentAnalyzer(pdfTextDetector);
+    }
+
+    /**
+     * Document preprocessor — handles document ETL (extract, transform, load to RAG).
+     * Extracted from SpringAIGateway for separation of concerns.
+     */
+    @Bean
+    @ConditionalOnMissingBean(IDocumentPreprocessor.class)
+    public SpringDocumentPreprocessor springDocumentPreprocessor(
+            DocumentProcessingService documentProcessingService,
+            FileRAGService fileRAGService,
+            SpringAIModelRegistry springAIModelRegistry,
+            SpringAIChatService chatService,
+            RAGProperties ragProperties) {
+        return new SpringDocumentPreprocessor(
+                documentProcessingService, fileRAGService,
+                springAIModelRegistry, chatService, ragProperties);
     }
 }

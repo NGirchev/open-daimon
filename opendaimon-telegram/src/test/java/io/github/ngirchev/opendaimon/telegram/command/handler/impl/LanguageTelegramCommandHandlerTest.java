@@ -11,6 +11,7 @@ import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
+import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
@@ -80,7 +81,7 @@ class LanguageTelegramCommandHandlerTest {
 
     @Test
     void canHandle_whenNotTelegramCommand_thenFalse() {
-        assertFalse(handler.canHandle(mock(io.github.ngirchev.opendaimon.common.command.ICommand.class)));
+        assertFalse(handler.canHandle(mock(ICommand.class)));
     }
 
     @Test

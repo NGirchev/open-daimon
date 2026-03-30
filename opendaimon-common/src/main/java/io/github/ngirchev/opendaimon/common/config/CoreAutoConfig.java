@@ -17,6 +17,7 @@ import io.github.ngirchev.opendaimon.bulkhead.service.NoOpPriorityRequestExecuto
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.bulkhead.service.impl.NoOpUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactory;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
@@ -175,10 +176,12 @@ public class CoreAutoConfig {
     public AICommandFactory<AICommand, ICommand<?>> defaultAiCommandFactory(
             IUserPriorityService userPriorityService,
             CoreCommonProperties coreCommonProperties,
-            ObjectProvider<ModelDescriptionCache> modelDescriptionCacheProvider) {
+            ObjectProvider<ModelDescriptionCache> modelDescriptionCacheProvider,
+            ObjectProvider<IDocumentContentAnalyzer> documentContentAnalyzerProvider) {
         return new DefaultAICommandFactory(
                 userPriorityService,
                 modelDescriptionCacheProvider.getIfAvailable(),
+                documentContentAnalyzerProvider.getIfAvailable(),
                 coreCommonProperties);
     }
 

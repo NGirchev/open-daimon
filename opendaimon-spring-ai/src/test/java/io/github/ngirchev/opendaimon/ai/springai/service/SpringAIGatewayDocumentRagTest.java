@@ -18,6 +18,7 @@ import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
@@ -94,10 +95,6 @@ class SpringAIGatewayDocumentRagTest {
         when(springAIProperties.getMock()).thenReturn(false);
 
         @SuppressWarnings("unchecked")
-        ObjectProvider<DocumentProcessingService> docProvider = mock(ObjectProvider.class);
-        when(docProvider.getIfAvailable()).thenReturn(documentProcessingService);
-
-        @SuppressWarnings("unchecked")
         ObjectProvider<FileRAGService> ragProvider = mock(ObjectProvider.class);
         when(ragProvider.getIfAvailable()).thenReturn(fileRagService);
 
@@ -129,19 +126,15 @@ class SpringAIGatewayDocumentRagTest {
         prompts.setVisionExtractionPrompt("I need text from this image");
         ragProperties.setPrompts(prompts);
 
-        springAIGateway = spy(new SpringAIGateway(
-                springAIProperties,
-                aiGatewayRegistry,
-                springAIModelRegistry,
-                chatService,
-                chatMemoryProvider,
-                ragProperties,
-                docProvider,
-                ragProvider
-        ));
-
         // Avoid native PDF renderer instability (Abort trap) in unit tests:
         // we only need deterministic "PDF rendered to image attachment" behavior here.
+        SpringDocumentPreprocessor preprocessorSpy = spy(new SpringDocumentPreprocessor(
+                documentProcessingService,
+                fileRagService,
+                springAIModelRegistry,
+                chatService,
+                ragProperties
+        ));
         lenient().doAnswer(invocation -> {
             String filename = invocation.getArgument(1, String.class);
             byte[] pngHeader = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
@@ -154,7 +147,22 @@ class SpringAIGatewayDocumentRagTest {
                     AttachmentType.IMAGE,
                     pngHeader
             ));
-        }).when(springAIGateway).renderPdfToImageAttachments(any(byte[].class), anyString());
+        }).when(preprocessorSpy).renderPdfToImageAttachments(any(byte[].class), anyString());
+
+        @SuppressWarnings("unchecked")
+        ObjectProvider<IDocumentPreprocessor> preprocessorProvider = mock(ObjectProvider.class);
+        when(preprocessorProvider.getIfAvailable()).thenReturn(preprocessorSpy);
+
+        springAIGateway = new SpringAIGateway(
+                springAIProperties,
+                aiGatewayRegistry,
+                springAIModelRegistry,
+                chatService,
+                chatMemoryProvider,
+                ragProperties,
+                ragProvider,
+                preprocessorProvider
+        );
     }
 
     @Test
@@ -205,13 +213,12 @@ class SpringAIGatewayDocumentRagTest {
                 pdfData
         );
 
-        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
-                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
-
+        // With VISION in capabilities, gateway routes PDF through image-only preprocessing path;
+        // DefaultAICommandFactory would have added VISION after detecting the image-only PDF.
         Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelCapabilities.CHAT),
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
                 Set.of(),
                 0.35,
                 1000,
@@ -231,8 +238,6 @@ class SpringAIGatewayDocumentRagTest {
         verify(springAIModelRegistry, atLeastOnce()).getCandidatesByCapabilities(requiredCapsCaptor.capture(), isNull(), any());
         assertTrue(requiredCapsCaptor.getValue().contains(ModelCapabilities.VISION),
                 "Gateway should require VISION when final user message contains rendered PDF page images");
-
-        verify(documentProcessingService, times(1)).processPdf(any(byte[].class), eq("scan.pdf"));
 
         // Verify chatService was called with correct messages
         @SuppressWarnings("unchecked")
@@ -277,28 +282,26 @@ class SpringAIGatewayDocumentRagTest {
                 pdfData
         );
 
-        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
-                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
-
         // Configure registry: VISION model does NOT have AUTO (realistic setup matching production)
         SpringAIModelConfig visionModel = new SpringAIModelConfig();
         visionModel.setName("vision-model");
         visionModel.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION));
         visionModel.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
 
-        // [AUTO, VISION] returns empty (the bug scenario) — no model has both
-        when(springAIModelRegistry.getCandidatesByCapabilities(
-                eq(Set.of(ModelCapabilities.AUTO, ModelCapabilities.VISION)), isNull(), any()))
-                .thenReturn(List.of());
-        // [VISION] returns the vision model (the fix: AUTO stripped)
+        // [VISION] returns the vision model — AUTO was stripped by the factory before creating the command
         when(springAIModelRegistry.getCandidatesByCapabilities(
                 eq(Set.of(ModelCapabilities.VISION)), isNull(), any()))
                 .thenReturn(List.of(visionModel));
+        // 2-arg variant used by extractTextFromImagesViaVision inside the preprocessor (lenient: may not trigger)
+        lenient().doReturn(List.of(visionModel)).when(springAIModelRegistry)
+                .getCandidatesByCapabilities(any(Set.class), nullable(String.class));
 
         Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");
+        // DefaultAICommandFactory adds VISION after detecting the image-only PDF;
+        // AUTO is the original Telegram capability, VISION is added by the factory.
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelCapabilities.AUTO),  // <-- realistic: Telegram sends AUTO
+                Set.of(ModelCapabilities.AUTO, ModelCapabilities.VISION),
                 Set.of(),
                 0.35,
                 1000,
@@ -344,9 +347,6 @@ class SpringAIGatewayDocumentRagTest {
                 pdfData
         );
 
-        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
-                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
-
         // extractTextFromImagesViaVision calls the 2-arg getCandidatesByCapabilities(Set, String);
         // mock it so a vision model is found and callSimpleVision is actually invoked
         SpringAIModelConfig visionModel = new SpringAIModelConfig();
@@ -362,8 +362,9 @@ class SpringAIGatewayDocumentRagTest {
 
         Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");
+        // DefaultAICommandFactory adds VISION after detecting the image-only PDF
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelCapabilities.CHAT),
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
                 Set.of(),
                 0.35,
                 1000,
@@ -407,9 +408,6 @@ class SpringAIGatewayDocumentRagTest {
                 pdfData
         );
 
-        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
-                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
-
         // Vision model for extraction step
         SpringAIModelConfig visionModel = new SpringAIModelConfig();
         visionModel.setName("vision-model");
@@ -418,10 +416,12 @@ class SpringAIGatewayDocumentRagTest {
         doReturn(List.of(visionModel)).when(springAIModelRegistry)
                 .getCandidatesByCapabilities(any(Set.class), nullable(String.class));
 
-        // Text model for final answer
+        // Model for final answer: needs VISION in capabilities because VISION is in command.modelCapabilities()
+        // (added by DefaultAICommandFactory). The key test assertion is that no images are in the final
+        // message payload — not which model capability is declared.
         SpringAIModelConfig textModel = new SpringAIModelConfig();
         textModel.setName("text-model");
-        textModel.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.AUTO));
+        textModel.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION));
         textModel.setProviderType(SpringAIModelConfig.ProviderType.OLLAMA);
         when(springAIModelRegistry.getCandidatesByCapabilities(any(Set.class), isNull(), any()))
                 .thenReturn(List.of(textModel));
@@ -448,8 +448,9 @@ class SpringAIGatewayDocumentRagTest {
 
         Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");
+        // DefaultAICommandFactory adds VISION after detecting the image-only PDF
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelCapabilities.CHAT),
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
                 Set.of(),
                 0.35,
                 1000,
@@ -496,9 +497,6 @@ class SpringAIGatewayDocumentRagTest {
                 pdfData
         );
 
-        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
-                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
-
         SpringAIModelConfig fixedModelWithoutVision = new SpringAIModelConfig();
         fixedModelWithoutVision.setName("fixed-chat-only");
         fixedModelWithoutVision.setCapabilities(Set.of(ModelCapabilities.CHAT));
@@ -506,9 +504,10 @@ class SpringAIGatewayDocumentRagTest {
         when(springAIModelRegistry.getByModelName("fixed-chat-only"))
                 .thenReturn(Optional.of(fixedModelWithoutVision));
 
+        // DefaultAICommandFactory adds VISION after detecting the image-only PDF
         FixedModelChatAICommand command = new FixedModelChatAICommand(
                 "fixed-chat-only",
-                Set.of(),
+                Set.of(ModelCapabilities.VISION),
                 0.35,
                 1000,
                 null,
@@ -598,7 +597,8 @@ class SpringAIGatewayDocumentRagTest {
         );
 
         when(documentProcessingService.processPdf(any(byte[].class), anyString())).thenReturn("rag-doc-123");
-        when(fileRagService.findRelevantContext(anyString(), eq("rag-doc-123")))
+        // Preprocessor calls findAllByDocumentId (not findRelevantContext) to retrieve chunks
+        when(fileRagService.findAllByDocumentId("rag-doc-123"))
                 .thenReturn(List.of(new Document("chunk text from document")));
 
         Map<String, String> metadata = new HashMap<>();
@@ -725,9 +725,6 @@ class SpringAIGatewayDocumentRagTest {
                 AttachmentType.PDF,
                 pdfData
         );
-
-        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
-                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
 
         Map<String, Object> body = new HashMap<>();
         body.put("someKey", "value");

@@ -7,6 +7,7 @@ import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
+import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
@@ -113,7 +114,7 @@ class HistoryTelegramCommandHandlerTest {
         TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
                 new TelegramCommandType(TelegramCommand.HISTORY), update);
 
-        assertThrows(io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException.class,
+        assertThrows(TelegramCommandHandlerException.class,
                 () -> handler.handleInner(command));
     }
 

@@ -32,6 +32,7 @@ import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
@@ -473,15 +474,15 @@ class SpringAIGatewayIT {
         }
 
         @Bean
-        ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider() {
-            ObjectProvider<DocumentProcessingService> provider = mock(ObjectProvider.class);
+        ObjectProvider<FileRAGService> fileRAGServiceProvider() {
+            ObjectProvider<FileRAGService> provider = mock(ObjectProvider.class);
             when(provider.getIfAvailable()).thenReturn(null);
             return provider;
         }
 
         @Bean
-        ObjectProvider<FileRAGService> fileRAGServiceProvider() {
-            ObjectProvider<FileRAGService> provider = mock(ObjectProvider.class);
+        ObjectProvider<IDocumentPreprocessor> documentPreprocessorProvider() {
+            ObjectProvider<IDocumentPreprocessor> provider = mock(ObjectProvider.class);
             when(provider.getIfAvailable()).thenReturn(null);
             return provider;
         }
@@ -494,8 +495,8 @@ class SpringAIGatewayIT {
                 SpringAIChatService springAIChatService,
                 ObjectProvider<org.springframework.ai.chat.memory.ChatMemory> chatMemoryProvider,
                 RAGProperties ragProperties,
-                ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-                ObjectProvider<FileRAGService> fileRAGServiceProvider
+                ObjectProvider<FileRAGService> fileRAGServiceProvider,
+                ObjectProvider<IDocumentPreprocessor> documentPreprocessorProvider
         ) {
             return new SpringAIGateway(
                     springAIProperties,
@@ -504,8 +505,8 @@ class SpringAIGatewayIT {
                     springAIChatService,
                     chatMemoryProvider,
                     ragProperties,
-                    documentProcessingServiceProvider,
-                    fileRAGServiceProvider
+                    fileRAGServiceProvider,
+                    documentPreprocessorProvider
             );
         }
     }

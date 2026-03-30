@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 
+import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
@@ -37,6 +38,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
@@ -85,9 +87,9 @@ class MessageTelegramCommandHandlerTest {
     @Mock
     private PersistentKeyboardService persistentKeyboardService;
     @Mock
-    private io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService replyImageAttachmentService;
+    private ReplyImageAttachmentService replyImageAttachmentService;
     @Mock
-    private io.github.ngirchev.opendaimon.common.service.AIGateway aiGateway;
+    private AIGateway aiGateway;
 
     private MessageLocalizationService messageLocalizationService;
     private TelegramProperties telegramProperties;

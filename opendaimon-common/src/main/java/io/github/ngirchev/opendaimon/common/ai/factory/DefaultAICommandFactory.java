@@ -6,6 +6,8 @@ import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;
+import io.github.ngirchev.opendaimon.common.ai.document.DocumentAnalysisResult;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
@@ -34,20 +36,30 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
 
     private final IUserPriorityService userPriorityService;
     private final ModelDescriptionCache modelDescriptionCache;
+    private final IDocumentContentAnalyzer documentContentAnalyzer;
     private final CoreCommonProperties coreCommonProperties;
 
     public DefaultAICommandFactory(
             IUserPriorityService userPriorityService,
             CoreCommonProperties coreCommonProperties) {
-        this(userPriorityService, null, coreCommonProperties);
+        this(userPriorityService, null, null, coreCommonProperties);
     }
 
     public DefaultAICommandFactory(
             IUserPriorityService userPriorityService,
             ModelDescriptionCache modelDescriptionCache,
             CoreCommonProperties coreCommonProperties) {
+        this(userPriorityService, modelDescriptionCache, null, coreCommonProperties);
+    }
+
+    public DefaultAICommandFactory(
+            IUserPriorityService userPriorityService,
+            ModelDescriptionCache modelDescriptionCache,
+            IDocumentContentAnalyzer documentContentAnalyzer,
+            CoreCommonProperties coreCommonProperties) {
         this.userPriorityService = userPriorityService;
         this.modelDescriptionCache = modelDescriptionCache;
+        this.documentContentAnalyzer = documentContentAnalyzer;
         this.coreCommonProperties = coreCommonProperties;
     }
 
@@ -153,18 +165,39 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
     }
 
     /**
-     * Adds ModelType.VISION if there are image attachments.
+     * Adds VISION capability if image attachments are present or if document analysis
+     * determines that a document (e.g. image-only PDF) requires VISION for OCR.
+     *
+     * <p>This ensures that priority routing correctly blocks or allows VISION usage
+     * before the gateway call, instead of letting the gateway silently invoke a
+     * VISION model internally.
      */
     private Set<ModelCapabilities> addVisionIfNeeded(Set<ModelCapabilities> baseTypes, List<Attachment> attachments) {
         boolean hasImages = attachments.stream()
                 .anyMatch(a -> a.type() == AttachmentType.IMAGE);
-        
-        if (hasImages) {
+
+        boolean documentNeedsVision = analyzeDocumentsForVision(attachments);
+
+        if (hasImages || documentNeedsVision) {
             Set<ModelCapabilities> withVision = new HashSet<>(baseTypes);
             withVision.add(ModelCapabilities.VISION);
             return withVision;
         }
         return baseTypes;
+    }
+
+    /**
+     * Analyzes document attachments to determine if any require VISION capability.
+     * When {@code documentContentAnalyzer} is null (e.g. RAG disabled), returns false.
+     */
+    private boolean analyzeDocumentsForVision(List<Attachment> attachments) {
+        if (documentContentAnalyzer == null) {
+            return false;
+        }
+        return attachments.stream()
+                .filter(Attachment::isDocument)
+                .map(documentContentAnalyzer::analyze)
+                .anyMatch(DocumentAnalysisResult::needsVision);
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram;
 
+import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.service.CommandSyncService;
@@ -189,8 +190,8 @@ class TelegramBotTest {
 
         coalescingBot.onUpdateReceived(first);
 
-        ArgumentCaptor<io.github.ngirchev.opendaimon.common.command.ICommand> captor =
-                ArgumentCaptor.forClass(io.github.ngirchev.opendaimon.common.command.ICommand.class);
+        ArgumentCaptor<ICommand> captor =
+                ArgumentCaptor.forClass(ICommand.class);
         verify(commandSyncService, times(1)).syncAndHandle(captor.capture());
         assertInstanceOf(TelegramCommand.class, captor.getValue());
         TelegramCommand telegramCommand = (TelegramCommand) captor.getValue();

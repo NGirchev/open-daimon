@@ -3,8 +3,6 @@ package io.github.ngirchev.opendaimon.ai.springai.service;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -30,6 +28,9 @@ import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
+import io.github.ngirchev.opendaimon.common.ai.document.DocumentAnalysisResult;
+import io.github.ngirchev.opendaimon.common.ai.document.DocumentPreprocessingResult;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
@@ -41,7 +42,6 @@ import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
-import java.awt.image.BufferedImage;
 import java.net.MalformedURLException;
 import java.util.*;
 import java.util.Base64;
@@ -67,8 +67,8 @@ public class SpringAIGateway implements AIGateway {
     
     // RAG components (optional - available only when open-daimon.ai.spring-ai.rag.enabled=true)
     private final RAGProperties ragProperties;
-    private final ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider;
     private final ObjectProvider<FileRAGService> ragServiceProvider;
+    private final ObjectProvider<IDocumentPreprocessor> documentPreprocessorProvider;
 
     public SpringAIGateway(
             SpringAIProperties springAiProperties,
@@ -77,16 +77,16 @@ public class SpringAIGateway implements AIGateway {
             SpringAIChatService chatService,
             ObjectProvider<ChatMemory> chatMemoryProvider,
             RAGProperties ragProperties,
-            ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-            ObjectProvider<FileRAGService> ragServiceProvider) {
+            ObjectProvider<FileRAGService> ragServiceProvider,
+            ObjectProvider<IDocumentPreprocessor> documentPreprocessorProvider) {
         this.springAiProperties = springAiProperties;
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.springAIModelRegistry = springAIModelRegistry;
         this.chatService = chatService;
         this.chatMemoryProvider = chatMemoryProvider;
         this.ragProperties = ragProperties;
-        this.documentProcessingServiceProvider = documentProcessingServiceProvider;
         this.ragServiceProvider = ragServiceProvider;
+        this.documentPreprocessorProvider = documentPreprocessorProvider;
     }
 
     @PostConstruct
@@ -504,71 +504,85 @@ public class SpringAIGateway implements AIGateway {
      */
     private String processRagIfEnabled(String userQuery, List<Attachment> attachments, List<String> pdfAsImageFilenames,
                                         List<Message> messages, AICommand command) {
-        int totalAttachments = attachments != null ? attachments.size() : 0;
         List<Attachment> documentAttachments = attachments != null
                 ? attachments.stream().filter(Attachment::isDocument).toList()
                 : List.of();
-        var documentProcessingService = documentProcessingServiceProvider.getIfAvailable();
         FileRAGService fileRagService = ragServiceProvider.getIfAvailable();
-        // Check feature flag
-        if (ragProperties == null || !isRagEnabled()) {
+        IDocumentPreprocessor documentPreprocessor = documentPreprocessorProvider.getIfAvailable();
+
+        if (ragProperties == null) {
             return userQuery;
         }
 
         if (documentAttachments.isEmpty()) {
-            // No new documents — check if thread has stored RAG documentIds for follow-up
             return processFollowUpRagIfAvailable(userQuery, messages, command, fileRagService);
         }
 
-        log.debug("RAG: Processing new document attachments, chunking and indexing to VectorStore");
-
-        // Defensive fallback: if query is blank but documents are present, use a default summarization prompt
         if (userQuery == null || userQuery.isBlank()) {
             userQuery = "Summarize this document and provide key points.";
             log.info("processRagIfEnabled: empty user query with attachments, using default summarization prompt");
         }
 
-        log.info("processRagIfEnabled: totalAttachments={}, documentAttachments={}", totalAttachments, documentAttachments.size());
-
-        if (documentProcessingService == null || fileRagService == null) {
-            log.warn("RAG is enabled but services are not available. Skipping RAG processing.");
+        if (documentPreprocessor == null || fileRagService == null) {
+            log.warn("RAG is enabled but preprocessor/ragService not available. Skipping RAG processing.");
             return userQuery;
         }
 
-        log.info("Processing {} document attachment(s) for RAG", documentAttachments.size());
-        List<Document> allRelevantChunks = new ArrayList<>();
+        log.info("Processing {} document attachment(s) for RAG via IDocumentPreprocessor", documentAttachments.size());
+        List<String> allRelevantChunkTexts = new ArrayList<>();
         List<String> processedDocumentIds = new ArrayList<>();
+
         for (Attachment documentAttachment : documentAttachments) {
             try {
-                processOneDocumentForRag(documentAttachment, userQuery, documentProcessingService, fileRagService,
-                        allRelevantChunks, attachments, pdfAsImageFilenames, processedDocumentIds);
-            } catch (DocumentContentNotExtractableException e) {
-                // Re-throw only for PDF — enables vision fallback for image-only PDFs.
-                // For other formats (DOC, XLS, etc.) log and skip — no fallback available.
-                String mime = documentAttachment.mimeType() != null ? documentAttachment.mimeType().toLowerCase() : "";
-                if (mime.contains("pdf") || documentAttachment.filename().toLowerCase().endsWith(".pdf")) {
-                    throw e;
+                String documentType = SpringDocumentContentAnalyzer.extractDocumentType(
+                        documentAttachment.mimeType(), documentAttachment.filename());
+                if (documentType == null) {
+                    log.warn("Unsupported document type for RAG: {}", documentAttachment.mimeType());
+                    continue;
                 }
-                log.warn("Cannot extract text from '{}': {}", documentAttachment.filename(), e.getMessage());
+
+                DocumentAnalysisResult analysisResult = DocumentAnalysisResult.textExtractable();
+                // For PDFs, the analysis was already done by DefaultAICommandFactory via IDocumentContentAnalyzer.
+                // If the command has VISION in required capabilities, the PDF is image-only.
+                if ("pdf".equalsIgnoreCase(documentType)
+                        && command.modelCapabilities().contains(ModelCapabilities.VISION)) {
+                    analysisResult = DocumentAnalysisResult.requiresVision();
+                }
+
+                DocumentPreprocessingResult result = documentPreprocessor.preprocess(
+                        documentAttachment, userQuery, analysisResult);
+
+                if (result.hasDocumentId()) {
+                    processedDocumentIds.add(result.documentId());
+                }
+                allRelevantChunkTexts.addAll(result.relevantChunkTexts());
+
+                if (!result.visionExtractionSucceeded() && !result.imageAttachments().isEmpty()) {
+                    // Vision OCR failed — add images as fallback for direct vision
+                    attachments.addAll(result.imageAttachments());
+                    pdfAsImageFilenames.add(documentAttachment.filename());
+                    log.info("Added {} fallback image(s) from PDF '{}'",
+                            result.imageAttachments().size(), documentAttachment.filename());
+                }
+            } catch (DocumentContentNotExtractableException e) {
+                throw e;
             } catch (Exception e) {
                 log.error("Failed to process document '{}': {}", documentAttachment.filename(), e.getMessage(), e);
             }
         }
 
-        // Publish processed documentIds into command metadata so the caller can persist them
-        // on the USER message via OpenDaimonMessageService.updateRagMetadata().
         storeDocumentIdsInCommandMetadata(processedDocumentIds, documentAttachments, command);
 
-        if (allRelevantChunks.isEmpty()) {
+        if (allRelevantChunkTexts.isEmpty()) {
             log.info("No relevant context found in documents");
             return userQuery;
         }
 
-        // Build RAG-augmented query using configurable template (not SystemMessage — small models ignore it)
-        String ragQuery = buildRagAugmentedQuery(allRelevantChunks, userQuery);
+        String contextText = String.join("\n\n---\n\n", allRelevantChunkTexts);
+        String ragQuery = String.format(ragProperties.getPrompts().getAugmentedPromptTemplate(), contextText, userQuery);
         String placeholder = buildRagPlaceholder(documentAttachments);
-        log.info("Created RAG augmented query ({} chars) with {} chunks from {} document(s); UserMessage gets placeholder",
-                ragQuery.length(), allRelevantChunks.size(), documentAttachments.size());
+        log.info("Created RAG augmented query ({} chars) with {} chunks from {} document(s)",
+                ragQuery.length(), allRelevantChunkTexts.size(), documentAttachments.size());
 
         return ragQuery + "\n" + placeholder;
     }
@@ -684,160 +698,11 @@ public class SpringAIGateway implements AIGateway {
         return sb.toString();
     }
 
-    private void processOneDocumentForRag(Attachment documentAttachment, String userQuery,
-            DocumentProcessingService documentProcessingService, FileRAGService fileRagService,
-            List<Document> allRelevantChunks, List<Attachment> attachments, List<String> pdfAsImageFilenames,
-            List<String> processedDocumentIds) {
-        String mimeType = documentAttachment.mimeType() != null ? documentAttachment.mimeType().toLowerCase() : "";
-        String documentType = extractDocumentType(mimeType, documentAttachment.filename());
-        log.info("processRagIfEnabled: processing document filename={}, mimeType={}, dataLength={}, documentType={}",
-                documentAttachment.filename(), mimeType, documentAttachment.data() != null ? documentAttachment.data().length : 0, documentType);
-        if (documentType == null) {
-            log.warn("Unsupported document type for RAG: {}", mimeType);
-            return;
-        }
-        String documentId;
-        if ("pdf".equalsIgnoreCase(documentType)) {
-            try {
-                documentId = documentProcessingService.processPdf(documentAttachment.data(), documentAttachment.filename());
-            } catch (DocumentContentNotExtractableException e) {
-                log.info("PDF '{}' has no text layer, rendering pages as images for vision model", documentAttachment.filename());
-                List<Attachment> imageAttachments = renderPdfToImageAttachments(documentAttachment.data(), documentAttachment.filename());
-                attachments.addAll(imageAttachments);
-                pdfAsImageFilenames.add(documentAttachment.filename());
-                log.info("Added {} image attachment(s) from PDF '{}' for vision model", imageAttachments.size(), documentAttachment.filename());
-
-                // Vision extraction: use vision model to read text from images, store in RAG.
-                // After successful extraction, images are no longer needed — remove them
-                // so the final answer uses a TEXT model with RAG context, not VISION.
-                String extractedText = null;
-                try {
-                    extractedText = extractTextFromImagesViaVision(imageAttachments, documentAttachment.filename());
-                } catch (Exception ex) {
-                    log.warn("Vision text extraction failed for '{}', proceeding with images for direct vision: {}",
-                            documentAttachment.filename(), ex.getMessage());
-                }
-                if (extractedText != null) {
-                    // Text extracted — images served their purpose, remove from final message
-                    attachments.removeAll(imageAttachments);
-                    pdfAsImageFilenames.remove(documentAttachment.filename());
-                    log.info("Vision extraction succeeded, removed images from final message for '{}'",
-                            documentAttachment.filename());
-
-                    String visionDocId = documentProcessingService.processExtractedText(extractedText, documentAttachment.filename());
-                    if (visionDocId != null) {
-                        processedDocumentIds.add(visionDocId);
-                        List<Document> visionChunks = fileRagService.findAllByDocumentId(visionDocId);
-                        allRelevantChunks.addAll(visionChunks);
-                        log.info("Vision cache: stored extracted text for '{}', documentId={}, chunks={}",
-                                documentAttachment.filename(), visionDocId, visionChunks.size());
-                    }
-                }
-                // If extractedText is null — images stay in attachments as fallback for direct vision
-                return;
-            }
-        } else {
-            documentId = documentProcessingService.processWithTika(documentAttachment.data(), documentAttachment.filename(), documentType);
-        }
-        processedDocumentIds.add(documentId);
-        // Use findAllByDocumentId (threshold=0.0) — on first upload all chunks are relevant.
-        // findRelevantContext with threshold=0.7 fails for cross-language queries
-        // (e.g. Russian query vs English document text).
-        List<Document> relevantChunks = fileRagService.findAllByDocumentId(documentId);
-        allRelevantChunks.addAll(relevantChunks);
-        log.info("processRagIfEnabled: documentId={}, relevantChunks={}", documentId, relevantChunks.size());
-        log.debug("Found {} relevant chunks from '{}'", relevantChunks.size(), documentAttachment.filename());
-    }
-
     /**
      * Checks if RAG feature flag is enabled.
      */
     private boolean isRagEnabled() {
-        // RAGProperties is created only when rag.enabled=true (@ConditionalOnProperty)
-        // But we check again for safety
         return ragProperties != null;
-    }
-
-    /**
-     * Maps MIME type and file extension patterns to document types.
-     * PDF is checked first as it is processed via PDFBox, not Tika.
-     */
-    private static final List<DocumentTypeMapping> DOCUMENT_TYPE_MAPPINGS = List.of(
-            // PDF - checked first, processed via PDFBox (PagePdfDocumentReader), not Tika
-            new DocumentTypeMapping("pdf", List.of("pdf"), List.of(".pdf")),
-            // Word documents
-            new DocumentTypeMapping("docx", List.of("wordprocessingml"), List.of(".docx")),
-            new DocumentTypeMapping("doc", List.of("msword"), List.of(".doc")),
-            // Excel documents
-            new DocumentTypeMapping("xlsx", List.of("spreadsheetml"), List.of(".xlsx")),
-            new DocumentTypeMapping("xls", List.of("ms-excel"), List.of(".xls")),
-            // PowerPoint documents
-            new DocumentTypeMapping("pptx", List.of("presentationml"), List.of(".pptx")),
-            new DocumentTypeMapping("ppt", List.of("ms-powerpoint"), List.of(".ppt")),
-            // Text files
-            new DocumentTypeMapping("txt", List.of("text/plain"), List.of(".txt")),
-            // Rich Text Format
-            new DocumentTypeMapping("rtf", List.of("rtf"), List.of(".rtf")),
-            // OpenDocument Format (MS Office alternative)
-            new DocumentTypeMapping("odt", List.of("opendocument.text"), List.of(".odt")),
-            new DocumentTypeMapping("ods", List.of("opendocument.spreadsheet"), List.of(".ods")),
-            new DocumentTypeMapping("odp", List.of("opendocument.presentation"), List.of(".odp")),
-            // CSV
-            new DocumentTypeMapping("csv", List.of("csv"), List.of(".csv")),
-            // HTML
-            new DocumentTypeMapping("html", List.of("text/html"), List.of(".html", ".htm")),
-            // Markdown
-            new DocumentTypeMapping("md", List.of("markdown"), List.of(".md", ".markdown")),
-            // JSON
-            new DocumentTypeMapping("json", List.of("json"), List.of(".json")),
-            // XML
-            new DocumentTypeMapping("xml", List.of("xml"), List.of(".xml")),
-            // EPUB (e-books)
-            new DocumentTypeMapping("epub", List.of("epub"), List.of(".epub"))
-    );
-
-    /**
-     * Gets document type from MIME type or filename.
-     *
-     * <p><b>Note:</b> PDF is detected first and processed via PagePdfDocumentReader (PDFBox), not TikaDocumentReader, for better text extraction.
-     *
-     * @param mimeType file MIME type
-     * @param filename file name
-     * @return document type (pdf, docx, doc, xls, xlsx, ppt, pptx, txt, rtf, odt, ods, odp, csv, html, md, json, xml, epub) or null if unsupported
-     */
-    private String extractDocumentType(String mimeType, String filename) {
-        if (mimeType == null && filename == null) {
-            return null;
-        }
-        
-        String type = mimeType != null ? mimeType.toLowerCase() : "";
-        String name = filename != null ? filename.toLowerCase() : "";
-        
-        return DOCUMENT_TYPE_MAPPINGS.stream()
-                .filter(mapping -> mapping.matches(type, name))
-                .map(DocumentTypeMapping::documentType)
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * Helper to map patterns to document types.
-     */
-    private record DocumentTypeMapping(
-            String documentType,
-            List<String> mimeTypePatterns,
-            List<String> fileExtensions
-    ) {
-        /**
-         * Checks if MIME type or filename matches this mapping.
-         */
-        boolean matches(String mimeType, String filename) {
-            boolean mimeMatches = mimeTypePatterns.stream()
-                    .anyMatch(mimeType::contains);
-            boolean extensionMatches = fileExtensions.stream()
-                    .anyMatch(filename::endsWith);
-            return mimeMatches || extensionMatches;
-        }
     }
 
     /**
@@ -923,198 +788,6 @@ public class SpringAIGateway implements AIGateway {
         var mimeType = MimeTypeUtils.parseMimeType(attachment.mimeType());
         var resource = new ByteArrayResource(attachment.data());
         return new Media(mimeType, resource);
-    }
-
-    /**
-     * Renders PDF pages to images for vision model.
-     *
-     * <p>Used as fallback when PDF has no text layer (scan/certificate).
-     *
-     * @param pdfData PDF bytes
-     * @param filename original file name
-     * @return list of Attachment with type=IMAGE per page
-     */
-    List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
-        try (PDDocument document = Loader.loadPDF(pdfData)) {
-            org.apache.pdfbox.rendering.PDFRenderer renderer = new org.apache.pdfbox.rendering.PDFRenderer(document);
-            
-            int pageCount = document.getNumberOfPages();
-            int maxPages = 10;
-            int pagesToRender = Math.min(pageCount, maxPages);
-            
-            if (pageCount > maxPages) {
-                log.warn("PDF '{}' has {} pages, rendering only first {} pages for vision model", 
-                        filename, pageCount, maxPages);
-            }
-            
-            List<Attachment> imageAttachments = new ArrayList<>();
-            
-            for (int pageIndex = 0; pageIndex < pagesToRender; pageIndex++) {
-                BufferedImage image = renderer.renderImageWithDPI(pageIndex, 300);
-                
-                // Use PNG for OCR/vision extraction to avoid lossy JPEG artifacts on small text.
-                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-                javax.imageio.ImageIO.write(image, "PNG", baos);
-                byte[] imageBytes = baos.toByteArray();
-                
-                String imageFilename = String.format("page_%d_%s.png", pageIndex + 1,
-                        filename.replaceAll("\\.pdf$", ""));
-                
-                Attachment imageAttachment = new Attachment(
-                        null,
-                        "image/png",
-                        imageFilename,
-                        imageBytes.length,
-                        AttachmentType.IMAGE,
-                        imageBytes
-                );
-                imageAttachments.add(imageAttachment);
-            }
-            
-            log.info("Rendered {} pages from PDF '{}' as images for vision", pagesToRender, filename);
-            return imageAttachments;
-            
-        } catch (Exception e) {
-            log.error("Failed to render PDF '{}' pages as images", filename, e);
-            return List.of();
-        }
-    }
-
-    /**
-     * Preprocesses a rendered PDF page for more stable OCR on compact local vision models.
-     *
-     * <p>Pipeline:
-     * <ol>
-     *   <li>convert to grayscale</li>
-     *   <li>auto-contrast (stretch min..max to full 0..255 range)</li>
-     * </ol>
-     */
-    private static BufferedImage preprocessPdfPageForVisionOcr(BufferedImage source) {
-        BufferedImage gray = new BufferedImage(
-                source.getWidth(), source.getHeight(), BufferedImage.TYPE_BYTE_GRAY);
-        java.awt.Graphics2D graphics = gray.createGraphics();
-        graphics.drawImage(source, 0, 0, null);
-        graphics.dispose();
-        return autoContrastGray(gray);
-    }
-
-    private static BufferedImage autoContrastGray(BufferedImage gray) {
-        java.awt.image.Raster raster = gray.getRaster();
-        int width = gray.getWidth();
-        int height = gray.getHeight();
-        int min = 255;
-        int max = 0;
-
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int value = raster.getSample(x, y, 0);
-                if (value < min) min = value;
-                if (value > max) max = value;
-            }
-        }
-
-        if (max <= min) {
-            return gray;
-        }
-
-        byte[] lut = new byte[256];
-        double scale = 255.0d / (max - min);
-        for (int i = 0; i < 256; i++) {
-            int stretched = (int) Math.round((i - min) * scale);
-            if (stretched < 0) stretched = 0;
-            if (stretched > 255) stretched = 255;
-            lut[i] = (byte) stretched;
-        }
-
-        java.awt.image.LookupOp op = new java.awt.image.LookupOp(new java.awt.image.ByteLookupTable(0, lut), null);
-        return op.filter(gray, null);
-    }
-
-    /**
-     * Extracts text content from PDF page images via a vision-capable model.
-     *
-     * <p>Selects a VISION+CHAT model from registry, sends images with extraction prompt,
-     * returns the model's text response containing extracted document content.
-     *
-     * @param imageAttachments rendered PDF page images
-     * @param filename         original PDF filename (for logging)
-     * @return extracted text or null if extraction failed or no vision model available
-     */
-    private static final int VISION_EXTRACTION_MAX_ATTEMPTS = 3;
-    private static final int VISION_EXTRACTION_LIKELY_COMPLETE_MIN_CHARS = 600;
-
-    private String extractTextFromImagesViaVision(List<Attachment> imageAttachments, String filename) {
-        // Find a vision-capable model
-        List<SpringAIModelConfig> visionCandidates = springAIModelRegistry
-                .getCandidatesByCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION), null);
-        if (visionCandidates.isEmpty()) {
-            log.warn("No VISION-capable model available for text extraction from '{}'", filename);
-            return null;
-        }
-        SpringAIModelConfig visionModel = visionCandidates.getFirst();
-        log.info("Using vision model '{}' for text extraction from '{}'", visionModel.getName(), filename);
-
-        String extractionPrompt = ragProperties.getPrompts().getVisionExtractionPrompt();
-
-        List<Media> mediaList = imageAttachments.stream()
-                .map(this::toMedia)
-                .toList();
-
-        UserMessage userMessage = UserMessage.builder()
-                .text(extractionPrompt)
-                .media(mediaList)
-                .build();
-
-        try {
-            String bestExtractedText = null;
-            for (int attempt = 1; attempt <= VISION_EXTRACTION_MAX_ATTEMPTS; attempt++) {
-                String extractedText = chatService.callSimpleVision(visionModel, List.of(userMessage));
-                if (extractedText == null || extractedText.isBlank()) {
-                    log.warn("Vision extraction attempt {}/{} returned empty text for '{}'",
-                            attempt, VISION_EXTRACTION_MAX_ATTEMPTS, filename);
-                    continue;
-                }
-
-                extractedText = stripModelInternalTokens(extractedText);
-                log.info("Vision extraction attempt {}/{} for '{}': {} chars",
-                        attempt, VISION_EXTRACTION_MAX_ATTEMPTS, filename, extractedText.length());
-
-                if (!extractedText.isBlank()
-                        && (bestExtractedText == null || extractedText.length() > bestExtractedText.length())) {
-                    bestExtractedText = extractedText;
-                }
-
-                if (isLikelyCompleteVisionExtraction(bestExtractedText)) {
-                    break;
-                }
-            }
-
-            if (bestExtractedText != null && !bestExtractedText.isBlank()) {
-                log.info("Vision extraction succeeded for '{}': {} chars", filename, bestExtractedText.length());
-                log.debug("Vision extracted text for '{}': [{}]", filename, bestExtractedText);
-                return bestExtractedText;
-            }
-
-            log.warn("Vision extraction returned empty text for '{}'", filename);
-            return null;
-        } catch (Exception e) {
-            log.error("Vision extraction failed for '{}': {}", filename, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Strips model-internal tokens (e.g. {@code <start_of_image>}, {@code <end_of_turn>})
-     * that some vision models (gemma3, llava) leak into their text output.
-     */
-    public static String stripModelInternalTokens(String text) {
-        if (text == null) return null;
-        return text.replaceAll("<start_of_image>|<end_of_image>|<end_of_turn>|<start_of_turn>", "")
-                .strip();
-    }
-
-    private static boolean isLikelyCompleteVisionExtraction(String text) {
-        return text != null && text.length() >= VISION_EXTRACTION_LIKELY_COMPLETE_MIN_CHARS;
     }
 
     private static int countMatchingCaps(Set<ModelCapabilities> modelCaps, Set<ModelCapabilities> optional) {
