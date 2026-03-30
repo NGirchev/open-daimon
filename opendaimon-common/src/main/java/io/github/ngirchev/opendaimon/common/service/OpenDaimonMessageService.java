@@ -110,6 +110,26 @@ public class OpenDaimonMessageService {
             Map<String, Object> metadata,
             List<Map<String, Object>> attachmentRefs,
             ConversationThread thread) {
+        return selfProvider.getObject().saveUserMessage(
+                user, content, requestType, assistantRole, metadata, attachmentRefs, thread, null);
+    }
+
+    /**
+     * Saves USER message with ready assistant role, thread, and optional Telegram message ID.
+     *
+     * @param attachmentRefs    optional attachment refs (storageKey, expiresAt, mimeType, filename)
+     * @param telegramMessageId optional Telegram message ID for reply-to lookup
+     */
+    @Transactional
+    public OpenDaimonMessage saveUserMessage(
+            User user,
+            String content,
+            RequestType requestType,
+            AssistantRole assistantRole,
+            Map<String, Object> metadata,
+            List<Map<String, Object>> attachmentRefs,
+            ConversationThread thread,
+            Long telegramMessageId) {
 
         int estimatedTokens = tokenCounter.estimateTokens(content);
         int maxAllowed = coreCommonProperties.getMaxUserMessageTokens();
@@ -133,6 +153,7 @@ public class OpenDaimonMessageService {
         message.setAssistantRole(assistantRole);
         message.setThread(resolvedThread);
         message.setTokenCount(tokenCounter.estimateTokens(content));
+        message.setTelegramMessageId(telegramMessageId);
 
         if (metadata != null) {
             message.setMetadata(metadata);

@@ -32,11 +32,14 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepository;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
+import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
@@ -281,6 +284,15 @@ public class TelegramFixtureConfig {
     }
 
     @Bean
+    public ReplyImageAttachmentService replyImageAttachmentService(
+            OpenDaimonMessageRepository messageRepository,
+            ObjectProvider<FileStorageService> fileStorageServiceProvider,
+            ObjectProvider<TelegramFileService> telegramFileServiceProvider) {
+        return new ReplyImageAttachmentService(
+                messageRepository, fileStorageServiceProvider, telegramFileServiceProvider);
+    }
+
+    @Bean
     public MessageTelegramCommandHandler messageTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -293,7 +305,8 @@ public class TelegramFixtureConfig {
             AICommandFactoryRegistry aiCommandFactoryRegistry,
             TelegramProperties telegramProperties,
             UserModelPreferenceService userModelPreferenceService,
-            PersistentKeyboardService persistentKeyboardService) {
+            PersistentKeyboardService persistentKeyboardService,
+            ReplyImageAttachmentService replyImageAttachmentService) {
         return new MessageTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
@@ -306,7 +319,8 @@ public class TelegramFixtureConfig {
                 aiCommandFactoryRegistry,
                 telegramProperties,
                 userModelPreferenceService,
-                persistentKeyboardService);
+                persistentKeyboardService,
+                replyImageAttachmentService);
     }
 
     /**

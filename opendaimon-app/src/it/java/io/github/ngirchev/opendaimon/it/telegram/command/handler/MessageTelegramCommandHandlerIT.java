@@ -2,7 +2,10 @@ package io.github.ngirchev.opendaimon.it.telegram.command.handler;
 
 import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
+import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -285,6 +288,15 @@ class MessageTelegramCommandHandlerIT {
         }
 
         @Bean
+        public ReplyImageAttachmentService replyImageAttachmentService(
+                OpenDaimonMessageRepository messageRepository,
+                ObjectProvider<FileStorageService> fileStorageServiceProvider,
+                ObjectProvider<TelegramFileService> telegramFileServiceProvider) {
+            return new ReplyImageAttachmentService(
+                    messageRepository, fileStorageServiceProvider, telegramFileServiceProvider);
+        }
+
+        @Bean
         @Primary
         public MessageTelegramCommandHandler messageTelegramCommandHandler(
                 ObjectProvider<TelegramBot> telegramBotProvider,
@@ -298,7 +310,8 @@ class MessageTelegramCommandHandlerIT {
                 AICommandFactoryRegistry aiCommandFactoryRegistry,
                 TelegramProperties telegramProperties,
                 UserModelPreferenceService userModelPreferenceService,
-                PersistentKeyboardService persistentKeyboardService) {
+                PersistentKeyboardService persistentKeyboardService,
+                ReplyImageAttachmentService replyImageAttachmentService) {
             return new MessageTelegramCommandHandler(
                     telegramBotProvider,
                     typingIndicatorService,
@@ -311,7 +324,8 @@ class MessageTelegramCommandHandlerIT {
                     aiCommandFactoryRegistry,
                     telegramProperties,
                     userModelPreferenceService,
-                    persistentKeyboardService);
+                    persistentKeyboardService,
+                    replyImageAttachmentService);
         }
     }
 

@@ -64,11 +64,12 @@ public class TelegramMessageService {
                 requestType,
                 assistantRoleContent,
                 attachments,
+                null,
                 null);
     }
 
     /**
-     * Saves USER message for Telegram chat scope.
+     * Saves USER message for Telegram chat scope (without Telegram message ID).
      *
      * @param chatId Telegram chat id; when null, falls back to legacy user scope
      */
@@ -81,33 +82,56 @@ public class TelegramMessageService {
             String assistantRoleContent,
             List<Attachment> attachments,
             Long chatId) {
-        
+        return selfProvider.getObject().saveUserMessage(
+                telegramUser, session, content, requestType,
+                assistantRoleContent, attachments, chatId, null);
+    }
+
+    /**
+     * Saves USER message for Telegram chat scope with Telegram message ID.
+     *
+     * @param chatId            Telegram chat id; when null, falls back to legacy user scope
+     * @param telegramMessageId Telegram message ID for reply-to lookup; may be null
+     */
+    @Transactional
+    public OpenDaimonMessage saveUserMessage(
+            TelegramUser telegramUser,
+            TelegramUserSession session,
+            String content,
+            RequestType requestType,
+            String assistantRoleContent,
+            List<Attachment> attachments,
+            Long chatId,
+            Integer telegramMessageId) {
+
         // Get or create assistant role for user via TelegramUserService
-        String roleContent = assistantRoleContent != null 
-                ? assistantRoleContent 
+        String roleContent = assistantRoleContent != null
+                ? assistantRoleContent
                 : messageLocalizationService.getMessage(coreCommonProperties.getAssistantRole(), telegramUser.getLanguageCode());
         AssistantRole assistantRole = telegramUserService.getOrCreateAssistantRole(telegramUser, roleContent);
-        
+
         // Prepare Telegram-specific metadata
         Map<String, Object> metadata = null;
         if (session != null) {
             metadata = new HashMap<>();
             metadata.put("session_id", session.getId());
         }
-        
+
         List<Map<String, Object>> attachmentRefs = buildAttachmentRefs(attachments);
         ConversationThread thread = chatId != null
                 ? conversationThreadService.getOrCreateThread(telegramUser, ThreadScopeKind.TELEGRAM_CHAT, chatId)
                 : conversationThreadService.getOrCreateThread(telegramUser);
-        
+
+        Long telegramMsgId = telegramMessageId != null ? telegramMessageId.longValue() : null;
         return messageService.saveUserMessage(
-                telegramUser, 
-                content, 
-                requestType, 
-                assistantRole, 
+                telegramUser,
+                content,
+                requestType,
+                assistantRole,
                 metadata,
                 attachmentRefs,
-                thread);
+                thread,
+                telegramMsgId);
     }
     
     /**

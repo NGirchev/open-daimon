@@ -137,6 +137,13 @@ public class OpenDaimonMessage extends AbstractEntity<Long> {
     private Map<String, Object> metadata;
     
     /**
+     * Telegram message ID (for resolving reply-to messages from DB).
+     * Null for non-Telegram messages.
+     */
+    @Column(name = "telegram_message_id")
+    private Long telegramMessageId;
+
+    /**
      * Attachment refs (files in MinIO) with expiry time.
      * Format: list of maps with keys storageKey, expiresAt (ISO-8601), mimeType, filename.
      * Used to load images into context before TTL expires.

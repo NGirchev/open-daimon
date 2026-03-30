@@ -27,6 +27,7 @@ import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
+import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
@@ -58,6 +59,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     private final TelegramProperties telegramProperties;
     private final UserModelPreferenceService userModelPreferenceService;
     private final PersistentKeyboardService persistentKeyboardService;
+    private final ReplyImageAttachmentService replyImageAttachmentService;
 
     @SuppressWarnings("java:S107")
     public MessageTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
@@ -71,7 +73,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                                          AICommandFactoryRegistry aiCommandFactoryRegistry,
                                          TelegramProperties telegramProperties,
                                          UserModelPreferenceService userModelPreferenceService,
-                                         PersistentKeyboardService persistentKeyboardService) {
+                                         PersistentKeyboardService persistentKeyboardService,
+                                         ReplyImageAttachmentService replyImageAttachmentService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.telegramUserSessionService = telegramUserSessionService;
@@ -82,6 +85,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         this.telegramProperties = telegramProperties;
         this.userModelPreferenceService = userModelPreferenceService;
         this.persistentKeyboardService = persistentKeyboardService;
+        this.replyImageAttachmentService = replyImageAttachmentService;
     }
 
     @Override
@@ -124,7 +128,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             // Thread and role are obtained or created inside saveUserMessage
             userMessage = telegramMessageService.saveUserMessage(
                     telegramUser, session, command.userText(),
-                    RequestType.TEXT, null, command.attachments(), command.telegramId());
+                    RequestType.TEXT, null, command.attachments(), command.telegramId(),
+                    message.getMessageId());
 
             // Get thread and role from saved message for further use
             thread = userMessage.getThread();
@@ -135,6 +140,18 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
 
             log.info("Using conversation thread: {} with AssistantRole {} (v{})",
                     thread.getThreadKey(), assistantRoleId, assistantRoleVersion);
+
+            // Resolve image attachments from the message being replied to (if any).
+            // Done after save (so reply images are NOT stored as current message's attachments)
+            // but before createCommand (so VISION capability is detected).
+            Message replyToMessage = message.getReplyToMessage();
+            if (replyToMessage != null && !command.hasAttachments()) {
+                List<Attachment> replyAttachments = replyImageAttachmentService
+                        .resolveReplyImageAttachments(replyToMessage, thread);
+                for (Attachment att : replyAttachments) {
+                    command.addAttachment(att);
+                }
+            }
 
             // Process request and get response
             long startTime = System.currentTimeMillis();

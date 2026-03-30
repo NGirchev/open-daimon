@@ -87,7 +87,7 @@ class TelegramMessageServiceTest {
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(
                 eq(telegramUser), eq("Hello"), eq(RequestType.TEXT), eq(assistantRole),
-                any(Map.class), isNull(), eq(thread))).thenReturn(saved);
+                any(Map.class), isNull(), eq(thread), isNull())).thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
                 telegramUser, session, "Hello", RequestType.TEXT, null, null);
@@ -96,7 +96,7 @@ class TelegramMessageServiceTest {
         assertEquals(saved, result);
         verify(messageService).saveUserMessage(
                 eq(telegramUser), eq("Hello"), eq(RequestType.TEXT), eq(assistantRole),
-                any(Map.class), isNull(), eq(thread));
+                any(Map.class), isNull(), eq(thread), isNull());
     }
 
     @Test
@@ -104,7 +104,7 @@ class TelegramMessageServiceTest {
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(
                 eq(telegramUser), eq("Hi"), eq(RequestType.TEXT), eq(assistantRole),
-                isNull(), isNull(), eq(thread))).thenReturn(saved);
+                isNull(), isNull(), eq(thread), isNull())).thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
                 telegramUser, null, "Hi", RequestType.TEXT, null, null);
@@ -112,7 +112,7 @@ class TelegramMessageServiceTest {
         assertNotNull(result);
         verify(messageService).saveUserMessage(
                 eq(telegramUser), eq("Hi"), eq(RequestType.TEXT), eq(assistantRole),
-                isNull(), isNull(), eq(thread));
+                isNull(), isNull(), eq(thread), isNull());
     }
 
     @Test
@@ -120,7 +120,7 @@ class TelegramMessageServiceTest {
         when(telegramUserService.getOrCreateAssistantRole(eq(telegramUser), eq("Custom role")))
                 .thenReturn(assistantRole);
         OpenDaimonMessage saved = new OpenDaimonMessage();
-        when(messageService.saveUserMessage(any(), any(), any(), eq(assistantRole), any(), any(), any()))
+        when(messageService.saveUserMessage(any(), any(), any(), eq(assistantRole), any(), any(), any(), any()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
@@ -142,7 +142,7 @@ class TelegramMessageServiceTest {
         Attachment att = new Attachment("key1", "image/png", "photo.png", 100L, AttachmentType.IMAGE, new byte[0]);
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(
-                eq(telegramUser), any(), any(), eq(assistantRole), any(), any(List.class), eq(thread)))
+                eq(telegramUser), any(), any(), eq(assistantRole), any(), any(List.class), eq(thread), isNull()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
@@ -151,7 +151,7 @@ class TelegramMessageServiceTest {
         assertNotNull(result);
         verify(messageService).saveUserMessage(
                 eq(telegramUser), eq("See image"), eq(RequestType.TEXT), eq(assistantRole),
-                any(), any(List.class), eq(thread));
+                any(), any(List.class), eq(thread), isNull());
     }
 
     @Test
@@ -161,7 +161,7 @@ class TelegramMessageServiceTest {
 
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(
-                eq(telegramUser), any(), any(), eq(assistantRole), any(), isNull(), eq(thread)))
+                eq(telegramUser), any(), any(), eq(assistantRole), any(), isNull(), eq(thread), isNull()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
@@ -170,7 +170,7 @@ class TelegramMessageServiceTest {
         assertNotNull(result);
         verify(messageService).saveUserMessage(
                 eq(telegramUser), eq("Pic"), eq(RequestType.TEXT), eq(assistantRole),
-                any(), isNull(), eq(thread));
+                any(), isNull(), eq(thread), isNull());
     }
 
     @Test

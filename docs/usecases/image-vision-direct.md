@@ -59,6 +59,55 @@ sequenceDiagram
     GW-->>User: Answer based on image analysis
 ```
 
+## Reply to Image Message (Re-Attach from DB/MinIO)
+
+When a user replies to a message that contained an image, the system retrieves the
+original image from the database (MinIO storage) and attaches it to the new LLM request.
+This allows the model to re-analyze the image with a new question.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Handler as MessageHandler
+    participant RIAS as ReplyImageAttachmentService
+    participant Repo as MessageRepository
+    participant MinIO as MinIO Storage
+    participant TG as TelegramFileService
+    participant GW as SpringAIGateway
+    participant LLM as Vision Model
+
+    User->>Handler: Reply to image message with new question
+
+    Handler->>Handler: saveUserMessage(text, [], telegramMessageId)
+    Note over Handler: Current message saved WITHOUT image attachments
+
+    Handler->>Handler: replyToMessage != null && !command.hasAttachments()
+
+    Handler->>RIAS: resolveReplyImageAttachments(replyToMessage, thread)
+
+    RIAS->>Repo: findByThreadAndTelegramMessageId(thread, replyMsgId)
+    alt Found in DB with image attachments
+        Repo-->>RIAS: Original message with attachments[{storageKey, mimeType}]
+        RIAS->>MinIO: get(storageKey)
+        MinIO-->>RIAS: byte[] image data
+        RIAS-->>Handler: List<Attachment> from MinIO
+    else Not found in DB (old message / no telegram_message_id)
+        Repo-->>RIAS: empty
+        RIAS->>TG: processPhoto(replyToMessage.getPhoto())
+        TG->>TG: Download from Telegram API + save to MinIO
+        TG-->>RIAS: Attachment (fallback)
+        RIAS-->>Handler: List<Attachment> from Telegram API
+    end
+
+    Handler->>Handler: command.addAttachment(replyAttachment)
+    Note over Handler: VISION capability auto-detected via attachments
+
+    Handler->>GW: ChatAICommand(text, [IMAGE], metadata={threadKey})
+    GW->>LLM: [SystemMessage, History, UserMessage(query + Media)]
+    LLM-->>GW: Vision model response
+    GW-->>User: Answer based on re-analyzed image
+```
+
 ## Follow-Up Message (No Attachments)
 
 ```mermaid
@@ -70,7 +119,7 @@ sequenceDiagram
     participant Mem as ChatMemory
     participant LLM as Chat Model
 
-    User->>Handler: Follow-up question (no attachments)
+    User->>Handler: Follow-up question (no attachments, no reply)
 
     Handler->>MS: Check thread for ragDocumentIds
     MS-->>Handler: No ragDocumentIds (images are not indexed in RAG)
@@ -104,29 +153,44 @@ sequenceDiagram
    required capabilities, and `ModelCapabilities.AUTO` is removed to force vision model
    selection.
 
-3. **Follow-up uses conversation history, not RAG** — since images are not indexed, follow-up
-   questions rely entirely on `ChatMemory` (previous user/assistant messages). The model must
-   infer context from the conversation, not from VectorStore chunks.
+3. **Reply-to-image retrieval (DB first, Telegram fallback)** — when a user replies to a
+   message that contained an image, `ReplyImageAttachmentService` resolves the image:
+   - Looks up the original message via `telegram_message_id` column + thread scope
+   - If found, retrieves the image binary from MinIO using the stored `storageKey`
+   - Falls back to downloading from Telegram API if the DB lookup fails (e.g. old messages
+     without `telegram_message_id`)
+   - Reply attachments are added to the command **after** `saveUserMessage` (not persisted as
+     the current message's attachments) but **before** `createCommand` (so VISION capability
+     is detected automatically)
 
-4. **Model switch between turns** — the first message uses a VISION-capable model (e.g.
+4. **Reply vs own attachment priority** — if the user sends their own image as a reply to
+   another image, the user's new image takes priority (`!command.hasAttachments()` guard).
+   Reply image extraction only activates when the current message has no attachments.
+
+5. **Follow-up uses conversation history, not RAG** — since images are not indexed, follow-up
+   questions (without reply) rely entirely on `ChatMemory` (previous user/assistant messages).
+   The model must infer context from the conversation, not from VectorStore chunks.
+
+6. **Model switch between turns** — the first message uses a VISION-capable model (e.g.
    `gemma3:4b`), but the follow-up may use a different TEXT-only model (e.g. `qwen2.5:3b`)
    since no images are present. The conversation history bridges the context gap.
 
-5. **Attachment context in ChatMemory** — `addAttachmentContextToMessagesAndMemory()` adds a
+7. **Attachment context in ChatMemory** — `addAttachmentContextToMessagesAndMemory()` adds a
    `SystemMessage` ("User attached image(s)") to `ChatMemory`, helping the follow-up model
    understand that an image was previously discussed.
 
-6. **Media conversion** — `toMedia(attachment)` converts `Attachment.data()` (byte array) into
+8. **Media conversion** — `toMedia(attachment)` converts `Attachment.data()` (byte array) into
    a Spring AI `Media` object with the correct MIME type (`image/jpeg`, `image/png`, etc.) and
    a `ByteArrayResource`. This is passed to `UserMessage.builder().media(mediaList)`.
 
 ## Comparison with Other Attachment Flows
 
-| Aspect | Direct Image (this doc) | Text PDF | Image-Only PDF | DOC/XLS |
-|--------|------------------------|----------|----------------|---------|
-| AttachmentType | `IMAGE` | `PDF` | `PDF` | `PDF` |
-| Text Extraction | None (vision direct) | PDFBox | Vision OCR fallback | Tika |
-| RAG Indexed | **No** | Yes | Yes | Yes |
-| Follow-Up Context | ChatMemory only | VectorStore + ChatMemory | VectorStore + ChatMemory | VectorStore + ChatMemory |
-| Model Required | VISION | CHAT | CHAT + VISION (OCR) | CHAT |
-| Related Doc | — | [text-pdf-rag.md](./text-pdf-rag.md) | [image-pdf-vision-cache.md](./image-pdf-vision-cache.md) | [doc-xls-tika-rag.md](./doc-xls-tika-rag.md) |
+| Aspect | Direct Image (this doc) | Reply to Image (this doc) | Text PDF | Image-Only PDF | DOC/XLS |
+|--------|------------------------|--------------------------|----------|----------------|---------|
+| AttachmentType | `IMAGE` | `IMAGE` (resolved) | `PDF` | `PDF` | `PDF` |
+| Text Extraction | None (vision direct) | None (vision direct) | PDFBox | Vision OCR fallback | Tika |
+| RAG Indexed | **No** | **No** | Yes | Yes | Yes |
+| Image Source | Telegram download | DB/MinIO (fallback: Telegram) | — | — | — |
+| Follow-Up Context | ChatMemory only | ChatMemory only | VectorStore + ChatMemory | VectorStore + ChatMemory | VectorStore + ChatMemory |
+| Model Required | VISION | VISION | CHAT | CHAT + VISION (OCR) | CHAT |
+| Related Doc | — | — | [text-pdf-rag.md](./text-pdf-rag.md) | [image-pdf-vision-cache.md](./image-pdf-vision-cache.md) | [doc-xls-tika-rag.md](./doc-xls-tika-rag.md) |

@@ -16,12 +16,15 @@ import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.*;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
+import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
+import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 
 @Configuration
 @ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true", matchIfMissing = true)
@@ -147,6 +150,16 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    public ReplyImageAttachmentService replyImageAttachmentService(
+            OpenDaimonMessageRepository messageRepository,
+            ObjectProvider<FileStorageService> fileStorageServiceProvider,
+            ObjectProvider<TelegramFileService> telegramFileServiceProvider) {
+        return new ReplyImageAttachmentService(
+                messageRepository, fileStorageServiceProvider, telegramFileServiceProvider);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
     public MessageTelegramCommandHandler messageTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
@@ -160,7 +173,8 @@ public class TelegramCommandHandlerConfig {
             AICommandFactoryRegistry aiCommandFactoryRegistry,
             TelegramProperties telegramProperties,
             UserModelPreferenceService userModelPreferenceService,
-            PersistentKeyboardService persistentKeyboardService) {
+            PersistentKeyboardService persistentKeyboardService,
+            ReplyImageAttachmentService replyImageAttachmentService) {
         return new MessageTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
@@ -173,7 +187,8 @@ public class TelegramCommandHandlerConfig {
                 aiCommandFactoryRegistry,
                 telegramProperties,
                 userModelPreferenceService,
-                persistentKeyboardService
+                persistentKeyboardService,
+                replyImageAttachmentService
         );
     }
 

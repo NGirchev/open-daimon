@@ -85,6 +85,8 @@ class MessageTelegramCommandHandlerTest {
     @Mock
     private PersistentKeyboardService persistentKeyboardService;
     @Mock
+    private io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService replyImageAttachmentService;
+    @Mock
     private io.github.ngirchev.opendaimon.common.service.AIGateway aiGateway;
 
     private MessageLocalizationService messageLocalizationService;
@@ -109,7 +111,7 @@ class MessageTelegramCommandHandlerTest {
         handler = new MessageTelegramCommandHandler(botProvider, typingIndicatorService, messageLocalizationService,
                 telegramUserService, telegramUserSessionService, telegramMessageService, aiGatewayRegistry,
                 messageService, aiCommandFactoryRegistry, telegramProperties, userModelPreferenceService,
-                persistentKeyboardService);
+                persistentKeyboardService, replyImageAttachmentService);
     }
 
     @Test
@@ -193,7 +195,7 @@ class MessageTelegramCommandHandlerTest {
         telegramUser.setTelegramId(200L);
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
                 .thenThrow(new UserMessageTooLongException(5000, 4000));
 
         TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.MESSAGE), update, "Very long text");
@@ -230,7 +232,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -275,7 +277,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -321,7 +323,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), eq("Hello"), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), eq("Hello"), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -379,7 +381,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), eq("Hello"), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), eq("Hello"), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -444,7 +446,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), eq("Hello"), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), eq("Hello"), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -509,7 +511,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -551,7 +553,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -604,7 +606,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -656,7 +658,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
@@ -717,7 +719,7 @@ class MessageTelegramCommandHandlerTest {
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
         when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
-        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong()))
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
                 .thenReturn(userMessage);
 
         AICommand aiCommand = mock(AICommand.class);
