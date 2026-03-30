@@ -152,6 +152,28 @@ Both sync (`executeRequest`) and async (`executeRequestAsync`) variants are supp
 | `PriorityRequestExecutor` | `opendaimon-common` | Bulkhead executor |
 | `BulkHeadProperties` | `opendaimon-common` | Config: `open-daimon.common.bulkhead` |
 | `TelegramProperties` | `opendaimon-telegram` | Config: `open-daimon.telegram.access.*` |
+| `AIRequestPipeline` | `opendaimon-common` | Pipeline entry point: orchestrate → factory. Priority-aware VISION blocking works end-to-end through this layer |
+| `IDocumentOrchestrator` / `SpringDocumentOrchestrator` | `opendaimon-common` / `opendaimon-spring-ai` | Document preprocessing + RAG; runs before factory so factory sees correct attachment state |
+| `IDocumentContentAnalyzer` / `SpringDocumentContentAnalyzer` | `opendaimon-common` / `opendaimon-spring-ai` | Detects image-only PDFs (requires VISION) before model selection |
+| `DefaultAICommandFactory` | `opendaimon-common` | Adds VISION to required capabilities when IMAGE attachments present; enforces per-priority tier config |
+
+### VISION blocking flow
+
+Priority-based VISION blocking now works end-to-end:
+
+```
+AIRequestPipeline.prepareCommand()
+    └── SpringDocumentOrchestrator (image-only PDF → render PNG images)
+            └── SpringDocumentPreprocessor
+                    → OCR failed: keeps IMAGE attachments
+                    → OCR succeeded: removes images (TEXT model used)
+    └── DefaultAICommandFactory
+            → sees IMAGE attachments → adds VISION to required capabilities
+            → REGULAR tier has no VISION model → UnsupportedModelCapabilityException
+            → VIP/ADMIN → VISION model selected → gateway executes chat
+```
+
+Previously, `SpringAIGateway` internally rendered PDFs and called VISION models without this capability ever passing through the factory. The refactoring fixed this gap so that priority enforcement is reliable for all document types.
 
 ---
 
@@ -159,3 +181,4 @@ Both sync (`executeRequest`) and async (`executeRequestAsync`) variants are supp
 
 - [docs/tariffs-and-models.md](tariffs-and-models.md) — how priority maps to AI model capabilities and pricing tiers.
 - [docs/openrouter-routing.md](openrouter-routing.md) — OpenRouter model routing and retry logic.
+- [docs/rag-logic.md](rag-logic.md) — RAG architecture including the pipeline layer.

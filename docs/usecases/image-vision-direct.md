@@ -8,7 +8,7 @@
 
 When a user uploads a JPEG/PNG image (not a PDF), the system sends it directly to a
 vision-capable model as a `Media` object. **No RAG indexing is performed** — images bypass
-the document processing pipeline entirely. Follow-up questions rely on conversation history
+the document orchestration pipeline entirely. Follow-up questions rely on conversation history
 (ChatMemory), not VectorStore.
 
 ## First Message (Image Upload + Question)
@@ -18,6 +18,8 @@ sequenceDiagram
     actor User
     participant TG as TelegramFileService
     participant MS as MessageService
+    participant PL as AIRequestPipeline
+    participant CF as DefaultAICommandFactory
     participant GW as SpringAIGateway
     participant Mem as ChatMemory
     participant LLM as Vision Model
@@ -30,12 +32,17 @@ sequenceDiagram
     MS->>MS: saveUserMessage(text, attachments)
     Note over MS: Persists to DB with sequenceNumber
 
-    MS->>GW: ChatAICommand(userQuery, attachments=[IMAGE], metadata={})
+    MS->>PL: IChatCommand(userQuery, attachments=[IMAGE], metadata={})
+
+    Note over PL: Images bypass orchestration — Attachment.isDocument() returns false<br/>for AttachmentType.IMAGE → SpringDocumentOrchestrator is not invoked
+
+    PL->>CF: createCommand(command — no orchestration performed)
+    CF->>CF: attachments contain IMAGE → add VISION to required capabilities
+    CF-->>PL: ChatAICommand(userQuery, attachments=[IMAGE], CHAT+VISION)
+
+    PL->>GW: ChatAICommand(userQuery, [IMAGE], CHAT+VISION)
 
     GW->>GW: addSystemAndUserMessagesIfNeeded()
-
-    Note over GW: Images bypass RAG — processRagIfEnabled() filters<br/>only document attachments (isDocument()), not IMAGE type
-
     GW->>GW: Count originalImageCount (IMAGE attachments)
     GW->>GW: addAttachmentContextToMessagesAndMemory()
     Note over GW,Mem: Add SystemMessage: "User attached image(s)"<br/>stored in ChatMemory for follow-up context
@@ -47,10 +54,8 @@ sequenceDiagram
 
     GW->>GW: UserMessage.builder().text(query).media(mediaList).build()
 
-    Note over GW,LLM: Model selection: VISION capability required
+    Note over GW,LLM: Model selection: VISION capability required (from factory)
 
-    GW->>GW: hasUserMedia(messages) → requiresVisionForPayload = true
-    GW->>GW: AUTO mode: remove AUTO, add VISION to required capabilities
     GW->>GW: Select model with VISION capability (e.g. gemma3:4b)
 
     GW->>LLM: [SystemMessage(role/lang), UserMessage(query + Media)]
@@ -73,6 +78,8 @@ sequenceDiagram
     participant Repo as MessageRepository
     participant MinIO as MinIO Storage
     participant TG as TelegramFileService
+    participant PL as AIRequestPipeline
+    participant CF as DefaultAICommandFactory
     participant GW as SpringAIGateway
     participant LLM as Vision Model
 
@@ -100,9 +107,16 @@ sequenceDiagram
     end
 
     Handler->>Handler: command.addAttachment(replyAttachment)
-    Note over Handler: VISION capability auto-detected via attachments
+    Note over Handler: IMAGE attachment added before pipeline call
 
-    Handler->>GW: ChatAICommand(text, [IMAGE], metadata={threadKey})
+    Handler->>PL: IChatCommand(text, [IMAGE], metadata={threadKey})
+
+    Note over PL: IMAGE attachment → bypasses orchestrator
+    PL->>CF: createCommand(command)
+    CF->>CF: IMAGE attachment → VISION added to capabilities
+    CF-->>PL: ChatAICommand(text, [IMAGE], CHAT+VISION)
+
+    PL->>GW: ChatAICommand(text, [IMAGE], CHAT+VISION)
     GW->>LLM: [SystemMessage, History, UserMessage(query + Media)]
     LLM-->>GW: Vision model response
     GW-->>User: Answer based on re-analyzed image
@@ -115,6 +129,8 @@ sequenceDiagram
     actor User
     participant Handler as MessageHandler
     participant MS as MessageService
+    participant PL as AIRequestPipeline
+    participant CF as DefaultAICommandFactory
     participant GW as SpringAIGateway
     participant Mem as ChatMemory
     participant LLM as Chat Model
@@ -124,15 +140,18 @@ sequenceDiagram
     Handler->>MS: Check thread for ragDocumentIds
     MS-->>Handler: No ragDocumentIds (images are not indexed in RAG)
 
-    Handler->>GW: ChatAICommand(text, [], metadata={})
+    Handler->>PL: IChatCommand(text, [], metadata={})
 
-    GW->>GW: processFollowUpRagIfAvailable()
-    Note over GW: No documentIds in metadata — skip RAG retrieval
+    Note over PL: No document attachments, no documentIds in metadata<br/>→ orchestrator skips follow-up RAG
+    PL->>CF: createCommand(command)
+    CF-->>PL: ChatAICommand(text, [], CHAT)
+
+    PL->>GW: ChatAICommand(text, [], CHAT)
 
     GW->>Mem: get(conversationId)
     Note over Mem: Loads history from DB via MessageWindowChatMemory<br/>Includes previous UserMessage (with image description)<br/>and AssistantMessage (vision model response)
 
-    GW->>GW: hasUserMedia(messages) → false (no images in follow-up)
+    GW->>GW: No IMAGE attachments in current message
     GW->>GW: Select TEXT-capable model (VISION not required)
 
     GW->>LLM: [SystemMessage(role/lang), History, UserMessage(followUp)]
@@ -144,14 +163,15 @@ sequenceDiagram
 
 ## Key Design Points
 
-1. **No RAG for direct images** — `processRagIfEnabled()` filters attachments via
-   `Attachment.isDocument()`, which returns `false` for `AttachmentType.IMAGE`. Images go
-   straight to the vision model without chunking, embedding, or VectorStore indexing.
+1. **Images bypass pipeline orchestration** — `AIRequestPipeline` checks `Attachment.isDocument()`
+   before invoking `SpringDocumentOrchestrator`. `isDocument()` returns `false` for
+   `AttachmentType.IMAGE`, so images are passed directly to the factory without any
+   document preprocessing or RAG orchestration.
 
-2. **VISION capability auto-detection** — `hasUserMedia(messages)` checks if any
-   `UserMessage` contains `Media` objects. If true, `ModelCapabilities.VISION` is added to
-   required capabilities, and `ModelCapabilities.AUTO` is removed to force vision model
-   selection.
+2. **VISION capability detection in factory** — `DefaultAICommandFactory` checks for IMAGE
+   attachments and adds `ModelCapabilities.VISION` to required capabilities. This is
+   consistent with how image-only PDFs (after OCR failure) trigger VISION: the factory
+   always decides based on attachment type, not on gateway logic.
 
 3. **Reply-to-image retrieval (DB first, Telegram fallback)** — when a user replies to a
    message that contained an image, `ReplyImageAttachmentService` resolves the image:
@@ -160,8 +180,8 @@ sequenceDiagram
    - Falls back to downloading from Telegram API if the DB lookup fails (e.g. old messages
      without `telegram_message_id`)
    - Reply attachments are added to the command **after** `saveUserMessage` (not persisted as
-     the current message's attachments) but **before** `createCommand` (so VISION capability
-     is detected automatically)
+     the current message's attachments) but **before** `pipeline.prepareCommand()` (so VISION
+     capability is detected automatically by the factory)
 
 4. **Reply vs own attachment priority** — if the user sends their own image as a reply to
    another image, the user's new image takes priority (`!command.hasAttachments()` guard).
@@ -188,9 +208,11 @@ sequenceDiagram
 | Aspect | Direct Image (this doc) | Reply to Image (this doc) | Text PDF | Image-Only PDF | DOC/XLS |
 |--------|------------------------|--------------------------|----------|----------------|---------|
 | AttachmentType | `IMAGE` | `IMAGE` (resolved) | `PDF` | `PDF` | `PDF` |
+| Pipeline Orchestration | **Bypassed** | **Bypassed** | Yes (text extraction + RAG) | Yes (vision OCR + RAG) | Yes (Tika + RAG) |
 | Text Extraction | None (vision direct) | None (vision direct) | PDFBox | Vision OCR fallback | Tika |
 | RAG Indexed | **No** | **No** | Yes | Yes | Yes |
+| VISION added by | Factory (IMAGE attachment) | Factory (IMAGE attachment) | Not needed | Factory (IMAGE after OCR fail) or N/A after OCR success | Not needed |
 | Image Source | Telegram download | DB/MinIO (fallback: Telegram) | — | — | — |
 | Follow-Up Context | ChatMemory only | ChatMemory only | VectorStore + ChatMemory | VectorStore + ChatMemory | VectorStore + ChatMemory |
-| Model Required | VISION | VISION | CHAT | CHAT + VISION (OCR) | CHAT |
+| Model Required | VISION | VISION | CHAT | CHAT (+ VISION for OCR internally) | CHAT |
 | Related Doc | — | — | [text-pdf-rag.md](./text-pdf-rag.md) | [image-pdf-vision-cache.md](./image-pdf-vision-cache.md) | [doc-xls-tika-rag.md](./doc-xls-tika-rag.md) |

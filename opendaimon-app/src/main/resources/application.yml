@@ -102,7 +102,7 @@ open-daimon:
       # Text: txt,rtf,html,md,csv
       # Structured: json,xml
       # E-books: epub
-      supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub,jpeg,png,gif,webp,bmp,tiff,svg,jp2
+      supported-document-types: pdf,txt,docx,msword,xls,xlsx,ms-excel,x-msexcel,ppt,pptx,ms-powerpoint,x-mspowerpoint,odt,ods,odp,rtf,html,md,csv,json,xml,epub,jpeg,png,gif,webp,bmp,tiff,svg,jp2,wordprocessingml,spreadsheetml,presentationml,opendocument
     # Long polling: socket timeout must be greater than get-updates-timeout (avoids Read timed out)
     long-polling-socket-timeout-seconds: 90
     get-updates-timeout-seconds: 50
@@ -348,6 +348,11 @@ logging:
   level:
     root: INFO
     io.github.ngirchev.opendaimon: INFO
+    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory: DEBUG
+    io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline: DEBUG
+    io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.rest: DEBUG
     org.springframework.ai.chat.model.MessageAggregator: OFF
     reactor.core.publisher: WARN
     org.springframework.web.reactive.function.client: WARN

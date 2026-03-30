@@ -13,7 +13,7 @@ This document describes how user priority (tariff) is determined, how it maps to
 | **REGULAR** | In whitelist, not blocked, not premium, not in a configured channel |
 | **BLOCKED** | Not in whitelist (or not in required channel), or marked as blocked |
 
-Priority is not a separate “plan” in the app; it is derived from Telegram (admin / premium), whitelist, and channel membership.
+Priority is not a separate "plan" in the app; it is derived from Telegram (admin / premium), whitelist, and channel membership.
 
 **Access and groups/chats:** Access is granted via **membership in configured groups/channels** defined in `open-daimon.telegram.access.*.channels` (see `TELEGRAM_ACCESS_*_CHANNELS` env variables). Any user who is a member of one of these groups/channels is auto-added to the whitelist on first interaction ([TelegramWhitelistService](../opendaimon-telegram/src/main/java/io/github/ngirchev/opendaimon/telegram/service/TelegramWhitelistService.java)). Users who got access via such groups/channels receive **VIP (Premium)** priority (same as Telegram Premium users): they get the same model capabilities and free-model treatment.
 
@@ -27,32 +27,49 @@ In [DefaultAICommandFactory](../opendaimon-common/src/main/java/io/github/ngirch
 | **VIP**   | From `chat-routing.VIP` (e.g. `CHAT`) | From config (e.g. `TOOL_CALLING`, `WEB`) | OpenRouter `max_price` from `chat-routing.VIP` (e.g. free-only when set to `0`) |
 | **REGULAR** | From `chat-routing.REGULAR` (e.g. `CHAT`) | From config | OpenRouter `max_price` from `chat-routing.REGULAR` |
 
-If the request has image attachments, **VISION** is added to the **required** set for all priorities.
+**VISION capability and priority enforcement (end-to-end, post-refactoring):**
+
+If the request has IMAGE attachments, **VISION** is added to the **required** set for all priorities. This includes two scenarios:
+- Direct JPEG/PNG image upload — always adds VISION
+- Image-only PDF where vision OCR failed — `SpringDocumentPreprocessor` keeps the rendered
+  PNG images as attachments, and `DefaultAICommandFactory` detects IMAGE → adds VISION
+
+Previously, an image-only PDF would bypass priority checks because `SpringAIGateway`
+internally called a VISION model without the factory knowing. After the architecture
+refactoring, all document analysis and preprocessing happens in `AIRequestPipeline` before
+the factory, so VISION capability detection is always correct:
+
+- **REGULAR user + image-only PDF** → factory adds VISION to required capabilities →
+  `SpringAIModelRegistry.getCandidatesByCapabilities()` finds no VISION-capable model
+  allowed for REGULAR → `UnsupportedModelCapabilityException` is thrown before any model
+  call is made
+- **VIP/ADMIN user + image-only PDF** → VISION added → VISION-capable model selected → OCR
+  proceeds normally
 
 The gateway calls `getCandidatesByCapabilities(required, …)` so models must satisfy **all required** capabilities. If **optional** capabilities are non-empty, candidates are **sorted** to prefer models that also match optional caps (e.g. `WEB`), without excluding models that only satisfy required caps.
 
 [SpringAIChatService](../opendaimon-spring-ai/src/main/java/io/github/ngirchev/opendaimon/ai/springai/service/SpringAIChatService.java) registers web tools when `WEB` appears in **required or optional** capabilities on the command.
 
-There is no separate “free model search by model name”: cost is constrained per tier via **`max_price` in `open-daimon.common.chat-routing`**, together with the capability sets above.
+There is no separate "free model search by model name": cost is constrained per tier via **`max_price` in `open-daimon.common.chat-routing`**, together with the capability sets above.
 
 ## 3. Free models: where they come from and how they are filtered
 
-- **In config (yml):**  
+- **In config (yml):**
   In `models.list` we define: **openrouter/auto** (AUTO, CHAT, TOOL_CALLING, WEB, SUMMARIZATION, EMBEDDING, VISION); **Ollama** `qwen2.5:7b` (CHAT, TOOL_CALLING, SUMMARIZATION), `qwen3-embedding:8b` (EMBEDDING); and **three top OpenRouter free models** with explicit capabilities (see table below). Other free models are added from the API and get capabilities from OpenRouter response.
 
-- **OpenRouter free models:**  
+- **OpenRouter free models:**
   Added to the registry during **refresh** from the OpenRouter API (`GET .../v1/models`): models with `pricing.prompt` and `pricing.completion == 0` are taken, then filters from config are applied.
 
-- **Filter (allowlist):**  
+- **Filter (allowlist):**
   In [application.yml](../opendaimon-app/src/main/resources/application.yml) the free-model allowlist is:
 
   - `open-daimon.ai.spring-ai.openrouter-auto-rotation.models.filters.include-model-ids` — explicit list of model ids (e.g. `google/gemma-3-12b-it:free`, `meta-llama/llama-3.2-3b-instruct:free`, …).
 
-Only free models from the API whose id is in this list (and passes other filters if configured) are added to the registry. So “free models” are not “searched depending on model”; they are loaded once at refresh from the API and filtered by the same allowlist for everyone. The actual model chosen for a request is then selected by **capabilities** (ADMIN/VIP/REGULAR) and ranking (latency, cooldown after 429/5xx).
+Only free models from the API whose id is in this list (and passes other filters if configured) are added to the registry. So "free models" are not "searched depending on model"; they are loaded once at refresh from the API and filtered by the same allowlist for everyone. The actual model chosen for a request is then selected by **capabilities** (ADMIN/VIP/REGULAR) and ranking (latency, cooldown after 429/5xx).
 
 ## 4. Models and capabilities (reference)
 
-**Capability keys:** CHAT, TOOL_CALLING, WEB, SUMMARIZATION, STRUCTURED_OUTPUT, VISION, EMBEDDING, FREE. AUTO = “any”; used for openrouter/auto.
+**Capability keys:** CHAT, TOOL_CALLING, WEB, SUMMARIZATION, STRUCTURED_OUTPUT, VISION, EMBEDDING, FREE. AUTO = "any"; used for openrouter/auto.
 
 **Top 3 OpenRouter free (in `models.list`):**
 
@@ -103,8 +120,10 @@ Only free models from the API whose id is in this list (and passes other filters
 - **Tariffs** = user priority: ADMIN / VIP / REGULAR (and BLOCKED), derived from admin flag, whitelist, and channel membership.
 - **Tariff affects the capability set** (AUTO for ADMIN, CHAT+TOOL_CALLING+WEB for VIP, CHAT for REGULAR) and **OpenRouter `max_price`** per tier from `open-daimon.common.chat-routing` (ADMIN / VIP / REGULAR).
 - **Free models** = OpenRouter models with zero pricing that pass the `include-model-ids` (and other) filters; one shared set for all users, not a per-model search.
+- **VISION blocking works end-to-end** — document analysis and preprocessing run before the factory in `AIRequestPipeline`. The factory always sees the correct attachment state and enforces VISION restrictions by priority tier before any model call reaches the gateway.
 
 ## Related
 
 - [AGENTS.md](../AGENTS.md) — project overview and dialog flow.
 - [docs/openrouter-routing.md](openrouter-routing.md) — OpenRouter model routing and retry.
+- [docs/rag-logic.md](rag-logic.md) — RAG architecture and processing pipeline.

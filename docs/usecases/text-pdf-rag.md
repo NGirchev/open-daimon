@@ -18,10 +18,14 @@ sequenceDiagram
     actor User
     participant TG as TelegramFileService
     participant MS as MessageService
-    participant GW as SpringAIGateway
+    participant PL as AIRequestPipeline
+    participant OR as SpringDocumentOrchestrator
+    participant PR as SpringDocumentPreprocessor
     participant DPS as DocumentProcessingService
     participant RAG as FileRAGService
     participant VS as VectorStore
+    participant CF as DefaultAICommandFactory
+    participant GW as SpringAIGateway
     participant Mem as ChatMemory
     participant LLM as Chat Model
 
@@ -33,36 +37,47 @@ sequenceDiagram
     MS->>MS: saveUserMessage(text, attachments)
     Note over MS: Persists to DB with sequenceNumber
 
-    MS->>GW: ChatAICommand(userQuery, attachments, metadata={})
+    MS->>PL: IChatCommand(userQuery, attachments, metadata={})
 
-    GW->>GW: addSystemAndUserMessagesIfNeeded()
-    GW->>GW: processRagIfEnabled(userQuery, attachments)
+    PL->>OR: orchestrate(command)
 
-    Note over GW,DPS: Phase 1: Extract & Index
+    Note over OR,DPS: Phase 1: Analyze & Extract & Index
 
-    GW->>DPS: processPdf(pdfBytes, filename)
+    OR->>OR: IDocumentContentAnalyzer.analyze(attachment)
+    Note over OR: PdfTextDetector: PDF has text layer → TEXT_EXTRACTABLE
+
+    OR->>PR: preprocess(attachment, userQuery, TEXT_EXTRACTABLE)
+    PR->>DPS: processPdf(pdfBytes, filename)
     DPS->>DPS: PagePdfDocumentReader (PDFBox)
     DPS->>DPS: Extract text → List<Document> (one per page)
     DPS->>DPS: TokenTextSplitter(chunkSize=800, overlap=100)
     DPS->>DPS: Add metadata: documentId, originalName, type="pdf"
     DPS->>VS: add(chunks) — embeddings generated automatically
-    DPS-->>GW: documentId
+    DPS-->>PR: documentId
+    PR-->>OR: DocumentPreprocessingResult(documentId, relevantChunks)
 
-    Note over GW,VS: Phase 2: Semantic Search
+    Note over OR,VS: Phase 2: Semantic Search
 
-    GW->>RAG: findRelevantContext(userQuery, documentId)
+    OR->>RAG: findRelevantContext(userQuery, documentId)
     RAG->>VS: similaritySearch(query, topK=5, threshold=0.7)
     VS-->>RAG: Top-K relevant chunks
-    RAG-->>GW: relevantChunks
+    RAG-->>OR: relevantChunks
 
-    Note over GW: Phase 3: Build Augmented Prompt & Store Metadata
+    Note over OR: Phase 3: Build Augmented Prompt & Store Metadata
 
-    GW->>GW: storeDocumentIdsInCommandMetadata(documentIds, command)
-    Note over GW: metadata.put(RAG_DOCUMENT_IDS_FIELD, documentId)
+    OR->>OR: storeDocumentIdsInCommandMetadata(documentIds, command)
+    Note over OR: metadata.put(RAG_DOCUMENT_IDS_FIELD, documentId)
 
-    GW->>GW: buildRagAugmentedQuery(relevantChunks, userQuery)
-    GW->>GW: buildRagPlaceholder(documentAttachments)
+    OR->>OR: buildRagAugmentedQuery(relevantChunks, userQuery)
+    OR-->>PL: OrchestratedChatCommand(augmentedQuery, attachments, metadata)
 
+    PL->>CF: createCommand(orchestratedCommand)
+    Note over CF: No IMAGE attachments → no VISION added
+    CF-->>PL: ChatAICommand(CHAT capability)
+
+    PL->>GW: ChatAICommand(augmentedQuery, metadata)
+
+    GW->>GW: addSystemAndUserMessagesIfNeeded()
     GW->>GW: createUserMessage(augmentedPrompt + placeholder)
     Note over GW: Plain text UserMessage (no images)
 
@@ -83,8 +98,11 @@ sequenceDiagram
     actor User
     participant Handler as MessageHandler
     participant MS as MessageService
-    participant GW as SpringAIGateway
+    participant PL as AIRequestPipeline
+    participant OR as SpringDocumentOrchestrator
     participant VS as VectorStore
+    participant CF as DefaultAICommandFactory
+    participant GW as SpringAIGateway
     participant Mem as ChatMemory
     participant LLM as Chat Model
 
@@ -94,16 +112,22 @@ sequenceDiagram
     MS-->>Handler: List<documentId> from USER message metadata
 
     Handler->>Handler: metadata.put(RAG_DOCUMENT_IDS_FIELD, documentIds)
-    Handler->>GW: ChatAICommand(text, [], metadata={ragDocumentIds=...})
+    Handler->>PL: IChatCommand(text, [], metadata={ragDocumentIds=...})
 
-    GW->>GW: processFollowUpRagIfAvailable()
-    Note over GW: No attachments — read documentIds from command.metadata()
+    PL->>OR: processFollowUpRagIfAvailable(command)
+    Note over OR: No document attachments — read documentIds from command.metadata()
 
-    GW->>GW: command.metadata().get(RAG_DOCUMENT_IDS_FIELD)
-    GW->>VS: findAllByDocumentId(documentId) — per document
-    VS-->>GW: allChunks
+    OR->>OR: command.metadata().get(RAG_DOCUMENT_IDS_FIELD)
+    OR->>VS: findAllByDocumentId(documentId) — per document, threshold=0.0
+    VS-->>OR: allChunks
 
-    GW->>GW: Build RAG context prefix from chunks
+    OR->>OR: Build RAG context prefix from chunks
+    OR-->>PL: OrchestratedChatCommand(RAG prefix + followUp, [], metadata)
+
+    PL->>CF: createCommand(orchestratedCommand)
+    CF-->>PL: ChatAICommand(CHAT capability)
+
+    PL->>GW: ChatAICommand(RAG prefix + followUp)
 
     GW->>Mem: get(conversationId)
     Note over Mem: Loads history from DB via MessageWindowChatMemory
@@ -117,13 +141,13 @@ sequenceDiagram
 
 ## Key Design Points
 
-1. **DocumentIds stored in USER message metadata** — the gateway writes documentIds into
+1. **DocumentIds stored in USER message metadata** — the orchestrator writes documentIds into
    `AICommand.metadata` under `RAG_DOCUMENT_IDS_FIELD`. The handler persists them on the
    USER message via `OpenDaimonMessageService.updateRagMetadata()`.
 
 2. **VectorStore active on both first and follow-up messages** — on first message, chunks
    are indexed and searched. On follow-up, the handler reads stored documentIds from message
-   history and injects them into command metadata; the gateway fetches fresh chunks from
+   history and injects them into command metadata; the orchestrator fetches fresh chunks from
    VectorStore dynamically (threshold=0.0 to return all chunks for that document).
 
 3. **Chunking strategy** — `TokenTextSplitter` with 800-token chunks and 100-token overlap
@@ -132,13 +156,17 @@ sequenceDiagram
 4. **Similarity threshold** (0.7) filters out low-relevance chunks, preventing noise
    in the augmented prompt.
 
-5. **Image-only PDFs follow a different path** — for scanned/image PDFs and local Ollama
+5. **Gateway is not involved in RAG** — all document extraction, indexing, and query
+   augmentation happens in `AIRequestPipeline` → `SpringDocumentOrchestrator` → `SpringDocumentPreprocessor`
+   before the command reaches `SpringAIGateway`.
+
+6. **Image-only PDFs follow a different path** — for scanned/image PDFs and local Ollama
    model constraints, see
    [`docs/usecases/image-pdf-vision-cache.md`](./image-pdf-vision-cache.md).
 
-6. **Office documents (DOC, XLS, etc.) use Tika** — for non-PDF office formats extracted
+7. **Office documents (DOC, XLS, etc.) use Tika** — for non-PDF office formats extracted
    via Apache Tika, see [`docs/usecases/doc-xls-tika-rag.md`](./doc-xls-tika-rag.md).
 
-7. **Direct images (JPEG/PNG) bypass RAG** — images sent without a PDF wrapper go directly
+8. **Direct images (JPEG/PNG) bypass RAG** — images sent without a PDF wrapper go directly
    to the vision model without text extraction or indexing. See
    [`docs/usecases/image-vision-direct.md`](./image-vision-direct.md).

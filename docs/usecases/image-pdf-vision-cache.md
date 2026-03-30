@@ -7,8 +7,9 @@
 >
 > Run with: `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=ImagePdfVisionRagOllamaManualIT -Dfailsafe.failIfNoSpecifiedTests=false -Dmanual.ollama.e2e=true`
 
-When a user uploads an image-only PDF (scan, certificate, etc.), the system extracts text
-via a vision-capable model and caches it in VectorStore for follow-up queries.
+When a user uploads an image-only PDF (scan, certificate, etc.), the system detects it
+before the gateway call, renders pages as images, extracts text via a vision-capable model,
+and caches it in VectorStore for follow-up queries.
 
 ## First Message (PDF Upload)
 
@@ -16,58 +17,96 @@ via a vision-capable model and caches it in VectorStore for follow-up queries.
 sequenceDiagram
     actor User
     participant TG as TelegramFileService
-    participant GW as SpringAIGateway
+    participant PL as AIRequestPipeline
+    participant OR as SpringDocumentOrchestrator
+    participant AN as SpringDocumentContentAnalyzer
+    participant PD as PdfTextDetector
+    participant PR as SpringDocumentPreprocessor
     participant DPS as DocumentProcessingService
     participant CS as SpringAIChatService
     participant VS as VectorStore
+    participant CF as DefaultAICommandFactory
+    participant GW as SpringAIGateway
     participant LLM as Vision Model
-    participant CMD as AICommand.metadata
     participant Chat as Chat Model
 
     User->>TG: Send image-only PDF + question
     TG->>TG: Download file from Telegram, save to MinIO
-    TG->>GW: ChatAICommand(text, attachments, metadata={})
+    TG->>PL: IChatCommand(text, attachments, metadata={})
 
-    GW->>GW: processRagIfEnabled()
-    GW->>DPS: processPdf(pdfBytes, filename)
-    DPS->>DPS: PDFBox: extract text
-    DPS-->>GW: throw DocumentContentNotExtractableException
+    PL->>OR: orchestrate(command)
 
-    Note over GW: Fallback: render PDF pages as preprocessed PNG images
+    OR->>AN: analyze(attachment)
+    AN->>PD: hasExtractableText(pdfBytes)
+    PD-->>AN: false — no text layer
+    AN-->>OR: DocumentAnalysisResult(IMAGE_ONLY, requires VISION)
 
-    GW->>GW: renderPdfToImageAttachments(pdfBytes)
+    Note over OR,PR: Preprocessing: render pages + vision OCR
 
-    Note over GW,LLM: Vision Cache: extract text via vision model
+    OR->>PR: preprocess(attachment, userQuery, IMAGE_ONLY)
 
-    GW->>GW: extractTextFromImagesViaVision()
-    GW->>CS: callSimpleVision(visionModel, [UserMessage + Media])
+    PR->>PR: renderPdfToImageAttachments(pdfBytes)
+    Note over PR: PDF pages → preprocessed PNG images (300 DPI)
+
+    PR->>CS: callSimpleVision(visionModel, [UserMessage + Media])
     CS->>LLM: Send images + extraction prompt
     LLM-->>CS: Extracted text content
-    CS-->>GW: extractedText
+    CS-->>PR: extractedText
 
-    Note over GW: Vision succeeded — remove images from final message
+    Note over PR: Vision succeeded — images not needed for final message
 
-    GW->>GW: Remove temporary PNG images from attachments
-    GW->>DPS: processExtractedText(extractedText, filename)
+    PR->>DPS: processExtractedText(extractedText, filename)
     DPS->>DPS: TokenTextSplitter: split into chunks
     DPS->>VS: add(chunks) with metadata type="pdf-vision"
-    DPS-->>GW: documentId
+    DPS-->>PR: documentId
 
-    GW->>VS: findAllByDocumentId(documentId)
-    VS-->>GW: allChunks
+    PR-->>OR: DocumentPreprocessingResult(documentId, allChunks, imageAttachments=[], visionSucceeded=true)
 
-    Note over GW,CMD: Store documentId in command metadata for handler persistence
+    OR->>OR: storeDocumentIdsInCommandMetadata(documentId, command)
+    Note over OR: metadata.put(RAG_DOCUMENT_IDS_FIELD, documentId)
+    OR->>OR: Build RAG context prefix from allChunks
+    OR-->>PL: OrchestratedChatCommand(RAG prefix + query, attachments=[], metadata)
 
-    GW->>CMD: metadata.put(RAG_DOCUMENT_IDS_FIELD, documentId)
-    GW->>CMD: metadata.put(RAG_FILENAMES_FIELD, filename)
-    GW->>GW: Build RAG context prefix from chunks
-    GW->>GW: Build UserMessage: RAG prefix + original query + placeholder
+    PL->>CF: createCommand(orchestratedCommand)
+    Note over CF: No IMAGE attachments (vision OCR succeeded, images removed)<br/>→ no VISION added to capabilities
+    CF-->>PL: ChatAICommand(CHAT capability)
 
+    PL->>GW: ChatAICommand(RAG prefix + query, CHAT)
+
+    GW->>GW: Model selection: CHAT capability → TEXT model selected (not VISION)
     GW->>Chat: Send SystemMessage(role/lang) + UserMessage(RAG prefix + query + placeholder)
-    Chat-->>GW: Response (TEXT model, not VISION)
+    Chat-->>GW: Response (TEXT model)
     GW-->>User: Answer based on extracted text via RAG
 
-    Note over GW,CMD: Handler reads metadata, persists to USER message via updateRagMetadata()
+    Note over GW: Handler reads metadata, persists ragDocumentIds to USER message
+```
+
+## Vision OCR Fallback (OCR Failed)
+
+If vision extraction fails, the PDF page images are kept as attachments so the model can
+process them directly. In this case the factory detects IMAGE attachments and adds VISION.
+
+```mermaid
+sequenceDiagram
+    participant PR as SpringDocumentPreprocessor
+    participant CF as DefaultAICommandFactory
+    participant GW as SpringAIGateway
+    participant LLM as Vision Model
+
+    PR->>PR: renderPdfToImageAttachments(pdfBytes)
+    PR->>PR: extractTextFromImagesViaVision() → fails / extraction incomplete
+    PR-->>PR: visionExtractionSucceeded = false
+
+    Note over PR: Images kept as attachments for direct vision processing
+
+    PR-->>CF: OrchestratedChatCommand(originalQuery, attachments=[IMAGE, IMAGE, ...])
+
+    CF->>CF: attachments contain IMAGE → add VISION to required capabilities
+    CF-->>GW: ChatAICommand(CHAT + VISION, attachments=[IMAGE])
+
+    GW->>GW: Model selection: CHAT + VISION required → VISION model selected
+    GW->>LLM: [SystemMessage, UserMessage(query + Media)]
+    LLM-->>GW: Vision model response
 ```
 
 ## Follow-Up Message (No Attachments)
@@ -77,8 +116,11 @@ sequenceDiagram
     actor User
     participant Handler as MessageHandler
     participant MS as MessageService
-    participant GW as SpringAIGateway
+    participant PL as AIRequestPipeline
+    participant OR as SpringDocumentOrchestrator
     participant VS as VectorStore
+    participant CF as DefaultAICommandFactory
+    participant GW as SpringAIGateway
     participant Mem as ChatMemory
     participant Chat as Chat Model
 
@@ -88,16 +130,23 @@ sequenceDiagram
     MS-->>Handler: List<documentId> from USER message metadata
 
     Handler->>Handler: metadata.put(RAG_DOCUMENT_IDS_FIELD, documentIds)
-    Handler->>GW: ChatAICommand(text, [], metadata={ragDocumentIds=...})
+    Handler->>PL: IChatCommand(text, [], metadata={ragDocumentIds=...})
 
-    GW->>GW: processFollowUpRagIfAvailable()
-    Note over GW: No attachments — read documentIds from command.metadata()
+    PL->>OR: processFollowUpRagIfAvailable(command)
+    Note over OR: No attachments — read documentIds from command.metadata()
 
-    GW->>GW: command.metadata().get(RAG_DOCUMENT_IDS_FIELD)
-    GW->>VS: findAllByDocumentId(documentId) — threshold=0.0
-    VS-->>GW: allChunks
+    OR->>OR: command.metadata().get(RAG_DOCUMENT_IDS_FIELD)
+    OR->>VS: findAllByDocumentId(documentId) — threshold=0.0
+    VS-->>OR: allChunks
 
-    GW->>GW: Build RAG context prefix from chunks
+    OR->>OR: Build RAG context prefix from chunks
+    OR-->>PL: OrchestratedChatCommand(RAG prefix + followUp)
+
+    PL->>CF: createCommand(orchestratedCommand)
+    CF-->>PL: ChatAICommand(CHAT capability)
+
+    PL->>GW: ChatAICommand(RAG prefix + followUp)
+
     GW->>Mem: get(conversationId) — chat history (User/Assistant turns)
 
     GW->>Chat: Send SystemMessage(role/lang) + chat history + UserMessage(RAG prefix + query)
@@ -107,34 +156,40 @@ sequenceDiagram
 
 ## Key Design Decisions
 
-1. **RAG context is prepended to UserMessage** — gateway builds a RAG prefix from
+1. **Vision capability detection before gateway** — `SpringDocumentContentAnalyzer` (via
+   `PdfTextDetector`) determines whether a PDF needs VISION before model selection. This
+   ensures REGULAR users who lack VISION access are blocked at the factory level, not deep
+   inside the gateway.
+
+2. **RAG context is prepended to UserMessage** — the orchestrator builds a RAG prefix from
    retrieved chunks and prepends it to the user query. A short placeholder
    `[Documents loaded for context: filename.pdf]` is also appended for traceability.
 
-2. **DocumentId stored in USER message metadata** — the gateway writes documentIds into
+3. **DocumentId stored in USER message metadata** — the orchestrator writes documentIds into
    `AICommand.metadata` under `RAG_DOCUMENT_IDS_FIELD`. The handler then persists them
    on the USER message via `OpenDaimonMessageService.updateRagMetadata()`. On follow-up
    messages, the handler reads stored documentIds from message history and injects them
-   back into `AICommand.metadata` before calling the gateway.
+   back into `AICommand.metadata` before calling the pipeline.
 
-3. **No transient RAG SystemMessage** — document context is injected directly into
+4. **No transient RAG SystemMessage** — document context is injected directly into
    `UserMessage` as a prefix so small local models reliably consume it.
 
-4. **After successful vision extraction, images are removed** — the text model (not VISION)
+5. **After successful vision extraction, images are removed** — the text model (not VISION)
    answers using RAG context. Images are only kept as fallback if vision extraction fails.
 
-5. **Vision extraction is a separate internal call** — uses `callSimpleVision()` without
-   ChatMemory, web tools, or conversationId to avoid polluting chat history.
+6. **Vision extraction is a separate internal call** — `SpringDocumentPreprocessor` uses
+   `callSimpleVision()` without ChatMemory, web tools, or conversationId to avoid polluting
+   chat history.
 
    **Note:** Direct JPEG/PNG images (not wrapped in PDF) follow a completely different path —
    they go straight to the vision model without OCR extraction or RAG indexing. See
    [`docs/usecases/image-vision-direct.md`](./image-vision-direct.md).
 
-6. **Both first message and follow-up use `findAllByDocumentId()`** — with threshold=0.0
+7. **Both first message and follow-up use `findAllByDocumentId()`** — with threshold=0.0
    to bypass cross-language similarity mismatch (e.g. Russian query vs English document).
    Since chunks are filtered by documentId, all returned chunks belong to the user's document.
 
-7. **Graceful degradation on restart** — if VectorStore data is lost (SimpleVectorStore
+8. **Graceful degradation on restart** — if VectorStore data is lost (SimpleVectorStore
    is in-memory), follow-up returns no chunks and the model answers from chat history only.
 
 ## Direct Ollama Findings (Local Validation, March 29, 2026)

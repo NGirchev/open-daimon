@@ -264,6 +264,40 @@ class XlsRagOpenRouterManualIT {
                 .isEqualTo(2);
     }
 
+    /**
+     * Verifies that XLS RAG can answer questions about specific cell values.
+     * Row 7 of file_example_XLS_50.xls has firstName=Etta.
+     * This ensures Tika extraction preserves row-level data and RAG can retrieve it.
+     */
+    @Test
+    @Timeout(3 * 60)
+    @DisplayName("Manual E2E: OpenRouter + XLS — specific cell lookup (row 7, firstName=Etta)")
+    void xls_openRouterAuto_specificCellLookup() throws IOException {
+        TelegramCommand command = createMessageCommand(
+                TEST_CHAT_ID + 1,
+                1,
+                "What is the firstName in row 7?",
+                List.of(loadXlsAttachment())
+        );
+
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID + 1)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        String reply = latestAssistantReply(thread);
+        assertThat(reply)
+                .as("Reply should not be blank")
+                .isNotBlank();
+
+        assertThat(reply.toLowerCase())
+                .as("Model should find firstName=Etta in row 7 of the XLS file")
+                .contains("etta");
+    }
+
     private Attachment loadXlsAttachment() throws IOException {
         ClassPathResource resource = new ClassPathResource(XLS_RESOURCE);
         byte[] xlsBytes = resource.getInputStream().readAllBytes();

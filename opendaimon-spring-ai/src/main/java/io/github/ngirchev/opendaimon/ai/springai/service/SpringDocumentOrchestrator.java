@@ -147,8 +147,12 @@ public class SpringDocumentOrchestrator implements IDocumentOrchestrator {
 
         List<Document> allChunks = new ArrayList<>();
         for (String docId : ragDocumentIds) {
-            List<Document> chunks = fileRagService.findAllByDocumentId(docId);
-            allChunks.addAll(chunks);
+            try {
+                List<Document> chunks = fileRagService.findAllByDocumentId(docId);
+                allChunks.addAll(chunks);
+            } catch (Exception e) {
+                log.warn("RAG follow-up: failed to fetch chunks for documentId={}: {}", docId, e.getMessage());
+            }
         }
 
         if (allChunks.isEmpty()) {

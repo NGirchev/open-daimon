@@ -97,6 +97,17 @@ public class SpringAIGateway implements AIGateway {
                 List<Message> messages = createMessages(chatOptions.body());
                 log.debug("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole() == null ? null : chatOptions.userRole().replaceAll("\\s+", " ").trim());
                 addSystemAndUserMessagesIfNeeded(messages, chatOptions, command);
+                if (log.isDebugEnabled()) {
+                    for (int i = 0; i < messages.size(); i++) {
+                        Message msg = messages.get(i);
+                        if (msg instanceof UserMessage um) {
+                            boolean hasMedia = um.getMedia() != null && !um.getMedia().isEmpty();
+                            log.debug("Gateway: message[{}] UserMessage hasMedia={}, mediaCount={}, textLength={}",
+                                    i, hasMedia, hasMedia ? um.getMedia().size() : 0,
+                                    um.getText() != null ? um.getText().length() : 0);
+                        }
+                    }
+                }
                 return executeChatWithOptions(chatOptions, command, messages);
             } else {
                 throw new IllegalArgumentException();

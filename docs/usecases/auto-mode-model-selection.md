@@ -11,26 +11,36 @@ scenarios: dual-provider, Ollama-only, and OpenRouter-only.
 ```mermaid
 sequenceDiagram
     actor User
-    participant CF as AICommandFactory
+    participant PL as AIRequestPipeline
+    participant OR as SpringDocumentOrchestrator
+    participant CF as DefaultAICommandFactory
     participant PS as UserPriorityService
     participant GW as SpringAIGateway
     participant Reg as SpringAIModelRegistry
     participant PF as SpringAIPromptFactory
     participant LLM as Selected Model
 
-    User->>CF: Send message (no model preference)
+    User->>PL: Send message (no model preference)
 
+    Note over PL,OR: Document preprocessing happens first (if attachments present)
+    PL->>OR: orchestrate(command)
+    Note over OR: Analyzes documents, runs RAG indexing,<br/>builds augmented query, stores documentIds
+    OR-->>PL: OrchestratedChatCommand(preprocessedAttachments, augmentedQuery)
+
+    PL->>CF: createCommand(orchestratedCommand)
     CF->>PS: getUserPriority(userId)
     PS-->>CF: UserPriority (ADMIN / VIP / REGULAR)
 
     CF->>CF: Select routing tier config
     Note over CF: ADMIN: required=[CHAT,TOOL_CALLING]<br/>optional=[WEB,VISION], maxPrice=1.0<br/>VIP: required=[CHAT]<br/>optional=[TOOL_CALLING,WEB], maxPrice=0.5<br/>REGULAR: required=[CHAT]<br/>optional=[], maxPrice=0.0
 
-    alt Has image attachments
+    alt Has IMAGE attachments (direct images or PDF rendering fallback)
         CF->>CF: Add VISION to required capabilities
+        Note over CF: IMAGE attachments may come from:<br/>1. Direct JPEG/PNG upload<br/>2. Image-only PDF where OCR failed (rendering kept)
     end
 
-    CF->>GW: ChatAICommand(requiredCaps, optionalCaps, metadata)
+    CF-->>PL: ChatAICommand(requiredCaps, optionalCaps, metadata)
+    PL->>GW: ChatAICommand
 
     GW->>GW: executeChatWithOptions()
     GW->>Reg: getCandidatesByCapabilities(required, null, userPriority)
@@ -63,18 +73,21 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor User
-    participant CF as AICommandFactory
+    participant PL as AIRequestPipeline
+    participant CF as DefaultAICommandFactory
     participant GW as SpringAIGateway
     participant Reg as SpringAIModelRegistry
     participant PF as SpringAIPromptFactory
     participant LLM as Selected Model
 
-    User->>CF: Send message with preferred model ID
+    User->>PL: Send message with preferred model ID
 
+    PL->>CF: createCommand (after orchestration)
     CF->>CF: FixedModelChatAICommand(fixedModelId, caps)
     Note over CF: Bypasses capability-based selection
 
-    CF->>GW: FixedModelChatAICommand
+    CF-->>PL: FixedModelChatAICommand
+    PL->>GW: FixedModelChatAICommand
 
     GW->>Reg: getByModelName(fixedModelId)
     Reg-->>GW: modelConfig (direct lookup)
@@ -148,8 +161,9 @@ sequenceDiagram
         Reg->>Reg: Candidates: qwen2.5:3b, gemma3:4b
         Reg->>Reg: Sort by priority → qwen2.5:3b wins
         Reg-->>PF: qwen2.5:3b (OLLAMA)
-    else User sends image
+    else User sends image (or image-only PDF with failed OCR)
         Reg->>Reg: Required: [CHAT, VISION]
+        Note over Reg: VISION added by DefaultAICommandFactory<br/>when IMAGE attachments present
         Reg->>Reg: Candidates: gemma3:4b (only one with VISION)
         Reg-->>PF: gemma3:4b (OLLAMA)
     else User requests EMBEDDING
@@ -261,20 +275,31 @@ flowchart LR
 
 ## Key Design Points
 
-1. **Capability-first, priority-second** — models are filtered by required capabilities
+1. **Capability detection happens before gateway** — `DefaultAICommandFactory` determines
+   required capabilities (including VISION for IMAGE attachments) after `AIRequestPipeline`
+   has already run document orchestration. The gateway only receives a finalized command and
+   executes the model call.
+
+2. **VISION is added by the factory, not the gateway** — previously, `SpringAIGateway`
+   internally rendered image-only PDFs and called a VISION model, bypassing priority checks.
+   Now `SpringDocumentPreprocessor` (in the pipeline, before the factory) renders the PDF,
+   and if OCR fails, the IMAGE attachments reach the factory which adds VISION to required
+   capabilities. Priority enforcement blocks REGULAR users correctly.
+
+3. **Capability-first, priority-second** — models are filtered by required capabilities
    first, then sorted by priority number. A model with all required caps but priority=3
    always beats a model missing a capability.
 
-2. **User tier isolation** — `allowedRoles` on models prevents REGULAR users from
+4. **User tier isolation** — `allowedRoles` on models prevents REGULAR users from
    accessing expensive paid models. ADMIN tier gets full access.
 
-3. **Free model health tracking** — EWMA latency and HTTP status penalties dynamically
+5. **Free model health tracking** — EWMA latency and HTTP status penalties dynamically
    re-rank free OpenRouter models. A model returning 429s drops to the bottom.
 
-4. **Lazy client initialization** — `ChatClient` instances are created on first use
+6. **Lazy client initialization** — `ChatClient` instances are created on first use
    with double-checked locking. If a provider is not configured, the error is deferred
    until a model from that provider is actually selected.
 
-5. **Provider inference fallback** — if `providerType` is not set in YAML, the system
+7. **Provider inference fallback** — if `providerType` is not set in YAML, the system
    infers from the model name (e.g., `meta-llama/llama-3-8b` → OpenRouter). Local
    models without `/` are assumed Ollama.
