@@ -69,6 +69,24 @@ public class AIRequestPipeline {
                 && metadata != null
                 && metadata.containsKey(AICommand.RAG_DOCUMENT_IDS_FIELD);
 
+        // Detect attachments that are neither IMAGE nor recognized document.
+        // These would be silently ignored — the model would answer without seeing the file content.
+        // Fail fast with a clear error instead of giving a misleading answer.
+        if (!hasDocuments) {
+            List<Attachment> unrecognized = attachments.stream()
+                    .filter(a -> !a.isImage() && !a.isDocument())
+                    .toList();
+            if (!unrecognized.isEmpty()) {
+                String files = unrecognized.stream()
+                        .map(a -> a.mimeType() != null ? a.mimeType() : "unknown")
+                        .distinct()
+                        .collect(java.util.stream.Collectors.joining(", "));
+                log.warn("AIRequestPipeline: unrecognized attachment type(s): {}", files);
+                throw new io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException(
+                        "Unsupported file type: " + files);
+            }
+        }
+
         if (!hasDocuments && !hasFollowUpRag) {
             return factoryRegistry.createCommand(command, metadata);
         }
