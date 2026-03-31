@@ -218,7 +218,7 @@ open-daimon:
               - WEB
               - VISION
             provider-type: OPENAI
-            priority: 1
+            priority: 2
             allowed-roles:
               - ADMIN
               - VIP
@@ -243,19 +243,19 @@ open-daimon:
               - SUMMARIZATION
               - WEB
             provider-type: OLLAMA
-            priority: 1
+            priority: 3
           - name: "gemma3:4b"
             capabilities:
               - VISION
               - CHAT
             provider-type: OLLAMA
-            priority: 2
+            priority: 3
             max-output-tokens: 16384
           - name: "nomic-embed-text:v1.5"
             capabilities:
               - EMBEDDING
             provider-type: OLLAMA
-            priority: 1
+            priority: 3
       rag:
         enabled: true
         chunk-size: 800
