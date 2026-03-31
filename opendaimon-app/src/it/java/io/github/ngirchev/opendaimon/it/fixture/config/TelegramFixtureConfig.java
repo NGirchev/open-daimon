@@ -105,7 +105,7 @@ public class TelegramFixtureConfig {
 
     @Bean
     public AIRequestPipeline aiRequestPipeline(AICommandFactoryRegistry aiCommandFactoryRegistry) {
-        return new AIRequestPipeline(null, aiCommandFactoryRegistry);
+        return new AIRequestPipeline(null, null, aiCommandFactoryRegistry);
     }
 
     @Bean

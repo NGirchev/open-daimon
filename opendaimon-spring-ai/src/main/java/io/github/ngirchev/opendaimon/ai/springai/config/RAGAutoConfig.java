@@ -18,11 +18,16 @@ import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingServi
 import io.github.ngirchev.opendaimon.ai.springai.service.PdfTextDetector;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentContentAnalyzer;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentOrchestrator;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPreprocessor;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPipelineActions;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringRagQueryAugmenter;
 import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentOrchestrator;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.IRagQueryAugmenter;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentEvent;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentProcessingContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentState;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.DocumentPipelineActions;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.DocumentPipelineFsmFactory;
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 
 /**
  * Auto-configuration for RAG (Retrieval-Augmented Generation).
@@ -131,33 +136,46 @@ public class RAGAutoConfig {
         return new SpringDocumentContentAnalyzer(pdfTextDetector);
     }
 
+    // ==================== FSM Pipeline Beans ====================
+
     /**
-     * Document preprocessor — handles document ETL (extract, transform, load to RAG).
-     * Extracted from SpringAIGateway for separation of concerns.
+     * FSM actions — Spring AI implementation of document pipeline actions.
      */
     @Bean
-    @ConditionalOnMissingBean(IDocumentPreprocessor.class)
-    public SpringDocumentPreprocessor springDocumentPreprocessor(
+    @ConditionalOnMissingBean(DocumentPipelineActions.class)
+    public SpringDocumentPipelineActions springDocumentPipelineActions(
+            IDocumentContentAnalyzer documentContentAnalyzer,
             DocumentProcessingService documentProcessingService,
             FileRAGService fileRAGService,
             SpringAIModelRegistry springAIModelRegistry,
             SpringAIChatService chatService,
             RAGProperties ragProperties) {
-        return new SpringDocumentPreprocessor(
-                documentProcessingService, fileRAGService,
-                springAIModelRegistry, chatService, ragProperties);
+        return new SpringDocumentPipelineActions(
+                documentContentAnalyzer, documentProcessingService,
+                fileRAGService, springAIModelRegistry, chatService, ragProperties);
     }
 
     /**
-     * Document orchestrator — coordinates document preprocessing + RAG query building.
-     * Used by gateway to delegate all document/RAG logic.
+     * Document processing FSM — stateless domain FSM that processes attachments.
+     * Thread-safe singleton; each handle() call creates an internal FSM instance.
      */
     @Bean
-    @ConditionalOnMissingBean(IDocumentOrchestrator.class)
-    public SpringDocumentOrchestrator springDocumentOrchestrator(
-            IDocumentPreprocessor documentPreprocessor,
+    @ConditionalOnMissingBean
+    public ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentPipelineFsm(
+            DocumentPipelineActions actions) {
+        log.info("Creating document processing FSM pipeline");
+        return DocumentPipelineFsmFactory.create(actions);
+    }
+
+    /**
+     * RAG query augmenter — augments user queries with RAG context.
+     * Used by AIRequestPipeline for both new documents and follow-up messages.
+     */
+    @Bean
+    @ConditionalOnMissingBean(IRagQueryAugmenter.class)
+    public SpringRagQueryAugmenter springRagQueryAugmenter(
             FileRAGService fileRAGService,
             RAGProperties ragProperties) {
-        return new SpringDocumentOrchestrator(documentPreprocessor, fileRAGService, ragProperties);
+        return new SpringRagQueryAugmenter(fileRAGService, ragProperties);
     }
 }

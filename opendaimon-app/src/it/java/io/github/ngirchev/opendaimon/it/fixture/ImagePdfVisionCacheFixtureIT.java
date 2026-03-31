@@ -5,7 +5,7 @@ import io.github.ngirchev.opendaimon.ai.springai.config.RAGProperties;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPreprocessor;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPipelineActions;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -222,14 +222,14 @@ class ImagePdfVisionCacheFixtureIT {
     @DisplayName("stripModelInternalTokens — removes gemma3 internal tokens from vision output")
     void stripModelInternalTokens_removesInternalTokens() {
         String dirty = "U.S. Department of Justice\nAntitrust Division\n<start_of_image>";
-        String clean = SpringDocumentPreprocessor.stripModelInternalTokens(dirty);
+        String clean = SpringDocumentPipelineActions.stripModelInternalTokens(dirty);
         assertThat(clean).isEqualTo("U.S. Department of Justice\nAntitrust Division");
 
         String withMultiple = "<start_of_turn>Extract text<end_of_turn><start_of_image>Hello World<end_of_image>";
-        assertThat(SpringDocumentPreprocessor.stripModelInternalTokens(withMultiple)).isEqualTo("Extract textHello World");
+        assertThat(SpringDocumentPipelineActions.stripModelInternalTokens(withMultiple)).isEqualTo("Extract textHello World");
 
-        assertThat(SpringDocumentPreprocessor.stripModelInternalTokens(null)).isNull();
-        assertThat(SpringDocumentPreprocessor.stripModelInternalTokens("  <start_of_image>  ")).isEmpty();
+        assertThat(SpringDocumentPipelineActions.stripModelInternalTokens(null)).isNull();
+        assertThat(SpringDocumentPipelineActions.stripModelInternalTokens("  <start_of_image>  ")).isEmpty();
     }
 
     /**

@@ -7,8 +7,9 @@ import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.document.DocumentAnalysisResult;
 import io.github.ngirchev.opendaimon.common.ai.document.DocumentContentType;
-import io.github.ngirchev.opendaimon.common.ai.document.DocumentPreprocessingResult;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentProcessingContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.DocumentPipelineActions;
 import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
@@ -16,41 +17,38 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.document.Document;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.util.MimeTypeUtils;
 
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-import javax.imageio.ImageIO;
-
 /**
- * Preprocesses document attachments before the AI gateway call.
+ * Spring AI implementation of {@link DocumentPipelineActions}.
  *
- * <p>Extracted from {@code SpringAIGateway} to separate document processing
- * from model selection and chat execution. Handles:
- * <ul>
- *   <li>Text-extractable PDFs: extract text via PDFBox, index in RAG</li>
- *   <li>Image-only PDFs: render to images, OCR via VISION model, index in RAG</li>
- *   <li>Other documents: extract text via Tika, index in RAG</li>
- * </ul>
+ * <p>Ports logic from {@code SpringDocumentOrchestrator}, {@code SpringDocumentPreprocessor},
+ * and {@code SpringDocumentContentAnalyzer} into discrete FSM action methods.
+ *
+ * <p>Each method corresponds to a single FSM transition action and populates
+ * the {@link AttachmentProcessingContext} with results for subsequent transitions.
  */
 @Slf4j
 @RequiredArgsConstructor
-public class SpringDocumentPreprocessor implements IDocumentPreprocessor {
+public class SpringDocumentPipelineActions implements DocumentPipelineActions {
 
     private static final int VISION_EXTRACTION_MAX_ATTEMPTS = 3;
     private static final int VISION_EXTRACTION_LIKELY_COMPLETE_MIN_CHARS = 600;
     private static final int MAX_PDF_PAGES_TO_RENDER = 10;
     private static final int PDF_RENDER_DPI = 300;
 
+    private final IDocumentContentAnalyzer documentContentAnalyzer;
     private final DocumentProcessingService documentProcessingService;
     private final FileRAGService fileRagService;
     private final SpringAIModelRegistry springAIModelRegistry;
@@ -58,96 +56,128 @@ public class SpringDocumentPreprocessor implements IDocumentPreprocessor {
     private final RAGProperties ragProperties;
 
     @Override
-    public DocumentPreprocessingResult preprocess(Attachment attachment, String userQuery,
-                                                   DocumentAnalysisResult analysisResult) {
+    public void classify(AttachmentProcessingContext ctx) {
+        Attachment attachment = ctx.getAttachment();
+        ctx.setProcessedFilename(attachment.filename());
+        log.debug("FSM classify: filename={}, mimeType={}, isImage={}, isDocument={}",
+                attachment.filename(), attachment.mimeType(), attachment.isImage(), attachment.isDocument());
+    }
+
+    @Override
+    public void analyzeContent(AttachmentProcessingContext ctx) {
+        Attachment attachment = ctx.getAttachment();
+        DocumentAnalysisResult analysisResult = documentContentAnalyzer.analyze(attachment);
+        ctx.setDocumentContentType(analysisResult.contentType());
+        log.info("FSM analyzeContent: filename={}, contentType={}",
+                attachment.filename(), analysisResult.contentType());
+    }
+
+    @Override
+    public void extractText(AttachmentProcessingContext ctx) {
+        Attachment attachment = ctx.getAttachment();
         String documentType = SpringDocumentContentAnalyzer.extractDocumentType(
                 attachment.mimeType(), attachment.filename());
-        if (documentType == null) {
-            log.warn("Unsupported document type for RAG: mimeType={}", attachment.mimeType());
-            return DocumentPreprocessingResult.empty();
-        }
 
-        log.info("Preprocessing document: filename={}, type={}, contentType={}",
-                attachment.filename(), documentType, analysisResult.contentType());
-
-        if (analysisResult.contentType() == DocumentContentType.IMAGE_ONLY) {
-            return preprocessImageOnlyPdf(attachment, documentType);
-        }
-
-        return preprocessTextExtractable(attachment, documentType);
-    }
-
-    private DocumentPreprocessingResult preprocessTextExtractable(Attachment attachment, String documentType) {
-        String documentId;
-        if ("pdf".equalsIgnoreCase(documentType)) {
-            try {
+        try {
+            String documentId;
+            if ("pdf".equalsIgnoreCase(documentType)) {
                 documentId = documentProcessingService.processPdf(attachment.data(), attachment.filename());
-            } catch (DocumentContentNotExtractableException e) {
-                // Text extraction failed at runtime (e.g. PdfTextDetector said "has text" but
-                // TokenTextSplitter produced no chunks). Fallback to vision OCR path.
-                log.info("PDF '{}' text extraction failed at runtime, falling back to vision OCR: {}",
-                        attachment.filename(), e.getMessage());
-                return preprocessImageOnlyPdf(attachment, documentType);
+            } else {
+                documentId = documentProcessingService.processWithTika(
+                        attachment.data(), attachment.filename(), documentType);
             }
-        } else {
-            documentId = documentProcessingService.processWithTika(
-                    attachment.data(), attachment.filename(), documentType);
+
+            ctx.setDocumentId(documentId);
+
+            List<Document> relevantChunks = fileRagService.findAllByDocumentId(documentId);
+            List<String> chunkTexts = relevantChunks.stream()
+                    .map(Document::getText)
+                    .toList();
+            ctx.setExtractedChunks(chunkTexts);
+
+            log.info("FSM extractText: filename={}, documentId={}, chunks={}",
+                    attachment.filename(), documentId, chunkTexts.size());
+
+        } catch (DocumentContentNotExtractableException e) {
+            // Text extraction failed — FSM will route to vision OCR fallback
+            log.info("FSM extractText: text extraction failed for '{}', will fallback to vision OCR: {}",
+                    attachment.filename(), e.getMessage());
+            ctx.setExtractedChunks(List.of());
         }
-
-        List<Document> relevantChunks = fileRagService.findAllByDocumentId(documentId);
-        List<String> chunkTexts = relevantChunks.stream()
-                .map(Document::getText)
-                .toList();
-
-        log.info("Preprocessed text document '{}': documentId={}, chunks={}",
-                attachment.filename(), documentId, chunkTexts.size());
-
-        return new DocumentPreprocessingResult(documentId, chunkTexts, List.of(), true);
     }
 
-    private DocumentPreprocessingResult preprocessImageOnlyPdf(Attachment attachment, String documentType) {
-        log.info("PDF '{}' is image-only, rendering pages as images for vision OCR", attachment.filename());
+    @Override
+    public void runVisionOcr(AttachmentProcessingContext ctx) {
+        Attachment attachment = ctx.getAttachment();
+        log.info("FSM runVisionOcr: rendering PDF '{}' pages for vision OCR", attachment.filename());
 
+        // Step 1: Render PDF pages to images
         List<Attachment> imageAttachments = renderPdfToImageAttachments(attachment.data(), attachment.filename());
+        ctx.setImageAttachments(imageAttachments);
+
         if (imageAttachments.isEmpty()) {
-            log.warn("Failed to render any pages from PDF '{}'", attachment.filename());
-            return DocumentPreprocessingResult.empty();
+            log.warn("FSM runVisionOcr: failed to render any pages from PDF '{}'", attachment.filename());
+            ctx.setVisionOcrSucceeded(false);
+            return;
         }
 
-        // Attempt vision OCR extraction
+        // Step 2: Attempt vision OCR extraction
         String extractedText = null;
         try {
             extractedText = extractTextFromImagesViaVision(imageAttachments, attachment.filename());
         } catch (Exception ex) {
-            log.warn("Vision text extraction failed for '{}': {}", attachment.filename(), ex.getMessage());
+            log.warn("FSM runVisionOcr: vision extraction failed for '{}': {}", attachment.filename(), ex.getMessage());
         }
 
-        if (extractedText != null) {
-            // OCR succeeded — index extracted text in RAG
-            String visionDocId = documentProcessingService.processExtractedText(
-                    extractedText, attachment.filename());
-            if (visionDocId != null) {
-                List<Document> visionChunks = fileRagService.findAllByDocumentId(visionDocId);
-                List<String> chunkTexts = visionChunks.stream()
-                        .map(Document::getText)
-                        .toList();
-                log.info("Vision OCR succeeded for '{}': documentId={}, chunks={}",
-                        attachment.filename(), visionDocId, chunkTexts.size());
-                return new DocumentPreprocessingResult(visionDocId, chunkTexts, List.of(), true);
-            }
+        if (extractedText == null) {
+            ctx.setVisionOcrSucceeded(false);
+            return;
         }
 
-        // OCR failed — return images as fallback for direct vision processing
-        log.info("Vision OCR fallback: returning {} image(s) from PDF '{}' for direct vision",
-                imageAttachments.size(), attachment.filename());
-        return new DocumentPreprocessingResult(null, List.of(), imageAttachments, false);
+        // Step 3: OCR succeeded — index extracted text in RAG
+        String visionDocId = documentProcessingService.processExtractedText(
+                extractedText, attachment.filename());
+        if (visionDocId == null) {
+            ctx.setVisionOcrSucceeded(false);
+            return;
+        }
+
+        ctx.setDocumentId(visionDocId);
+
+        List<Document> visionChunks = fileRagService.findAllByDocumentId(visionDocId);
+        List<String> chunkTexts = visionChunks.stream()
+                .map(Document::getText)
+                .toList();
+        ctx.setExtractedChunks(chunkTexts);
+        ctx.setVisionOcrSucceeded(true);
+
+        log.info("FSM runVisionOcr: OCR succeeded for '{}', documentId={}, chunks={}",
+                attachment.filename(), visionDocId, chunkTexts.size());
     }
 
-    /**
-     * Renders PDF pages to images for vision model.
-     * Uses PDFBox PDFRenderer at 300 DPI, limited to first 10 pages.
-     */
-    List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
+    @Override
+    public void indexInRag(AttachmentProcessingContext ctx) {
+        // Indexing already happened during extractText or runVisionOcr
+        // (DocumentProcessingService.processPdf/processWithTika/processExtractedText
+        //  perform extract + chunk + index in one call).
+        // This action confirms the pipeline reached RAG_INDEXED state.
+        log.info("FSM indexInRag: confirmed for '{}', documentId={}, chunks={}",
+                ctx.getProcessedFilename(), ctx.getDocumentId(),
+                ctx.getExtractedChunks().size());
+    }
+
+    @Override
+    public void handleUnsupported(AttachmentProcessingContext ctx) {
+        Attachment attachment = ctx.getAttachment();
+        String mimeType = attachment.mimeType() != null ? attachment.mimeType() : "unknown";
+        ctx.setErrorMessage("Unsupported file type: " + mimeType);
+        log.warn("FSM handleUnsupported: attachment '{}' has unsupported type: {}",
+                attachment.filename(), mimeType);
+    }
+
+    // --- Vision OCR helpers (ported from SpringDocumentPreprocessor) ---
+
+    private List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
         try (PDDocument document = Loader.loadPDF(pdfData)) {
             org.apache.pdfbox.rendering.PDFRenderer renderer =
                     new org.apache.pdfbox.rendering.PDFRenderer(document);
@@ -192,10 +222,6 @@ public class SpringDocumentPreprocessor implements IDocumentPreprocessor {
         }
     }
 
-    /**
-     * Extracts text content from PDF page images via a vision-capable model.
-     * Selects a VISION+CHAT model from registry, sends images with extraction prompt.
-     */
     private String extractTextFromImagesViaVision(List<Attachment> imageAttachments, String filename) {
         List<SpringAIModelConfig> visionCandidates = springAIModelRegistry
                 .getCandidatesByCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION), null);
@@ -203,8 +229,7 @@ public class SpringDocumentPreprocessor implements IDocumentPreprocessor {
             log.warn("No VISION-capable model available for text extraction from '{}'", filename);
             return null;
         }
-        // Prefer concrete vision models over meta-models like "openrouter/auto"
-        // which require max_price routing hints and may not find free endpoints.
+
         SpringAIModelConfig visionModel = visionCandidates.stream()
                 .filter(m -> !m.getName().contains("/auto"))
                 .findFirst()
@@ -248,7 +273,6 @@ public class SpringDocumentPreprocessor implements IDocumentPreprocessor {
 
             if (bestExtractedText != null && !bestExtractedText.isBlank()) {
                 log.info("Vision extraction succeeded for '{}': {} chars", filename, bestExtractedText.length());
-                log.debug("Vision extracted text for '{}': [{}]", filename, bestExtractedText);
                 return bestExtractedText;
             }
 

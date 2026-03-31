@@ -18,12 +18,15 @@ import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.bulkhead.service.impl.NoOpUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;
 import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentOrchestrator;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.IRagQueryAugmenter;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentEvent;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentProcessingContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentState;
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactory;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
 import io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory;
 import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
@@ -191,10 +194,12 @@ public class CoreAutoConfig {
     @Bean
     @ConditionalOnMissingBean
     public AIRequestPipeline aiRequestPipeline(
-            ObjectProvider<IDocumentOrchestrator> documentOrchestratorProvider,
+            ObjectProvider<ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent>> documentFsmProvider,
+            ObjectProvider<IRagQueryAugmenter> ragQueryAugmenterProvider,
             AICommandFactoryRegistry aiCommandFactoryRegistry) {
         return new AIRequestPipeline(
-                documentOrchestratorProvider.getIfAvailable(),
+                documentFsmProvider.getIfAvailable(),
+                ragQueryAugmenterProvider.getIfAvailable(),
                 aiCommandFactoryRegistry);
     }
 

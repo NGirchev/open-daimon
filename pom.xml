@@ -117,6 +117,8 @@
         <jacoco.version>0.8.12</jacoco.version>
         <sonar-maven-plugin.version>5.5.0.6356</sonar-maven-plugin.version>
         <commons-io.version>2.20.0</commons-io.version>
+        <fsm.version>1.0.2</fsm.version>
+        <kotlin-logging.version>3.0.5</kotlin-logging.version>
     </properties>
 
     <dependencyManagement>
@@ -247,6 +249,19 @@
                 <version>${okhttp.version}</version>
                 <scope>test</scope>
             </dependency>
+            <!-- FSM (finite state machine) for document processing pipeline -->
+            <dependency>
+                <groupId>io.github.ngirchev</groupId>
+                <artifactId>fsm</artifactId>
+                <version>${fsm.version}</version>
+            </dependency>
+            <!-- kotlin-logging — required by fsm library (not declared in its pom) -->
+            <dependency>
+                <groupId>io.github.microutils</groupId>
+                <artifactId>kotlin-logging-jvm</artifactId>
+                <version>${kotlin-logging.version}</version>
+            </dependency>
+
             <!-- Force commons-io version required by tika-core (overrides older 2.15.1 from telegrambots) -->
             <dependency>
                 <groupId>commons-io</groupId>

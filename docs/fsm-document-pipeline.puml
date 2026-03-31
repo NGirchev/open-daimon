@@ -1,0 +1,64 @@
+@startuml Document Processing FSM Pipeline
+
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam state {
+    BackgroundColor #E8F5E9
+    BorderColor #2E7D32
+    FontSize 12
+}
+
+title Document Processing FSM Pipeline\n(io.github.ngirchev.opendaimon.common.ai.pipeline.fsm)
+
+state "RECEIVED" as RECEIVED #E3F2FD : Initial state\n(attachment not classified)
+state "CLASSIFIED" as CLASSIFIED #FFF3E0 : Type determined\n(image / document / unsupported)
+state "ANALYZED" as ANALYZED #FFF3E0 : Content type determined\n(text-extractable / image-only)
+state "TEXT_EXTRACTED" as TEXT_EXTRACTED #FFF3E0 : Text extracted\n(PDFBox / Tika)
+state "VISION_OCR_COMPLETE" as VISION_OCR : Vision OCR done\n(success / failure)
+
+state "IMAGE_PASSTHROUGH" as IMAGE_PASS #C8E6C9 : **Terminal**\nImage → direct to gateway
+state "RAG_INDEXED" as RAG_INDEXED #C8E6C9 : **Terminal**\nChunks indexed in VectorStore
+state "IMAGE_FALLBACK" as IMAGE_FALLBACK #FFECB3 : **Terminal**\nRendered pages as images\n(vision OCR failed)
+state "ERROR" as ERROR #FFCDD2 : **Terminal**\nUnsupported type
+
+[*] --> RECEIVED
+
+RECEIVED --> CLASSIFIED : **PROCESS** event\n//action: classify()//
+
+CLASSIFIED --> IMAGE_PASS : [isImage()]
+CLASSIFIED --> ANALYZED : [isDocument()]\n//action: analyzeContent()//
+CLASSIFIED --> ERROR : [else]\n//action: handleUnsupported()//
+
+ANALYZED --> TEXT_EXTRACTED : [textExtractable]\n//action: extractText()//
+ANALYZED --> VISION_OCR : [imageOnly]\n//action: runVisionOcr()//
+
+TEXT_EXTRACTED --> RAG_INDEXED : [hasChunks]\n//action: indexInRag()//
+TEXT_EXTRACTED --> VISION_OCR : [noChunks — fallback]\n//action: runVisionOcr()//
+
+VISION_OCR --> RAG_INDEXED : [ocrSucceeded]\n//action: indexInRag()//
+VISION_OCR --> IMAGE_FALLBACK : [ocrFailed]
+
+IMAGE_PASS --> [*]
+RAG_INDEXED --> [*]
+IMAGE_FALLBACK --> [*]
+ERROR --> [*]
+
+note right of RECEIVED
+  Single **PROCESS** event
+  triggers the entire chain
+  via auto-transitions.
+end note
+
+note right of TEXT_EXTRACTED
+  If text extraction returns
+  empty chunks (runtime failure),
+  falls back to vision OCR path.
+end note
+
+note bottom of VISION_OCR
+  Up to 3 OCR attempts.
+  Keeps longest extraction.
+  ≥600 chars = likely complete.
+end note
+
+@enduml
