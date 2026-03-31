@@ -164,7 +164,6 @@ public class SpringAIGateway implements AIGateway {
             }
             List<SpringAIModelConfig> candidates = springAIModelRegistry
                     .getCandidatesByCapabilities(requiredForSelection, null, userPriority);
-            candidates = preferTextOnlyModelsForTextPayload(candidates, requiresVisionForPayload);
             // Prefer models that also cover optional capabilities (stable sort — preserves priority order within same score)
             Set<ModelCapabilities> optional = command.optionalCapabilities();
             if (!optional.isEmpty() && !candidates.isEmpty()) {
@@ -589,33 +588,6 @@ public class SpringAIGateway implements AIGateway {
                 .filter(UserMessage.class::isInstance)
                 .map(UserMessage.class::cast)
                 .anyMatch(message -> message.getMedia() != null && !message.getMedia().isEmpty());
-    }
-
-    /**
-     * For text-only payloads in AUTO mode, prefer non-VISION candidates when available.
-     *
-     * <p>This avoids routing plain follow-up questions to compact multimodal models when
-     * dedicated text models are configured in the same pool.
-     */
-    private List<SpringAIModelConfig> preferTextOnlyModelsForTextPayload(
-            List<SpringAIModelConfig> candidates,
-            boolean requiresVisionForPayload
-    ) {
-        if (requiresVisionForPayload || candidates == null || candidates.isEmpty()) {
-            return candidates;
-        }
-        List<SpringAIModelConfig> textOnlyCandidates = candidates.stream()
-                .filter(model -> model.getCapabilities() == null
-                        || !model.getCapabilities().contains(ModelCapabilities.VISION))
-                .toList();
-        if (textOnlyCandidates.isEmpty()) {
-            return candidates;
-        }
-        if (textOnlyCandidates.size() != candidates.size()) {
-            log.info("AUTO selection: text-only payload, preferring non-VISION models ({} of {} candidates)",
-                    textOnlyCandidates.size(), candidates.size());
-        }
-        return textOnlyCandidates;
     }
 
 }

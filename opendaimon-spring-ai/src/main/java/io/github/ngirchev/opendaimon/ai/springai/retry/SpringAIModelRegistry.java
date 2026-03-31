@@ -299,12 +299,9 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         }
 
         long now = System.currentTimeMillis();
-        Comparator<SpringAIModelConfig> byPriority = Comparator
-                .comparing(SpringAIModelConfig::getPriority)
-                .thenComparing(SpringAIModelConfig::getName);
         candidates.sort(
-                Comparator.<SpringAIModelConfig>comparingInt(m -> findMaxIndexForAllTypes(new ArrayList<>(m.getCapabilities()), required))
-                        .thenComparing(byPriority)
+                Comparator.comparingInt(SpringAIModelConfig::getPriority)
+                        .thenComparingInt(m -> findMaxIndexForAllTypes(new ArrayList<>(m.getCapabilities()), required))
                         .thenComparing((SpringAIModelConfig m) -> -score(m.getName(), now))
                         .thenComparing(SpringAIModelConfig::getName)
         );
