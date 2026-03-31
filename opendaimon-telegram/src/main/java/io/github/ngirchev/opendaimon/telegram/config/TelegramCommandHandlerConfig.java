@@ -7,7 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
@@ -16,12 +16,15 @@ import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.*;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
+import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
+import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 
 @Configuration
 @ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true", matchIfMissing = true)
@@ -147,6 +150,16 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    public ReplyImageAttachmentService replyImageAttachmentService(
+            OpenDaimonMessageRepository messageRepository,
+            ObjectProvider<FileStorageService> fileStorageServiceProvider,
+            ObjectProvider<TelegramFileService> telegramFileServiceProvider) {
+        return new ReplyImageAttachmentService(
+                messageRepository, fileStorageServiceProvider, telegramFileServiceProvider);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
     public MessageTelegramCommandHandler messageTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
@@ -157,10 +170,11 @@ public class TelegramCommandHandlerConfig {
             TelegramMessageService telegramMessageService,
             AIGatewayRegistry aiGatewayRegistry,
             OpenDaimonMessageService messageService,
-            AICommandFactoryRegistry aiCommandFactoryRegistry,
+            AIRequestPipeline aiRequestPipeline,
             TelegramProperties telegramProperties,
             UserModelPreferenceService userModelPreferenceService,
-            PersistentKeyboardService persistentKeyboardService) {
+            PersistentKeyboardService persistentKeyboardService,
+            ReplyImageAttachmentService replyImageAttachmentService) {
         return new MessageTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
@@ -170,10 +184,11 @@ public class TelegramCommandHandlerConfig {
                 telegramMessageService,
                 aiGatewayRegistry,
                 messageService,
-                aiCommandFactoryRegistry,
+                aiRequestPipeline,
                 telegramProperties,
                 userModelPreferenceService,
-                persistentKeyboardService
+                persistentKeyboardService,
+                replyImageAttachmentService
         );
     }
 

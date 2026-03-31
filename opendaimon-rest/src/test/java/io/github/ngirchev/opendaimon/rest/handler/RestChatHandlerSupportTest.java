@@ -2,6 +2,7 @@ package io.github.ngirchev.opendaimon.rest.handler;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ngirchev.opendaimon.common.SupportedLanguages;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.AssistantRole;
@@ -63,18 +64,18 @@ class RestChatHandlerSupportTest {
         }
 
         @Test
-        void whenRequestNull_returnsRu() {
+        void whenRequestNull_returnsDefaultLanguage() {
             RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, null, 1L);
 
-            assertEquals("ru", RestChatHandlerSupport.getRequestLanguage(command));
+            assertEquals(SupportedLanguages.DEFAULT_LANGUAGE, RestChatHandlerSupport.getRequestLanguage(command));
         }
 
         @Test
-        void whenLocaleNull_returnsRu() {
+        void whenLocaleNull_returnsDefaultLanguage() {
             HttpServletRequest request = mockRequestWithLocale(null);
             RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
 
-            assertEquals("ru", RestChatHandlerSupport.getRequestLanguage(command));
+            assertEquals(SupportedLanguages.DEFAULT_LANGUAGE, RestChatHandlerSupport.getRequestLanguage(command));
         }
     }
 
@@ -172,7 +173,7 @@ class RestChatHandlerSupportTest {
         @Test
         void whenUserMessageNull_doesNotCallSaveAssistantErrorMessage() {
             RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, null, 1L);
-            when(messageLocalizationService.getMessage(eq("rest.error.processing"), eq("ru"), any())).thenReturn("Error");
+            when(messageLocalizationService.getMessage(eq("rest.error.processing"), eq(SupportedLanguages.DEFAULT_LANGUAGE), any())).thenReturn("Error");
 
             RuntimeException result = support.handleProcessingError(command, null, Set.of(), new RuntimeException("x"));
 

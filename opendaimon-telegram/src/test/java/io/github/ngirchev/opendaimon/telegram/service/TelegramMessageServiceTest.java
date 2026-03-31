@@ -5,7 +5,9 @@ import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.AssistantRole;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.RequestType;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
@@ -44,6 +46,8 @@ class TelegramMessageServiceTest {
     @Mock
     private MessageLocalizationService messageLocalizationService;
     @Mock
+    private ConversationThreadService conversationThreadService;
+    @Mock
     private ObjectProvider<StorageProperties> storagePropertiesProvider;
     @Mock
     private ObjectProvider<TelegramMessageService> selfProvider;
@@ -51,6 +55,7 @@ class TelegramMessageServiceTest {
     private TelegramMessageService telegramMessageService;
     private TelegramUser telegramUser;
     private AssistantRole assistantRole;
+    private ConversationThread thread;
 
     @BeforeEach
     void setUp() {
@@ -61,13 +66,18 @@ class TelegramMessageServiceTest {
                 coreCommonProperties,
                 messageLocalizationService,
                 storagePropertiesProvider,
+                conversationThreadService,
                 selfProvider);
+        when(selfProvider.getObject()).thenReturn(telegramMessageService);
         telegramUser = new TelegramUser();
         telegramUser.setId(1L);
+        thread = new ConversationThread();
+        thread.setId(50L);
         assistantRole = new AssistantRole();
         assistantRole.setId(10L);
         when(telegramUserService.getOrCreateAssistantRole(any(TelegramUser.class), any())).thenReturn(assistantRole);
         when(coreCommonProperties.getAssistantRole()).thenReturn("Default role");
+        when(conversationThreadService.getOrCreateThread(any(TelegramUser.class))).thenReturn(thread);
     }
 
     @Test
@@ -77,7 +87,7 @@ class TelegramMessageServiceTest {
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(
                 eq(telegramUser), eq("Hello"), eq(RequestType.TEXT), eq(assistantRole),
-                any(Map.class), isNull())).thenReturn(saved);
+                any(Map.class), isNull(), eq(thread), isNull())).thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
                 telegramUser, session, "Hello", RequestType.TEXT, null, null);
@@ -86,7 +96,7 @@ class TelegramMessageServiceTest {
         assertEquals(saved, result);
         verify(messageService).saveUserMessage(
                 eq(telegramUser), eq("Hello"), eq(RequestType.TEXT), eq(assistantRole),
-                any(Map.class), isNull());
+                any(Map.class), isNull(), eq(thread), isNull());
     }
 
     @Test
@@ -94,7 +104,7 @@ class TelegramMessageServiceTest {
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(
                 eq(telegramUser), eq("Hi"), eq(RequestType.TEXT), eq(assistantRole),
-                isNull(), isNull())).thenReturn(saved);
+                isNull(), isNull(), eq(thread), isNull())).thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
                 telegramUser, null, "Hi", RequestType.TEXT, null, null);
@@ -102,7 +112,7 @@ class TelegramMessageServiceTest {
         assertNotNull(result);
         verify(messageService).saveUserMessage(
                 eq(telegramUser), eq("Hi"), eq(RequestType.TEXT), eq(assistantRole),
-                isNull(), isNull());
+                isNull(), isNull(), eq(thread), isNull());
     }
 
     @Test
@@ -110,7 +120,7 @@ class TelegramMessageServiceTest {
         when(telegramUserService.getOrCreateAssistantRole(eq(telegramUser), eq("Custom role")))
                 .thenReturn(assistantRole);
         OpenDaimonMessage saved = new OpenDaimonMessage();
-        when(messageService.saveUserMessage(any(), any(), any(), eq(assistantRole), any(), any()))
+        when(messageService.saveUserMessage(any(), any(), any(), eq(assistantRole), any(), any(), any(), any()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
@@ -132,7 +142,7 @@ class TelegramMessageServiceTest {
         Attachment att = new Attachment("key1", "image/png", "photo.png", 100L, AttachmentType.IMAGE, new byte[0]);
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(
-                eq(telegramUser), any(), any(), eq(assistantRole), any(), any(List.class)))
+                eq(telegramUser), any(), any(), eq(assistantRole), any(), any(List.class), eq(thread), isNull()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
@@ -141,7 +151,7 @@ class TelegramMessageServiceTest {
         assertNotNull(result);
         verify(messageService).saveUserMessage(
                 eq(telegramUser), eq("See image"), eq(RequestType.TEXT), eq(assistantRole),
-                any(), any(List.class));
+                any(), any(List.class), eq(thread), isNull());
     }
 
     @Test
@@ -151,7 +161,7 @@ class TelegramMessageServiceTest {
 
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(
-                eq(telegramUser), any(), any(), eq(assistantRole), any(), isNull()))
+                eq(telegramUser), any(), any(), eq(assistantRole), any(), isNull(), eq(thread), isNull()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveUserMessage(
@@ -160,7 +170,7 @@ class TelegramMessageServiceTest {
         assertNotNull(result);
         verify(messageService).saveUserMessage(
                 eq(telegramUser), eq("Pic"), eq(RequestType.TEXT), eq(assistantRole),
-                any(), isNull());
+                any(), isNull(), eq(thread), isNull());
     }
 
     @Test
@@ -168,7 +178,7 @@ class TelegramMessageServiceTest {
         Map<String, Object> responseData = Map.of("usage", 100);
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveAssistantMessage(
-                eq(telegramUser), eq("Reply"), eq("openai"), eq(assistantRole), eq(500), eq(responseData)))
+                eq(telegramUser), eq("Reply"), eq("openai"), eq(assistantRole), eq(500), eq(responseData), isNull()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveAssistantMessage(
@@ -176,15 +186,14 @@ class TelegramMessageServiceTest {
 
         assertNotNull(result);
         verify(messageService).saveAssistantMessage(
-                eq(telegramUser), eq("Reply"), eq("openai"), eq(assistantRole), eq(500), eq(responseData));
+                eq(telegramUser), eq("Reply"), eq("openai"), eq(assistantRole), eq(500), eq(responseData), isNull());
     }
 
     @Test
     void saveAssistantMessage_overloadWithoutMap_callsSelfProvider() {
-        when(selfProvider.getObject()).thenReturn(telegramMessageService);
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveAssistantMessage(
-                eq(telegramUser), eq("Ok"), eq("ollama"), eq(assistantRole), eq(100), isNull()))
+                eq(telegramUser), eq("Ok"), eq("ollama"), eq(assistantRole), eq(100), isNull(), isNull()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveAssistantMessage(
@@ -193,14 +202,14 @@ class TelegramMessageServiceTest {
         assertNotNull(result);
         verify(selfProvider).getObject();
         verify(messageService).saveAssistantMessage(
-                eq(telegramUser), eq("Ok"), eq("ollama"), eq(assistantRole), eq(100), isNull());
+                eq(telegramUser), eq("Ok"), eq("ollama"), eq(assistantRole), eq(100), isNull(), isNull());
     }
 
     @Test
     void saveAssistantErrorMessage_usesRoleAndCallsMessageService() {
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveAssistantErrorMessage(
-                eq(telegramUser), eq("Error"), eq("api"), eq(assistantRole), eq("details")))
+                eq(telegramUser), eq("Error"), eq("api"), eq(assistantRole), eq("details"), isNull()))
                 .thenReturn(saved);
 
         OpenDaimonMessage result = telegramMessageService.saveAssistantErrorMessage(
@@ -208,7 +217,7 @@ class TelegramMessageServiceTest {
 
         assertNotNull(result);
         verify(messageService).saveAssistantErrorMessage(
-                eq(telegramUser), eq("Error"), eq("api"), eq(assistantRole), eq("details"));
+                eq(telegramUser), eq("Error"), eq("api"), eq(assistantRole), eq("details"), isNull());
     }
 
     @Test
@@ -216,7 +225,7 @@ class TelegramMessageServiceTest {
         when(telegramUserService.getOrCreateAssistantRole(eq(telegramUser), eq("Custom")))
                 .thenReturn(assistantRole);
         OpenDaimonMessage saved = new OpenDaimonMessage();
-        when(messageService.saveAssistantErrorMessage(any(), any(), any(), eq(assistantRole), any()))
+        when(messageService.saveAssistantErrorMessage(any(), any(), any(), eq(assistantRole), any(), any()))
                 .thenReturn(saved);
 
         telegramMessageService.saveAssistantErrorMessage(

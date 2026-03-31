@@ -77,4 +77,32 @@ class TelegramPropertiesTest {
         assertEquals(50, properties.getLongPollingSocketTimeoutSeconds());
         assertEquals(25, properties.getGetUpdatesTimeoutSeconds());
     }
+
+    @Test
+    void messageCoalescing_defaults_areExpected() {
+        TelegramProperties.MessageCoalescing coalescing = properties.getMessageCoalescing();
+        assertNotNull(coalescing);
+        assertTrue(coalescing.isEnabled());
+        assertEquals(1200, coalescing.getWaitWindowMs());
+        assertEquals(160, coalescing.getMaxLeadingTextLength());
+        assertTrue(coalescing.isAllowMediaSecondMessage());
+        assertTrue(coalescing.isRequireExplicitLink());
+    }
+
+    @Test
+    void messageCoalescing_setters_work() {
+        TelegramProperties.MessageCoalescing coalescing = new TelegramProperties.MessageCoalescing();
+        coalescing.setEnabled(false);
+        coalescing.setWaitWindowMs(800);
+        coalescing.setMaxLeadingTextLength(90);
+        coalescing.setAllowMediaSecondMessage(false);
+        coalescing.setRequireExplicitLink(false);
+        properties.setMessageCoalescing(coalescing);
+
+        assertFalse(properties.getMessageCoalescing().isEnabled());
+        assertEquals(800, properties.getMessageCoalescing().getWaitWindowMs());
+        assertEquals(90, properties.getMessageCoalescing().getMaxLeadingTextLength());
+        assertFalse(properties.getMessageCoalescing().isAllowMediaSecondMessage());
+        assertFalse(properties.getMessageCoalescing().isRequireExplicitLink());
+    }
 }

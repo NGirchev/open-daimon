@@ -10,6 +10,8 @@ import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.service.RestUserService;
 
+import io.github.ngirchev.opendaimon.common.SupportedLanguages;
+
 import java.util.Map;
 
 /**
@@ -30,7 +32,7 @@ public class UIAuthController {
     private static final String KEY_MESSAGE = "message";
 
     private String lang(HttpServletRequest request) {
-        return request != null && request.getLocale() != null ? request.getLocale().getLanguage() : "ru";
+        return request != null && request.getLocale() != null ? request.getLocale().getLanguage() : SupportedLanguages.DEFAULT_LANGUAGE;
     }
 
     @PostMapping("/login")

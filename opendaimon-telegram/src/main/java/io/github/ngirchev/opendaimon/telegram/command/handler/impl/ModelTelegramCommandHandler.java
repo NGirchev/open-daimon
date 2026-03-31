@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.common.ai.model.ModelInfo;
 import io.github.ngirchev.opendaimon.common.ai.response.ModelListAIResponse;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
@@ -105,7 +106,8 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for model command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
-        ConversationThread thread = conversationThreadService.findCurrentThread(user).orElse(null);
+        ConversationThread thread = conversationThreadService.findCurrentThread(
+                ThreadScopeKind.TELEGRAM_CHAT, command.telegramId()).orElse(null);
         persistentKeyboardService.sendKeyboard(command.telegramId(), user.getId(), thread);
         sendModelMenu(command.telegramId(), user);
         return null;
@@ -204,7 +206,8 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             userModelPreferenceService.setPreferredModel(userId, modelName);
             ackCallback(cq.getId(), "✅ " + modelName);
         }
-        ConversationThread thread = conversationThreadService.findCurrentThread(user).orElse(null);
+        ConversationThread thread = conversationThreadService.findCurrentThread(
+                ThreadScopeKind.TELEGRAM_CHAT, command.telegramId()).orElse(null);
         persistentKeyboardService.sendKeyboard(command.telegramId(), userId, thread);
     }
 

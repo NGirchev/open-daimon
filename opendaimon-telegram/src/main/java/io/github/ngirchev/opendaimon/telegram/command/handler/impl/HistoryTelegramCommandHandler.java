@@ -6,6 +6,7 @@ import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
@@ -63,8 +64,9 @@ public class HistoryTelegramCommandHandler extends AbstractTelegramCommandHandle
         if (message == null) {
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for history command");
         }
-        TelegramUser user = userService.getOrCreateUser(message.getFrom());
-        Optional<ConversationThread> threadOpt = threadRepository.findMostRecentActiveThread(user);
+        userService.getOrCreateUser(message.getFrom());
+        Optional<ConversationThread> threadOpt = threadRepository.findMostRecentActiveThread(
+                ThreadScopeKind.TELEGRAM_CHAT, command.telegramId());
         if (threadOpt.isEmpty()) {
             return "❌ You have no active conversation. Start one by sending a message.";
         }

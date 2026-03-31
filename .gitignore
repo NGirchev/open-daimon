@@ -26,10 +26,8 @@
 .DS_Store
 **/.DS_Store
 /.env
-/.cursor/mcp.json
 /target/
-/.claude/worktrees/flamboyant-heyrovsky/
-/.claude/
+/.claude/worktrees/*
 /scripts/ollama-check-vision.ps1
 /opendaimon.code-workspace
 
@@ -41,3 +39,9 @@
 /cli/prometheus.yml
 /cli/node_modules/
 /cli/*.tgz
+/cli/application-simple.yml
+/cli/application-simple.yml.example
+/logs/
+/.mcp.json
+/opendaimon-app/logs/opendaimon.log
+/application.yml

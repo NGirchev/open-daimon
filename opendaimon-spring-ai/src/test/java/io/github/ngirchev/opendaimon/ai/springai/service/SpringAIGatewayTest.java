@@ -77,23 +77,12 @@ class SpringAIGatewayTest {
         ObjectProvider<org.springframework.ai.chat.memory.ChatMemory> chatMemoryProvider = mock(ObjectProvider.class);
         when(chatMemoryProvider.getIfAvailable()).thenReturn(null);
 
-        @SuppressWarnings("unchecked")
-        ObjectProvider<DocumentProcessingService> docProvider = mock(ObjectProvider.class);
-        when(docProvider.getIfAvailable()).thenReturn(null);
-
-        @SuppressWarnings("unchecked")
-        ObjectProvider<io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService> ragProvider = mock(ObjectProvider.class);
-        when(ragProvider.getIfAvailable()).thenReturn(null);
-
         gateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
                 springAIModelRegistry,
                 chatService,
-                chatMemoryProvider,
-                null,
-                docProvider,
-                ragProvider
+                chatMemoryProvider
         );
     }
 

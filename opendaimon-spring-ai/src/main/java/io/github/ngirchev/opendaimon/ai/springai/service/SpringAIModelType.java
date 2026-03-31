@@ -12,6 +12,10 @@ public class SpringAIModelType {
 
     private final List<SpringAIModelConfig> models;
 
+    public List<SpringAIModelConfig> getModels() {
+        return models;
+    }
+
     public SpringAIModelConfig valueOfByRawName(String modelName) {
         return models.stream()
                 .filter(model -> model.getName().equals(modelName))

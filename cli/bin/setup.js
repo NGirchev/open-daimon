@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { input, password, select, checkbox, confirm } from '@inquirer/prompts';
 import { execSync, spawn } from 'child_process';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, rmSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
@@ -12,6 +12,8 @@ const TARGET_DIR = process.cwd();
 const PKG_VERSION = JSON.parse(
   readFileSync(join(__dirname, '..', 'package.json'), 'utf8')
 ).version;
+const USE_LOCAL_IMAGE = process.argv.includes('--local-image');
+const APP_IMAGE = USE_LOCAL_IMAGE ? 'open-daimon:local' : `ghcr.io/ngirchev/open-daimon:${PKG_VERSION}`;
 
 function checkCommand(cmd) {
   try {
@@ -101,12 +103,12 @@ function buildEnv(cfg) {
     '',
     '# Admin',
     `ADMIN_TELEGRAM_ID=${cfg.adminId}`,
-    'ADMIN_REST_EMAIL=',
+    `ADMIN_REST_EMAIL=${cfg.adminRestEmail}`,
     '',
     '# AI',
-    `OPENROUTER_KEY=${cfg.provider === 'openrouter' ? cfg.openrouterKey : ''}`,
+    `OPENROUTER_KEY=${(cfg.provider === 'openrouter' || cfg.provider === 'both') ? cfg.openrouterKey : ''}`,
     `SERPER_KEY=${cfg.serperKey}`,
-    `OLLAMA_BASE_URL=${cfg.provider === 'ollama' ? cfg.ollamaUrl : 'http://localhost:11434'}`,
+    `OLLAMA_BASE_URL=${((cfg.provider === 'ollama' || cfg.provider === 'both') ? cfg.ollamaUrl : 'http://localhost:11434').replace('localhost', 'host.docker.internal').replace('127.0.0.1', 'host.docker.internal')}`,
     '',
     '# Database',
     'POSTGRES_HOST=localhost',
@@ -126,77 +128,16 @@ function buildEnv(cfg) {
     'TELEGRAM_ACCESS_REGULAR_CHANNELS=',
     '',
     '# User Access Configuration (REST)',
-    'REST_ACCESS_ADMIN_EMAILS=',
+    `REST_ACCESS_ADMIN_EMAILS=${cfg.adminRestEmail}`,
     'REST_ACCESS_VIP_EMAILS=',
     'REST_ACCESS_REGULAR_EMAILS=',
     '',
-    '# Spring profiles (local = load application-local.yml)',
-    'SPRING_PROFILES_ACTIVE=local',
+    '# Spring profiles (simple = load application-simple.yml created by wizard)',
+    `SPRING_PROFILES_ACTIVE=${['simple', ...(cfg.services.includes('logging') ? ['logging'] : [])].join(',')}`,
     '',
     '# Active Docker Compose service profiles (comma-separated)',
     '# Available: monitoring, logging, storage',
     `COMPOSE_PROFILES=${profiles}`,
-    '',
-  ].join('\n');
-}
-
-function buildAppLocalYml(cfg) {
-  if (cfg.provider === 'openrouter') {
-    return [
-      '# application-local.yml — app overrides mounted into Docker container.',
-      '# Edit to customize model lists, logging, bulkhead limits, etc.',
-      '# See application-local.yml.example for all available keys.',
-      '#',
-      '# Configured for OpenRouter. Uncomment sections below to customize.',
-      '#',
-      '# open-daimon:',
-      '#   ai:',
-      '#     spring-ai:',
-      '#       models:',
-      '#         list:',
-      '#           - name: "openrouter/auto"',
-      '#             capabilities: [AUTO, CHAT, TOOL_CALLING, WEB, SUMMARIZATION, VISION]',
-      '#             provider-type: OPENAI',
-      '#             priority: 3',
-      '#             allowed-roles: [ADMIN, VIP]',
-      '',
-    ].join('\n');
-  }
-
-  return [
-    '# application-local.yml — app overrides mounted into Docker container.',
-    '# Configured for Ollama (local AI). Edit model names to match: ollama list',
-    '# See application-local.yml.example for all available keys.',
-    '',
-    'open-daimon:',
-    '  ai:',
-    '    spring-ai:',
-    '      openrouter-auto-rotation:',
-    '        models:',
-    '          enabled: false',
-    '      models:',
-    '        list:',
-    '          - name: "gemma3:1b"',
-    '            capabilities:',
-    '              - AUTO',
-    '              - CHAT',
-    '              - TOOL_CALLING',
-    '              - SUMMARIZATION',
-    '              - VISION',
-    '            provider-type: OLLAMA',
-    '            priority: 1',
-    '            max-reasoning-tokens: 0',
-    '            think: false',
-    '          - name: "nomic-embed-text:v1.5"',
-    '            capabilities:',
-    '              - EMBEDDING',
-    '            provider-type: OLLAMA',
-    '            priority: 1',
-    '',
-    'spring:',
-    '  ai:',
-    '    ollama:',
-    `      base-url: \${OLLAMA_BASE_URL:${cfg.ollamaUrl}}`,
     '',
   ].join('\n');
 }
@@ -250,10 +191,23 @@ async function main() {
     validate: (v) => /^\d+$/.test(v.trim()) || 'Must be a number',
   });
 
+  // ── Web UI Access ─────────────────────────────────────────────────────────
+  console.log('\n── Web UI Access ─────────────────────────────');
+
+  const adminRestEmail = await input({
+    message: 'Your email for web UI admin access:',
+    default: prev.ADMIN_REST_EMAIL || '',
+    validate: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) || 'Enter a valid email',
+  });
+
   // ── AI Provider ───────────────────────────────────────────────────────────
   console.log('\n── AI Provider ───────────────────────────────');
 
-  const prevProvider = prev.OPENROUTER_KEY ? 'openrouter' : prev.OLLAMA_BASE_URL ? 'ollama' : null;
+  const prevProvider = (prev.OPENROUTER_KEY && prev.OLLAMA_BASE_URL)
+    ? 'both'
+    : prev.OPENROUTER_KEY ? 'openrouter'
+    : prev.OLLAMA_BASE_URL ? 'ollama'
+    : null;
 
   const provider = await select({
     message: 'Choose AI provider:',
@@ -267,13 +221,18 @@ async function main() {
         name: 'Ollama (local — run models on your machine, no API key)',
         value: 'ollama',
       },
+      {
+        name: 'Both — OpenRouter for cloud models + Ollama for local models',
+        value: 'both',
+      },
     ],
   });
 
   let openrouterKey = '';
   let ollamaUrl = 'http://localhost:11434';
 
-  if (provider === 'openrouter') {
+  if (provider === 'openrouter' || provider === 'both') {
+    if (provider === 'both') console.log('   ── OpenRouter (cloud) ─────────────────────');
     console.log('   Get a free API key at https://openrouter.ai/keys');
     const openrouterKeyRaw = await password({
       message: prev.OPENROUTER_KEY
@@ -282,11 +241,17 @@ async function main() {
       validate: (v) => v.trim().length > 0 || !!prev.OPENROUTER_KEY || 'Required',
     });
     openrouterKey = openrouterKeyRaw.trim() || prev.OPENROUTER_KEY || '';
-  } else {
+  }
+
+  if (provider === 'ollama' || provider === 'both') {
+    if (provider === 'both') console.log('   ── Ollama (local) ──────────────────────────');
     console.log('   Make sure Ollama is running: ollama serve');
+    // Reverse the host.docker.internal→localhost transform stored in .env so we check from the host
+    const prevOllamaUrl = (prev.OLLAMA_BASE_URL || '')
+      .replace('host.docker.internal', 'localhost');
     ollamaUrl = await input({
       message: 'Ollama base URL:',
-      default: prev.OLLAMA_BASE_URL || 'http://localhost:11434',
+      default: prevOllamaUrl || 'http://localhost:11434',
     });
 
     process.stdout.write('   Checking Ollama connection... ');
@@ -294,17 +259,17 @@ async function main() {
     if (ollamaAlive) {
       console.log('OK');
       const doPullModel = await confirm({
-        message: 'Pull default model gemma3:1b now? (~815 MB, required for Ollama mode)',
+        message: 'Pull default model qwen2.5:3b now? (~1.9 GB, supports tool calling)',
         default: true,
       });
       if (doPullModel) {
-        await pullOllamaModel('gemma3:1b');
+        await pullOllamaModel('qwen2.5:3b');
       }
     } else {
       console.log('UNREACHABLE');
       console.log('   ⚠  Ollama is not running at ' + ollamaUrl.trim());
       console.log('   Start it with: ollama serve');
-      console.log('   Then manually pull the model: ollama pull gemma3:1b');
+      console.log('   Then manually pull the model: ollama pull qwen2.5:3b');
       const continueAnyway = await confirm({
         message: 'Continue setup anyway?',
         default: true,
@@ -359,6 +324,7 @@ async function main() {
     telegramToken: telegramToken.trim(),
     telegramUsername: telegramUsername.trim(),
     adminId: adminId.trim(),
+    adminRestEmail: adminRestEmail.trim(),
     provider,
     openrouterKey: openrouterKey.trim(),
     ollamaUrl: ollamaUrl.trim(),
@@ -372,14 +338,35 @@ async function main() {
 
   writeFileSync(envPath, buildEnv(cfg), 'utf8');
   console.log('  .env');
+  if ((cfg.provider === 'ollama' || cfg.provider === 'both') && /localhost|127\.0\.0\.1/.test(cfg.ollamaUrl)) {
+    console.log(`  ⚠  Ollama URL contains localhost — saved as host.docker.internal in .env so the container can reach the host`);
+  }
 
-  const composeTemplate = readFileSync(join(TEMPLATES_DIR, 'docker-compose.yml'), 'utf8')
-    .replace('ghcr.io/ngirchev/open-daimon:latest', `ghcr.io/ngirchev/open-daimon:${PKG_VERSION}`);
+  let composeTemplate = readFileSync(join(TEMPLATES_DIR, 'docker-compose.yml'), 'utf8')
+    .replace('ghcr.io/ngirchev/open-daimon:latest', APP_IMAGE);
+  if (USE_LOCAL_IMAGE) {
+    composeTemplate = composeTemplate.replace(
+      `image: ${APP_IMAGE}`,
+      `image: ${APP_IMAGE}\n    pull_policy: never`
+    );
+  }
   writeFileSync(join(TARGET_DIR, 'docker-compose.yml'), composeTemplate, 'utf8');
   console.log('  docker-compose.yml');
 
-  writeFileSync(join(TARGET_DIR, 'application-local.yml'), buildAppLocalYml(cfg), 'utf8');
-  console.log('  application-local.yml');
+  // Copy the provider-specific template to application-simple.yml
+  const appSimpleYmlPath = join(TARGET_DIR, 'application-simple.yml');
+  if (existsSync(appSimpleYmlPath) && statSync(appSimpleYmlPath).isDirectory()) {
+    rmSync(appSimpleYmlPath, { recursive: true });
+  }
+  let providerTemplate = readFileSync(join(TEMPLATES_DIR, `application-simple-${cfg.provider}.yml`), 'utf8');
+  if (services.includes('storage')) {
+    // Enable storage and file-upload when user chose to run MinIO
+    providerTemplate = providerTemplate
+      .replace(/^(    storage:\n      enabled:) false/m, '$1 true')
+      .replace(/^(    file-upload:\n      enabled:) false/m, '$1 true');
+  }
+  writeFileSync(appSimpleYmlPath, providerTemplate, 'utf8');
+  console.log('  application-simple.yml');
 
   if (services.includes('monitoring')) {
     const prometheusTemplate = readFileSync(join(TEMPLATES_DIR, 'prometheus.yml'), 'utf8');
@@ -387,9 +374,15 @@ async function main() {
     console.log('  prometheus.yml');
   }
 
-  const exampleTemplate = readFileSync(join(TEMPLATES_DIR, 'application-local.yml.example'), 'utf8');
-  writeFileSync(join(TARGET_DIR, 'application-local.yml.example'), exampleTemplate, 'utf8');
-  console.log('  application-local.yml.example');
+  if (services.includes('logging')) {
+    const logstashConf = readFileSync(join(TEMPLATES_DIR, 'logstash.conf'), 'utf8');
+    writeFileSync(join(TARGET_DIR, 'logstash.conf'), logstashConf, 'utf8');
+    console.log('  logstash.conf');
+  }
+
+  const exampleTemplate = readFileSync(join(TEMPLATES_DIR, 'application-simple.yml.example'), 'utf8');
+  writeFileSync(join(TARGET_DIR, 'application-simple.yml.example'), exampleTemplate, 'utf8');
+  console.log('  application-simple.yml.example');
 
   // ── Start the stack ───────────────────────────────────────────────────────
   console.log('');
@@ -422,9 +415,10 @@ async function main() {
     console.log('Next steps:');
     console.log('');
     console.log('  1. Review generated files:');
-    console.log('       .env                     — secrets and credentials');
-    console.log('       docker-compose.yml        — service definitions');
-    console.log('       application-local.yml     — app overrides (edit as needed)');
+    console.log('       .env                      — secrets and credentials');
+    console.log('       docker-compose.yml         — service definitions');
+    console.log('       application-simple.yml     — AI provider config (edit as needed)');
+    console.log('       application-simple.yml.example — all available options');
     console.log('');
     console.log('  2. Start the stack:');
     console.log('       docker compose up -d');

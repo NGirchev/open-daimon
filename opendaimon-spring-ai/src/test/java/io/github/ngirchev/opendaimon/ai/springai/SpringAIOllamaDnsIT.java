@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @TestPropertySource(properties = {
     "spring.ai.ollama.base-url=http://localhost:11434",
-    "spring.ai.ollama.chat.options.model=gemma3:1b",
+    "spring.ai.ollama.chat.options.model=qwen2.5:3b",
     "open-daimon.ai.spring-ai.openrouter-auto-rotation.models.enabled=false",
     // Exclude autoconfigurations not needed for this test
     "spring.autoconfigure.exclude=" +

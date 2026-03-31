@@ -2,7 +2,6 @@ package io.github.ngirchev.opendaimon.ai.springai.advisor;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClientRequest;
-import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -35,16 +34,14 @@ class MessageOrderingAdvisorTest {
 
     @Test
     void after_returnsResponseUnchanged() {
-        ChatClientResponse response = mock(ChatClientResponse.class);
         AdvisorChain chain = mock(AdvisorChain.class);
-        assertSame(response, advisor.after(response, chain));
+        assertNull(advisor.after(null, chain));
     }
 
     @Test
     void before_emptyMessages_returnsRequestUnchanged() {
         Prompt prompt = new Prompt(List.of());
-        ChatClientRequest request = mock(ChatClientRequest.class);
-        when(request.prompt()).thenReturn(prompt);
+        ChatClientRequest request = new ChatClientRequest(prompt, Map.of());
 
         ChatClientRequest result = advisor.before(request, mock(AdvisorChain.class));
 
@@ -55,8 +52,7 @@ class MessageOrderingAdvisorTest {
     void before_nullMessages_returnsRequestUnchanged() {
         Prompt prompt = mock(Prompt.class);
         when(prompt.getInstructions()).thenReturn(null);
-        ChatClientRequest request = mock(ChatClientRequest.class);
-        when(request.prompt()).thenReturn(prompt);
+        ChatClientRequest request = new ChatClientRequest(prompt, Map.of());
 
         ChatClientRequest result = advisor.before(request, mock(AdvisorChain.class));
 
@@ -67,8 +63,7 @@ class MessageOrderingAdvisorTest {
     void before_allSystemMessages_returnsRequestUnchanged() {
         List<Message> messages = List.of(new SystemMessage("A"), new SystemMessage("B"));
         Prompt prompt = new Prompt(messages);
-        ChatClientRequest request = mock(ChatClientRequest.class);
-        when(request.prompt()).thenReturn(prompt);
+        ChatClientRequest request = new ChatClientRequest(prompt, Map.of());
 
         ChatClientRequest result = advisor.before(request, mock(AdvisorChain.class));
 

@@ -9,7 +9,7 @@ import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongExceptio
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
@@ -20,6 +20,8 @@ import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.service.RestMessageService;
 import io.github.ngirchev.opendaimon.rest.service.RestUserService;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -36,7 +38,7 @@ public class RestChatStreamMessageCommandHandler implements
     private final RestUserService restUserService;
     private final OpenDaimonMessageService messageService;
     private final AIGatewayRegistry aiGatewayRegistry;
-    private final AICommandFactoryRegistry aiCommandFactoryRegistry;
+    private final AIRequestPipeline aiRequestPipeline;
     private final RestChatHandlerSupport support;
 
     @Override
@@ -77,13 +79,24 @@ public class RestChatStreamMessageCommandHandler implements
                     thread.getThreadKey(), assistantRoleId, assistantRole.getVersion());
             long startTime = System.currentTimeMillis();
             Map<String, String> metadata = RestChatHandlerSupport.buildMetadata(thread, assistantRoleContentFromRole, assistantRoleId, user.getId());
-            AICommand aiCommand = aiCommandFactoryRegistry.createCommand(command, metadata);
+            List<String> ragDocIds = messageService.findRagDocumentIds(thread);
+            if (!ragDocIds.isEmpty()) {
+                metadata.put(AICommand.RAG_DOCUMENT_IDS_FIELD, String.join(",", ragDocIds));
+            }
+            AICommand aiCommand = aiRequestPipeline.prepareCommand(command, metadata);
             modelCapabilities = aiCommand.modelCapabilities();
             AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                     .stream()
                     .findFirst()
                     .orElseThrow(() -> new RuntimeException(AIUtils.NO_SUPPORTED_AI_GATEWAY));
             AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
+            String newRagDocIds = aiCommand.metadata().get(AICommand.RAG_DOCUMENT_IDS_FIELD);
+            String newRagFilenames = aiCommand.metadata().get(AICommand.RAG_FILENAMES_FIELD);
+            if (newRagFilenames != null) {
+                messageService.updateRagMetadata(userMessage,
+                        Arrays.asList(newRagDocIds.split(",")),
+                        Arrays.asList(newRagFilenames.split(",")));
+            }
             return buildStreamFlux(aiResponse, user, modelCapabilities, assistantRole, assistantRoleContentFromRole, startTime);
         } catch (AccessDeniedException e) {
             log.warn("Access denied for user: {}", e.getMessage());

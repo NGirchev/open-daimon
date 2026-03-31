@@ -42,6 +42,7 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         this.openRouterClient = openRouterClient;
         this.openRouterProperties = openRouterProperties != null ? openRouterProperties : new OpenRouterModelsProperties();
         initFromYml();
+        loadEmbeddingModelsOnStartup();
     }
 
     private void initFromYml() {
@@ -52,6 +53,33 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         }
         log.info("SpringAIModelRegistry initialized with {} models from yml", modelsByName.size());
         logRegistrySnapshot("after yml init");
+    }
+
+    /**
+     * Eagerly loads OpenRouter embedding models at startup so they are available
+     * when RAGAutoConfig creates the VectorStore bean (before the scheduler runs).
+     */
+    private void loadEmbeddingModelsOnStartup() {
+        if (openRouterClient == null || openRouterProperties == null
+                || openRouterProperties.getApi() == null
+                || !StringUtils.hasText(openRouterProperties.getApi().getUrl())
+                || !StringUtils.hasText(openRouterProperties.getApi().getKey())) {
+            return;
+        }
+        String baseUrl = normalizeOpenRouterBaseUrl(openRouterProperties.getApi().getUrl().trim());
+        List<OpenRouterModelEntry> embeddingModels = openRouterClient.fetchEmbeddingModels(baseUrl, openRouterProperties.getApi().getKey());
+        int added = 0;
+        for (OpenRouterModelEntry entry : embeddingModels) {
+            if (modelsByName.containsKey(entry.id())) continue;
+            Set<ModelCapabilities> caps = OpenRouterModelCapabilitiesMapper.forEmbeddingModel(entry.node(), entry.free());
+            SpringAIModelConfig config = getSpringAIModelConfig(entry, caps);
+            modelsByName.put(entry.id(), config);
+            added++;
+        }
+        if (added > 0) {
+            log.info("OpenRouter embedding models loaded at startup: {} model(s)", added);
+            logRegistrySnapshot("after embedding models init");
+        }
     }
 
     /**
@@ -90,6 +118,18 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
                 continue;
             }
             SpringAIModelConfig config = getSpringAIModelConfig(entry, OpenRouterModelCapabilitiesMapper.fromOpenRouterModel(entry.node(), entry.free()));
+            modelsByName.put(entry.id(), config);
+            added.add(entry.id());
+        }
+
+        // Fetch embedding models from separate endpoint (/v1/embeddings/models)
+        List<OpenRouterModelEntry> embeddingModels = openRouterClient.fetchEmbeddingModels(baseUrl, openRouterProperties.getApi().getKey());
+        for (OpenRouterModelEntry entry : embeddingModels) {
+            if (modelsByName.containsKey(entry.id())) continue;
+            if (isBlacklisted(entry.id())) continue;
+            if (!isAllowedByWhitelist(entry)) continue;
+            Set<ModelCapabilities> caps = OpenRouterModelCapabilitiesMapper.forEmbeddingModel(entry.node(), entry.free());
+            SpringAIModelConfig config = getSpringAIModelConfig(entry, caps);
             modelsByName.put(entry.id(), config);
             added.add(entry.id());
         }
@@ -259,12 +299,9 @@ public class SpringAIModelRegistry implements OpenRouterRotationRegistry {
         }
 
         long now = System.currentTimeMillis();
-        Comparator<SpringAIModelConfig> byPriority = Comparator
-                .comparing(SpringAIModelConfig::getPriority)
-                .thenComparing(SpringAIModelConfig::getName);
         candidates.sort(
-                Comparator.<SpringAIModelConfig>comparingInt(m -> findMaxIndexForAllTypes(new ArrayList<>(m.getCapabilities()), required))
-                        .thenComparing(byPriority)
+                Comparator.comparingInt(SpringAIModelConfig::getPriority)
+                        .thenComparingInt(m -> findMaxIndexForAllTypes(new ArrayList<>(m.getCapabilities()), required))
                         .thenComparing((SpringAIModelConfig m) -> -score(m.getName(), now))
                         .thenComparing(SpringAIModelConfig::getName)
         );

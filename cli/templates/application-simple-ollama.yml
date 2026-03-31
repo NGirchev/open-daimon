@@ -1,0 +1,56 @@
+# Ollama (local AI) — created by OpenDaimon setup wizard.
+# Edit this file to customize models, then restart: docker compose restart opendaimon-app
+#
+# Provider: Ollama running on your machine.
+# Default models: qwen2.5:3b (chat + tool calling) + gemma3:4b (vision) + nomic-embed-text:v1.5 (embeddings).
+# To use a different model, change the name and run: ollama pull <model-name>
+# See application-simple.yml.example for all available options.
+
+spring:
+  ai:
+    model:
+      chat: ollama
+      embedding: ollama
+      audio:
+        speech: none
+        transcription: none
+      image: none
+      moderation: none
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}
+
+open-daimon:
+  common:
+    storage:
+      enabled: false  # Set to true if you started the 'storage' Docker Compose profile
+  telegram:
+    file-upload:
+      enabled: false  # Set to true if storage is enabled above
+  ai:
+    spring-ai:
+      openrouter-auto-rotation:
+        models:
+          enabled: false
+      models:
+        list:
+          - name: "qwen2.5:3b"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - SUMMARIZATION
+              - WEB
+            provider-type: OLLAMA
+            priority: 1
+          - name: "gemma3:4b"
+            capabilities:
+              - VISION
+              - CHAT
+            provider-type: OLLAMA
+            priority: 1
+            max-output-tokens: 16384
+          - name: "nomic-embed-text:v1.5"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 1

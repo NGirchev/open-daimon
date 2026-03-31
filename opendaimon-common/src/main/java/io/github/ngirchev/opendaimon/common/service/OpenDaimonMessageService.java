@@ -9,6 +9,9 @@ import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongExceptio
 import io.github.ngirchev.opendaimon.common.model.*;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
+
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,6 +85,51 @@ public class OpenDaimonMessageService {
             AssistantRole assistantRole,
             Map<String, Object> metadata,
             List<Map<String, Object>> attachmentRefs) {
+        return selfProvider.getObject().saveUserMessage(
+                user,
+                content,
+                requestType,
+                assistantRole,
+                metadata,
+                attachmentRefs,
+                null);
+    }
+
+    /**
+     * Saves USER message with ready assistant role to a specific thread.
+     * If thread is null, active thread is resolved by user (legacy behavior).
+     *
+     * @param attachmentRefs optional attachment refs (storageKey, expiresAt, mimeType, filename)
+     */
+    @Transactional
+    public OpenDaimonMessage saveUserMessage(
+            User user,
+            String content,
+            RequestType requestType,
+            AssistantRole assistantRole,
+            Map<String, Object> metadata,
+            List<Map<String, Object>> attachmentRefs,
+            ConversationThread thread) {
+        return selfProvider.getObject().saveUserMessage(
+                user, content, requestType, assistantRole, metadata, attachmentRefs, thread, null);
+    }
+
+    /**
+     * Saves USER message with ready assistant role, thread, and optional Telegram message ID.
+     *
+     * @param attachmentRefs    optional attachment refs (storageKey, expiresAt, mimeType, filename)
+     * @param telegramMessageId optional Telegram message ID for reply-to lookup
+     */
+    @Transactional
+    public OpenDaimonMessage saveUserMessage(
+            User user,
+            String content,
+            RequestType requestType,
+            AssistantRole assistantRole,
+            Map<String, Object> metadata,
+            List<Map<String, Object>> attachmentRefs,
+            ConversationThread thread,
+            Long telegramMessageId) {
 
         int estimatedTokens = tokenCounter.estimateTokens(content);
         int maxAllowed = coreCommonProperties.getMaxUserMessageTokens();
@@ -93,7 +141,9 @@ public class OpenDaimonMessageService {
         assistantRoleService.incrementUsage(assistantRole);
 
         // Get or create active thread for user
-        ConversationThread thread = conversationThreadService.getOrCreateThread(user);
+        ConversationThread resolvedThread = thread != null
+                ? thread
+                : conversationThreadService.getOrCreateThread(user);
 
         OpenDaimonMessage message = new OpenDaimonMessage();
         message.setUser(user);
@@ -101,8 +151,9 @@ public class OpenDaimonMessageService {
         message.setContent(content);
         message.setRequestType(requestType);
         message.setAssistantRole(assistantRole);
-        message.setThread(thread);
+        message.setThread(resolvedThread);
         message.setTokenCount(tokenCounter.estimateTokens(content));
+        message.setTelegramMessageId(telegramMessageId);
 
         if (metadata != null) {
             message.setMetadata(metadata);
@@ -111,7 +162,7 @@ public class OpenDaimonMessageService {
             message.setAttachments(attachmentRefs);
         }
 
-        return saveMessageWithSequence(message, thread, true, content);
+        return saveMessageWithSequence(message, resolvedThread, true, content);
     }
 
     /**
@@ -150,16 +201,42 @@ public class OpenDaimonMessageService {
             AssistantRole assistantRole,
             Integer processingTimeMs,
             Map<String, Object> responseDataMap) {
+        return selfProvider.getObject().saveAssistantMessage(
+                user,
+                content,
+                serviceName,
+                assistantRole,
+                processingTimeMs,
+                responseDataMap,
+                null);
+    }
 
-        // Get or create active thread for user
-        ConversationThread thread = conversationThreadService.getOrCreateThread(user);
+    /**
+     * Saves ASSISTANT message with ready assistant role to a specific thread.
+     * If thread is null, active thread is resolved by user (legacy behavior).
+     */
+    @Transactional
+    public OpenDaimonMessage saveAssistantMessage(
+            User user,
+            String content,
+            String serviceName,
+            AssistantRole assistantRole,
+            Integer processingTimeMs,
+            Map<String, Object> responseDataMap,
+            ConversationThread thread) {
+
+        // Re-read thread from DB to pick up changes made by gateway (e.g. memoryBullets for RAG).
+        // The caller may hold a stale detached entity from before the AI gateway call.
+        ConversationThread resolvedThread = thread != null
+                ? conversationThreadService.findByThreadKey(thread.getThreadKey()).orElse(thread)
+                : conversationThreadService.getOrCreateThread(user);
 
         OpenDaimonMessage message = new OpenDaimonMessage();
         message.setUser(user);
         message.setRole(MessageRole.ASSISTANT);
         message.setContent(content);
         message.setServiceName(serviceName);
-        message.setThread(thread);
+        message.setThread(resolvedThread);
         message.setAssistantRole(assistantRole);
         message.setProcessingTimeMs(processingTimeMs);
         message.setStatus(ResponseStatus.PENDING);
@@ -170,7 +247,7 @@ public class OpenDaimonMessageService {
         } else {
             log.info("✗ response_data NOT set (responseDataMap={})", responseDataMap);
         }
-        return saveMessageWithSequence(message, thread, true, null);
+        return saveMessageWithSequence(message, resolvedThread, true, null);
     }
 
     /**
@@ -207,9 +284,32 @@ public class OpenDaimonMessageService {
             String serviceName,
             AssistantRole assistantRole,
             String errorData) {
+        return selfProvider.getObject().saveAssistantErrorMessage(
+                user,
+                errorMessage,
+                serviceName,
+                assistantRole,
+                errorData,
+                null);
+    }
 
-        // Get or create active thread for user
-        ConversationThread thread = conversationThreadService.getOrCreateThread(user);
+    /**
+     * Saves ASSISTANT error message with ready assistant role to a specific thread.
+     * If thread is null, active thread is resolved by user (legacy behavior).
+     */
+    @Transactional
+    public OpenDaimonMessage saveAssistantErrorMessage(
+            User user,
+            String errorMessage,
+            String serviceName,
+            AssistantRole assistantRole,
+            String errorData,
+            ConversationThread thread) {
+
+        // Re-read thread from DB to pick up changes made by gateway (e.g. memoryBullets for RAG).
+        ConversationThread resolvedThread = thread != null
+                ? conversationThreadService.findByThreadKey(thread.getThreadKey()).orElse(thread)
+                : conversationThreadService.getOrCreateThread(user);
 
         OpenDaimonMessage message = new OpenDaimonMessage();
         message.setUser(user);
@@ -217,7 +317,7 @@ public class OpenDaimonMessageService {
         message.setContent(""); // Empty content for errors
         message.setServiceName(serviceName);
         message.setErrorMessage(errorMessage);
-        message.setThread(thread);
+        message.setThread(resolvedThread);
         message.setAssistantRole(assistantRole);
         message.setStatus(ResponseStatus.ERROR);
         message.setTokenCount(0); // No tokens for errors
@@ -229,7 +329,7 @@ public class OpenDaimonMessageService {
         }
         // If errorData is null or empty, responseData stays null
 
-        return saveMessageWithSequence(message, thread, false, null);
+        return saveMessageWithSequence(message, resolvedThread, false, null);
     }
 
     /**
@@ -263,6 +363,63 @@ public class OpenDaimonMessageService {
     @Transactional
     public OpenDaimonMessage updateMessageStatus(OpenDaimonMessage message, ResponseStatus status) {
         message.setStatus(status);
+        return messageRepository.save(message);
+    }
+
+    /**
+     * Returns comma-separated RAG documentIds collected from USER messages in the given thread.
+     *
+     * <p>Scans all USER messages in the thread and extracts the value of the
+     * {@code ragDocumentIds} metadata key (comma-separated string) from each one.
+     *
+     * @param thread the conversation thread to scan
+     * @return list of individual RAG documentId strings; empty list when none found
+     */
+    @Transactional(readOnly = true)
+    public List<String> findRagDocumentIds(ConversationThread thread) {
+        List<OpenDaimonMessage> userMessages =
+                messageRepository.findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
+        List<String> result = new ArrayList<>();
+        for (OpenDaimonMessage message : userMessages) {
+            Map<String, Object> meta = message.getMetadata();
+            if (meta == null) {
+                continue;
+            }
+            Object rawIds = meta.get(AICommand.RAG_DOCUMENT_IDS_FIELD);
+            if (rawIds instanceof String ids && !ids.isBlank()) {
+                for (String id : ids.split(",")) {
+                    String trimmed = id.trim();
+                    if (!trimmed.isEmpty()) {
+                        result.add(trimmed);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Stores RAG documentIds and filenames in the metadata of a USER message.
+     *
+     * <p>The values are persisted as comma-separated strings under the
+     * {@code ragDocumentIds} and {@code ragFilenames} metadata keys.
+     * Existing metadata entries are preserved.
+     *
+     * @param message    the USER message that had the document attachment
+     * @param documentIds list of RAG documentIds returned by DocumentProcessingService
+     * @param filenames   list of original filenames, parallel to {@code documentIds}
+     * @return the saved message with updated metadata
+     */
+    @Transactional
+    public OpenDaimonMessage updateRagMetadata(OpenDaimonMessage message,
+                                                List<String> documentIds,
+                                                List<String> filenames) {
+        Map<String, Object> meta = message.getMetadata() != null
+                ? new HashMap<>(message.getMetadata())
+                : new HashMap<>();
+        meta.put(AICommand.RAG_DOCUMENT_IDS_FIELD, String.join(",", documentIds));
+        meta.put(AICommand.RAG_FILENAMES_FIELD, String.join(",", filenames));
+        message.setMetadata(meta);
         return messageRepository.save(message);
     }
 
@@ -310,4 +467,3 @@ public class OpenDaimonMessageService {
         return savedMessage;
     }
 }
-

@@ -1,24 +1,42 @@
 # AGENTS.md
 
-## Agent role
+## Agent Role
+
 Act as a senior Java developer who follows the project style consistently — a multi-module Java project with Spring Boot starters. Use solutions that fit the existing structure rather than the most obvious or popular ones. Always check existing code to match the same style.
 
-## User profile
+## User Profile
+
 Java tech lead, experienced, intolerant of sloppy work. Requires tests and verification of hypotheses — code is not accepted without them. Significant changes must be agreed. Listen to the user and do what they ask; if you disagree, argue with reasoning.
 
-## Rules for AI agents
+## Rules for AI Agents
+
+### Serena activation on session start
+
+- At the beginning of each new session in this repository, verify Serena state first.
+- If Serena reports `Active Project: None`, immediately call `activate_project("open-daimon")`.
+- Do this before any code exploration or edits to ensure project-aware symbol tooling works correctly.
+
+### MCP tools for information lookup
+
+- Two MCP servers are available and should be used for information lookup when relevant:
+  - `Serena` — codebase navigation, symbol search, and project-aware exploration.
+  - `Context7` — library/framework documentation lookup and API usage search.
+- Prefer these MCP tools first for discovery and verification before broader ad-hoc searching.
 
 ### Documentation maintenance
+
 - Every module that has a behavior reference doc (e.g. `SPRING_AI_MODULE.md`, `TELEGRAM_MODULE.md`) must be updated when the behavior it describes changes.
 - If you add or change a use case, command flow, branching condition, input/output format, or error path — update the corresponding doc in the same commit.
 - Docs live next to the module root (e.g. `opendaimon-spring-ai/SPRING_AI_MODULE.md`, `opendaimon-telegram/TELEGRAM_MODULE.md`).
 
 ### Language in code and documentation
+
 - **Code, comments, javadoc, commit messages, and in-repo documentation** (AGENTS.md, READMEs in packages) must be written in **English**.
 - User-facing strings (i18n in `.properties`, bot messages) may be in any language.
-- Exception and log messages in code must be in English. See also [.cursor/rules/english-in-code.mdc](.cursor/rules/english-in-code.mdc).
+- Exception and log messages in code must be in English.
 
 ### When creating new services and components
+
 1. **Do NOT use `@Service`, `@Component`, `@Repository`** for automatic bean scanning
 2. **Create beans explicitly** in configuration classes via `@Bean` methods
 3. **Configuration classes** live in the `config` package of each module
@@ -43,7 +61,8 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 5. **Exception:** `@Repository` on JPA repository interfaces is allowed (interfaces, not classes)
 
 ### When creating new modules
-1. **Create pom.xml** with the correct dependency structure (see Code Style)
+
+1. **Create pom.xml** with the correct dependency structure (see [CODE_STYLE.md](CODE_STYLE.md))
 2. **Add the module** to parent pom.xml in the `<modules>` section
 3. **Package structure:** `io.github.ngirchev.opendaimon.<module-name>.<layer>`
 4. **If entities are needed:** extend `User` or `Message` from `opendaimon-common`
@@ -51,6 +70,7 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 6. **Create a configuration class** for all beans of the module (e.g. `MyModuleConfig`)
 
 ### When working with entities
+
 1. **Do not duplicate entities** across modules — use inheritance
 2. **Base entities** only in `opendaimon-common`
 3. **Module-specific fields** in subclasses (e.g. `telegram_id` in `TelegramUser`)
@@ -59,6 +79,7 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 6. **Discriminator** is required for polymorphic queries
 
 ### When adding new AI providers
+
 1. **Create a new module** `ai-<provider-name>` (e.g. `ai-anthropic`)
 2. **Create a Service** with `generateResponse(String prompt, ...)`
 3. **Create Properties** for configuration (API key, URL)
@@ -66,6 +87,7 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 5. **Do not add entities** — providers are stateless
 
 ### When working with the database
+
 1. **All migrations** in `opendaimon-app/src/main/resources/db/migration/`
 2. **Naming:** `V<number>__<description>.sql` (e.g. `V1__Create_initial_tables.sql`)
 3. **Indexes are required** for foreign keys and frequently queried fields
@@ -73,615 +95,42 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 5. **Timestamps:** `TIMESTAMP WITH TIME ZONE` (not `TIMESTAMP`)
 
 ### When adding metrics
+
 1. **Use `OpenDaimonMeterRegistry`** from `opendaimon-common`
 2. **Metric format:** `<module>.<action>.<metric>` (e.g. `rest.request.processing.time`)
 3. **Types:** Counter, Timer, Gauge
 4. **Add description** in the Grafana dashboard
 
 ### When working with prioritization
+
 1. **Use `PriorityRequestExecutor`** for all AI requests
 2. **Do not call AI services directly** — only via the executor
 3. **Priorities:** ADMIN (10 threads), VIP (5 threads), REGULAR (1 thread)
 4. **Whitelist** is managed via `WhitelistService`
 
 ### Security
+
 1. **API keys** ONLY in environment variables
 2. **Do not commit** `application.yml` with real keys
 3. **Use `@PreAuthorize`** to protect REST endpoints (if you add Spring Security)
 4. **Validate input** with Jakarta Validation (`@Valid`, `@NotNull`, etc.)
 
 ### Testing
+
 1. **Unit tests** for services (Mockito)
 2. **Integration tests** for repositories (Testcontainers)
 3. **Coverage** at least 70% for critical business logic
 4. **Do not mock entities** — use real objects
 5. **Use `@DataJpaTest`** for repository tests
 
-## Project Overview
+### Build & Verification
 
-**OpenDaimon** — a multi-module Java project for interacting with various AI services through different interfaces (Telegram, REST API, Web UI), with Spring AI integration (OpenRouter, Ollama) and support for custom context and templates.
+1. **Always run `mvn clean`** before compile or test to avoid stale bytecode issues
+2. **Always run `mvn clean compile`** after code changes before running tests
+3. **Verify compilation separately** — run `mvn compile` before `mvn test` to catch compilation errors early
 
-### Architectural concept
+## See Also
 
-The project uses a **modular architecture**: each module can be built independently for a given client. For example:
-- Build only `opendaimon-telegram` without `opendaimon-rest`
-- Use only `opendaimon-rest` without `opendaimon-telegram`, or `opendaimon-ui` without `opendaimon-telegram`
-- Build only `opendaimon-spring-ai` without interface modules (wiring the required entry points)
-- Include `opendaimon-gateway-mock` as a provider stub for test scenarios without external APIs
-- Each module has its own entities and can run autonomously
-
-### Technology stack
-
-- **Java 21** (LTS)
-- **Spring Boot 3.3.3** (Spring Framework 6.2.6)
-- **Maven** (multi-module project)
-- **PostgreSQL 17.0** with Flyway migrations
-- **Resilience4j** for bulkhead pattern (request prioritization)
-- **Caffeine** for caching
-- **Micrometer + Prometheus + Grafana** for metrics
-- **Elasticsearch + Kibana + Logstash** for logging
-- **Testcontainers** for integration tests
-- **Lombok** to reduce boilerplate
-
-## Module structure
-
-### 1. `opendaimon-common` (Core Module)
-**Purpose:** Base module with shared business logic, models, and services.
-
-**Key components:**
-- `User` — base entity with JPA Inheritance (JOINED strategy)
-- `Message` — entity for storing dialog messages (combines UserRequest and ServiceResponse)
-- `CommandHandler<T, C, R>` — command handling interface (Command pattern)
-- `PriorityRequestExecutor` — request prioritization (ADMIN/VIP/REGULAR)
-- `BulkHeadAutoConfig`, `BulkHeadProperties` — thread pool configuration
-- `OpenDaimonMeterRegistry` — metrics for monitoring  
-**Dependencies:** Spring Data JPA, PostgreSQL, Resilience4j, Caffeine, Micrometer
-
-### 2. `opendaimon-telegram` (Telegram Interface Module)
-**Purpose:** Module for Telegram Bot API.
-
-**Key components:**
-- `TelegramBot`
-- Configuration: `TelegramAutoConfig`, `TelegramServiceConfig`, `TelegramProperties`
-- Command handlers: `StartTelegramCommandHandler`, `MessageTelegramCommandHandler`, `RoleTelegramCommandHandler`, `NewThreadTelegramCommandHandler`, `HistoryTelegramCommandHandler`, `ThreadsTelegramCommandHandler`, `BugreportTelegramCommandHandler`, `LanguageTelegramCommandHandler`
-- Services: `TelegramUserService`, `TelegramMessageService`, `TelegramUserSessionService`, `TelegramWhitelistService`, `TypingIndicatorService`
-- Entities: `TelegramUser`, `TelegramUserSession`, `TelegramWhitelist`
-
-**Dependencies:** `opendaimon-common`, Telegram Bots API (6.9.7.0)
-
-**DB tables:** `telegram_user`, `telegram_user_session`, `telegram_whitelist`
-
-### 3. `opendaimon-rest` (REST API Module)
-**Purpose:** REST API module.
-
-**Key components:**
-- `RestUser extends User` — entity for REST users (field `email`)
-- Controllers: `SessionController`
-- Handlers: `RestChatMessageCommandHandler`, `RestChatStreamMessageCommandHandler`
-- Configuration: `RestAutoConfig`, `RestFlywayConfig`, `RestJpaConfig`
-- Services: `ChatService`, `RestUserService`, `RestMessageService`, `RestAuthorizationService`
-- Exceptions: `RestExceptionHandler`, `UnauthorizedException`
-
-**Dependencies:** `opendaimon-common`, Springdoc OpenAPI (Swagger)
-
-**DB tables:** `rest_user`
-
-### 4. `opendaimon-ui` (Web UI Module)
-**Purpose:** Web interface for browser use.
-
-**Key components:**
-- `PageController`, `UIAuthController`
-- `UIAutoConfig`, `UIProperties`
-- Templates: `templates/login.html`, `templates/chat.html`
-- Static: `static/css/chat.css`, `static/js/chat.js`
-
-**Dependencies:** `opendaimon-rest`, Spring Boot Web, Thymeleaf
-
-### 5. `opendaimon-spring-ai` (Spring AI Integration Module)
-**Purpose:** Integration with LLM providers via Spring AI (OpenRouter, Ollama) and chat memory.
-
-**Key components:**
-- Configuration: `SpringAIAutoConfig`, `SpringAIProperties`, `SpringAIModelConfig`, `SpringAIFlywayConfig`
-- Services: `SpringAIGateway`, `SpringAIChatService`, `SpringAIPromptFactory`
-- OpenRouter (openrouter-auto-rotation in packages `openrouter`, `openrouter.metrics`): Properties, ApiClient, ModelEntry, ClientConfig, ModelStatsRecorder, StreamMetricsTracker, FreeModelResolver, ModelCapabilitiesMapper, FreeModelResolverScheduler; rotation: `OpenRouterModelRotationAspect`, `RotateOpenRouterModels`
-- Chat memory: `SummarizingChatMemory`
-- Web/logging: `RestClientLogCustomizer`, `WebClientLogCustomizer`
-- Tools: `WebTools`
-
-**Dependencies:** `opendaimon-common`, Spring AI, WebClient
-
-### 6. `opendaimon-gateway-mock` (Gateway Mock Module)
-**Purpose:** Stub for integration tests and scenarios without external API.
-
-**Key components:**
-- Provider response mocks
-- DTOs for test scenarios
-
-**Dependencies:** `opendaimon-common`
-
-### 7. `opendaimon-app` (Application Module)
-**Purpose:** Main application module that assembles all modules.
-
-**Key components:**
-- `Application` — main class with `@SpringBootApplication`
-- Flyway migrations in `src/main/resources/db/migration/`
-- `application.yml` — application configuration
-
-**Dependencies:** `opendaimon-telegram`, `opendaimon-rest`, `opendaimon-ui`, `opendaimon-spring-ai`, `opendaimon-gateway-mock` (transitively pulls in all other modules)
-
-## Database structure
-
-### Inheritance hierarchy (JPA Inheritance)
-```
-user (base table, JOINED strategy)
-├── telegram_user (telegram_id)
-└── rest_user (email)
-
-message (base table, SINGLE_TABLE strategy)
-- Stores all messages (USER, ASSISTANT, SYSTEM)
-- Telegram-specific data in metadata (session_id)
-- REST-specific data in metadata (client_ip, user_agent, endpoint)
-```
-
-### Main tables
-- `user` — base user table (discriminator: `user_type`)
-- `telegram_user`, `rest_user` — tables for each user type
-- `message` — all dialog messages (replaces user_request and service_response)
-- `telegram_user_session` — Telegram user sessions
-- `telegram_whitelist` — bot access whitelist
-- `conversation_thread` — conversation threads for grouping messages
-
-## Code style and conventions
-
-### Dependency order in pom.xml
-**IMPORTANT:** Follow this order in EVERY pom.xml (see comments in files):
-1. Project-specific modules (groupId: `io.github.ngirchev`)
-2. Spring dependencies (groupId: `org.springframework`)
-3. Database dependencies (jdbc, jpa, postgres, h2)
-4. Other utilities and libraries (logging, json, etc.)
-5. Test-related dependencies (scope: `test`)
-
-**All versions MUST be in `<properties>`!**
-
-### Java code style
-- **Java 21** with modern features
-- **Lombok** to reduce boilerplate (`@Getter`, `@Setter`, `@RequiredArgsConstructor`, `@Slf4j`)
-- **Functional patterns** where possible (Vavr is used)
-- **Package structure:** `io.github.ngirchev.opendaimon.<module>.<layer>` (e.g. `io.github.ngirchev.opendaimon.telegram.service`)
-
-### Entity guidelines
-- Base entities in `opendaimon-common` (`User`, `Message`)
-- Module-specific entities in modules (`TelegramUser`, `RestUser`)
-- **JPA Inheritance JOINED** for User
-- **JPA Inheritance SINGLE_TABLE** for Message (all messages in one table)
-- `@PrePersist` and `@PreUpdate` for automatic timestamps
-- Discriminator column: `user_type` (values: `TELEGRAM`, `REST`) for User
-- Discriminator column: `message_type` for Message (default `MESSAGE`)
-
-### Service layer
-- Interfaces for services (e.g. `UserService`, `UserPriorityService`)
-- Implementations with `Impl` suffix (e.g. `UserPriorityServiceImpl`)
-- `@RequiredArgsConstructor` for dependency injection
-- `@Slf4j` for logging
-
-### Spring bean configuration
-**IMPORTANT:** This project does NOT use `@Service`, `@Component`, `@Repository` for automatic bean scanning!
-- **All beans are created explicitly** in configuration classes via `@Bean` methods
-- **Configuration classes** live in the `config` package of each module (e.g. `TelegramServiceConfig`, `CoreAutoConfig`)
-- **Benefits:** explicit control over bean creation, conditional config via `@ConditionalOnProperty`, better testability
-- **Example:** instead of `@Service` on a class, add a `@Bean` method in the corresponding `*Config` class
-
-#### ObjectProvider example:
-
-```java
-// ✅ CORRECT: ObjectProvider for optional/lazy beans
-@Bean
-@ConditionalOnMissingBean
-public MessageTelegramCommandHandler messageTelegramCommandHandler(
-        ObjectProvider<TelegramBot> telegramBotProvider,  // Optional bean
-        PriorityRequestExecutor priorityRequestExecutor,
-        // ... other dependencies
-) {
-    return new MessageTelegramCommandHandler(telegramBotProvider, priorityRequestExecutor, ...);
-}
-
-// In handler class:
-public class MessageTelegramCommandHandler {
-    private final ObjectProvider<TelegramBot> telegramBotProvider;
-    
-    public void sendMessage(Long chatId, String text) {
-        // Bean is obtained only when needed
-        telegramBotProvider.getObject().sendMessage(chatId, text);
-    }
-}
-```
-
-**When to use ObjectProvider:**
-- When the bean may be absent (optional)
-- When lazy loading is needed (obtain bean only on use)
-- To avoid circular dependencies
-- When the bean is created conditionally (`@ConditionalOnProperty`)
-
-**When to use @Lazy:**
-- When the bean must always exist but initialization should be lazy
-- To break a circular dependency at bean creation time
-
-### Command pattern
-- Interface `CommandHandler<T extends CommandType, C extends Command<T>, R>`
-- Each module has its own implementation (e.g. `TelegramCommandHandler`)
-- Registry for handlers (`OpenDaimonCommandHandlerRegistry`)
-
-### Metrics and monitoring
-- Use `OpenDaimonMeterRegistry` to register metrics
-- Metric format: `<module>.<action>.<metric>` (e.g. `telegram.message.processing.time`)
-- All metrics are exported to Prometheus
-
-## Configuration
-
-- Configuration namespace is `open-daimon.*` (modules `telegram`, `rest`, `ui`, `ai.spring-ai`); feature toggles use `*.enabled`.
-- Config keys and comments live in `opendaimon-app/src/main/resources/application.yml`.
-
-**Module auto-configuration:**  
-Each module provides an `@AutoConfiguration` class with conditional bean registration:
-- `CoreAutoConfig` (opendaimon-common) — core services, registries
-- `TelegramAutoConfig` — enabled via `open-daimon.telegram.enabled=true`
-- `RestAutoConfig` — enabled via `open-daimon.rest.enabled=true`
-- `SpringAIAutoConfig` — enabled via `open-daimon.ai.spring-ai.enabled=true`
-
-**Properties hierarchy:**
-```yaml
-open-daimon:
-  common:
-    summarization:
-      max-context-tokens: 8000
-      summary-trigger-threshold: 0.7
-      keep-recent-messages: 20
-    bulkhead:
-      enabled: true
-  telegram:
-    enabled: true
-  rest:
-    enabled: true
-  ai:
-    spring-ai:
-      enabled: true
-```
-
-**IMPORTANT:** For `@ConfigurationProperties` classes:
-- All values are required (must be set in `application.yml`)
-- Do NOT set default values in code — only in configuration
-- Use validation: `@Validated` with `@NotNull`, `@Min`, `@Max`
-- Use wrapper types (`Integer`, `Double`, `Boolean`) for `@NotNull`
-
-Example:
-```java
-@ConfigurationProperties(prefix = "open-daimon.context")
-@Validated
-@Getter
-@Setter
-public class ContextProperties {
-    @NotNull(message = "maxContextTokens is required")
-    @Min(value = 1000, message = "maxContextTokens must be >= 1000")
-    private Integer maxContextTokens; // No default in code!
-}
-```
-
-## Build and test commands
-
-### Build
-```bash
-# Full build with tests
-mvn clean install
-
-# Build without tests (e.g. for Docker)
-mvn clean package -DskipTests
-
-# Build a single module
-mvn clean install -pl opendaimon-common
-```
-
-### Run application
-```bash
-# Local development (requires infrastructure)
-docker-compose up -d postgres prometheus grafana
-mvn spring-boot:run -pl opendaimon-app
-
-# Full Docker deployment
-mvn clean package -DskipTests
-docker-compose up -d
-```
-
-### Testing
-```bash
-# All tests
-mvn test
-
-# Single test class
-mvn test -Dtest=MessageTelegramCommandHandlerIntegrationTest -pl opendaimon-app
-
-# Single test method
-mvn test "-Dtest=TelegramUserRepositoryTest#whenSaveUser_thenUserIsSaved" -pl opendaimon-app
-
-# Tests for one module
-mvn test -pl opendaimon-telegram
-
-# SpringAIGatewayIT (streaming, no Ollama)
-mvn test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
-```
-
-**Running tests on Windows:**
-- For `mvnw.cmd`, **JAVA_HOME** must point to JDK 21. If not set globally, JDK is often at `C:\Users\<user>\.jdks\corretto-21.0.10` (IDEA) or copy path from File → Project Structure → SDKs.
-- In **PowerShell** from project root (single line):
-  ```powershell
-  $env:JAVA_HOME = "C:\Users\<user>\.jdks\corretto-21.0.10"; cd c:\path\to\open-daimon; .\mvnw.cmd test -pl opendaimon-spring-ai -Dtest=SpringAIGatewayIT
-  ```
-  (replace `<user>` and path with your JDK and project location).
-- If running only module tests, build dependencies first: `.\mvnw.cmd install -DskipTests`, then the `test` command above.
-- From **IntelliJ IDEA:** right-click class `SpringAIGatewayIT` → Run 'SpringAIGatewayIT' (JAVA_HOME not needed; IDEA uses its own JDK).
-
-### Sonar
-
-- **Local checks:** Use the IDE plugin (e.g. SonarLint) — it runs rules on the current code without Maven or upload.
-- **CI:** The GitHub Actions workflow runs `mvn verify sonar:sonar` and uploads to SonarCloud.
-- **Coverage (Sonar):** Sonar uses JaCoCo reports but applies `sonar.coverage.exclusions` (see `sonar-project.properties`), so the reported coverage is higher than raw JaCoCo (excluded code is not counted). To see the exact Sonar coverage: run `mvn verify sonar:sonar` (set `SONAR_TOKEN` from SonarCloud) and open the project on SonarCloud. To approximate it locally after `mvn test jacoco:report`: run `python scripts/sonar-coverage-from-jacoco.py` (requires Python 3).
-
-### DB migrations
-```bash
-# Run Flyway migrations manually
-mvn flyway:migrate -pl opendaimon-common
-
-# Flyway migration info
-mvn flyway:info -pl opendaimon-common
-```
-
-**Modular Flyway strategy:**
-- Each module has migration path: `src/main/resources/db/migration/<module>/`
-- Paths: `core/`, `telegram/`, `rest/`, `springai/`
-- Each module's `FlywayConfig` registers its locations
-- Migrations run in order across all modules
-
-**Adding a new migration:**
-1. Create file in the module path: `V<number>__Description.sql`
-2. Use naming like `V1__Create_base_tables.sql`, `V2__Add_user_fields.sql`
-3. Run `mvn flyway:migrate -pl opendaimon-common` to apply
-
-### Line endings (Linux, Mac, Windows)
-
-The repo uses **LF only** for text files (`.gitattributes`). To avoid spurious "modified" files when switching between machines:
-
-- **Linux / Mac:** use default Git behaviour (`core.autocrlf` unset or `false`). No extra config needed.
-- **Windows:** set `git config core.autocrlf input` so Git converts CRLF→LF on commit and does not touch files on checkout; then working tree stays LF and matches the repo.
-- **One-time renormalization** (if many files show as changed only by line endings): run from repo root:
-  ```bash
-  git add --renormalize .
-  git status   # review, then commit
-  git commit -m "Normalize line endings to LF"
-  ```
-  After that, all tracked files are stored with LF and `git status` stays clean across Linux/Mac/Windows.
-
-## Architectural patterns
-
-### 1. Gateway pattern (AI provider abstraction)
-- **Interface:** `AIGateway` with `supports(AICommand)` and `generateResponse(AICommand)`
-- **Registry:** `AIGatewayRegistry` discovers and selects a compatible gateway
-- **Implementations:** `SpringAIGateway`, `DeepSeekGateway`, `OpenRouterGateway`
-
-### 2. Factory pattern (command creation with priorities)
-- **Interface:** `AICommandFactory<A, C>` with `priority()`, `supports()`, and `createCommand()`
-- **Registry:** `AICommandFactoryRegistry` picks the factory by lowest priority value
-- **Key factories:**
-  - `DefaultAICommandFactory` (priority: LOWEST_PRECEDENCE) — fallback for simple commands
-
-### 3. Command handler pattern
-- **Interface:** `ICommandHandler<T, C, R>` with `canHandle()`, `handle()`, and `priority()`
-- **Registry:** `CommandHandlerRegistry` selects handler by type compatibility and priority
-- **Base commands:** `ICommand<T>` → `IChatCommand` (adds text and streaming support)
-
-### 4. Priority-based request execution (Bulkhead)
-- **Service:** `PriorityRequestExecutor` uses Resilience4j bulkhead per user priority (VIP/REGULAR/BLOCKED)
-- **Sync:** `CommandSyncService` manages per-user semaphores (VIP: 3, others: 2 concurrent requests)
-
-## Dialog processing flow
-
-```
-User Input → CommandHandler → AICommandFactoryRegistry
-    ↓
-Factory Selection:
-└─ DefaultAICommandFactory (simple command)
-    ↓
-AIGatewayRegistry selects compatible gateway
-    ↓
-Gateway executes request (streaming or non-streaming)
-    ↓
-Save USER message → Process response → Save ASSISTANT message
-    ↓
-Return response to user
-```
-
-## Dialog context (Spring AI ChatMemory)
-
-- Uses Spring AI `MessageChatMemoryAdvisor` with custom `SummarizingChatMemory`
-- Messages stored in table `spring_ai_chat_memory`
-- Automatic dialog tracking by conversationId
-
-## Automatic dialog summarization
-
-**Long dialog handling:**
-- **Service:** `SummarizationService` (synchronously in Spring AI path)
-- **Trigger:** `SummarizingChatMemory.get()` — when `spring_ai_chat_memory` message count reaches `history-window-size`
-- **Process:**
-  1. Filter old messages (up to threshold)
-  2. Build summarization prompt with existing summary
-  3. Call AI with low temperature (0.3) to produce JSON: `{summary, memory_bullets}`
-  4. Update `ConversationThread` with new summary and memory bullets
-  5. Track `messagesAtLastSummarization` to avoid re-summarizing the same messages
-- **Integration:** On next context build, summary is injected as `SystemMessage`; `spring_ai_chat_memory` is cleared
-
-**Error handling — intentional design:**
-- If summarization AI call fails, `SummarizingChatMemory` throws `RuntimeException("Conversation summarization failed. Please start a new session (/newthread).")` — this is INTENTIONAL.
-- The error surfaces to the user as a prompt to start a new session (`/newthread`).
-- Do NOT silently swallow summarization failures (no `return false` fallback). The chat state after a failed summarization is inconsistent — history is not cleared, summary not written — continuing would give the model a corrupted context window.
-
-**User notification before summarization:**
-- `SummarizationStartedEvent` is published before summarization begins.
-- `TelegramSummarizationListener` sends a notification message to the user so they know summarization is in progress (not a hang).
-
-## Streaming support
-
-**SSE (Server-Sent Events) streaming:**
-- **Command level:** `IChatCommand.stream()` boolean flag
-- **Gateway level:** `SpringAIGateway` returns `SpringAIStreamResponse` wrapping `Flux<ChatResponse>`
-- **REST handler:** `RestChatStreamMessageCommandHandler` converts Flux to SSE
-- **Telegram handler:** `MessageTelegramCommandHandler` uses `AIUtils.processStreamingResponse()` to aggregate chunks
-- **Persistence:** Final aggregated response is saved to the DB after the stream ends
-
-## File handling architecture
-
-The system supports two kinds of file attachments with different pipelines:
-
-### Images (Multimodal API Flow)
-
-```
-User sends image via Telegram
-    ↓
-TelegramBot.mapToTelegramPhotoCommand()
-    ↓
-TelegramFileService.processPhoto()
-    ├─ Download from Telegram API
-    ├─ Save to MinIO (FileStorageService)
-    └─ Create Attachment(type=IMAGE, data=bytes)
-    ↓
-TelegramCommand.attachments = [Attachment]
-    ↓
-AICommandFactoryRegistry.createCommand()
-    ↓
-DefaultAICommandFactory
-    └─ Create ChatAICommand with attachments
-    ↓
-SpringAIGateway.generateResponse()
-    └─ createUserMessage() with Media
-        └─ UserMessage.builder().text().media(List<Media>).build()
-    ↓
-Vision-capable model (e.g., GPT-4o, Claude 3)
-```
-
-**Feature Flags:**
-- `open-daimon.common.storage.enabled=true` - MinIO storage
-- `open-daimon.telegram.file-upload.enabled=true` - Telegram file processing
-
-**Key components:**
-- `TelegramFileService` (opendaimon-telegram) — downloads files from Telegram API
-- `MinioFileStorageService` (opendaimon-common) — stores files in MinIO
-- `Attachment` record (opendaimon-common) — file metadata + byte data
-- `SpringAIGateway.createUserMessage()` — converts Attachment to Spring AI Media
-
-### PDF documents (RAG Pipeline Flow)
-
-```
-User sends PDF via Telegram
-    ↓
-TelegramBot.mapToTelegramDocumentCommand()
-    ↓
-TelegramFileService.processDocument()
-    ├─ Download from Telegram API
-    ├─ Save to MinIO
-    └─ Create Attachment(type=PDF, data=bytes)
-    ↓
-(Future integration point)
-DocumentProcessingService.processPdf()
-    ├─ Extract: PagePdfDocumentReader reads PDF pages
-    ├─ Transform: TokenTextSplitter splits into chunks
-    └─ Load: VectorStore.add() generates embeddings
-    ↓
-RAGService.findRelevantContext(query, documentId)
-    ├─ similaritySearch with filter by documentId
-    └─ Return top-K relevant chunks
-    ↓
-RAGService.createAugmentedPrompt()
-    └─ Combine context + user query
-```
-
-**Feature Flag:**
-- `open-daimon.ai.spring-ai.rag.enabled=true` — RAG pipeline (uses SimpleVectorStore in-memory)
-
-**Key components:**
-- `DocumentProcessingService` (opendaimon-spring-ai) — ETL pipeline for PDF
-- `RAGService` (opendaimon-spring-ai) — similarity search and prompt augmentation
-- `SimpleVectorStore` — in-memory vector store (data is lost on restart)
-- `RAGProperties` — config: chunkSize, chunkOverlap, topK, similarityThreshold
-
-**Example RAG configuration:**
-```yaml
-open-daimon:
-  ai:
-    spring-ai:
-      rag:
-        enabled: true
-        chunk-size: 500
-        chunk-overlap: 100
-        top-k: 5
-        similarity-threshold: 0.7
-```
-
-**Note:** SimpleVectorStore is in-memory only. For production consider PGVector or Elasticsearch.
-
-## Monitoring
-
-**Metrics:**
-- Custom `OpenDaimonMeterRegistry` wraps Micrometer
-- Prometheus endpoint: `http://localhost:8080/actuator/prometheus`
-- Grafana dashboards: `http://localhost:3000` (admin/admin123456)
-
-**Health checks:**
-- `http://localhost:8080/actuator/health`
-
-**Logs:**
-- Elasticsearch + Kibana: `http://localhost:5601`
-
-## Useful links (after starting the application)
-
-- **Swagger UI:** http://localhost:8080/swagger-ui/index.html
-- **Actuator Health:** http://localhost:8080/actuator/health
-- **Prometheus Metrics:** http://localhost:8080/actuator/prometheus
-- **Prometheus UI:** http://localhost:9090
-- **Grafana:** http://localhost:3000 (admin/admin123456)
-- **Kibana:** http://localhost:5601
-
-## Environment variables
-
-Required for local development (create a `.env` file or export). Docker Compose reads `.env`; for Maven (e.g. `flyway:migrate`) export these or source `.env` before running:
-```bash
-TELEGRAM_USERNAME=your_bot_username
-TELEGRAM_TOKEN=your_telegram_bot_token
-OPENROUTER_KEY=your_openrouter_api_key
-DEEPSEEK_KEY=your_deepseek_api_key
-# Database (same as docker-compose postgres service; required for flyway:migrate)
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=opendaimon
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_secure_password
-
-# SonarQube (optional; for Cursor MCP in .cursor/mcp.json — set in .env and ensure Cursor is started with that env, e.g. from a terminal that sourced .env)
-# SONARQUBE_TOKEN=...
-# SONARQUBE_ORG=your_org
-```
-
-## Adding a new AI provider
-
-1. Create a new module `opendaimon-<provider>`
-2. Add dependency on `opendaimon-common`
-3. Implement `AIGateway`
-4. Create `@AutoConfiguration` with `@ConditionalOnProperty`
-5. Add a Properties class for API keys/endpoints
-6. Register in `opendaimon-app/pom.xml`
-7. Update `application.yml` with configuration
-
-## Adding a new interface
-
-1. Create a new module `opendaimon-<interface>`
-2. Implement command handlers extending `ICommandHandler`
-3. Create command types implementing `ICommand` or `IChatCommand`
-4. Create `@AutoConfiguration`
-5. Add properties for interface-specific configuration
-6. Register in `opendaimon-app/pom.xml`
+- **Architecture & Modules:** [ARCHITECTURE.md](ARCHITECTURE.md)
+- **Code Style & Configuration:** [CODE_STYLE.md](CODE_STYLE.md)
+- **Build & Test Commands:** [Makefile](Makefile)

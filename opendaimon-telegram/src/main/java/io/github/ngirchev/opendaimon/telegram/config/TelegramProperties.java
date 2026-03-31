@@ -39,6 +39,11 @@ public class TelegramProperties {
      */
     private Commands commands = new Commands();
 
+    /**
+     * Coalescing settings for Telegram two-step user inputs (e.g. text + forwarded/media message).
+     */
+    private MessageCoalescing messageCoalescing = new MessageCoalescing();
+
     @Getter
     @Setter
     public static class AccessConfig {
@@ -133,6 +138,39 @@ public class TelegramProperties {
          * Enable/disable /model command handler
          */
         private boolean modelEnabled = true;
+    }
+
+    @Getter
+    @Setter
+    public static class MessageCoalescing {
+        /**
+         * Enables two-update coalescing for "prefix text + related next message" scenarios.
+         */
+        private boolean enabled = true;
+
+        /**
+         * Wait window for the second update (milliseconds).
+         */
+        @Min(value = 100, message = "waitWindowMs must be >= 100")
+        @Max(value = 5000, message = "waitWindowMs must be <= 5000")
+        private int waitWindowMs = 1200;
+
+        /**
+         * Maximum length of the first text candidate to hold for coalescing.
+         */
+        @Min(value = 1, message = "maxLeadingTextLength must be >= 1")
+        @Max(value = 1000, message = "maxLeadingTextLength must be <= 1000")
+        private int maxLeadingTextLength = 160;
+
+        /**
+         * Allows photo/document as the second message in a coalesced pair.
+         */
+        private boolean allowMediaSecondMessage = true;
+
+        /**
+         * Requires explicit relation on second message (forward origin or reply-to first message).
+         */
+        private boolean requireExplicitLink = true;
     }
     
     @PostConstruct

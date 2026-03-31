@@ -20,12 +20,12 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.OllamaChatModel;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIProperties;
-import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.*;
 
@@ -96,7 +96,7 @@ class SpringAIGatewayMemoryAdvisorTest {
         // Create real SpringAIChatService
         @SuppressWarnings("unchecked")
         org.springframework.beans.factory.ObjectProvider<OpenRouterStreamMetricsTracker> objectProvider =
-                mock(org.springframework.beans.factory.ObjectProvider.class);
+                mock(ObjectProvider.class);
         lenient().when(objectProvider.getIfAvailable()).thenReturn(null);
         realChatService = new SpringAIChatService(
                 promptFactory,
@@ -122,25 +122,14 @@ class SpringAIGatewayMemoryAdvisorTest {
 
         // Create SpringAIGateway (RAG disabled - pass null/empty providers)
         @SuppressWarnings("unchecked")
-        org.springframework.beans.factory.ObjectProvider<DocumentProcessingService> docProvider = 
-                mock(org.springframework.beans.factory.ObjectProvider.class);
-        @SuppressWarnings("unchecked")
-        org.springframework.beans.factory.ObjectProvider<FileRAGService> ragProvider =
-                mock(org.springframework.beans.factory.ObjectProvider.class);
-        @SuppressWarnings("unchecked")
-        org.springframework.beans.factory.ObjectProvider<ChatMemory> chatMemoryProvider =
-                mock(org.springframework.beans.factory.ObjectProvider.class);
+        ObjectProvider<ChatMemory> chatMemoryProvider = mock(ObjectProvider.class);
         lenient().when(chatMemoryProvider.getIfAvailable()).thenReturn(chatMemory);
-        
         springAIGateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
                 springAIModelRegistry,
                 realChatService,
-                chatMemoryProvider,
-                null, // ragProperties - RAG disabled
-                docProvider,
-                ragProvider
+                chatMemoryProvider
         );
     }
 

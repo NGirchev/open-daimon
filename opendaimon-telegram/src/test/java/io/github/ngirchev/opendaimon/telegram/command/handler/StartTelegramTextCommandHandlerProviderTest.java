@@ -13,7 +13,7 @@ import org.springframework.test.context.TestPropertySource;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
@@ -242,8 +242,8 @@ class StartTelegramTextCommandHandlerProviderTest {
         }
 
         @Bean
-        public AICommandFactoryRegistry aiCommandFactoryRegistry() {
-            return mock(AICommandFactoryRegistry.class);
+        public AIRequestPipeline aiRequestPipeline() {
+            return mock(AIRequestPipeline.class);
         }
 
         @Bean

@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -21,6 +22,12 @@ import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 
 import java.util.List;
 
+import static io.github.ngirchev.opendaimon.common.SupportedLanguages.DEFAULT_LANGUAGE;
+import static io.github.ngirchev.opendaimon.common.SupportedLanguages.EN;
+import static io.github.ngirchev.opendaimon.common.SupportedLanguages.RU;
+import static io.github.ngirchev.opendaimon.common.SupportedLanguages.SUPPORTED_LANGUAGES;
+
+@Slf4j
 public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
 
     private static final String CALLBACK_PREFIX = "LANG_";
@@ -69,7 +76,7 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for language command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
-        String currentLang = user.getLanguageCode() != null ? user.getLanguageCode() : "ru";
+        String currentLang = user.getLanguageCode() != null ? user.getLanguageCode() : DEFAULT_LANGUAGE;
         String currentLabel = languageLabel(currentLang, command.languageCode());
         String currentMsg = messageLocalizationService.getMessage("telegram.language.current", command.languageCode(), currentLabel);
         sendMessage(command.telegramId(), currentMsg);
@@ -89,7 +96,8 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
             return;
         }
         String normalized = langCode.toLowerCase().split("-")[0];
-        if (!List.of("ru", "en").contains(normalized)) {
+        log.warn("WHAT THE LANGUAGE: {}", normalized);
+        if (!SUPPORTED_LANGUAGES.contains(normalized)) {
             ackCallback(cq.getId(), "❌");
             sendErrorMessage(command.telegramId(), messageLocalizationService.getMessage("telegram.language.unknown", command.languageCode()));
             return;
@@ -104,11 +112,11 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
 
     private void sendLanguageMenu(Long chatId, String languageCode) {
         try {
-            String labelRu = messageLocalizationService.getMessage("telegram.language.label.ru", "ru");
-            String labelEn = messageLocalizationService.getMessage("telegram.language.label.en", "en");
+            String labelRu = messageLocalizationService.getMessage("telegram.language.label.ru", RU);
+            String labelEn = messageLocalizationService.getMessage("telegram.language.label.en", EN);
             List<InlineKeyboardButton> row = List.of(
-                    buttonForLang("ru", labelRu),
-                    buttonForLang("en", labelEn)
+                    buttonForLang(RU, labelRu),
+                    buttonForLang(EN, labelEn)
             );
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup(List.of(row));
             String selectText = messageLocalizationService.getMessage("telegram.language.select", languageCode);
@@ -128,10 +136,10 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
 
     private String languageLabel(String code, String forLocale) {
         if (code == null) {
-            return "ru";
+            return DEFAULT_LANGUAGE;
         }
         String normalized = code.toLowerCase().split("-")[0];
-        if (!List.of("ru", "en").contains(normalized)) {
+        if (!SUPPORTED_LANGUAGES.contains(normalized)) {
             return code;
         }
         return messageLocalizationService.getMessage("telegram.language.label." + normalized, forLocale);

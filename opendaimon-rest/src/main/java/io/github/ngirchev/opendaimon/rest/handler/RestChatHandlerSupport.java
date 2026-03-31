@@ -11,6 +11,8 @@ import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 
+import io.github.ngirchev.opendaimon.common.SupportedLanguages;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -35,7 +37,7 @@ public class RestChatHandlerSupport {
 
     public static String getRequestLanguage(RestChatCommand command) {
         return command.request() != null && command.request().getLocale() != null
-                ? command.request().getLocale().getLanguage() : "ru";
+                ? command.request().getLocale().getLanguage() : SupportedLanguages.DEFAULT_LANGUAGE;
     }
 
     public static Map<String, String> buildMetadata(ConversationThread thread, String assistantRoleContentFromRole,

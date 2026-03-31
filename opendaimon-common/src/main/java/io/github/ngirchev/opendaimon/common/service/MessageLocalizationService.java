@@ -4,13 +4,13 @@ import org.springframework.context.MessageSource;
 
 import java.util.Locale;
 
+import static io.github.ngirchev.opendaimon.common.SupportedLanguages.DEFAULT_LANGUAGE;
+
 /**
  * Resolves user-facing messages by code and language.
  * Uses Spring MessageSource with locale derived from language code (e.g. from User or Accept-Language).
  */
 public class MessageLocalizationService {
-
-    private static final String DEFAULT_LANGUAGE = "ru";
 
     private final MessageSource messageSource;
 

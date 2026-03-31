@@ -20,6 +20,7 @@ import io.github.ngirchev.opendaimon.common.service.SummarizationService;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -192,13 +193,41 @@ public class SummarizingChatMemory implements ChatMemory {
 
     /**
      * Converts OpenDaimonMessage to Spring AI Message.
+     * For USER messages with attachments, appends file metadata to the message text
+     * so the model knows which files were uploaded in the conversation history.
      */
     private Message convertToSpringMessage(OpenDaimonMessage msg) {
         return switch (msg.getRole()) {
-            case USER -> new UserMessage(msg.getContent());
+            case USER -> new UserMessage(enrichWithAttachmentInfo(msg.getContent(), msg.getAttachments()));
             case ASSISTANT -> new AssistantMessage(msg.getContent());
             case SYSTEM -> new SystemMessage(msg.getContent());
         };
+    }
+
+    /**
+     * Appends attachment metadata to user message text so the model can reference
+     * previously uploaded files in follow-up messages.
+     */
+    private String enrichWithAttachmentInfo(String content, List<Map<String, Object>> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return content;
+        }
+        StringBuilder sb = new StringBuilder(content != null ? content : "");
+        sb.append("\n[Attached files: ");
+        for (int i = 0; i < attachments.size(); i++) {
+            if (i > 0) sb.append(", ");
+            Map<String, Object> att = attachments.get(i);
+            String filename = (String) att.get("filename");
+            String mimeType = (String) att.get("mimeType");
+            if (filename != null) {
+                sb.append("\"").append(filename).append("\"");
+            }
+            if (mimeType != null) {
+                sb.append(" (").append(mimeType).append(")");
+            }
+        }
+        sb.append("]");
+        return sb.toString();
     }
 
     @Override

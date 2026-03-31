@@ -1,0 +1,50 @@
+# OpenRouter (cloud AI) — created by OpenDaimon setup wizard.
+# Edit this file to customize models, then restart: docker compose restart opendaimon-app
+#
+# Provider: OpenRouter (https://openrouter.ai)
+# Default embedding model: openai/text-embedding-3-small (via OpenRouter).
+# See application-simple.yml.example for all available options.
+
+spring:
+  ai:
+    model:
+      chat: openai
+      embedding: openai
+      audio:
+        speech: none
+        transcription: none
+      image: none
+      moderation: none
+    openai:
+      embedding:
+        options:
+          model: openai/text-embedding-3-small
+
+open-daimon:
+  common:
+    storage:
+      enabled: false  # Set to true if you started the 'storage' Docker Compose profile
+  telegram:
+    file-upload:
+      enabled: false  # Set to true if storage is enabled above
+  ai:
+    spring-ai:
+      openrouter-auto-rotation:
+        models:
+          enabled: false
+      models:
+        list:
+          - name: "openrouter/auto"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - EMBEDDING
+              - VISION
+            provider-type: OPENAI
+            priority: 3
+            allowed-roles:
+              - ADMIN
+              - VIP

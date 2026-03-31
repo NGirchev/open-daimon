@@ -37,6 +37,8 @@ public class TelegramCommand implements IChatCommand<TelegramCommandType> {
     private List<Attachment> attachments = new ArrayList<>();
     /** User language code (e.g. from Telegram), for localization. */
     private String languageCode;
+    /** Source description for forwarded messages (e.g. user name, channel title). Null if not forwarded. */
+    private String forwardedFrom;
 
     public TelegramCommand(Long userId, Long chatId, TelegramCommandType telegramCommandType, Update update) {
         this.userId = userId;

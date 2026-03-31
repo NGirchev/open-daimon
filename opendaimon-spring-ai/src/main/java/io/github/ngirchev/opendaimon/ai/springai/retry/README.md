@@ -9,7 +9,7 @@
 
 **Why retry may not happen:**
 - **Single candidate:** command capabilities = `{AUTO}` (e.g. `DefaultAICommandFactory` for ADMIN). In the registry only `openrouter/auto` has AUTO → one candidate → on stream error `index + 1 >= candidates.size()`, no retry.
-- For REGULAR/VIP capabilities (CHAT, CHAT+TOOL_CALLING+WEB etc.) there are usually several candidates (openrouter/auto, gemma3:1b, free models) — retry is possible.
+- For REGULAR/VIP capabilities (CHAT, CHAT+TOOL_CALLING+WEB etc.) there are usually several candidates (openrouter/auto, qwen2.5:3b, free models) — retry is possible.
 
 **Where empty-stream error originates:**  
 `WebClientLogCustomizer` (WebClient filter) in `logAndBufferErrorsIfNeeded` wraps the response body (`Flux<DataBuffer>`) in `handle()`. When signs of "empty stream" are detected (usage present, finish_reason present, nonEmptyContentChunks=0, diagnosis "reasoning-only" or "stream ended due to generation limit") it calls `sink.error(new OpenRouterEmptyStreamException(diagnosis))`. The error propagates: DataBuffer → Spring AI SSE parser → `Flux<ChatResponse>` → up to the aspect.
@@ -62,7 +62,7 @@ Retry and OpenRouter model rotation are implemented via the AOP aspect `OpenRout
 
 - Candidates are determined by `command.modelCapabilities()` from the command factory (`DefaultAICommandFactory`).
 - **ADMIN:** capabilities = `{AUTO}`. In the registry only `openrouter/auto` has AUTO → one candidate → on stream error retry is not possible (no "next" model).
-- **REGULAR:** `{CHAT}`. Eligible: openrouter/auto, gemma3:1b, free models with CHAT → several candidates, retry possible.
+- **REGULAR:** `{CHAT}`. Eligible: openrouter/auto, qwen2.5:3b, free models with CHAT → several candidates, retry possible.
 - **VIP:** `{CHAT, TOOL_CALLING, WEB}` — several models may match, retry possible.
 
 If retry is needed for AUTO, the aspect could add a fallback: when the only candidate has AUTO, additionally request candidates by `ModelCapabilities.CHAT` and merge lists (see plan in .cursor/plans if needed).

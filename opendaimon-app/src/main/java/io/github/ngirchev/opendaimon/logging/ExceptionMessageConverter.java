@@ -14,7 +14,7 @@ import ch.qos.logback.core.CoreConstants;
  * from Reactor obscures the real error.
  * <p>
  * Register in logback config:
- * {@code <conversionRule conversionWord="exmsg" converterClass="...ExceptionMessageConverter"/>}
+ * {@code <conversionRule conversionWord="exmsg" class="...ExceptionMessageConverter"/>}
  */
 public class ExceptionMessageConverter extends ThrowableHandlingConverter {
 

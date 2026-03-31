@@ -1,18 +1,22 @@
-# application-local.yml — user-editable overrides for OpenDaimon.
+# application-simple.yml — user-editable overrides for OpenDaimon.
 #
-# This file is mounted into the Docker container and applied on top of the
-# defaults in application.yml. Edit it to customize models, logging, and limits
+# This file is created by the setup wizard from one of three templates:
+#   application-simple-openrouter.yml  — OpenRouter only
+#   application-simple-ollama.yml      — Ollama only
+#   application-simple-both.yml        — OpenRouter + Ollama
+#
+# It is mounted into the Docker container and applied on top of the defaults
+# in application.yml. Edit it to customise models, logging, and limits
 # without rebuilding the image. Restart the container to apply changes:
 #
 #   docker compose restart opendaimon-app
 #
-# Copy this file to application-local.yml and uncomment the sections you need.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── AI Model List ─────────────────────────────────────────────────────────────
-# Override the model list to use custom models.
-# provider-type: OPENAI (OpenRouter), OLLAMA
-# capabilities: AUTO, CHAT, TOOL_CALLING, WEB, SUMMARIZATION, EMBEDDING, VISION
+# Override the model list shown to users in the Telegram /model command.
+# provider-type: OPENAI (OpenRouter) | OLLAMA
+# capabilities: AUTO, CHAT, TOOL_CALLING, WEB, SUMMARIZATION, EMBEDDING, VISION, FREE
 #
 # open-daimon:
 #   ai:
@@ -28,6 +32,13 @@
 #             priority: 3
 #             allowed-roles: [ADMIN, VIP]
 #
+#           # Example free OpenRouter model:
+#           - name: "google/gemini-2.0-flash-exp:free"
+#             capabilities: [CHAT, TOOL_CALLING, WEB, VISION, FREE]
+#             provider-type: OPENAI
+#             priority: 1
+#             # allowed-roles not set — accessible to all roles
+#
 #           # Example Ollama model:
 #           - name: "qwen2.5:7b"
 #             capabilities: [AUTO, CHAT, TOOL_CALLING, SUMMARIZATION]
@@ -40,6 +51,17 @@
 #             capabilities: [EMBEDDING]
 #             provider-type: OLLAMA
 #             priority: 1
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+# Enable file/image upload support (requires 'storage' Docker Compose profile).
+#
+# open-daimon:
+#   common:
+#     storage:
+#       enabled: true
+#   telegram:
+#     file-upload:
+#       enabled: true
 
 # ── Bulkhead Limits ───────────────────────────────────────────────────────────
 # Adjust concurrent request limits per user tier.

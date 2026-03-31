@@ -63,9 +63,9 @@ public record Attachment(
                type.contains("msword") || 
                type.contains("wordprocessingml") || // docx
                type.contains("spreadsheetml") || // xlsx
-               type.contains("ms-excel") || // xls
+               type.contains("ms-excel") || type.contains("msexcel") || // xls (vnd.ms-excel, x-msexcel)
                type.contains("presentationml") || // pptx
-               type.contains("ms-powerpoint") || // ppt
+               type.contains("ms-powerpoint") || type.contains("mspowerpoint") || // ppt
                type.contains("text/plain") || // txt
                type.contains("rtf") || // Rich Text Format
                type.contains("opendocument") || // ODT, ODS, ODP

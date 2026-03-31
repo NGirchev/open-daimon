@@ -8,10 +8,11 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
 
+import io.github.ngirchev.opendaimon.common.SupportedLanguages;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Service for setting up Telegram bot command menu.
@@ -23,15 +24,13 @@ public class TelegramBotMenuService {
     private final ObjectProvider<TelegramBot> telegramBotProvider;
     private final ObjectProvider<TelegramSupportedCommandProvider> commandHandlersProvider;
 
-    private static final Set<String> SUPPORTED_MENU_LANGUAGES = Set.of("ru", "en");
-
     /**
-     * Sets bot command menu for each supported language (ru, en). Telegram shows the menu in the user's app language.
+     * Sets bot command menu for each supported language. Telegram shows the menu in the user's app language.
      */
     public void setupBotMenu() {
         try {
             TelegramBot bot = telegramBotProvider.getObject();
-            for (String lang : SUPPORTED_MENU_LANGUAGES) {
+            for (String lang : SupportedLanguages.SUPPORTED_LANGUAGES) {
                 List<BotCommand> commands = buildCommandsList(lang);
                 if (commands.isEmpty()) {
                     log.warn("No commands found for language {}", lang);
@@ -39,7 +38,7 @@ public class TelegramBotMenuService {
                 }
                 bot.setMyCommands(commands, lang);
             }
-            log.info("Bot menu configured for languages: {}", SUPPORTED_MENU_LANGUAGES);
+            log.info("Bot menu configured for languages: {}", SupportedLanguages.SUPPORTED_LANGUAGES);
         } catch (TelegramApiException e) {
             log.error("Failed to set up bot menu", e);
             throw new RuntimeException("Failed to set up bot menu", e);

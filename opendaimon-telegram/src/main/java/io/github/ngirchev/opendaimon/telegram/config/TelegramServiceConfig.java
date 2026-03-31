@@ -3,6 +3,7 @@ package io.github.ngirchev.opendaimon.telegram.config;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
@@ -13,6 +14,7 @@ import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.meter.OpenDaimonMeterRegistry;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
@@ -87,6 +89,7 @@ public class TelegramServiceConfig {
             CoreCommonProperties coreCommonProperties,
             MessageLocalizationService messageLocalizationService,
             ObjectProvider<StorageProperties> storagePropertiesProvider,
+            ConversationThreadService conversationThreadService,
             ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider) {
         return new TelegramMessageService(
                 messageService,
@@ -94,6 +97,7 @@ public class TelegramServiceConfig {
                 coreCommonProperties,
                 messageLocalizationService,
                 storagePropertiesProvider,
+                conversationThreadService,
                 telegramMessageServiceSelfProvider);
     }
 
@@ -111,8 +115,31 @@ public class TelegramServiceConfig {
     @ConditionalOnMissingBean
     public TypingIndicatorService typingIndicatorService(
             ObjectProvider<TelegramBot> telegramBotProvider,
+            @Qualifier("typingIndicatorScheduledExecutor")
             ScheduledExecutorService typingIndicatorScheduledExecutor) {
         return new TypingIndicatorService(telegramBotProvider, typingIndicatorScheduledExecutor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(name = "messageCoalescingScheduledExecutor")
+    public ScheduledExecutorService messageCoalescingScheduledExecutor() {
+        return Executors.newScheduledThreadPool(1, r -> {
+            Thread thread = new Thread(r, "telegram-message-coalescing-");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TelegramMessageCoalescingService telegramMessageCoalescingService(
+            TelegramProperties telegramProperties,
+            @Qualifier("messageCoalescingScheduledExecutor")
+            ScheduledExecutorService messageCoalescingScheduledExecutor) {
+        return new TelegramMessageCoalescingService(
+                telegramProperties.getMessageCoalescing(),
+                messageCoalescingScheduledExecutor
+        );
     }
 
     @Bean

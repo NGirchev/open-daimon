@@ -89,6 +89,15 @@ public interface OpenDaimonMessageRepository extends JpaRepository<OpenDaimonMes
     List<OpenDaimonMessage> findByUserAndThreadOrderBySequenceNumberAsc(
             @Param("user") User user,
             @Param("thread") ConversationThread thread);
-    
+
+    /**
+     * Finds message by thread and Telegram message ID.
+     * Used to resolve reply-to messages for image attachment lookup.
+     */
+    @Query("SELECT m FROM Message m WHERE m.thread = :thread AND m.telegramMessageId = :telegramMessageId")
+    Optional<OpenDaimonMessage> findByThreadAndTelegramMessageId(
+            @Param("thread") ConversationThread thread,
+            @Param("telegramMessageId") Long telegramMessageId);
+
 }
 

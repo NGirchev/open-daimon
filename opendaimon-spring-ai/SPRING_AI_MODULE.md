@@ -21,7 +21,7 @@ Core pipeline: command factory → AIGateway → model rotation → response.
 | `threadKey`      | `ConversationThread.threadKey` (from `saveUserMessage`) |
 | `assistantRoleId`| `AssistantRole.id` |
 | `userId`         | `TelegramUser.id` |
-| `role`           | `AssistantRole.content` |
+| `role`           | `AssistantRole.content` + Telegram bot identity suffix (`You are bot with name @<bot_username>`) |
 | `languageCode`   | `TelegramUser.languageCode` (optional) |
 | `preferredModelId`| `UserModelPreferenceService.getPreferredModel(userId)` (optional) |
 
@@ -65,6 +65,7 @@ Tier fields come from `open-daimon.common.chat-routing` (`required-capabilities`
 | `REGULAR` | `{CHAT}` | (from config) | — |
 
 Adds `VISION` if image attachments are present.
+Adds `WEB` to optional capabilities when `userText` contains a URL (`http(s)://...` or `www...`), so web tools are enabled automatically for link-based prompts.
 If `preferredModelId` in metadata → `FixedModelChatAICommand`, otherwise → `ChatAICommand`.
 
 ---
@@ -98,7 +99,8 @@ If `springAiProperties.mock = true` → return mock response immediately, no mod
 - `stream = true` → `SpringAIChatService.streamChat()` → returns `SpringAIStreamResponse(Flux<ChatResponse>)`
 - `stream = false` → `SpringAIChatService.callChat()` → returns `SpringAIResponse(ChatResponse)`
 
-Web tools (`WebTools` / Serper) are attached to the prompt when the command requests `WEB` in **required** (`modelCapabilities`) **or** **optional** (`optionalCapabilities`) — so VIP-style routing (WEB optional) still registers tools.
+Web tools (`WebTools` / Serper) are attached to the prompt when:
+- command requests `WEB` in **required** (`modelCapabilities`) or **optional** (`optionalCapabilities`).
 
 ---
 
@@ -110,7 +112,8 @@ Preconditions for RAG to activate: RAG enabled + document attachments present (`
 for each document attachment:
   ├─ PDF → PagePdfDocumentReader
   │    └─ no text extracted → DocumentContentNotExtractableException
-  │         └─ renderPdfToImageAttachments() — up to 10 pages at 200 DPI → IMAGE attachments
+  │         └─ renderPdfToImageAttachments() — up to 10 pages at 300 DPI
+  │            (PNG, grayscale + auto-contrast preprocessing) → IMAGE attachments
   └─ other → TikaDocumentReader (DOCX, XLSX, PPT, TXT, etc.)
        └─ TokenTextSplitter → EmbeddingModel → SimpleVectorStore
 
@@ -118,6 +121,14 @@ similaritySearch(userQuery, topK, threshold, documentId filter)
   ├─ results empty → userText unchanged
   └─ results found → augmentedPrompt = template % (context, userQuery)
 ```
+
+Follow-up flow (no new attachments): document IDs are read from thread `memoryBullets`,
+then `findAllByDocumentId()` loads chunks with `similarityThreshold = 0.0` and a high `topK` cap
+(`max(rag.top-k, 10000)`) to avoid truncating large documents to only the first 5 semantic hits.
+
+For image-only PDF OCR, gateway calls a VISION model up to 3 times and keeps the longest extracted text.
+The OCR call is deterministic (`temperature=0`, `top_p=1`, fixed `seed=42`) to reduce creative drift/hallucinated text.
+This mitigates short/partial OCR outputs from small local multimodal models.
 
 ---
 
@@ -160,6 +171,7 @@ Intercepts `callChat()` and `streamChat()`. Retries across candidates on retryab
 **Input:** user text, no attachments, no `preferredModelId`, `languageCode = "ru"`
 **Factory:** `DefaultAICommandFactory` → `ChatAICommand(capabilities={CHAT})`
 **Gateway:** AUTO mode → selects model by `CHAT` capability → appends `"Always respond in Russian language."` to system role
+Telegram-specific bot identity is already part of `role` metadata from Telegram handler (not added inside SpringAIGateway).
 **Output:** `SpringAIStreamResponse` → Telegram accumulates chunks → sends reply
 
 ---
@@ -213,9 +225,10 @@ Intercepts `callChat()` and `streamChat()`. Retries across candidates on retryab
 ---
 
 ### UC-8: Telegram — scanned PDF (no text), RAG enabled
-**Input:** scanned PDF, RAG enabled, model supports VISION
+**Input:** scanned PDF, RAG enabled
 **Gateway:** `processRagIfEnabled()` → `PagePdfDocumentReader` → `DocumentContentNotExtractableException`
-→ `renderPdfToImageAttachments()` — renders up to 10 pages as JPEG → added as IMAGE attachments
+→ `renderPdfToImageAttachments()` — renders up to 10 pages as PNG (300 DPI, lossless) → added as IMAGE attachments
+→ final payload contains media, so model selection requires `VISION` capability
 → `UserMessage` built with image media (PDF pages)
 **Output:** model reads pages visually
 
@@ -327,5 +340,5 @@ REST stream handler emits `ServerSentEvent` per character.
 | `STRUCTURED_OUTPUT` | JSON by schema |
 | `TOOL_CALLING` | Function calling |
 | `WEB` | Web search + fetch URL via `WebTools` |
-| `VISION` | Image input. Selector hint only — does not require images to be present. |
+| `VISION` | Image input. Required when final payload contains media (including PDF pages rendered as images). |
 | `FREE` | Free-tier model (OpenRouter free) |

@@ -4,12 +4,21 @@
 
     <!-- Exception message-only converter: cause chain without stack frames or suppressed exceptions -->
     <conversionRule conversionWord="exmsg"
-                    converterClass="io.github.ngirchev.opendaimon.logging.ExceptionMessageConverter"/>
+                    class="io.github.ngirchev.opendaimon.logging.ExceptionMessageConverter"/>
 
     <!-- Pattern with limited stacktrace (first 15 lines) -->
     <property name="CONSOLE_LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n%ex{15}"/>
+    <property name="FILE_LOG_PATH" value="${LOG_FILE_PATH:-logs/opendaimon.log}"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${FILE_LOG_PATH}</file>
+        <append>false</append>
         <encoder>
             <pattern>${CONSOLE_LOG_PATTERN}</pattern>
         </encoder>
@@ -19,17 +28,21 @@
     <!-- MessageAggregator and Spring AI retry — exception cause chain only (no stack frames) -->
     <logger name="org.springframework.ai.chat.model.MessageAggregator" level="ERROR" additivity="false">
         <appender-ref ref="CONSOLE_NO_STACKTRACE"/>
+        <appender-ref ref="FILE"/>
     </logger>
     <logger name="org.springframework.ai.retry" level="WARN" additivity="false">
         <appender-ref ref="CONSOLE_NO_STACKTRACE"/>
+        <appender-ref ref="FILE"/>
     </logger>
 
     <!-- Application loggers with noisy stacktraces — exception cause chain only (no stack frames) -->
     <logger name="io.github.ngirchev.opendaimon.common.service.AIUtils" level="ERROR" additivity="false">
         <appender-ref ref="CONSOLE_NO_STACKTRACE"/>
+        <appender-ref ref="FILE"/>
     </logger>
     <logger name="io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler" level="ERROR" additivity="false">
         <appender-ref ref="CONSOLE_NO_STACKTRACE"/>
+        <appender-ref ref="FILE"/>
     </logger>
 
     <logger name="reactor.core.publisher" level="WARN"/>
@@ -43,26 +56,37 @@
         </encoder>
     </appender>
 
-    <!-- Logstash TCP Appender for sending logs to Elasticsearch -->
-    <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
-        <destination>${LOGSTASH_HOST:-logstash}:5044</destination>
-        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <customFields>{"application":"opendaimon"}</customFields>
-        </encoder>
-        <reconnectionDelay>10 seconds</reconnectionDelay>
-        <writeBufferSize>16384</writeBufferSize>
-    </appender>
+    <!-- Logstash TCP Appender — only when 'logging' Spring profile is active -->
+    <springProfile name="logging">
+        <appender name="LOGSTASH" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+            <destination>${LOGSTASH_HOST:-logstash}:5044</destination>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"application":"opendaimon"}</customFields>
+            </encoder>
+            <reconnectionDelay>10 seconds</reconnectionDelay>
+            <writeBufferSize>16384</writeBufferSize>
+        </appender>
 
-    <!-- Async wrapper for Logstash appender -->
-    <appender name="ASYNC_LOGSTASH" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="LOGSTASH"/>
-        <queueSize>512</queueSize>
-        <discardingThreshold>0</discardingThreshold>
-        <includeCallerData>false</includeCallerData>
-    </appender>
+        <appender name="ASYNC_LOGSTASH" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="LOGSTASH"/>
+            <queueSize>512</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <includeCallerData>false</includeCallerData>
+        </appender>
+    </springProfile>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="ASYNC_LOGSTASH"/>
-    </root>
+    <springProfile name="logging">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE"/>
+            <appender-ref ref="ASYNC_LOGSTASH"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="!logging">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
 </configuration>

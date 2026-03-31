@@ -12,7 +12,6 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
@@ -46,7 +45,6 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
  * After fixing buffering the test passes (span >= minSpanMs).
  */
 @Slf4j
-@ActiveProfiles("test")
 @SpringBootTest(
         classes = SpringAIGatewayStreamingRealContextIT.TestConfig.class,
         properties = {"spring.main.banner-mode=off"}
@@ -61,6 +59,20 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         "spring.autoconfigure.exclude=org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration",
         "spring.ai.ollama.base-url=http://127.0.0.1:0",
         "open-daimon.common.bulkhead.enabled=false",
+        "open-daimon.common.assistant-role=You are a helpful assistant",
+        "open-daimon.common.max-output-tokens=4000",
+        "open-daimon.common.max-reasoning-tokens=1500",
+        "open-daimon.common.max-user-message-tokens=4000",
+        "open-daimon.common.max-total-prompt-tokens=32000",
+        "open-daimon.common.chat-routing.ADMIN.max-price=0.5",
+        "open-daimon.common.chat-routing.ADMIN.required-capabilities=AUTO",
+        "open-daimon.common.chat-routing.ADMIN.optional-capabilities=",
+        "open-daimon.common.chat-routing.VIP.max-price=0.5",
+        "open-daimon.common.chat-routing.VIP.required-capabilities=CHAT",
+        "open-daimon.common.chat-routing.VIP.optional-capabilities=",
+        "open-daimon.common.chat-routing.REGULAR.max-price=0.0",
+        "open-daimon.common.chat-routing.REGULAR.required-capabilities=CHAT",
+        "open-daimon.common.chat-routing.REGULAR.optional-capabilities=",
         "open-daimon.common.summarization.message-window-size=5",
         "open-daimon.common.summarization.max-window-tokens=8000",
         "open-daimon.common.summarization.max-output-tokens=2000",
@@ -75,7 +87,14 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         "open-daimon.ai.spring-ai.models.list[0].name=openrouter/auto",
         "open-daimon.ai.spring-ai.models.list[0].capabilities=CHAT",
         "open-daimon.ai.spring-ai.models.list[0].provider-type=OPENAI",
-        "open-daimon.ai.spring-ai.models.list[0].priority=3"
+        "open-daimon.ai.spring-ai.models.list[0].priority=3",
+        "spring.ai.model.chat=openai",
+        "spring.ai.model.embedding=none",
+        "spring.jpa.hibernate.ddl-auto=validate",
+        "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect",
+        "open-daimon.ai.spring-ai.rag.enabled=false",
+        "open-daimon.rest.enabled=false",
+        "open-daimon.ui.enabled=false"
 })
 class SpringAIGatewayStreamingRealContextIT {
 

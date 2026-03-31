@@ -20,6 +20,10 @@ services:
       - OPENROUTER_KEY=${OPENROUTER_KEY}
       - SERPER_KEY=${SERPER_KEY:-}
       - SERP_API_KEY=${SERP_API_KEY:-}
+      # Logstash (use service name from docker-compose)
+      - LOGSTASH_HOST=logstash
+      # MinIO (use service name from docker-compose)
+      - MINIO_ENDPOINT=http://minio:9000
       # Database (use service name from docker-compose)
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-opendaimon}
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
@@ -34,12 +38,12 @@ services:
       - REST_ACCESS_ADMIN_EMAILS=${REST_ACCESS_ADMIN_EMAILS:-}
       - REST_ACCESS_VIP_EMAILS=${REST_ACCESS_VIP_EMAILS:-}
       - REST_ACCESS_REGULAR_EMAILS=${REST_ACCESS_REGULAR_EMAILS:-}
-      # Activate profiles from .env (e.g. SPRING_PROFILES_ACTIVE=local)
-      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-local}
-      # Additional config (application-local.yml mounted below)
-      - SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/app/config/application-local.yml
+      # Activate profiles from .env (simple = wizard-created application-simple.yml)
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-simple}
+      # Additional config (application-simple.yml mounted below)
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/app/config/application-simple.yml
     volumes:
-      - ./application-local.yml:/app/config/application-local.yml:ro
+      - ./application-simple.yml:/app/config/application-simple.yml:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -125,6 +129,20 @@ services:
       - "5601:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.12.0
+    profiles: ["logging"]
+    container_name: open-daimon-logstash
+    ports:
+      - "5044:5044"
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
     depends_on:
       - elasticsearch
     restart: unless-stopped

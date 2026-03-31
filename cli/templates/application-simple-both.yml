@@ -1,0 +1,69 @@
+# OpenRouter (cloud) + Ollama (local) — created by OpenDaimon setup wizard.
+# Edit this file to customize models, then restart: docker compose restart opendaimon-app
+#
+# Provider: OpenRouter handles cloud models; Ollama handles local models and embeddings.
+# Chat uses OpenRouter (openrouter/auto); embeddings use Ollama (nomic-embed-text:v1.5).
+# See application-simple.yml.example for all available options.
+
+spring:
+  ai:
+    model:
+      # chat: not set — Spring AI will auto-configure both OpenAI and Ollama providers
+      #         (OllamaChatAutoConfiguration and OpenAiChatAutoConfiguration both have matchIfMissing=true)
+      embedding: ollama
+      audio:
+        speech: none
+        transcription: none
+      image: none
+      moderation: none
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}
+
+open-daimon:
+  common:
+    storage:
+      enabled: false  # Set to true if you started the 'storage' Docker Compose profile
+  telegram:
+    file-upload:
+      enabled: false  # Set to true if storage is enabled above
+  ai:
+    spring-ai:
+      openrouter-auto-rotation:
+        models:
+          enabled: false
+      models:
+        list:
+          - name: "openrouter/auto"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - VISION
+            provider-type: OPENAI
+            priority: 3
+            allowed-roles:
+              - ADMIN
+              - VIP
+          - name: "qwen2.5:3b"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - SUMMARIZATION
+              - WEB
+            provider-type: OLLAMA
+            priority: 1
+          - name: "gemma3:4b"
+            capabilities:
+              - VISION
+              - CHAT
+            provider-type: OLLAMA
+            priority: 1
+            max-output-tokens: 16384
+          - name: "nomic-embed-text:v1.5"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 1

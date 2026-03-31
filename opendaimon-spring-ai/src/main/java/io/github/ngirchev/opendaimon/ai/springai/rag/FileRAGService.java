@@ -26,6 +26,14 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class FileRAGService {
 
+    /**
+     * Upper bound for "fetch all by documentId" retrieval.
+     *
+     * <p>VectorStore API is similarity-search based and requires topK; using the regular rag.top-k (often 5)
+     * can truncate context and break follow-up questions that reference later chunks.
+     */
+    private static final int FIND_ALL_TOP_K = 10_000;
+
     private final VectorStore vectorStore;
     private final RAGProperties ragProperties;
 
@@ -57,6 +65,36 @@ public class FileRAGService {
     }
 
     /**
+     * Returns all chunks belonging to a specific document, bypassing similarity threshold.
+     *
+     * <p>Used for freshly vision-extracted text where all chunks are inherently relevant
+     * (the user just uploaded this document). Avoids false negatives from cross-language
+     * similarity mismatch (e.g. Russian query vs English extracted text).
+     *
+     * @param documentId document id (from processExtractedText or processPdf)
+     * @return all chunks for the document
+     */
+    public List<Document> findAllByDocumentId(String documentId) {
+        log.debug("Fetching all chunks for documentId={} (no similarity threshold)", documentId);
+
+        FilterExpressionBuilder filterBuilder = new FilterExpressionBuilder();
+        int topK = Math.max(ragProperties.getTopK(), FIND_ALL_TOP_K);
+
+        SearchRequest searchRequest = SearchRequest.builder()
+                .query("document content")
+                .topK(topK)
+                .similarityThreshold(0.0)
+                .filterExpression(filterBuilder.eq("documentId", documentId).build())
+                .build();
+
+        List<Document> results = vectorStore.similaritySearch(searchRequest);
+
+        log.info("Found {} total chunks for documentId={} (topK={})", results.size(), documentId, topK);
+
+        return results;
+    }
+
+    /**
      * Finds relevant chunks for the query across all documents.
      *
      * @param query user query text
@@ -72,9 +110,12 @@ public class FileRAGService {
                 .similarityThreshold(ragProperties.getSimilarityThreshold())
                 .build();
         
+        log.debug("RAG: Performing semantic search in VectorStore (topK={}, threshold={})", 
+                ragProperties.getTopK(), ragProperties.getSimilarityThreshold());
+        
         List<Document> results = vectorStore.similaritySearch(searchRequest);
         
-        log.info("Found {} relevant chunks across all documents", results.size());
+        log.debug("RAG: Semantic search found {} relevant chunks", results.size());
         
         return results;
     }

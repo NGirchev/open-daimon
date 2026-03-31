@@ -11,6 +11,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
@@ -91,10 +92,12 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for threads command");
         }
         
-        TelegramUser user = userService.getOrCreateUser(message.getFrom());
+        userService.getOrCreateUser(message.getFrom());
+        Long chatId = command.telegramId();
         
         // Get all threads (active and inactive)
-        List<ConversationThread> allThreads = threadRepository.findByUserOrderByLastActivityAtDesc(user);
+        List<ConversationThread> allThreads = threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
+                ThreadScopeKind.TELEGRAM_CHAT, chatId);
         
         if (allThreads.isEmpty()) {
             return "📝 You have no conversations. Start a new one by sending a message.";
@@ -159,15 +162,15 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
         
         ConversationThread thread = threadOpt.get();
         
-        // Verify thread belongs to user
-        if (!thread.getUser().getId().equals(user.getId())) {
+        // Verify thread belongs to current chat scope
+        if (thread.getScopeKind() != ThreadScopeKind.TELEGRAM_CHAT || !command.telegramId().equals(thread.getScopeId())) {
             ackCallback(cq.getId(), "❌ Access denied");
-            sendErrorMessage(command.telegramId(), "This conversation is not yours");
+            sendErrorMessage(command.telegramId(), "This conversation does not belong to this chat");
             return;
         }
         
         // Activate thread
-        threadService.activateThread(user, thread);
+        threadService.activateThread(user, thread, ThreadScopeKind.TELEGRAM_CHAT, command.telegramId());
         
         // Build success message
         String threadTitle = thread.getTitle() != null && !thread.getTitle().isEmpty() 
@@ -188,8 +191,9 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
     
     private void sendMessageWithMenu(Long chatId, String text, TelegramCommand command) throws TelegramCommandHandlerException {
         try {
-            TelegramUser user = userService.getOrCreateUser(command.update().getMessage().getFrom());
-            List<ConversationThread> allThreads = threadRepository.findByUserOrderByLastActivityAtDesc(user);
+            userService.getOrCreateUser(command.update().getMessage().getFrom());
+            List<ConversationThread> allThreads = threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
+                    ThreadScopeKind.TELEGRAM_CHAT, chatId);
             
             if (allThreads.isEmpty()) {
                 sendMessage(chatId, text);

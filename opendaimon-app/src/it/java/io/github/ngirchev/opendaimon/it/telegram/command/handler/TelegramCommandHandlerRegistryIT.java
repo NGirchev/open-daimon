@@ -5,10 +5,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig;
 import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.command.ICommandHandler;
@@ -82,10 +82,10 @@ import static org.junit.jupiter.api.Assertions.*;
 })
 class TelegramCommandHandlerRegistryIT {
 
-    @MockBean
+    @MockitoBean
     private TelegramBot telegramBot;
 
-    @MockBean
+    @MockitoBean
     private TelegramBotRegistrar telegramBotRegistrar;
 
     @Autowired
@@ -167,4 +167,3 @@ class TelegramCommandHandlerRegistryIT {
                 String.format("Expected at least 8 handlers, but found %d", handlersCount));
     }
 }
-

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.objects.User;
+import io.github.ngirchev.opendaimon.common.SupportedLanguages;
 import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserObject;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserService;
@@ -125,7 +126,7 @@ public class TelegramUserService implements IUserService {
         TelegramUser user = telegramUserRepository.findByTelegramId(telegramId)
                 .orElseThrow(() -> new RuntimeException(USER_NOT_FOUND));
         String normalized = languageCode != null && !languageCode.isBlank()
-                ? languageCode.trim().toLowerCase().split("-")[0] : "en";
+                ? languageCode.trim().toLowerCase().split("-")[0] : SupportedLanguages.DEFAULT_LANGUAGE;
         user.setLanguageCode(normalized);
         OffsetDateTime now = OffsetDateTime.now();
         user.setUpdatedAt(now);
@@ -177,7 +178,7 @@ public class TelegramUserService implements IUserService {
         String fromApi = telegramUser.getLanguageCode();
         user.setLanguageCode((fromApi != null && !fromApi.isBlank())
                 ? fromApi.trim().toLowerCase().split("-")[0]
-                : "en");
+                : SupportedLanguages.DEFAULT_LANGUAGE);
         user.setIsPremium(telegramUser.getIsPremium());
         OffsetDateTime now = OffsetDateTime.now();
         user.setCreatedAt(now);
@@ -249,7 +250,7 @@ public class TelegramUserService implements IUserService {
             newUser.setIsBlocked(false);
             newUser.setIsPremium(false);
             newUser.setIsAdmin(false);
-            newUser.setLanguageCode("en");
+            newUser.setLanguageCode(null);
             return telegramUserRepository.save(newUser);
         });
         applyFlagsByLevel(user, level);
@@ -275,7 +276,13 @@ public class TelegramUserService implements IUserService {
         if (lastName != null) {
             user.setLastName(lastName);
         }
-        // Do not overwrite language from Telegram API; it is set via /language and must be preserved
+        // Set language from Telegram API only once (when not yet initialized); after that only /language can change it
+        if (user.getLanguageCode() == null) {
+            String fromApi = telegramUser.getLanguageCode();
+            if (fromApi != null && !fromApi.isBlank()) {
+                user.setLanguageCode(fromApi.trim().toLowerCase().split("-")[0]);
+            }
+        }
         Boolean isPremium = telegramUser.getIsPremium();
         if (isPremium != null) {
             user.setIsPremium(isPremium);

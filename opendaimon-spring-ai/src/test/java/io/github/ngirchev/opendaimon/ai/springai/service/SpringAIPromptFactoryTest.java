@@ -117,6 +117,28 @@ class SpringAIPromptFactoryTest {
     }
 
     @Test
+    void preparePrompt_withBodySeed_setsOllamaSeed() {
+        Map<String, Object> body = Map.of(SEED, 42, MAX_TOKENS, 500);
+        var spec = promptFactory.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                body,
+                null,
+                false,
+                List.of(new UserMessage("Seeded OCR")),
+                new OpenDaimonChatOptions(0.7, 1000, null, "Seeded OCR", false, Map.of())
+        );
+
+        spec.call().chatResponse();
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(ollamaChatModel, atLeastOnce()).call(captor.capture());
+
+        ChatOptions options = captor.getValue().getOptions();
+        assertInstanceOf(OllamaChatOptions.class, options);
+        assertEquals(42, ((OllamaChatOptions) options).getSeed());
+    }
+
+    @Test
     void preparePrompt_withSystemAndUserMessages_includesBoth() {
         var spec = promptFactory.preparePrompt(
                 ollamaModelConfig,
@@ -193,5 +215,88 @@ class SpringAIPromptFactoryTest {
         ChatOptions options = captor.getValue().getOptions();
         assertInstanceOf(OllamaChatOptions.class, options);
         assertEquals(1000, ((OllamaChatOptions) options).getNumPredict());
+    }
+
+    @Test
+    void preparePrompt_ollama_withoutChatOptions_usesFallbackMaxTokens() {
+        var spec = promptFactory.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                null,
+                null,
+                false,
+                List.of(new UserMessage("Vision extraction")),
+                null
+        );
+
+        assertNotNull(spec);
+        ChatResponse response = spec.call().chatResponse();
+        assertNotNull(response);
+
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(ollamaChatModel, atLeastOnce()).call(captor.capture());
+        ChatOptions options = captor.getValue().getOptions();
+        assertInstanceOf(OllamaChatOptions.class, options);
+        assertEquals(4000, ((OllamaChatOptions) options).getNumPredict());
+    }
+
+    // --- null openAiChatClient (Ollama-only setup) ---
+
+    @Test
+    void preparePrompt_withNullOpenAiClient_throwsIllegalStateException_whenOpenAIModelRequested() {
+        SpringAIPromptFactory factoryWithoutOpenAi = new SpringAIPromptFactory(
+                chatClient, null, webTools, null, springAIModelType);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                factoryWithoutOpenAi.preparePrompt(
+                        openAIModelConfig,
+                        "openrouter/auto",
+                        null, null, false,
+                        List.of(new UserMessage("Hello")),
+                        null
+                )
+        );
+        assertNotNull(ex.getMessage());
+        assertTrue(ex.getMessage().contains("openrouter/auto"));
+        assertTrue(ex.getMessage().contains("spring.ai.openai.api-key"));
+    }
+
+    @Test
+    void preparePrompt_withNullOpenAiClient_worksNormally_whenOllamaModelRequested() {
+        SpringAIPromptFactory factoryWithoutOpenAi = new SpringAIPromptFactory(
+                chatClient, null, webTools, null, springAIModelType);
+
+        var spec = factoryWithoutOpenAi.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                null, null, false,
+                List.of(new UserMessage("Hello")),
+                new OpenDaimonChatOptions(0.7, 1000, null, "Hello", false, Map.of())
+        );
+        assertNotNull(spec);
+        ChatResponse response = spec.call().chatResponse();
+        assertNotNull(response);
+        verify(ollamaChatModel, atLeastOnce()).call(any(Prompt.class));
+    }
+
+    @Test
+    void preparePrompt_withNullOpenAiClient_throwsIllegalStateException_whenProviderTypeIsOpenAI() {
+        SpringAIPromptFactory factoryWithoutOpenAi = new SpringAIPromptFactory(
+                chatClient, null, webTools, null, springAIModelType);
+
+        SpringAIModelConfig openAiConfig = new SpringAIModelConfig();
+        openAiConfig.setName("meta-llama/llama-3.3-70b-instruct:free");
+        openAiConfig.setProviderType(SpringAIModelConfig.ProviderType.OPENAI);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                factoryWithoutOpenAi.preparePrompt(
+                        openAiConfig,
+                        openAiConfig.getName(),
+                        null, null, false,
+                        List.of(new UserMessage("Hi")),
+                        null
+                )
+        );
+        assertTrue(ex.getMessage().contains("spring.ai.openai.api-key"));
     }
 }

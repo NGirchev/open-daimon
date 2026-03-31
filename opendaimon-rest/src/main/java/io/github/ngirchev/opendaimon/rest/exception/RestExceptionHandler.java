@@ -12,6 +12,8 @@ import io.github.ngirchev.opendaimon.bulkhead.exception.AccessDeniedException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 
+import io.github.ngirchev.opendaimon.common.SupportedLanguages;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -31,7 +33,7 @@ public class RestExceptionHandler {
     private final MessageLocalizationService messageLocalizationService;
 
     private String languageCode(HttpServletRequest request) {
-        return request != null && request.getLocale() != null ? request.getLocale().getLanguage() : "ru";
+        return request != null && request.getLocale() != null ? request.getLocale().getLanguage() : SupportedLanguages.DEFAULT_LANGUAGE;
     }
 
     @ExceptionHandler(UnauthorizedException.class)

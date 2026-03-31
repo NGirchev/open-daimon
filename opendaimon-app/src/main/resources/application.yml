@@ -102,7 +102,7 @@ open-daimon:
       # Text: txt,rtf,html,md,csv
       # Structured: json,xml
       # E-books: epub
-      supported-document-types: pdf,txt,docx,doc,xls,xlsx,ppt,pptx,odt,ods,odp,rtf,html,md,csv,json,xml,epub
+      supported-document-types: pdf,txt,docx,msword,xls,xlsx,ms-excel,x-msexcel,ppt,pptx,ms-powerpoint,x-mspowerpoint,odt,ods,odp,rtf,html,md,csv,json,xml,epub,jpeg,png,gif,webp,bmp,tiff,svg,jp2,wordprocessingml,spreadsheetml,presentationml,opendocument
     # Long polling: socket timeout must be greater than get-updates-timeout (avoids Read timed out)
     long-polling-socket-timeout-seconds: 90
     get-updates-timeout-seconds: 50
@@ -118,6 +118,12 @@ open-daimon:
       threads-enabled: true
       language-enabled: true
       model-enabled: true
+    message-coalescing:
+      enabled: true
+      wait-window-ms: 1200
+      max-leading-text-length: 160
+      allow-media-second-message: true
+      require-explicit-link: true
   rest:
     enabled: true
     # User access configuration via environment variables
@@ -152,7 +158,6 @@ open-daimon:
                 - google/gemini-2.5-flash
                 - openai/gpt-5-nano
                 - z-ai/glm-5-turbo
-                - qwen/qwen3-4b
                 - qwen/qwen3-vl-235b-a22b-thinking
                 - qwen/qwen3-vl-30b-a3b-thinking
             - roles: [ ADMIN, REGULAR ]
@@ -171,7 +176,6 @@ open-daimon:
                 - liquid/lfm-2.5-1.2b-thinking:free
                 - meta-llama/llama-3.2-3b-instruct:free
                 - nousresearch/hermes-3-llama-3.1-405b:free
-                - qwen/qwen3-4b:free
                 - stepfun/step-3.5-flash:free
           blacklist:
             exclude-model-ids: []  # add model IDs here to block them permanently
@@ -191,7 +195,7 @@ open-daimon:
         response-timeout-seconds: 600  # 10 minutes for HTTP requests to AI providers
         stream-timeout-seconds: 600   # 10 minutes for streaming
       # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
-      # Ollama models (run locally: ollama pull qwen2.5:7b, ollama pull qwen3-embedding:8b).
+      # Ollama models (run locally: ollama pull qwen2.5:7b).
       models:
         list:
           - name: "openrouter/auto"
@@ -201,10 +205,9 @@ open-daimon:
               - TOOL_CALLING
               - WEB
               - SUMMARIZATION
-              - EMBEDDING
               - VISION
             provider-type: OPENAI
-            priority: 3
+            priority: 1
             allowed-roles:
               - ADMIN
               - VIP
@@ -213,30 +216,12 @@ open-daimon:
               - CHAT
               - TOOL_CALLING
               - WEB
-              - EMBEDDING
               - VISION
             provider-type: OPENAI
-            priority: 2
+            priority: 1
             allowed-roles:
               - ADMIN
               - VIP
-          - name: "qwen3.5:4b"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - VISION
-              - WEB
-              - SUMMARIZATION
-            provider-type: OLLAMA
-            priority: 1
-            max-reasoning-tokens: 0  # Ollama does not support reasoning parameter
-            think: false  # Disable Qwen3 thinking mode — prevents token budget exhaustion that causes empty responses
-          - name: "qwen3-embedding:8b"
-            capabilities:
-              - EMBEDDING
-            provider-type: OLLAMA
-            priority: 1
-            # allowed-roles not set — accessible to all roles
           # Top 3 OpenRouter free models (explicit capabilities; others from include-model-ids get capabilities from API).
           - name: "openrouter/free"
             capabilities:
@@ -244,50 +229,38 @@ open-daimon:
               - CHAT
               - TOOL_CALLING
               - WEB
+              - VISION
+            provider-type: OPENAI
+            priority: 2
+            allowed-roles:
+              - ADMIN
+              - REGULAR
+          - name: "qwen2.5:3b"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - SUMMARIZATION
+              - WEB
+            provider-type: OLLAMA
+            priority: 2
+          - name: "gemma3:4b"
+            capabilities:
+              - VISION
+              - CHAT
+            provider-type: OLLAMA
+            priority: 2
+            max-output-tokens: 16384
+          - name: "qwen3-embedding:4b"
+            capabilities:
               - EMBEDDING
-              - VISION
-            provider-type: OPENAI
+            provider-type: OLLAMA
+            priority: 2
+          - name: "nomic-embed-text:v1.5"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
             priority: 3
-            allowed-roles:
-              - ADMIN
-              - REGULAR
-          - name: "meta-llama/llama-3.3-70b-instruct:free"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - WEB
-              - STRUCTURED_OUTPUT
-              - VISION
-              - FREE
-            provider-type: OPENAI
-            priority: 1
-            allowed-roles:
-              - ADMIN
-              - REGULAR
-          - name: "mistralai/mistral-small-3.1-24b-instruct:free"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - WEB
-              - STRUCTURED_OUTPUT
-              - VISION
-              - FREE
-            provider-type: OPENAI
-            priority: 1
-            allowed-roles:
-              - ADMIN
-              - REGULAR
-          - name: "google/gemini-2.0-flash-exp:free"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - WEB
-              - STRUCTURED_OUTPUT
-              - VISION
-              - FREE
-            provider-type: OPENAI
-            priority: 1
-            # allowed-roles not set — accessible to all roles
       rag:
         enabled: true
         chunk-size: 800
@@ -310,6 +283,8 @@ open-daimon:
             %s
 
             Question: %s
+          # Prompt for extracting text from image-only PDF pages via vision model.
+          vision-extraction-prompt: "Extract ALL text content from these image exactly as written. Output only the extracted text, no commentary."
     gateway-mock:
       enabled: false  # Disabled by default
 

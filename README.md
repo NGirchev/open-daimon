@@ -33,21 +33,27 @@ mkdir my-bot && cd my-bot
 npx @ngirchev/open-daimon
 ```
 
-Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Node.js 18+.
-
 The wizard will:
 
 - Configure `.env` with your credentials
 - Let you choose AI provider (OpenRouter or Ollama)
-- For Ollama — check the connection and pull `gemma3:1b` automatically
+- For Ollama — check the connection and pull `qwen2.5:3b` automatically
 - Generate ready-to-run `docker-compose.yml` and `application-local.yml`
 - Offer to start the stack immediately
 
-Before running the wizard, prepare:
+### Dependencies
 
-- [Create a Telegram bot](docs/setup-telegram.md) — get a token from @BotFather and your user ID from @userinfobot
-- [Get an OpenRouter API key](docs/setup-openrouter.md) — free models available; or skip if you plan to use Ollama
-  locally
+**1. Docker** (required) — install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and start it. Node.js 18+ required for the `npx` wizard.
+
+**2. Ollama** (optional — local AI models) — install from [ollama.com](https://ollama.com). The wizard checks the connection and pulls a model automatically.
+
+**3. OpenRouter** (optional — cloud AI, free models available):
+1. Sign up at [openrouter.ai](https://openrouter.ai) (GitHub OAuth or email)
+2. Go to [openrouter.ai/keys](https://openrouter.ai/keys) → **Create Key** → copy the key (starts with `sk-or-v1-...`) — this is your `OPENROUTER_KEY`
+
+You need at least one of Ollama or OpenRouter. Both can be active simultaneously.
+
+**Telegram bot** — see [setup-telegram.md](docs/setup-telegram.md): get a token from @BotFather and your user ID from @userinfobot.
 
 After the wizard completes, check that the app started:
 
@@ -604,6 +610,14 @@ Uses **Testcontainers** for PostgreSQL:
 ### Logging (Elasticsearch + Kibana)
 
 Logs are sent to **Elasticsearch** via **Logstash** (TCP on port 5044). Index pattern: `opendaimon-logs-*`.
+The application also writes logs to a local file: `logs/opendaimon.log` (overwritten on every app start).
+You can override the file path with environment variable `LOG_FILE_PATH`.
+
+Quick check for file logs:
+
+```bash
+tail -f logs/opendaimon.log
+```
 
 To view logs in Kibana:
 
@@ -696,7 +710,6 @@ File -> Invalidate Caches / Restart
 ### Setup guides
 
 - **[docs/setup-telegram.md](docs/setup-telegram.md)** — Create a Telegram bot and get your user ID
-- **[docs/setup-openrouter.md](docs/setup-openrouter.md)** — Get an OpenRouter API key (free models available)
 - **[docs/setup-serper.md](docs/setup-serper.md)** — Enable web search (optional)
 
 ### Project docs

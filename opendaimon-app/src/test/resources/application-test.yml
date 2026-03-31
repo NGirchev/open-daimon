@@ -1,4 +1,9 @@
 # Profile "test": use @ActiveProfiles("test") on app tests (not for integration-test-only ITs).
+logging:
+  level:
+    io.github.ngirchev.opendaimon.ai.springai: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.config: DEBUG
+
 spring:
   autoconfigure:
     exclude:

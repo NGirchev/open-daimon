@@ -1,20 +1,28 @@
 package io.github.ngirchev.opendaimon.ai.springai.config;
 
+import io.github.ngirchev.opendaimon.ai.springai.embedding.DelegatingEmbeddingModel;
+import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.ollama.api.OllamaApi;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
 import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIModelType;
-import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
+import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
+import io.github.ngirchev.opendaimon.ai.springai.service.PdfTextDetector;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentContentAnalyzer;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentOrchestrator;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPreprocessor;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentOrchestrator;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 
 /**
  * Auto-configuration for RAG (Retrieval-Augmented Generation).
@@ -30,6 +38,11 @@ import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
  *
  * <p>Requires EmbeddingModel (e.g. Ollama or OpenAI).
  *
+ * <p><b>Embedding model selection:</b> filters models with EMBEDDING capability
+ * to only those whose API provider is actually available, then prefers the same
+ * provider as the primary (AUTO) model. This ensures that if the user runs on
+ * OpenRouter, embedding also goes through OpenRouter (not Ollama).
+ *
  * @see DocumentProcessingService for PDF processing
  * @see FileRAGService for relevant chunk search
  */
@@ -40,55 +53,28 @@ import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 public class RAGAutoConfig {
 
     /**
-     * Creates SimpleVectorStore for embeddings.
+     * Creates SimpleVectorStore with a {@link DelegatingEmbeddingModel} that dynamically
+     * resolves the best available embedding model from the registry on each call.
      *
-     * <p>SimpleVectorStore is in-memory:
-     * <ul>
-     *   <li>Fast startup, no external deps</li>
-     *   <li>Data lost on app restart</li>
-     *   <li>Suited for testing and small data</li>
-     * </ul>
+     * <p>This allows VectorStore to be created at startup while the actual embedding model
+     * can change as OpenRouter models are refreshed by the scheduler.
      *
-     * <p>EmbeddingModel is chosen by SpringAIModelType via capability EMBEDDING (open-daimon.ai.spring-ai.models.list).
-     *
-     * @param springAIModelType service to select model by capabilities
-     * @param ollamaEmbeddingModelProvider Ollama EmbeddingModel provider
-     * @param openAiEmbeddingModelProvider OpenAI EmbeddingModel provider
+     * @param registry model registry with dynamically loaded models (including OpenRouter embedding models)
+     * @param ollamaApiProvider Ollama API client (available when Ollama is configured)
+     * @param openAiApiProvider OpenAI API client (available when OpenAI is configured)
      * @return VectorStore instance
      */
     @Bean
     @ConditionalOnMissingBean
     public VectorStore simpleVectorStore(
-            SpringAIModelType springAIModelType,
-            @Qualifier("ollamaEmbeddingModel") ObjectProvider<EmbeddingModel> ollamaEmbeddingModelProvider,
-            @Qualifier("openAiEmbeddingModel") ObjectProvider<EmbeddingModel> openAiEmbeddingModelProvider) {
-        
-        // Select model by capability EMBEDDING
-        SpringAIModelConfig modelConfig = springAIModelType.getByCapability(ModelCapabilities.EMBEDDING)
-                .orElseThrow(() -> new IllegalStateException(
-                        "No model with EMBEDDING capability found in open-daimon.ai.spring-ai.models.list"));
-        
-        EmbeddingModel embeddingModel = switch (modelConfig.getProviderType()) {
-            case OLLAMA -> {
-                EmbeddingModel model = ollamaEmbeddingModelProvider.getIfAvailable();
-                if (model == null) {
-                    throw new IllegalStateException(
-                            "Ollama EmbeddingModel not available. Check that Ollama is configured.");
-                }
-                yield model;
-            }
-            case OPENAI -> {
-                EmbeddingModel model = openAiEmbeddingModelProvider.getIfAvailable();
-                if (model == null) {
-                    throw new IllegalStateException(
-                            "OpenAI EmbeddingModel not available. Check that OpenAI is configured.");
-                }
-                yield model;
-            }
-        };
-        
-        log.info("Creating SimpleVectorStore (in-memory) for RAG with model '{}' (provider: {})", 
-                modelConfig.getName(), modelConfig.getProviderType());
+            SpringAIModelRegistry registry,
+            ObjectProvider<OllamaApi> ollamaApiProvider,
+            ObjectProvider<OpenAiApi> openAiApiProvider) {
+
+        DelegatingEmbeddingModel embeddingModel = new DelegatingEmbeddingModel(
+                registry, ollamaApiProvider, openAiApiProvider);
+
+        log.info("Creating SimpleVectorStore (in-memory) for RAG with DelegatingEmbeddingModel");
         return SimpleVectorStore.builder(embeddingModel).build();
     }
 
@@ -104,7 +90,7 @@ public class RAGAutoConfig {
     public DocumentProcessingService documentProcessingService(
             VectorStore vectorStore,
             RAGProperties ragProperties) {
-        log.info("Creating DocumentProcessingService with chunkSize={}, chunkOverlap={}", 
+        log.info("Creating DocumentProcessingService with chunkSize={}, chunkOverlap={}",
                 ragProperties.getChunkSize(), ragProperties.getChunkOverlap());
         return new DocumentProcessingService(vectorStore, ragProperties);
     }
@@ -121,8 +107,57 @@ public class RAGAutoConfig {
     public FileRAGService ragService(
             VectorStore vectorStore,
             RAGProperties ragProperties) {
-        log.info("Creating RAGService with topK={}, similarityThreshold={}", 
+        log.info("Creating RAGService with topK={}, similarityThreshold={}",
                 ragProperties.getTopK(), ragProperties.getSimilarityThreshold());
         return new FileRAGService(vectorStore, ragProperties);
+    }
+
+    /**
+     * Lightweight PDF text detector — checks if PDFBox can extract text without VectorStore writes.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public PdfTextDetector pdfTextDetector() {
+        return new PdfTextDetector();
+    }
+
+    /**
+     * Document content analyzer — determines required model capabilities for document attachments.
+     * Used by {@code DefaultAICommandFactory} to detect VISION requirement before the gateway call.
+     */
+    @Bean
+    @ConditionalOnMissingBean(IDocumentContentAnalyzer.class)
+    public SpringDocumentContentAnalyzer springDocumentContentAnalyzer(PdfTextDetector pdfTextDetector) {
+        return new SpringDocumentContentAnalyzer(pdfTextDetector);
+    }
+
+    /**
+     * Document preprocessor — handles document ETL (extract, transform, load to RAG).
+     * Extracted from SpringAIGateway for separation of concerns.
+     */
+    @Bean
+    @ConditionalOnMissingBean(IDocumentPreprocessor.class)
+    public SpringDocumentPreprocessor springDocumentPreprocessor(
+            DocumentProcessingService documentProcessingService,
+            FileRAGService fileRAGService,
+            SpringAIModelRegistry springAIModelRegistry,
+            SpringAIChatService chatService,
+            RAGProperties ragProperties) {
+        return new SpringDocumentPreprocessor(
+                documentProcessingService, fileRAGService,
+                springAIModelRegistry, chatService, ragProperties);
+    }
+
+    /**
+     * Document orchestrator — coordinates document preprocessing + RAG query building.
+     * Used by gateway to delegate all document/RAG logic.
+     */
+    @Bean
+    @ConditionalOnMissingBean(IDocumentOrchestrator.class)
+    public SpringDocumentOrchestrator springDocumentOrchestrator(
+            IDocumentPreprocessor documentPreprocessor,
+            FileRAGService fileRAGService,
+            RAGProperties ragProperties) {
+        return new SpringDocumentOrchestrator(documentPreprocessor, fileRAGService, ragProperties);
     }
 }

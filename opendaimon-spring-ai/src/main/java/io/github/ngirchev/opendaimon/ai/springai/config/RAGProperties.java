@@ -61,5 +61,9 @@ public class RAGProperties {
         /** RAG augmented prompt template. Format: %s = context text, %s = user question. */
         @NotBlank(message = "augmentedPromptTemplate is required")
         private String augmentedPromptTemplate;
+
+        /** Prompt for extracting text from image-only PDF via vision model. */
+        @NotBlank(message = "visionExtractionPrompt is required")
+        private String visionExtractionPrompt;
     }
 }

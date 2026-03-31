@@ -4,8 +4,9 @@ import io.github.ngirchev.opendaimon.bulkhead.exception.AccessDeniedException;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
+import io.github.ngirchev.opendaimon.common.model.ResponseStatus;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
@@ -62,7 +63,7 @@ class RestChatMessageCommandHandlerTest {
     @Mock
     private AIGatewayRegistry aiGatewayRegistry;
     @Mock
-    private AICommandFactoryRegistry aiCommandFactoryRegistry;
+    private AIRequestPipeline aiRequestPipeline;
     @Mock
     private RestChatHandlerSupport support;
     @Mock
@@ -83,7 +84,7 @@ class RestChatMessageCommandHandlerTest {
     void setUp() {
         handler = new RestChatMessageCommandHandler(
                 restMessageService, restUserService, messageService,
-                aiGatewayRegistry, aiCommandFactoryRegistry, support);
+                aiGatewayRegistry, aiRequestPipeline, support);
         user = new RestUser();
         user.setId(1L);
         user.setEmail("user@test.com");
@@ -157,7 +158,7 @@ class RestChatMessageCommandHandlerTest {
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(eq(user), eq("Hello"), eq(RequestType.TEXT), eq(null), eq(request)))
                     .thenReturn(userMessage);
-            when(aiCommandFactoryRegistry.createCommand(eq(command), any())).thenReturn(aiCommand);
+            when(aiRequestPipeline.prepareCommand(eq(command), any())).thenReturn(aiCommand);
             when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
             AIResponse aiResponse = mockAIResponseWithContent("AI reply");
             when(aiGateway.generateResponse(aiCommand)).thenReturn(aiResponse);
@@ -166,7 +167,7 @@ class RestChatMessageCommandHandlerTest {
 
             assertEquals("AI reply", result);
             verify(messageService).saveAssistantMessage(eq(user), eq("AI reply"), any(), eq("You are helpful."), any(), any());
-            verify(messageService).updateMessageStatus(any(), eq(io.github.ngirchev.opendaimon.common.model.ResponseStatus.SUCCESS));
+            verify(messageService).updateMessageStatus(any(), eq(ResponseStatus.SUCCESS));
         }
 
         @Test
@@ -175,7 +176,7 @@ class RestChatMessageCommandHandlerTest {
                     new ChatRequestDto("Hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(any(), any(), any(), any(), any())).thenReturn(userMessage);
-            when(aiCommandFactoryRegistry.createCommand(eq(command), any())).thenReturn(aiCommand);
+            when(aiRequestPipeline.prepareCommand(eq(command), any())).thenReturn(aiCommand);
             when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
             AIResponse emptyResponse = mockAIResponseEmptyContent();
             when(aiGateway.generateResponse(aiCommand)).thenReturn(emptyResponse);
@@ -201,7 +202,7 @@ class RestChatMessageCommandHandlerTest {
                     new ChatRequestDto("Hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(any(), any(), any(), any(), any())).thenReturn(userMessage);
-            when(aiCommandFactoryRegistry.createCommand(eq(command), any())).thenReturn(aiCommand);
+            when(aiRequestPipeline.prepareCommand(eq(command), any())).thenReturn(aiCommand);
             when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
             when(aiGateway.generateResponse(aiCommand)).thenThrow(new AccessDeniedException("denied"));
 
@@ -226,7 +227,7 @@ class RestChatMessageCommandHandlerTest {
                     new ChatRequestDto("Hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(any(), any(), any(), any(), any())).thenReturn(userMessage);
-            when(aiCommandFactoryRegistry.createCommand(eq(command), any())).thenReturn(aiCommand);
+            when(aiRequestPipeline.prepareCommand(eq(command), any())).thenReturn(aiCommand);
             when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
             when(aiGateway.generateResponse(aiCommand)).thenThrow(new RuntimeException("gateway error"));
             when(support.handleProcessingError(eq(command), eq(userMessage), any(), any()))

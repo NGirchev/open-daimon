@@ -93,7 +93,7 @@ POSTGRES_PASSWORD=your_secure_password
 Ensure the following are set correctly:
 - **[prometheus.yml](prometheus.yml)** — must include target `opendaimon-app:8080`
 - **[opendaimon-app/src/main/resources/application.yml](opendaimon-app/src/main/resources/application.yml)** — must use environment variables for DB connection
- - **User access configuration** — Telegram access and priority are configured via `TELEGRAM_ACCESS_*_IDS` и `TELEGRAM_ACCESS_*_CHANNELS` переменные (см. `.env.example` и `opendaimon-app/src/main/resources/application.yml`).
+ - **User access configuration** — Telegram access and priority are configured via `TELEGRAM_ACCESS_*_IDS` and `TELEGRAM_ACCESS_*_CHANNELS` variables (see `.env.example` and `opendaimon-app/src/main/resources/application.yml`).
 
 ## Step 6: Choose docker-compose file
 
@@ -242,6 +242,8 @@ curl http://localhost:8080/actuator/prometheus
 ### Kibana & Logstash (log collection)
 
 Logstash collects logs from the application and ships them to Elasticsearch. It starts as part of `docker-compose up -d`.
+The application also writes logs to a file inside the container: `/app/logs/opendaimon.log` (overwritten on every app start).
+You can override the file path via environment variable `LOG_FILE_PATH`.
 
 **Configuration file**: [`logstash.conf`](logstash.conf)
 
@@ -253,6 +255,13 @@ docker-compose logs -f logstash
 
 # Expected output:
 # logstash | Pipeline started {"pipeline.id"=>"main"}
+```
+
+#### Verifying file logs
+
+```bash
+# Tail file logs inside app container
+docker-compose exec opendaimon-app tail -f /app/logs/opendaimon.log
 ```
 
 #### Viewing logs in Kibana
@@ -625,4 +634,3 @@ To run multiple instances:
 5. **Configure monitoring** and alerts in Grafana
 
 6. **Use secrets management** (Docker Secrets, HashiCorp Vault)
-

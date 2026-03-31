@@ -2,7 +2,10 @@ package io.github.ngirchev.opendaimon.it.telegram.command.handler;
 
 import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
+import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -10,19 +13,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig;
 import io.github.ngirchev.opendaimon.bulkhead.service.IWhitelistService;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 import io.github.ngirchev.opendaimon.common.config.CoreAutoConfig;
@@ -238,6 +241,7 @@ class MessageTelegramCommandHandlerIT {
                 CoreCommonProperties coreCommonProperties,
                 MessageLocalizationService messageLocalizationService,
                 ObjectProvider<StorageProperties> storagePropertiesProvider,
+                ConversationThreadService conversationThreadService,
                 ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider) {
             return new TelegramMessageService(
                     messageService,
@@ -245,6 +249,7 @@ class MessageTelegramCommandHandlerIT {
                     coreCommonProperties,
                     messageLocalizationService,
                     storagePropertiesProvider,
+                    conversationThreadService,
                     telegramMessageServiceSelfProvider
             );
         }
@@ -283,6 +288,15 @@ class MessageTelegramCommandHandlerIT {
         }
 
         @Bean
+        public ReplyImageAttachmentService replyImageAttachmentService(
+                OpenDaimonMessageRepository messageRepository,
+                ObjectProvider<FileStorageService> fileStorageServiceProvider,
+                ObjectProvider<TelegramFileService> telegramFileServiceProvider) {
+            return new ReplyImageAttachmentService(
+                    messageRepository, fileStorageServiceProvider, telegramFileServiceProvider);
+        }
+
+        @Bean
         @Primary
         public MessageTelegramCommandHandler messageTelegramCommandHandler(
                 ObjectProvider<TelegramBot> telegramBotProvider,
@@ -293,10 +307,11 @@ class MessageTelegramCommandHandlerIT {
                 TelegramMessageService telegramMessageService,
                 AIGatewayRegistry aiGatewayRegistry,
                 OpenDaimonMessageService messageService,
-                AICommandFactoryRegistry aiCommandFactoryRegistry,
+                AIRequestPipeline aiRequestPipeline,
                 TelegramProperties telegramProperties,
                 UserModelPreferenceService userModelPreferenceService,
-                PersistentKeyboardService persistentKeyboardService) {
+                PersistentKeyboardService persistentKeyboardService,
+                ReplyImageAttachmentService replyImageAttachmentService) {
             return new MessageTelegramCommandHandler(
                     telegramBotProvider,
                     typingIndicatorService,
@@ -306,10 +321,11 @@ class MessageTelegramCommandHandlerIT {
                     telegramMessageService,
                     aiGatewayRegistry,
                     messageService,
-                    aiCommandFactoryRegistry,
+                    aiRequestPipeline,
                     telegramProperties,
                     userModelPreferenceService,
-                    persistentKeyboardService);
+                    persistentKeyboardService,
+                    replyImageAttachmentService);
         }
     }
 
@@ -328,7 +344,7 @@ class MessageTelegramCommandHandlerIT {
     @Autowired
     private TelegramBot mockTelegramBot;
 
-    @MockBean
+    @MockitoBean
     private TelegramBotRegistrar telegramBotRegistrar;
 
     private TelegramUser testUser;
@@ -533,4 +549,3 @@ class MessageTelegramCommandHandlerIT {
         return new TelegramCommand(1L, 12345L, commandType, update, text);
     }
 }
-

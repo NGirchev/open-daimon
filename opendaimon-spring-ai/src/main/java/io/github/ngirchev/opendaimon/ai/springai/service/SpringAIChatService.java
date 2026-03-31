@@ -31,6 +31,7 @@ public class SpringAIChatService {
     private final SpringAIPromptFactory promptFactory;
     private final ObjectProvider<OpenRouterStreamMetricsTracker> openRouterStreamMetricsTrackerProvider;
     private static final int MAX_ERROR_BODY_CHARS = 4_000;
+    private static final int VISION_OCR_SEED = 42;
 
     @RotateOpenRouterModels(stream = true)
     public AIResponse streamChat(
@@ -172,6 +173,47 @@ public class SpringAIChatService {
                     body != null ? body.keySet() : null,
                     truncate(webClientError.getResponseBodyAsString()));
             throw webClientError;
+        }
+    }
+
+    /**
+     * Lightweight vision call for internal use (e.g. extracting text from image-only PDF).
+     * No ChatMemory, no web tools, no conversationId — pure vision request.
+     *
+     * @param modelConfig vision-capable model
+     * @param messages    messages (typically: UserMessage with text + Media)
+     * @return extracted text from the model response
+     */
+    public String callSimpleVision(SpringAIModelConfig modelConfig, List<Message> messages) {
+        String modelName = modelConfig.getName();
+        log.info("Vision extraction call. model={}, messages={}", modelName, messages.size());
+
+        // OCR should be deterministic and literal — keep sampling stable.
+        // Include max_price for OpenRouter models (auto requires it to find endpoints).
+        Map<String, Object> visionOverrides = new java.util.HashMap<>(Map.of(
+                "temperature", 0.0d,
+                "top_p", 1.0d,
+                "seed", VISION_OCR_SEED
+        ));
+        // Vision OCR is an internal operation — allow paid models up to a reasonable limit.
+        // Without max_price, OpenRouter /auto rejects the request with 404.
+        visionOverrides.put("max_price", 5.0);
+
+        var promptBuilder = promptFactory.preparePrompt(
+                modelConfig, modelName, visionOverrides, null, false, messages, null);
+
+        try {
+            ChatResponse response = promptBuilder.call().chatResponse();
+            String text = response != null && response.getResult() != null
+                    && response.getResult().getOutput() != null
+                    ? response.getResult().getOutput().getText()
+                    : null;
+            log.info("Vision extraction completed. model={}, responseLength={}",
+                    modelName, text != null ? text.length() : 0);
+            return text;
+        } catch (Exception e) {
+            log.error("Vision extraction failed. model={}, error={}", modelName, e.getMessage(), e);
+            throw new RuntimeException("Vision extraction failed for model " + modelName, e);
         }
     }
 

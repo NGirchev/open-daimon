@@ -82,13 +82,8 @@ class PreferredModelSelectionTest {
 
         @SuppressWarnings("unchecked")
         ObjectProvider<org.springframework.ai.chat.memory.ChatMemory> mem = mock(ObjectProvider.class);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<DocumentProcessingService> doc = mock(ObjectProvider.class);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService> rag = mock(ObjectProvider.class);
-
         gateway = new SpringAIGateway(springAIProperties, aiGatewayRegistry, springAIModelRegistry,
-                chatService, mem, null, doc, rag);
+                chatService, mem);
 
         when(userPriorityService.getUserPriority(any())).thenReturn(UserPriority.VIP);
         factory = new DefaultAICommandFactory(userPriorityService, preferredModelTestCoreProperties());

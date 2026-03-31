@@ -1,6 +1,5 @@
 package io.github.ngirchev.opendaimon.ai.springai.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -11,9 +10,12 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.content.Media;
+import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.ollama.api.ThinkOption;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.ObjectProvider;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -24,20 +26,65 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
 import static org.springframework.ai.chat.memory.ChatMemory.CONVERSATION_ID;
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.*;
 
 @Slf4j
-@RequiredArgsConstructor
 public class SpringAIPromptFactory {
 
-    private final ChatClient ollamaChatClient;
-    private final ChatClient openAiChatClient;
+    /**
+     * Safety fallback for internal calls where command options are absent
+     * (e.g. vision OCR path). Keeps generation bounded and avoids null unboxing.
+     */
+    private static final int DEFAULT_MAX_OUTPUT_TOKENS = 4000;
+
+    private final ObjectProvider<OllamaChatModel> ollamaChatModelProvider;
+    private final ObjectProvider<OpenAiChatModel> openAiChatModelProvider;
+    private volatile ChatClient ollamaChatClientCached;
+    private volatile ChatClient openAiChatClientCached;
     private final WebTools webTools;
     private final ChatMemory chatMemory;
     private final SpringAIModelType springAIModelType;
+
+    /**
+     * Production constructor. Clients are resolved lazily on first use — after the full
+     * Spring context is initialised — so autoconfiguration ordering constraints between
+     * {@code SpringAIAutoConfig} and {@code OllamaChatAutoConfiguration} /
+     * {@code OpenAiChatAutoConfiguration} do not matter.
+     */
+    public SpringAIPromptFactory(
+            ObjectProvider<OllamaChatModel> ollamaChatModelProvider,
+            ObjectProvider<OpenAiChatModel> openAiChatModelProvider,
+            WebTools webTools,
+            ChatMemory chatMemory,
+            SpringAIModelType springAIModelType
+    ) {
+        this.ollamaChatModelProvider = ollamaChatModelProvider;
+        this.openAiChatModelProvider = openAiChatModelProvider;
+        this.webTools = webTools;
+        this.chatMemory = chatMemory;
+        this.springAIModelType = springAIModelType;
+    }
+
+    /**
+     * Test constructor — accepts pre-built clients directly, skipping lazy resolution.
+     */
+    public SpringAIPromptFactory(
+            ChatClient ollamaChatClient,
+            ChatClient openAiChatClient,
+            WebTools webTools,
+            ChatMemory chatMemory,
+            SpringAIModelType springAIModelType
+    ) {
+        this.ollamaChatModelProvider = null;
+        this.openAiChatModelProvider = null;
+        this.ollamaChatClientCached = ollamaChatClient;
+        this.openAiChatClientCached = openAiChatClient;
+        this.webTools = webTools;
+        this.chatMemory = chatMemory;
+        this.springAIModelType = springAIModelType;
+    }
 
     public ChatClient.ChatClientRequestSpec preparePrompt(
             SpringAIModelConfig modelConfig,
@@ -68,10 +115,15 @@ public class SpringAIPromptFactory {
 
     private void addSystemMessagesIfPresent(ChatClient.ChatClientRequestSpec promptBuilder, List<Message> messages) {
         if (messages == null || messages.isEmpty()) return;
-        for (Message message : messages) {
-            if (message instanceof SystemMessage systemMessage) {
-                promptBuilder.system(systemMessage.getText());
-            }
+        // Concatenate all SystemMessages into a single system() call.
+        // Spring AI's ChatClient.system() replaces on each invocation —
+        // calling it multiple times would keep only the last one.
+        String combined = messages.stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(Message::getText)
+                .collect(java.util.stream.Collectors.joining("\n\n"));
+        if (!combined.isEmpty()) {
+            promptBuilder.system(combined);
         }
     }
 
@@ -128,13 +180,17 @@ public class SpringAIPromptFactory {
         if (modelConfig != null && modelConfig.getMaxOutputTokens() != null) {
             maxTokens = modelConfig.getMaxOutputTokens();
         }
+        int resolvedMaxTokens = maxTokens != null ? maxTokens : DEFAULT_MAX_OUTPUT_TOKENS;
+        if (maxTokens == null) {
+            log.debug("maxTokens is not provided; using fallback={}", resolvedMaxTokens);
+        }
         
         if (isOpenAIProvider(modelConfig, modelName)) {
             OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
                     .model(modelName)
                     .frequencyPenalty(getDouble(safeOverrides, FREQUENCY_PENALTY))
                     .temperature(temperature)
-                    .maxTokens(maxTokens)
+                    .maxTokens(resolvedMaxTokens)
                     .topP(getDouble(safeOverrides, TOP_P));
 
             Map<String, Object> extraBody = extractExtraBody(safeOverrides);
@@ -162,9 +218,9 @@ public class SpringAIPromptFactory {
         // Ollama: no separate reasoning token API (unlike OpenRouter extra_body.reasoning). Thinking and
         // visible content share num_predict. When a reasoning budget is configured and thinking is not
         // explicitly disabled, reserve it by setting num_predict = maxTokens + reasoningBudget.
-        int ollamaPredict = computeOllamaNumPredict(maxTokens, modelConfig, safeOverrides);
-        if (ollamaPredict != maxTokens) {
-            log.debug("Ollama num_predict: {} (maxTokens={} + reasoningBudget)", ollamaPredict, maxTokens);
+        int ollamaPredict = computeOllamaNumPredict(resolvedMaxTokens, modelConfig, safeOverrides);
+        if (ollamaPredict != resolvedMaxTokens) {
+            log.debug("Ollama num_predict: {} (maxTokens={} + reasoningBudget)", ollamaPredict, resolvedMaxTokens);
         }
 
         // Ollama: do not pass think by default — some versions/models return 400 for this param.
@@ -173,6 +229,7 @@ public class SpringAIPromptFactory {
                 .model(modelName)
                 .frequencyPenalty(getDouble(safeOverrides, FREQUENCY_PENALTY))
                 .temperature(temperature)
+                .seed(getInteger(safeOverrides, SEED))
                 .numPredict(ollamaPredict)
                 .topK(getInteger(safeOverrides, TOP_K))
                 .topP(getDouble(safeOverrides, TOP_P));
@@ -255,22 +312,68 @@ public class SpringAIPromptFactory {
     private ChatClient getChatClient(SpringAIModelConfig modelConfig, String modelName) {
         Objects.requireNonNull(modelConfig, "modelConfig must not be null");
         if (modelConfig.getProviderType() != null) {
-            return modelConfig.getProviderType() == SpringAIModelConfig.ProviderType.OPENAI
-                    ? openAiChatClient
-                    : ollamaChatClient;
+            if (modelConfig.getProviderType() == SpringAIModelConfig.ProviderType.OPENAI) {
+                return requireOpenAiClient(modelName);
+            }
+            return requireOllamaClient(modelName);
         }
         if (modelName != null) {
             if (isOpenAIProvider(modelConfig, modelName)) {
-                return openAiChatClient;
+                return requireOpenAiClient(modelName);
             }
             if (springAIModelType.isOllamaModel(modelName)) {
-                return ollamaChatClient;
+                return requireOllamaClient(modelName);
             }
         }
         return springAIModelType.getFirstModel()
                 .filter(m -> m.getProviderType() != null)
-                .map(m -> m.getProviderType() == SpringAIModelConfig.ProviderType.OPENAI ? openAiChatClient : ollamaChatClient)
-                .orElse(openAiChatClient);
+                .filter(m -> m.getProviderType() != SpringAIModelConfig.ProviderType.OPENAI)
+                .map(m -> requireOllamaClient(modelName))
+                .orElseGet(() -> requireOpenAiClient(modelName));
+    }
+
+    private ChatClient requireOpenAiClient(String modelName) {
+        ChatClient client = openAiChatClientCached;
+        if (client == null && openAiChatModelProvider != null) {
+            synchronized (this) {
+                client = openAiChatClientCached;
+                if (client == null) {
+                    OpenAiChatModel model = openAiChatModelProvider.getIfAvailable();
+                    if (model != null) {
+                        client = ChatClient.builder(model).build();
+                        openAiChatClientCached = client;
+                    }
+                }
+            }
+        }
+        if (client == null) {
+            throw new IllegalStateException(
+                    "Model '" + modelName + "' requires provider OPENAI, " +
+                    "but OpenAI client is not configured. Set spring.ai.openai.api-key.");
+        }
+        return client;
+    }
+
+    private ChatClient requireOllamaClient(String modelName) {
+        ChatClient client = ollamaChatClientCached;
+        if (client == null && ollamaChatModelProvider != null) {
+            synchronized (this) {
+                client = ollamaChatClientCached;
+                if (client == null) {
+                    OllamaChatModel model = ollamaChatModelProvider.getIfAvailable();
+                    if (model != null) {
+                        client = ChatClient.builder(model).build();
+                        ollamaChatClientCached = client;
+                    }
+                }
+            }
+        }
+        if (client == null) {
+            throw new IllegalStateException(
+                    "Model '" + modelName + "' requires provider OLLAMA, " +
+                    "but Ollama client is not configured. Set spring.ai.ollama.base-url.");
+        }
+        return client;
     }
 
     /**

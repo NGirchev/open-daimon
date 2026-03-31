@@ -6,6 +6,8 @@ import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;
+import io.github.ngirchev.opendaimon.common.ai.document.DocumentAnalysisResult;
+import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
@@ -23,30 +25,41 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.MAX_PRICE;
-import static io.github.ngirchev.opendaimon.common.ai.command.AICommand.LANGUAGE_CODE_FIELD;
 import static io.github.ngirchev.opendaimon.common.ai.command.AICommand.PREFERRED_MODEL_ID_FIELD;
 import static io.github.ngirchev.opendaimon.common.ai.command.AICommand.ROLE_FIELD;
 @Slf4j
 public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICommand<?>> {
+    private static final Pattern URL_PATTERN = Pattern.compile("(?i)\\b(?:https?://|www\\.)\\S+");
 
     private final IUserPriorityService userPriorityService;
     private final ModelDescriptionCache modelDescriptionCache;
+    private final IDocumentContentAnalyzer documentContentAnalyzer;
     private final CoreCommonProperties coreCommonProperties;
 
     public DefaultAICommandFactory(
             IUserPriorityService userPriorityService,
             CoreCommonProperties coreCommonProperties) {
-        this(userPriorityService, null, coreCommonProperties);
+        this(userPriorityService, null, null, coreCommonProperties);
     }
 
     public DefaultAICommandFactory(
             IUserPriorityService userPriorityService,
             ModelDescriptionCache modelDescriptionCache,
             CoreCommonProperties coreCommonProperties) {
+        this(userPriorityService, modelDescriptionCache, null, coreCommonProperties);
+    }
+
+    public DefaultAICommandFactory(
+            IUserPriorityService userPriorityService,
+            ModelDescriptionCache modelDescriptionCache,
+            IDocumentContentAnalyzer documentContentAnalyzer,
+            CoreCommonProperties coreCommonProperties) {
         this.userPriorityService = userPriorityService;
         this.modelDescriptionCache = modelDescriptionCache;
+        this.documentContentAnalyzer = documentContentAnalyzer;
         this.coreCommonProperties = coreCommonProperties;
     }
 
@@ -91,14 +104,16 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
             if (tier.getMaxPrice() != null && !StringUtils.hasText(fixedModelId)) {
                 body.put(MAX_PRICE, tier.getMaxPrice());
             }
-            Set<ModelCapabilities> optionalModelCapabilities = Set.copyOf(tier.getOptionalCapabilities());
+            Set<ModelCapabilities> optionalModelCapabilities = addWebIfNeeded(
+                    Set.copyOf(tier.getOptionalCapabilities()),
+                    chatCommand.userText());
             Set<ModelCapabilities> baseModelCapabilities = Set.copyOf(tier.getRequiredCapabilities());
 
             // Add VISION dynamically if there are images
             Set<ModelCapabilities> modelCapabilities = addVisionIfNeeded(baseModelCapabilities, attachments);
             String routingModelLabel = StringUtils.hasText(fixedModelId) ? fixedModelId : "(auto)";
-            log.info("[{}] model={}, maxPrice={}, caps={}, attachments={}",
-                    priority, routingModelLabel, body.get(MAX_PRICE), modelCapabilities, attachments.size());
+            log.info("[{}] model={}, maxPrice={}, requiredCaps={}, optionalCaps={}, attachments={}",
+                    priority, routingModelLabel, body.get(MAX_PRICE), modelCapabilities, optionalModelCapabilities, attachments.size());
 
             // Temperature 0.35 for general assistant (recommended range: 0.3-0.4)
             String systemRole = metadata.get(ROLE_FIELD);
@@ -150,17 +165,54 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
     }
 
     /**
-     * Adds ModelType.VISION if there are image attachments.
+     * Adds VISION capability if image attachments are present or if document analysis
+     * determines that a document (e.g. image-only PDF) requires VISION for OCR.
+     *
+     * <p>This ensures that priority routing correctly blocks or allows VISION usage
+     * before the gateway call, instead of letting the gateway silently invoke a
+     * VISION model internally.
      */
     private Set<ModelCapabilities> addVisionIfNeeded(Set<ModelCapabilities> baseTypes, List<Attachment> attachments) {
         boolean hasImages = attachments.stream()
                 .anyMatch(a -> a.type() == AttachmentType.IMAGE);
-        
-        if (hasImages) {
+
+        boolean documentNeedsVision = analyzeDocumentsForVision(attachments);
+
+        if (hasImages || documentNeedsVision) {
             Set<ModelCapabilities> withVision = new HashSet<>(baseTypes);
             withVision.add(ModelCapabilities.VISION);
             return withVision;
         }
         return baseTypes;
+    }
+
+    /**
+     * Analyzes document attachments to determine if any require VISION capability.
+     * When {@code documentContentAnalyzer} is null (e.g. RAG disabled), returns false.
+     */
+    private boolean analyzeDocumentsForVision(List<Attachment> attachments) {
+        if (documentContentAnalyzer == null) {
+            return false;
+        }
+        return attachments.stream()
+                .filter(Attachment::isDocument)
+                .map(documentContentAnalyzer::analyze)
+                .anyMatch(DocumentAnalysisResult::needsVision);
+    }
+
+    /**
+     * Adds WEB to optional capabilities when user text contains at least one URL.
+     * Keeps WEB optional so requests still work even if no WEB-capable model is available.
+     */
+    private Set<ModelCapabilities> addWebIfNeeded(Set<ModelCapabilities> optionalCapabilities, String userText) {
+        if (!StringUtils.hasText(userText) || !URL_PATTERN.matcher(userText).find()) {
+            return optionalCapabilities;
+        }
+        if (optionalCapabilities.contains(ModelCapabilities.WEB)) {
+            return optionalCapabilities;
+        }
+        Set<ModelCapabilities> withWeb = new HashSet<>(optionalCapabilities);
+        withWeb.add(ModelCapabilities.WEB);
+        return Set.copyOf(withWeb);
     }
 }

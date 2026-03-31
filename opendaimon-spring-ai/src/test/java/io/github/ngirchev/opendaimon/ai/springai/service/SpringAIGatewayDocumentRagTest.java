@@ -7,22 +7,23 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Flux;
-import io.github.ngirchev.opendaimon.ai.springai.config.RAGProperties;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIProperties;
-import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
-import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,9 +33,14 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Test for PDF attachment flow from command to DocumentProcessingService.processPdf call.
- * Verifies that when ChatAICommand has PDF attachment and empty body.messages,
- * gateway calls processRagIfEnabled and processPdf with non-empty data.
+ * Tests for SpringAIGateway behavior when handling commands that have already been
+ * processed by AIRequestPipeline (document orchestration happens in the pipeline, not here).
+ *
+ * Verifies:
+ * 1. Gateway passes through augmented userRole text to UserMessage
+ * 2. When pdfAsImageFilenames metadata is present, gateway adds PDF context SystemMessage
+ * 3. Image attachments (pre-processed from PDF by pipeline) flow through to UserMessage
+ * 4. When VISION capability is present and images are in attachments, a vision model is selected
  */
 @ExtendWith(MockitoExtension.class)
 class SpringAIGatewayDocumentRagTest {
@@ -47,12 +53,6 @@ class SpringAIGatewayDocumentRagTest {
     private SpringAIModelRegistry springAIModelRegistry;
     @Mock
     private SpringAIChatService chatService;
-    @Mock
-    private DocumentProcessingService documentProcessingService;
-    @Mock
-    private FileRAGService fileRagService;
-    @Mock
-    private ChatMemory chatMemory;
     private SpringAIGateway springAIGateway;
 
     @BeforeEach
@@ -60,271 +60,208 @@ class SpringAIGatewayDocumentRagTest {
         when(springAIProperties.getMock()).thenReturn(false);
 
         @SuppressWarnings("unchecked")
-        ObjectProvider<DocumentProcessingService> docProvider = mock(ObjectProvider.class);
-        when(docProvider.getIfAvailable()).thenReturn(documentProcessingService);
-
-        @SuppressWarnings("unchecked")
-        ObjectProvider<FileRAGService> ragProvider = mock(ObjectProvider.class);
-        when(ragProvider.getIfAvailable()).thenReturn(fileRagService);
-
-        @SuppressWarnings("unchecked")
         ObjectProvider<ChatMemory> chatMemoryProvider = mock(ObjectProvider.class);
-
-        lenient().when(documentProcessingService.processPdf(any(byte[].class), anyString())).thenReturn("doc-id-1");
-        lenient().when(fileRagService.findRelevantContext(anyString(), anyString())).thenReturn(List.of(new Document("chunk text")));
-        lenient().when(fileRagService.createAugmentedPrompt(anyString(), anyList())).thenReturn("Augmented prompt with context from document.");
+        lenient().when(chatMemoryProvider.getIfAvailable()).thenReturn(null);
 
         SpringAIModelConfig modelConfig = new SpringAIModelConfig();
         modelConfig.setName("test-model");
-        modelConfig.setCapabilities(Set.of(ModelCapabilities.CHAT));
+        modelConfig.setCapabilities(Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION));
         modelConfig.setProviderType(SpringAIModelConfig.ProviderType.OPENAI);
-        when(springAIModelRegistry.getCandidatesByCapabilities(any(), any(), any())).thenReturn(List.of(modelConfig));
+        lenient().when(springAIModelRegistry.getCandidatesByCapabilities(any(), any(), any())).thenReturn(List.of(modelConfig));
 
-        when(chatService.streamChat(any(), any(), any(), any())).thenReturn(new SpringAIStreamResponse(Flux.empty()));
-
-        RAGProperties ragProperties = new RAGProperties();
-        ragProperties.setEnabled(true);
-        ragProperties.setChunkSize(800);
-        ragProperties.setChunkOverlap(100);
-        ragProperties.setTopK(5);
-        ragProperties.setSimilarityThreshold(0.7);
-        RAGProperties.RAGPrompts prompts = new RAGProperties.RAGPrompts();
-        prompts.setDocumentExtractErrorPdf("Could not extract text from file \"%s\".");
-        prompts.setDocumentExtractErrorDocument("Could not extract text from file \"%s\" (type: %s).");
-        prompts.setAugmentedPromptTemplate("Context:\n%s\n\nQuestion: %s");
-        ragProperties.setPrompts(prompts);
+        lenient().when(chatService.streamChat(any(), any(), any(), any())).thenReturn(new SpringAIStreamResponse(Flux.empty()));
 
         springAIGateway = new SpringAIGateway(
                 springAIProperties,
                 aiGatewayRegistry,
                 springAIModelRegistry,
                 chatService,
-                chatMemoryProvider,
-                ragProperties,
-                docProvider,
-                ragProvider
+                chatMemoryProvider
         );
     }
 
+    /**
+     * Gateway must pass through the augmented userRole text unchanged to the UserMessage.
+     * The pipeline augments userRole with RAG context before the command reaches the gateway.
+     */
     @Test
-    void whenChatAICommandWithPdfAttachment_thenProcessPdfIsCalledOnceWithNonEmptyData() {
-        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
-        Attachment pdfAttachment = new Attachment(
-                "doc/key.pdf",
-                "application/pdf",
-                "test.pdf",
-                pdfData.length,
-                AttachmentType.PDF,
-                pdfData
-        );
-        Map<String, Object> body = new java.util.HashMap<>();
-        body.put("someKey", "value");
+    void whenCommandHasAugmentedUserRole_thenUserMessageContainsAugmentedText() {
+        String augmentedUserRole = "Context from document:\nSome PDF content here.\n\nUser question: What is in the file?";
+
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelCapabilities.CHAT),
-                Set.of(),
-                0.35,
-                1000,
-                null,
-                null,
-                "What is in the file?",
-                true,
-                Map.of(),
-                body,
-                List.of(pdfAttachment)
+                Set.of(ModelCapabilities.CHAT), Set.of(),
+                0.35, 1000, null,
+                "You are a helpful assistant", augmentedUserRole,
+                true, Map.of(), new HashMap<>(), List.of()
         );
 
         springAIGateway.generateResponse(command);
 
-        ArgumentCaptor<byte[]> dataCaptor = ArgumentCaptor.forClass(byte[].class);
-        ArgumentCaptor<String> filenameCaptor = ArgumentCaptor.forClass(String.class);
-        verify(documentProcessingService, times(1)).processPdf(dataCaptor.capture(), filenameCaptor.capture());
-        assertTrue(dataCaptor.getValue().length > 0, "processPdf must be called with non-empty byte array");
-        assertEquals("test.pdf", filenameCaptor.getValue());
-    }
-
-    @Test
-    void whenPdfHasNoTextLayer_thenRenderedAsImagesForVision() {
-        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
-        Attachment pdfAttachment = new Attachment(
-                "doc/scan.pdf",
-                "application/pdf",
-                "scan.pdf",
-                pdfData.length,
-                AttachmentType.PDF,
-                pdfData
-        );
-
-        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
-                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
-
-        Map<String, Object> body = new java.util.HashMap<>();
-        body.put("someKey", "value");
-        ChatAICommand command = new ChatAICommand(
-                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
-                Set.of(),
-                0.35,
-                1000,
-                null,
-                null,
-                "What is in the file?",
-                true,
-                Map.of(),
-                body,
-                List.of(pdfAttachment)
-        );
-
-        springAIGateway.generateResponse(command);
-
-        verify(documentProcessingService, times(1)).processPdf(any(byte[].class), eq("scan.pdf"));
-        
-        // Verify chatService was called with correct messages
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
-                ArgumentCaptor.forClass(List.class);
-        verify(chatService, times(1)).streamChat(
-                any(SpringAIModelConfig.class), 
-                any(), 
-                any(), 
-                messagesCaptor.capture()
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(any(), any(), any(), messagesCaptor.capture());
+
+        List<Message> messages = messagesCaptor.getValue();
+        boolean hasAugmentedUserMessage = messages.stream()
+                .filter(UserMessage.class::isInstance)
+                .map(UserMessage.class::cast)
+                .anyMatch(m -> augmentedUserRole.equals(m.getText()));
+        assertTrue(hasAugmentedUserMessage,
+                "UserMessage must contain the augmented userRole text passed by pipeline");
+    }
+
+    /**
+     * When the command metadata contains pdfAsImageFilenames (set by pipeline after PDF-to-image conversion),
+     * the gateway must add a SystemMessage with PDF attachment context before the UserMessage.
+     */
+    @Test
+    void whenMetadataHasPdfAsImageFilenames_thenSystemMessageWithPdfContextAdded() {
+        byte[] pngHeader = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        Attachment imageAttachment = new Attachment(
+                null, "image/png", "page_1_scan.png", pngHeader.length, AttachmentType.IMAGE, pngHeader
         );
-        
-        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
-        assertNotNull(messages);
-        assertTrue(messages.size() >= 2, "Should have at least SystemMessage with attachment context and UserMessage");
-        
-        // Verify SystemMessage with PDF context is present
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("pdfAsImageFilenames", "scan.pdf");
+
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION), Set.of(),
+                0.35, 1000, null,
+                "You are a helpful assistant", "What is in the document?",
+                true, metadata, new HashMap<>(), List.of(imageAttachment)
+        );
+
+        springAIGateway.generateResponse(command);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(any(), any(), any(), messagesCaptor.capture());
+
+        List<Message> messages = messagesCaptor.getValue();
         boolean hasSystemMessageWithPdfContext = messages.stream()
-                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
-                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
-                .anyMatch(text -> text.contains("PDF document") && text.contains("scan.pdf") && text.contains("images"));
-        
-        assertTrue(hasSystemMessageWithPdfContext, "Should have SystemMessage with PDF attachment context");
-
-        // In this test ChatMemory is not used because there is no threadKey in metadata
+                .filter(SystemMessage.class::isInstance)
+                .map(SystemMessage.class::cast)
+                .anyMatch(m -> m.getText().contains("PDF document") && m.getText().contains("scan.pdf") && m.getText().contains("images"));
+        assertTrue(hasSystemMessageWithPdfContext,
+                "Gateway must add a SystemMessage with PDF context when pdfAsImageFilenames metadata is present");
     }
 
+    /**
+     * Image attachments pre-processed by the pipeline (PDF rendered to images) must be forwarded
+     * to the UserMessage so the vision model can analyze them.
+     */
     @Test
-    void whenImageAttachment_thenSystemMessageWithImageContext() {
-        byte[] imageData = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    void whenImageAttachmentsPresent_thenUserMessageHasMedia() {
+        byte[] pngHeader = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
         Attachment imageAttachment = new Attachment(
-                "img/photo.png",
-                "image/png",
-                "photo.png",
-                imageData.length,
-                AttachmentType.IMAGE,
-                imageData
+                null, "image/png", "page_1_scan.png", pngHeader.length, AttachmentType.IMAGE, pngHeader
         );
 
-        Map<String, Object> body = new java.util.HashMap<>();
-        body.put("someKey", "value");
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("pdfAsImageFilenames", "scan.pdf");
+
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
-                Set.of(),
-                0.35,
-                1000,
-                null,
-                null,
-                "What is in the image?",
-                true,
-                Map.of(),
-                body,
-                List.of(imageAttachment)
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION), Set.of(),
+                0.35, 1000, null,
+                null, "Describe the document",
+                true, metadata, new HashMap<>(), List.of(imageAttachment)
         );
 
         springAIGateway.generateResponse(command);
 
-        // Verify chatService was called with correct messages
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
-                ArgumentCaptor.forClass(List.class);
-        verify(chatService, times(1)).streamChat(
-                any(SpringAIModelConfig.class), 
-                any(), 
-                any(), 
-                messagesCaptor.capture()
-        );
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).streamChat(any(), any(), any(), messagesCaptor.capture());
 
-        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
-        assertNotNull(messages);
-        assertTrue(messages.size() >= 2, "Should have at least SystemMessage with attachment context and UserMessage");
-
-        // Verify SystemMessage with image context is present
-        boolean hasSystemMessageWithImageContext = messages.stream()
-                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
-                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
-                .anyMatch(text -> text.contains("attached") && text.contains("image"));
-
-        assertTrue(hasSystemMessageWithImageContext, "Should have SystemMessage with image attachment context");
-
-        // In this test ChatMemory is not used because there is no threadKey in metadata
+        List<Message> messages = messagesCaptor.getValue();
+        boolean hasMediaInUserMessage = messages.stream()
+                .filter(UserMessage.class::isInstance)
+                .map(UserMessage.class::cast)
+                .anyMatch(m -> m.getMedia() != null && !m.getMedia().isEmpty());
+        assertTrue(hasMediaInUserMessage,
+                "UserMessage must carry image media when image attachments are present");
     }
 
+    /**
+     * When a command carries VISION capability and image attachments, the model selection
+     * must require VISION (images present in payload take priority over AUTO).
+     */
     @Test
-    void whenBothImageAndPdfAsImage_thenSystemMessageWithBothContexts() {
-        byte[] imageData = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    void whenVisionCapabilityAndImages_thenVisionModelSelected() {
+        byte[] pngHeader = new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
         Attachment imageAttachment = new Attachment(
-                "img/photo.png",
-                "image/png",
-                "photo.png",
-                imageData.length,
-                AttachmentType.IMAGE,
-                imageData
+                null, "image/png", "page_1_scan.png", pngHeader.length, AttachmentType.IMAGE, pngHeader
         );
 
-        byte[] pdfData = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '4', 0, 0};
-        Attachment pdfAttachment = new Attachment(
-                "doc/scan.pdf",
-                "application/pdf",
-                "scan.pdf",
-                pdfData.length,
-                AttachmentType.PDF,
-                pdfData
-        );
-
-        when(documentProcessingService.processPdf(any(byte[].class), anyString()))
-                .thenThrow(new DocumentContentNotExtractableException("No text in PDF"));
-
-        Map<String, Object> body = new java.util.HashMap<>();
-        body.put("someKey", "value");
         ChatAICommand command = new ChatAICommand(
-                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
-                Set.of(),
-                0.35,
-                1000,
-                null,
-                null,
-                "What is in the files?",
-                true,
-                Map.of(),
-                body,
-                List.of(imageAttachment, pdfAttachment)
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION), Set.of(),
+                0.35, 1000, null,
+                null, "Describe the document",
+                true, Map.of(), new HashMap<>(), List.of(imageAttachment)
         );
 
         springAIGateway.generateResponse(command);
 
-        // Verify chatService was called with correct messages
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<org.springframework.ai.chat.messages.Message>> messagesCaptor = 
-                ArgumentCaptor.forClass(List.class);
-        verify(chatService, times(1)).streamChat(
-                any(SpringAIModelConfig.class), 
-                any(), 
-                any(), 
-                messagesCaptor.capture()
+        ArgumentCaptor<Set<ModelCapabilities>> capsCaptor = ArgumentCaptor.forClass(Set.class);
+        verify(springAIModelRegistry, atLeastOnce()).getCandidatesByCapabilities(capsCaptor.capture(), isNull(), any());
+
+        Set<ModelCapabilities> usedCaps = capsCaptor.getValue();
+        assertTrue(usedCaps.contains(ModelCapabilities.VISION),
+                "VISION must be in capability query when image attachments are present");
+    }
+
+    /**
+     * When the command has no attachments (plain text, PDF already extracted to RAG by pipeline),
+     * the UserMessage must not carry any media.
+     */
+    @Test
+    void whenNoAttachments_thenUserMessageHasNoMedia() {
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT), Set.of(),
+                0.35, 1000, null,
+                "You are a helpful assistant", "What is 2+2?",
+                false, Map.of(), new HashMap<>(), List.of()
         );
 
-        List<org.springframework.ai.chat.messages.Message> messages = messagesCaptor.getValue();
-        assertNotNull(messages);
+        springAIGateway.generateResponse(command);
 
-        // Verify SystemMessage with both PDF and image context is present
-        boolean hasSystemMessageWithBothContexts = messages.stream()
-                .filter(msg -> msg instanceof org.springframework.ai.chat.messages.SystemMessage)
-                .map(msg -> ((org.springframework.ai.chat.messages.SystemMessage) msg).getText())
-                .anyMatch(text -> text.contains("PDF document") && text.contains("scan.pdf") && 
-                                 text.contains("attached") && text.contains("image"));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).callChat(any(), any(), any(), messagesCaptor.capture());
 
-        assertTrue(hasSystemMessageWithBothContexts, "Should have SystemMessage with both PDF and image contexts");
+        List<Message> messages = messagesCaptor.getValue();
+        boolean hasMedia = messages.stream()
+                .filter(UserMessage.class::isInstance)
+                .map(UserMessage.class::cast)
+                .anyMatch(m -> m.getMedia() != null && !m.getMedia().isEmpty());
+        assertFalse(hasMedia, "UserMessage must have no media when there are no attachments");
+    }
 
-        // In this test ChatMemory is not used because there is no threadKey in metadata
+    /**
+     * When there are no attachments and no pdfAsImageFilenames in metadata,
+     * no extra SystemMessage for PDF context should be added.
+     */
+    @Test
+    void whenNoPdfMetadata_thenNoPdfContextSystemMessage() {
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT), Set.of(),
+                0.35, 1000, null,
+                "You are a helpful assistant", "Hello",
+                false, Map.of(), new HashMap<>(), List.of()
+        );
+
+        springAIGateway.generateResponse(command);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatService, times(1)).callChat(any(), any(), any(), messagesCaptor.capture());
+
+        List<Message> messages = messagesCaptor.getValue();
+        boolean hasPdfContextMessage = messages.stream()
+                .filter(SystemMessage.class::isInstance)
+                .map(SystemMessage.class::cast)
+                .anyMatch(m -> m.getText().contains("PDF document"));
+        assertFalse(hasPdfContextMessage, "No PDF context SystemMessage should be added without pdfAsImageFilenames metadata");
     }
 }

@@ -3,7 +3,10 @@ package io.github.ngirchev.opendaimon.it.telegram;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.command.ICommandType;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
+import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -28,6 +31,7 @@ import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactory;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory;
 import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.command.ICommandHandler;
@@ -126,6 +130,11 @@ class TelegramMockGatewayIT {
         @Bean
         public AICommandFactoryRegistry aiCommandFactoryRegistry(List<AICommandFactory<?, ?>> factories) {
             return new AICommandFactoryRegistry(factories);
+        }
+
+        @Bean
+        public AIRequestPipeline aiRequestPipeline(AICommandFactoryRegistry aiCommandFactoryRegistry) {
+            return new AIRequestPipeline(null, aiCommandFactoryRegistry);
         }
 
         @Bean
@@ -260,6 +269,7 @@ class TelegramMockGatewayIT {
                 CoreCommonProperties coreCommonProperties,
                 MessageLocalizationService messageLocalizationService,
                 ObjectProvider<StorageProperties> storagePropertiesProvider,
+                ConversationThreadService conversationThreadService,
                 ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider
         ) {
             return new TelegramMessageService(
@@ -268,6 +278,7 @@ class TelegramMockGatewayIT {
                     coreCommonProperties,
                     messageLocalizationService,
                     storagePropertiesProvider,
+                    conversationThreadService,
                     telegramMessageServiceSelfProvider
             );
         }
@@ -323,6 +334,15 @@ class TelegramMockGatewayIT {
         }
 
         @Bean
+        public ReplyImageAttachmentService replyImageAttachmentService(
+                OpenDaimonMessageRepository messageRepository,
+                ObjectProvider<FileStorageService> fileStorageServiceProvider,
+                ObjectProvider<TelegramFileService> telegramFileServiceProvider) {
+            return new ReplyImageAttachmentService(
+                    messageRepository, fileStorageServiceProvider, telegramFileServiceProvider);
+        }
+
+        @Bean
         public MessageTelegramCommandHandler messageTelegramCommandHandler(
                 ObjectProvider<TelegramBot> telegramBotProvider,
                 TypingIndicatorService typingIndicatorService,
@@ -332,10 +352,11 @@ class TelegramMockGatewayIT {
                 TelegramMessageService telegramMessageService,
                 AIGatewayRegistry aiGatewayRegistry,
                 OpenDaimonMessageService messageService,
-                AICommandFactoryRegistry aiCommandFactoryRegistry,
+                AIRequestPipeline aiRequestPipeline,
                 TelegramProperties telegramProperties,
                 UserModelPreferenceService userModelPreferenceService,
-                PersistentKeyboardService persistentKeyboardService
+                PersistentKeyboardService persistentKeyboardService,
+                ReplyImageAttachmentService replyImageAttachmentService
         ) {
             return new MessageTelegramCommandHandler(
                     telegramBotProvider,
@@ -346,10 +367,11 @@ class TelegramMockGatewayIT {
                     telegramMessageService,
                     aiGatewayRegistry,
                     messageService,
-                    aiCommandFactoryRegistry,
+                    aiRequestPipeline,
                     telegramProperties,
                     userModelPreferenceService,
-                    persistentKeyboardService
+                    persistentKeyboardService,
+                    replyImageAttachmentService
             );
         }
     }

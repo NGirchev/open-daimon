@@ -1,6 +1,6 @@
 {
   "name": "@ngirchev/open-daimon",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenDaimon AI Telegram bot — interactive setup wizard",
   "type": "module",
   "bin": {

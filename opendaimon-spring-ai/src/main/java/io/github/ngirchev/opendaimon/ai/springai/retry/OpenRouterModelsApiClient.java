@@ -67,6 +67,44 @@ public class OpenRouterModelsApiClient {
     }
 
     /**
+     * Fetches embedding models list from OpenRouter (GET /v1/embeddings/models).
+     * Embedding models live on a separate endpoint from chat models.
+     *
+     * @param baseUrl base API URL (e.g. https://openrouter.ai/api)
+     * @param apiKey  OpenRouter API key
+     * @return list of entries; empty on error or empty response
+     */
+    public List<OpenRouterModelEntry> fetchEmbeddingModels(String baseUrl, String apiKey) {
+        if (!StringUtils.hasText(baseUrl) || !StringUtils.hasText(apiKey)) {
+            return List.of();
+        }
+        String url = baseUrl.endsWith("/") ? baseUrl + "v1/embeddings/models" : baseUrl + "/v1/embeddings/models";
+        JsonNode root = fetchJson(url, apiKey);
+        if (root == null || root.isMissingNode()) {
+            return List.of();
+        }
+        JsonNode data = root.path("data");
+        if (!data.isArray()) {
+            return List.of();
+        }
+        List<OpenRouterModelEntry> result = new ArrayList<>();
+        for (JsonNode m : data) {
+            String id = m.path("id").asText(null);
+            if (!StringUtils.hasText(id)) {
+                continue;
+            }
+            JsonNode pricing = m.path("pricing");
+            boolean free = !pricing.isMissingNode() && !pricing.isNull()
+                    && isZero(pricing.path(PRICING_PROMPT))
+                    && isZero(pricing.path(PRICING_COMPLETION));
+            result.add(new OpenRouterModelEntry(id, free, m));
+        }
+        log.info("OpenRouter embedding models fetch: {} models (free: {})", result.size(),
+                result.stream().filter(OpenRouterModelEntry::free).count());
+        return result;
+    }
+
+    /**
      * Fetches a single model's details from OpenRouter GET /v1/models/{modelId}.
      * Used for diagnostic logging (e.g. on 404 errors).
      *

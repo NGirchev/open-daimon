@@ -16,4 +16,18 @@
       <option name="Make" enabled="true" />
     </method>
   </configuration>
+  <configuration default="false" name="ApplicationLocal" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="io.github.ngirchev.opendaimon.Application" />
+    <module name="opendaimon-app" />
+    <option name="PROGRAM_PARAMETERS" value="--spring.profiles.active=local" />
+    <extension name="coverage">
+      <pattern>
+        <option name="PATTERN" value="io.github.ngirchev.opendaimon.*" />
+        <option name="ENABLED" value="true" />
+      </pattern>
+    </extension>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
 </component>

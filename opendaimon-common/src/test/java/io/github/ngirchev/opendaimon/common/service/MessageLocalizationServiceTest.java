@@ -47,7 +47,7 @@ class MessageLocalizationServiceTest {
 
         @Test
         void whenLanguageCodeNull_usesDefaultLocale() {
-            Locale defaultLocale = Locale.forLanguageTag("ru");
+            Locale defaultLocale = Locale.forLanguageTag("en");
             when(messageSource.getMessage(eq("key"), any(), eq("key"), eq(defaultLocale))).thenReturn("Fallback");
 
             String result = service.getMessage("key", null);
@@ -58,7 +58,7 @@ class MessageLocalizationServiceTest {
 
         @Test
         void whenLanguageCodeBlank_usesDefaultLocale() {
-            Locale defaultLocale = Locale.forLanguageTag("ru");
+            Locale defaultLocale = Locale.forLanguageTag("en");
             when(messageSource.getMessage(eq("key"), any(), eq("key"), eq(defaultLocale))).thenReturn("Value");
 
             String result = service.getMessage("key", "   ");

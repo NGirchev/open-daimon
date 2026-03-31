@@ -11,17 +11,14 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.content.Media;
-import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.util.MimeTypeUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import io.github.ngirchev.opendaimon.ai.springai.config.RAGProperties;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIProperties;
-import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
@@ -42,6 +39,7 @@ import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import java.net.MalformedURLException;
 import java.util.*;
 import java.util.Base64;
+import java.util.stream.Collectors;
 
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.*;
 
@@ -62,28 +60,17 @@ public class SpringAIGateway implements AIGateway {
     private final SpringAIChatService chatService;
     private final ObjectProvider<ChatMemory> chatMemoryProvider;
     
-    // RAG components (optional - available only when open-daimon.ai.spring-ai.rag.enabled=true)
-    private final RAGProperties ragProperties;
-    private final ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider;
-    private final ObjectProvider<FileRAGService> ragServiceProvider;
-
     public SpringAIGateway(
             SpringAIProperties springAiProperties,
             AIGatewayRegistry aiGatewayRegistry,
             SpringAIModelRegistry springAIModelRegistry,
             SpringAIChatService chatService,
-            ObjectProvider<ChatMemory> chatMemoryProvider,
-            RAGProperties ragProperties,
-            ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-            ObjectProvider<FileRAGService> ragServiceProvider) {
+            ObjectProvider<ChatMemory> chatMemoryProvider) {
         this.springAiProperties = springAiProperties;
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.springAIModelRegistry = springAIModelRegistry;
         this.chatService = chatService;
         this.chatMemoryProvider = chatMemoryProvider;
-        this.ragProperties = ragProperties;
-        this.documentProcessingServiceProvider = documentProcessingServiceProvider;
-        this.ragServiceProvider = ragServiceProvider;
     }
 
     @PostConstruct
@@ -110,6 +97,17 @@ public class SpringAIGateway implements AIGateway {
                 List<Message> messages = createMessages(chatOptions.body());
                 log.debug("Gateway: messagesFromBody={}, userRole='{}'", messages.size(), chatOptions.userRole() == null ? null : chatOptions.userRole().replaceAll("\\s+", " ").trim());
                 addSystemAndUserMessagesIfNeeded(messages, chatOptions, command);
+                if (log.isDebugEnabled()) {
+                    for (int i = 0; i < messages.size(); i++) {
+                        Message msg = messages.get(i);
+                        if (msg instanceof UserMessage um) {
+                            boolean hasMedia = um.getMedia() != null && !um.getMedia().isEmpty();
+                            log.debug("Gateway: message[{}] UserMessage hasMedia={}, mediaCount={}, textLength={}",
+                                    i, hasMedia, hasMedia ? um.getMedia().size() : 0,
+                                    um.getText() != null ? um.getText().length() : 0);
+                        }
+                    }
+                }
                 return executeChatWithOptions(chatOptions, command, messages);
             } else {
                 throw new IllegalArgumentException();
@@ -117,11 +115,9 @@ public class SpringAIGateway implements AIGateway {
         } catch (WebClientResponseException e) {
             log.error(LOG_ERROR_CALLING_SPRING_AI, e.getMessage());
             throw new RuntimeException("Failed to generate response from Spring AI", e);
-        } catch (UnsupportedModelCapabilityException e) {
+        } catch (UnsupportedModelCapabilityException | DocumentContentNotExtractableException e) {
             throw e;
-        } catch (DocumentContentNotExtractableException e) {
-            throw e;
-        } catch (Exception e) {
+        }  catch (Exception e) {
             if (AIUtils.shouldLogWithoutStacktrace(e)) {
                 log.error(LOG_ERROR_CALLING_SPRING_AI, AIUtils.getRootCauseMessage(e));
             } else {
@@ -133,6 +129,7 @@ public class SpringAIGateway implements AIGateway {
 
     private AIResponse executeChatWithOptions(OpenDaimonChatOptions chatOptions, AICommand command, List<Message> messages) {
         UserPriority userPriority = resolveUserPriority(command);
+        boolean requiresVisionForPayload = hasUserMedia(messages);
 
         SpringAIModelConfig modelConfig;
 
@@ -144,24 +141,29 @@ public class SpringAIGateway implements AIGateway {
             // Second-line guard: validate live registry capabilities at execution time
             Set<ModelCapabilities> liveCapabilities = modelConfig.getCapabilities() != null
                     ? modelConfig.getCapabilities() : Set.of();
-            Set<ModelCapabilities> requiredCapabilities = command.modelCapabilities().stream()
+            Set<ModelCapabilities> requiredCapabilities = new HashSet<>(command.modelCapabilities().stream()
                     .filter(c -> c != ModelCapabilities.AUTO)
-                    .collect(java.util.stream.Collectors.toSet());
+                    .collect(Collectors.toSet()));
+            if (requiresVisionForPayload) {
+                requiredCapabilities.add(ModelCapabilities.VISION);
+            }
             if (!requiredCapabilities.isEmpty() && !liveCapabilities.containsAll(requiredCapabilities)) {
                 Set<ModelCapabilities> missing = requiredCapabilities.stream()
                         .filter(c -> !liveCapabilities.contains(c))
-                        .collect(java.util.stream.Collectors.toSet());
+                        .collect(Collectors.toSet());
                 throw new UnsupportedModelCapabilityException(fixed.fixedModelId(), missing);
-            }
-            // Explicit VISION guard (catches cases where modelDescriptionCache was unavailable at command creation)
-            if (fixed.hasImageAttachments() && !liveCapabilities.contains(ModelCapabilities.VISION)) {
-                throw new UnsupportedModelCapabilityException(
-                        fixed.fixedModelId(), Set.of(ModelCapabilities.VISION));
             }
         } else {
             // AUTO mode — use capability-based selection
+            Set<ModelCapabilities> requiredForSelection = new HashSet<>(command.modelCapabilities());
+            if (requiresVisionForPayload) {
+                // AUTO is a meta-capability ("auto-select best model"), not a real model capability.
+                // VISION models typically don't declare AUTO, so requiring both yields no candidates.
+                requiredForSelection.remove(ModelCapabilities.AUTO);
+                requiredForSelection.add(ModelCapabilities.VISION);
+            }
             List<SpringAIModelConfig> candidates = springAIModelRegistry
-                    .getCandidatesByCapabilities(command.modelCapabilities(), null, userPriority);
+                    .getCandidatesByCapabilities(requiredForSelection, null, userPriority);
             // Prefer models that also cover optional capabilities (stable sort — preserves priority order within same score)
             Set<ModelCapabilities> optional = command.optionalCapabilities();
             if (!optional.isEmpty() && !candidates.isEmpty()) {
@@ -172,9 +174,23 @@ public class SpringAIGateway implements AIGateway {
             }
             modelConfig = candidates.isEmpty() ? null : candidates.getFirst();
             if (modelConfig == null) {
-                throw new RuntimeException("No model found for capabilities: " + command.modelCapabilities());
+                throw new RuntimeException("No model found for capabilities: " + requiredForSelection);
+            }
+            Set<ModelCapabilities> liveCapabilities = modelConfig.getCapabilities() != null
+                    ? modelConfig.getCapabilities() : Set.of();
+            Set<ModelCapabilities> effectiveRequired = requiredForSelection.stream()
+                    .filter(c -> c != ModelCapabilities.AUTO)
+                    .collect(Collectors.toSet());
+            if (!effectiveRequired.isEmpty() && !liveCapabilities.containsAll(effectiveRequired)) {
+                Set<ModelCapabilities> missing = effectiveRequired.stream()
+                        .filter(c -> !liveCapabilities.contains(c))
+                        .collect(Collectors.toSet());
+                throw new UnsupportedModelCapabilityException(modelConfig.getName(), missing);
             }
         }
+
+        log.info("Selected model='{}', provider={}, caps={}",
+                modelConfig.getName(), modelConfig.getProviderType(), modelConfig.getCapabilities());
 
         if (modelConfig.getProviderType() == null) {
             throw new IllegalStateException(
@@ -291,12 +307,16 @@ public class SpringAIGateway implements AIGateway {
     private Media mediaFromImageUrlPart(Map<String, Object> part) {
         Object imageUrlObj = part.get(CONTENT_PART_IMAGE_URL);
         String url;
-        if (imageUrlObj instanceof Map<?, ?> urlMap) {
-            url = (String) ((Map<String, ?>) urlMap).get(IMAGE_URL_URL);
-        } else if (imageUrlObj instanceof String s) {
-            url = s;
-        } else {
-            return null;
+        switch (imageUrlObj) {
+            case Map<?, ?> urlMap -> {
+                url = (String) urlMap.get(IMAGE_URL_URL);
+            }
+            case String s -> {
+                url = s;
+            }
+            default -> {
+                return null;
+            }
         }
         if (url == null || url.isBlank()) return null;
         return mediaFromImageUrl(url);
@@ -367,12 +387,19 @@ public class SpringAIGateway implements AIGateway {
         if (userAlreadyPresent) {
             return;
         }
-        List<Attachment> mutableAttachments = new ArrayList<>(attachments);
+        assert attachments != null;
         long originalImageCount = attachments.stream().filter(att -> att.type() == AttachmentType.IMAGE).count();
-        List<String> pdfAsImageFilenames = new ArrayList<>();
-        String finalUserRole = processRagIfEnabled(userRole, mutableAttachments, pdfAsImageFilenames);
+
+        // Document orchestration already happened in AIRequestPipeline (before factory).
+        // userRole contains the augmented query, attachments contain modified list (with images from PDF if OCR failed).
+        // pdfAsImageFilenames come from pipeline metadata.
+        List<String> pdfAsImageFilenames = List.of();
+        if (command.metadata() != null && command.metadata().containsKey("pdfAsImageFilenames")) {
+            pdfAsImageFilenames = List.of(command.metadata().get("pdfAsImageFilenames").split(","));
+        }
+
         addAttachmentContextToMessagesAndMemory(messages, (int) originalImageCount, pdfAsImageFilenames, command);
-        messages.add(createUserMessage(finalUserRole, mutableAttachments));
+        messages.add(createUserMessage(userRole, new ArrayList<>(attachments)));
     }
 
     private void addAttachmentContextToMessagesAndMemory(List<Message> messages, int originalImageCount,
@@ -440,7 +467,7 @@ public class SpringAIGateway implements AIGateway {
             case "zh" -> "Chinese";
             default -> languageCode;
         };
-        return systemRole + "\nIMPORTANT: Always respond in " + languageName + " (" + languageCode + ").";
+        return systemRole + "\nPrefer responding in " + languageName + " (" + languageCode + "). When quoting text from documents or context, preserve the original language exactly.";
     }
 
     private UserPriority resolveUserPriority(AICommand command) {
@@ -456,193 +483,6 @@ public class SpringAIGateway implements AIGateway {
         } catch (IllegalArgumentException e) {
             log.warn("Unknown userPriority in command metadata: {}", raw);
             return null;
-        }
-    }
-
-    /**
-     * Processes documents (PDF, DOCX, etc.) via RAG when feature flag is on.
-     *
-     * <p>Process:
-     * <ol>
-     *   <li>Filter documents (PDF, DOCX, etc.)</li>
-     *   <li>Process each via DocumentProcessingService (embeddings)</li>
-     *   <li>Find relevant context via RAGService</li>
-     *   <li>Build augmented prompt with document context</li>
-     * </ol>
-     * <p><b>Vision fallback for image-only PDF:</b> If PDF has no text layer (DocumentContentNotExtractableException), render pages as images and add to attachments for vision model.
-     *
-     * @param userQuery original user query
-     * @param attachments mutable list of attachments (may get image-attachments from PDF fallback)
-     * @param pdfAsImageFilenames mutable list to collect PDF filenames converted to images
-     * @return augmented prompt with document context (or original query if RAG disabled)
-     */
-    private String processRagIfEnabled(String userQuery, List<Attachment> attachments, List<String> pdfAsImageFilenames) {
-        int totalAttachments = attachments != null ? attachments.size() : 0;
-        List<Attachment> documentAttachments = attachments != null
-                ? attachments.stream().filter(Attachment::isDocument).toList()
-                : List.of();
-        var documentProcessingService = documentProcessingServiceProvider.getIfAvailable();
-        FileRAGService fileRagService = ragServiceProvider.getIfAvailable();
-        // Check feature flag
-        if (ragProperties == null || !isRagEnabled()) {
-            return userQuery;
-        }
-
-        if (documentAttachments.isEmpty()) {
-            log.debug("processRagIfEnabled: skipped, no document attachments");
-            return userQuery;
-        }
-
-        log.info("processRagIfEnabled: totalAttachments={}, documentAttachments={}", totalAttachments, documentAttachments.size());
-
-        if (documentProcessingService == null || fileRagService == null) {
-            log.warn("RAG is enabled but services are not available. Skipping RAG processing.");
-            return userQuery;
-        }
-
-        log.info("Processing {} document attachment(s) for RAG", documentAttachments.size());
-        List<Document> allRelevantChunks = new ArrayList<>();
-        for (Attachment documentAttachment : documentAttachments) {
-            try {
-                processOneDocumentForRag(documentAttachment, userQuery, documentProcessingService, fileRagService, allRelevantChunks, attachments, pdfAsImageFilenames);
-            } catch (DocumentContentNotExtractableException e) {
-                throw e;
-            } catch (Exception e) {
-                log.error("Failed to process document '{}': {}", documentAttachment.filename(), e.getMessage(), e);
-            }
-        }
-        
-        if (allRelevantChunks.isEmpty()) {
-            log.info("No relevant context found in documents");
-            return userQuery;
-        }
-        String augmentedPrompt = fileRagService.createAugmentedPrompt(userQuery, allRelevantChunks);
-        log.info("Created augmented prompt with {} relevant chunks from {} document(s)", 
-                allRelevantChunks.size(), documentAttachments.size());
-        
-        return augmentedPrompt;
-    }
-
-    private void processOneDocumentForRag(Attachment documentAttachment, String userQuery,
-            DocumentProcessingService documentProcessingService, FileRAGService fileRagService,
-            List<Document> allRelevantChunks, List<Attachment> attachments, List<String> pdfAsImageFilenames) {
-        String mimeType = documentAttachment.mimeType() != null ? documentAttachment.mimeType().toLowerCase() : "";
-        String documentType = extractDocumentType(mimeType, documentAttachment.filename());
-        log.info("processRagIfEnabled: processing document filename={}, mimeType={}, dataLength={}, documentType={}",
-                documentAttachment.filename(), mimeType, documentAttachment.data() != null ? documentAttachment.data().length : 0, documentType);
-        if (documentType == null) {
-            log.warn("Unsupported document type for RAG: {}", mimeType);
-            return;
-        }
-        String documentId;
-        if ("pdf".equalsIgnoreCase(documentType)) {
-            try {
-                documentId = documentProcessingService.processPdf(documentAttachment.data(), documentAttachment.filename());
-            } catch (DocumentContentNotExtractableException e) {
-                log.info("PDF '{}' has no text layer, rendering pages as images for vision model", documentAttachment.filename());
-                List<Attachment> imageAttachments = renderPdfToImageAttachments(documentAttachment.data(), documentAttachment.filename());
-                attachments.addAll(imageAttachments);
-                pdfAsImageFilenames.add(documentAttachment.filename());
-                log.info("Added {} image attachment(s) from PDF '{}' for vision model", imageAttachments.size(), documentAttachment.filename());
-                return;
-            }
-        } else {
-            documentId = documentProcessingService.processWithTika(documentAttachment.data(), documentAttachment.filename(), documentType);
-        }
-        List<Document> relevantChunks = fileRagService.findRelevantContext(userQuery, documentId);
-        allRelevantChunks.addAll(relevantChunks);
-        log.info("processRagIfEnabled: documentId={}, relevantChunks={}", documentId, relevantChunks.size());
-        log.debug("Found {} relevant chunks from '{}'", relevantChunks.size(), documentAttachment.filename());
-    }
-
-    /**
-     * Checks if RAG feature flag is enabled.
-     */
-    private boolean isRagEnabled() {
-        // RAGProperties is created only when rag.enabled=true (@ConditionalOnProperty)
-        // But we check again for safety
-        return ragProperties != null;
-    }
-
-    /**
-     * Maps MIME type and file extension patterns to document types.
-     * PDF is checked first as it is processed via PDFBox, not Tika.
-     */
-    private static final List<DocumentTypeMapping> DOCUMENT_TYPE_MAPPINGS = List.of(
-            // PDF - checked first, processed via PDFBox (PagePdfDocumentReader), not Tika
-            new DocumentTypeMapping("pdf", List.of("pdf"), List.of(".pdf")),
-            // Word documents
-            new DocumentTypeMapping("docx", List.of("wordprocessingml"), List.of(".docx")),
-            new DocumentTypeMapping("doc", List.of("msword"), List.of(".doc")),
-            // Excel documents
-            new DocumentTypeMapping("xlsx", List.of("spreadsheetml"), List.of(".xlsx")),
-            new DocumentTypeMapping("xls", List.of("ms-excel"), List.of(".xls")),
-            // PowerPoint documents
-            new DocumentTypeMapping("pptx", List.of("presentationml"), List.of(".pptx")),
-            new DocumentTypeMapping("ppt", List.of("ms-powerpoint"), List.of(".ppt")),
-            // Text files
-            new DocumentTypeMapping("txt", List.of("text/plain"), List.of(".txt")),
-            // Rich Text Format
-            new DocumentTypeMapping("rtf", List.of("rtf"), List.of(".rtf")),
-            // OpenDocument Format (MS Office alternative)
-            new DocumentTypeMapping("odt", List.of("opendocument.text"), List.of(".odt")),
-            new DocumentTypeMapping("ods", List.of("opendocument.spreadsheet"), List.of(".ods")),
-            new DocumentTypeMapping("odp", List.of("opendocument.presentation"), List.of(".odp")),
-            // CSV
-            new DocumentTypeMapping("csv", List.of("csv"), List.of(".csv")),
-            // HTML
-            new DocumentTypeMapping("html", List.of("text/html"), List.of(".html", ".htm")),
-            // Markdown
-            new DocumentTypeMapping("md", List.of("markdown"), List.of(".md", ".markdown")),
-            // JSON
-            new DocumentTypeMapping("json", List.of("json"), List.of(".json")),
-            // XML
-            new DocumentTypeMapping("xml", List.of("xml"), List.of(".xml")),
-            // EPUB (e-books)
-            new DocumentTypeMapping("epub", List.of("epub"), List.of(".epub"))
-    );
-
-    /**
-     * Gets document type from MIME type or filename.
-     *
-     * <p><b>Note:</b> PDF is detected first and processed via PagePdfDocumentReader (PDFBox), not TikaDocumentReader, for better text extraction.
-     *
-     * @param mimeType file MIME type
-     * @param filename file name
-     * @return document type (pdf, docx, doc, xls, xlsx, ppt, pptx, txt, rtf, odt, ods, odp, csv, html, md, json, xml, epub) or null if unsupported
-     */
-    private String extractDocumentType(String mimeType, String filename) {
-        if (mimeType == null && filename == null) {
-            return null;
-        }
-        
-        String type = mimeType != null ? mimeType.toLowerCase() : "";
-        String name = filename != null ? filename.toLowerCase() : "";
-        
-        return DOCUMENT_TYPE_MAPPINGS.stream()
-                .filter(mapping -> mapping.matches(type, name))
-                .map(DocumentTypeMapping::documentType)
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * Helper to map patterns to document types.
-     */
-    private record DocumentTypeMapping(
-            String documentType,
-            List<String> mimeTypePatterns,
-            List<String> fileExtensions
-    ) {
-        /**
-         * Checks if MIME type or filename matches this mapping.
-         */
-        boolean matches(String mimeType, String filename) {
-            boolean mimeMatches = mimeTypePatterns.stream()
-                    .anyMatch(mimeType::contains);
-            boolean extensionMatches = fileExtensions.stream()
-                    .anyMatch(filename::endsWith);
-            return mimeMatches || extensionMatches;
         }
     }
 
@@ -731,62 +571,6 @@ public class SpringAIGateway implements AIGateway {
         return new Media(mimeType, resource);
     }
 
-    /**
-     * Renders PDF pages to images for vision model.
-     *
-     * <p>Used as fallback when PDF has no text layer (scan/certificate).
-     *
-     * @param pdfData PDF bytes
-     * @param filename original file name
-     * @return list of Attachment with type=IMAGE per page
-     */
-    private List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
-        try {
-            org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.Loader.loadPDF(pdfData);
-            org.apache.pdfbox.rendering.PDFRenderer renderer = new org.apache.pdfbox.rendering.PDFRenderer(document);
-            
-            int pageCount = document.getNumberOfPages();
-            int maxPages = 10;
-            int pagesToRender = Math.min(pageCount, maxPages);
-            
-            if (pageCount > maxPages) {
-                log.warn("PDF '{}' has {} pages, rendering only first {} pages for vision model", 
-                        filename, pageCount, maxPages);
-            }
-            
-            List<Attachment> imageAttachments = new ArrayList<>();
-            
-            for (int pageIndex = 0; pageIndex < pagesToRender; pageIndex++) {
-                java.awt.image.BufferedImage image = renderer.renderImageWithDPI(pageIndex, 200);
-                
-                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-                javax.imageio.ImageIO.write(image, "JPEG", baos);
-                byte[] imageBytes = baos.toByteArray();
-                
-                String imageFilename = String.format("page_%d_%s.jpg", pageIndex + 1, 
-                        filename.replaceAll("\\.pdf$", ""));
-                
-                Attachment imageAttachment = new Attachment(
-                        null,
-                        "image/jpeg",
-                        imageFilename,
-                        imageBytes.length,
-                        AttachmentType.IMAGE,
-                        imageBytes
-                );
-                imageAttachments.add(imageAttachment);
-            }
-            
-            document.close();
-            log.info("Rendered {} pages from PDF '{}' as images for vision", pagesToRender, filename);
-            return imageAttachments;
-            
-        } catch (Exception e) {
-            log.error("Failed to render PDF '{}' pages as images", filename, e);
-            return List.of();
-        }
-    }
-
     private static int countMatchingCaps(Set<ModelCapabilities> modelCaps, Set<ModelCapabilities> optional) {
         if (modelCaps == null || optional == null) return 0;
         int count = 0;
@@ -794,6 +578,16 @@ public class SpringAIGateway implements AIGateway {
             if (modelCaps.contains(cap)) count++;
         }
         return count;
+    }
+
+    private static boolean hasUserMedia(List<Message> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return false;
+        }
+        return messages.stream()
+                .filter(UserMessage.class::isInstance)
+                .map(UserMessage.class::cast)
+                .anyMatch(message -> message.getMedia() != null && !message.getMedia().isEmpty());
     }
 
 }

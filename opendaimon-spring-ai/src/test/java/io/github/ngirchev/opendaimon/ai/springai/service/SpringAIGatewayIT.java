@@ -1,7 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -467,45 +466,19 @@ class SpringAIGatewayIT {
         }
 
         @Bean
-        RAGProperties ragProperties() {
-            RAGProperties p = mock(RAGProperties.class);
-            return p;
-        }
-
-        @Bean
-        ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider() {
-            ObjectProvider<DocumentProcessingService> provider = mock(ObjectProvider.class);
-            when(provider.getIfAvailable()).thenReturn(null);
-            return provider;
-        }
-
-        @Bean
-        ObjectProvider<FileRAGService> fileRAGServiceProvider() {
-            ObjectProvider<FileRAGService> provider = mock(ObjectProvider.class);
-            when(provider.getIfAvailable()).thenReturn(null);
-            return provider;
-        }
-
-        @Bean
         SpringAIGateway springAIGateway(
                 SpringAIProperties springAIProperties,
                 AIGatewayRegistry aiGatewayRegistry,
                 SpringAIModelRegistry springAIModelRegistry,
                 SpringAIChatService springAIChatService,
-                ObjectProvider<org.springframework.ai.chat.memory.ChatMemory> chatMemoryProvider,
-                RAGProperties ragProperties,
-                ObjectProvider<DocumentProcessingService> documentProcessingServiceProvider,
-                ObjectProvider<FileRAGService> fileRAGServiceProvider
+                ObjectProvider<org.springframework.ai.chat.memory.ChatMemory> chatMemoryProvider
         ) {
             return new SpringAIGateway(
                     springAIProperties,
                     aiGatewayRegistry,
                     springAIModelRegistry,
                     springAIChatService,
-                    chatMemoryProvider,
-                    ragProperties,
-                    documentProcessingServiceProvider,
-                    fileRAGServiceProvider
+                    chatMemoryProvider
             );
         }
     }

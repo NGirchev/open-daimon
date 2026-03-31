@@ -21,7 +21,6 @@ class CommandHandlerRegistryTest {
 
     @Mock
     private ICommandHandler<TestCommandType, TestCommand, String> handler1;
-    @Mock
     private TestCommand command;
 
     private CommandHandlerRegistry registry;
@@ -29,6 +28,7 @@ class CommandHandlerRegistryTest {
     @BeforeEach
     void setUp() {
         registry = new CommandHandlerRegistry(List.of(handler1));
+        command = new TestCommand(null);
     }
 
     @Nested

@@ -85,7 +85,25 @@ class DefaultAICommandFactoryTest {
         ChatAICommand chatCommand = (ChatAICommand) command;
         assertEquals(1, chatCommand.modelCapabilities().size());
         assertTrue(chatCommand.modelCapabilities().contains(ModelCapabilities.CHAT));
+        assertTrue(chatCommand.optionalCapabilities().isEmpty(), "REGULAR without URL should not force optional WEB");
         assertEquals(REGULAR_MAX_PRICE, chatCommand.body().get(MAX_PRICE));
+    }
+
+    @Test
+    void whenRegularTextContainsUrl_thenAddsWebToOptionalCapabilities() {
+        DefaultAICommandFactory factory = factory();
+        when(userPriorityService.getUserPriority(31L)).thenReturn(UserPriority.REGULAR);
+
+        AICommand command = factory.createCommand(
+                new TestChatCommand(31L, "Summarize https://www.reddit.com/r/singularity/s/eR6dHr2aq1", false),
+                Map.of()
+        );
+
+        assertInstanceOf(ChatAICommand.class, command);
+        ChatAICommand chatCommand = (ChatAICommand) command;
+        assertTrue(chatCommand.modelCapabilities().contains(ModelCapabilities.CHAT));
+        assertTrue(chatCommand.optionalCapabilities().contains(ModelCapabilities.WEB),
+                "Any URL in user text must enable WEB tools");
     }
 
     @Test
