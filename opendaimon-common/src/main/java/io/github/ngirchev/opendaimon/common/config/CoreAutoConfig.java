@@ -20,7 +20,13 @@ import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;
 import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.DefaultAIRequestPipelineActions;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.IRagQueryAugmenter;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestEvent;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestPipelineActions;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestPipelineFsmFactory;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestState;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentEvent;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentProcessingContext;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentState;
@@ -41,9 +47,11 @@ import io.github.ngirchev.opendaimon.common.service.*;
 import io.github.ngirchev.opendaimon.common.service.impl.AssistantRoleServiceImpl;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 
+@Slf4j
 @AutoConfiguration
 @EnableConfigurationProperties(CoreCommonProperties.class)
 @Import({
@@ -191,15 +199,50 @@ public class CoreAutoConfig {
                 coreCommonProperties);
     }
 
+    /**
+     * AI request pipeline actions — default implementation using document FSM and RAG augmenter.
+     * Only created when document FSM is available (RAG enabled).
+     */
     @Bean
-    @ConditionalOnMissingBean
-    public AIRequestPipeline aiRequestPipeline(
+    @ConditionalOnMissingBean(AIRequestPipelineActions.class)
+    public DefaultAIRequestPipelineActions aiRequestPipelineActions(
             ObjectProvider<ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent>> documentFsmProvider,
             ObjectProvider<IRagQueryAugmenter> ragQueryAugmenterProvider,
             AICommandFactoryRegistry aiCommandFactoryRegistry) {
-        return new AIRequestPipeline(
-                documentFsmProvider.getIfAvailable(),
+        ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentFsm =
+                documentFsmProvider.getIfAvailable();
+        if (documentFsm == null) {
+            return null;
+        }
+        return new DefaultAIRequestPipelineActions(
+                documentFsm,
                 ragQueryAugmenterProvider.getIfAvailable(),
+                aiCommandFactoryRegistry);
+    }
+
+    /**
+     * AI request pipeline FSM — processes incoming commands through validate/classify/process states.
+     * Only created when pipeline actions are available (RAG enabled).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent> aiRequestPipelineFsm(
+            ObjectProvider<AIRequestPipelineActions> actionsProvider) {
+        AIRequestPipelineActions actions = actionsProvider.getIfAvailable();
+        if (actions == null) {
+            return null;
+        }
+        log.info("Creating AI request pipeline FSM");
+        return AIRequestPipelineFsmFactory.create(actions);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AIRequestPipeline aiRequestPipeline(
+            ObjectProvider<ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent>> requestFsmProvider,
+            AICommandFactoryRegistry aiCommandFactoryRegistry) {
+        return new AIRequestPipeline(
+                requestFsmProvider.getIfAvailable(),
                 aiCommandFactoryRegistry);
     }
 

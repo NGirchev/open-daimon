@@ -13,7 +13,12 @@ import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
 import io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.DefaultAIRequestPipelineActions;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.IRagQueryAugmenter;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestEvent;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestPipelineFsmFactory;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestState;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentEvent;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentProcessingContext;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentState;
@@ -185,11 +190,24 @@ class ImageWithTextPdfFixtureIT {
         }
 
         @Bean
-        public AIRequestPipeline aiRequestPipeline(
-                ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> fsm,
+        public DefaultAIRequestPipelineActions aiRequestPipelineActions(
+                ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentFsm,
                 IRagQueryAugmenter augmenter,
                 AICommandFactoryRegistry registry) {
-            return new AIRequestPipeline(fsm, augmenter, registry);
+            return new DefaultAIRequestPipelineActions(documentFsm, augmenter, registry);
+        }
+
+        @Bean
+        public ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent> requestFsm(
+                DefaultAIRequestPipelineActions actions) {
+            return AIRequestPipelineFsmFactory.create(actions);
+        }
+
+        @Bean
+        public AIRequestPipeline aiRequestPipeline(
+                ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent> requestFsm,
+                AICommandFactoryRegistry registry) {
+            return new AIRequestPipeline(requestFsm, registry);
         }
     }
 

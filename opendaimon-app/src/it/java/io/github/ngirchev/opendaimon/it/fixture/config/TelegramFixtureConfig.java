@@ -29,6 +29,13 @@ import io.github.ngirchev.opendaimon.common.service.impl.AssistantRoleServiceImp
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerFsmFactory;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepository;
@@ -105,7 +112,7 @@ public class TelegramFixtureConfig {
 
     @Bean
     public AIRequestPipeline aiRequestPipeline(AICommandFactoryRegistry aiCommandFactoryRegistry) {
-        return new AIRequestPipeline(null, null, aiCommandFactoryRegistry);
+        return new AIRequestPipeline(null, aiCommandFactoryRegistry);
     }
 
     @Bean
@@ -313,20 +320,23 @@ public class TelegramFixtureConfig {
             UserModelPreferenceService userModelPreferenceService,
             PersistentKeyboardService persistentKeyboardService,
             ReplyImageAttachmentService replyImageAttachmentService) {
+        TelegramMessageSender messageSender = new TelegramMessageSender(
+                telegramBotProvider, messageLocalizationService, persistentKeyboardService);
+        TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
+                telegramUserService, telegramUserSessionService, telegramMessageService,
+                aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
+                userModelPreferenceService, persistentKeyboardService, replyImageAttachmentService,
+                messageSender);
+        ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
+                MessageHandlerFsmFactory.create(actions);
         return new MessageTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
                 messageLocalizationService,
-                telegramUserService,
-                telegramUserSessionService,
+                handlerFsm,
                 telegramMessageService,
-                aiGatewayRegistry,
-                messageService,
-                aiRequestPipeline,
                 telegramProperties,
-                userModelPreferenceService,
-                persistentKeyboardService,
-                replyImageAttachmentService);
+                persistentKeyboardService);
     }
 
     /**

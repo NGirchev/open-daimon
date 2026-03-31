@@ -1,0 +1,39 @@
+@startuml AI Request Pipeline FSM
+!theme plain
+skinparam backgroundColor white
+skinparam state {
+    BackgroundColor<<terminal>> #90EE90
+    BackgroundColor<<error>> #FFB6C1
+}
+
+title AI Request Pipeline FSM
+
+[*] --> RECEIVED
+
+RECEIVED --> VALIDATED : PREPARE\n//validate()//
+
+VALIDATED --> PASSTHROUGH : [notChatCommand]\n//buildPassthrough()//
+VALIDATED --> CLASSIFIED : [isChatCommand]\n//classify()//
+
+CLASSIFIED --> ERROR : [hasUnrecognized]\n//handleError()//
+CLASSIFIED --> PASSTHROUGH : [isPassthrough]\n//buildPassthrough()//
+CLASSIFIED --> FOLLOW_UP_RAG : [isFollowUpRag]\n//processFollowUpRag()//
+CLASSIFIED --> DOCUMENTS_PROCESSING : [hasDocuments]\n//processDocuments()//
+
+FOLLOW_UP_RAG --> COMMAND_BUILT : //buildCommand()//
+
+DOCUMENTS_PROCESSING --> RESULTS_COLLECTED : //collectResults()//
+
+RESULTS_COLLECTED --> QUERY_AUGMENTED : //augmentQuery()//
+
+QUERY_AUGMENTED --> COMMAND_BUILT : //buildCommand()//
+
+state PASSTHROUGH <<terminal>>
+state COMMAND_BUILT <<terminal>>
+state ERROR <<error>>
+
+PASSTHROUGH --> [*]
+COMMAND_BUILT --> [*]
+ERROR --> [*]
+
+@enduml

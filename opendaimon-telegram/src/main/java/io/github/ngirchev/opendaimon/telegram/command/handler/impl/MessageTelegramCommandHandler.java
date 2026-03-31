@@ -1,91 +1,71 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.objects.Message;
-import io.github.ngirchev.opendaimon.common.ai.AIGateways;
-import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
-import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
-import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
-import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
-import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
-import io.github.ngirchev.opendaimon.common.exception.ModelGuardrailException;
 import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
-import io.github.ngirchev.opendaimon.common.model.*;
-import io.github.ngirchev.opendaimon.common.service.*;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
+import io.github.ngirchev.opendaimon.common.command.ICommand;
+import io.github.ngirchev.opendaimon.common.service.AIUtils;
+import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandler;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
-import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
-import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerErrorType;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
-import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
-import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
-import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
 
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
-
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
-import static io.github.ngirchev.opendaimon.common.ai.command.AICommand.*;
-import static io.github.ngirchev.opendaimon.common.service.AIUtils.extractError;
-import static io.github.ngirchev.opendaimon.common.service.AIUtils.retrieveMessage;
-
+/**
+ * Telegram message handler that delegates processing to an FSM pipeline.
+ *
+ * <p>The FSM models the full lifecycle: user resolution → input validation →
+ * message save → metadata preparation → AI command creation → response generation →
+ * response save → response send.
+ *
+ * <p>Error handling is done after the FSM completes — the handler checks the terminal
+ * state and dispatches to the appropriate error handling method based on the error type
+ * stored in the context.
+ */
 @Slf4j
 public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
 
-    private final TelegramUserService telegramUserService;
-    private final TelegramUserSessionService telegramUserSessionService;
+    private final ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm;
     private final TelegramMessageService telegramMessageService;
-    private final AIGatewayRegistry aiGatewayRegistry;
-    private final OpenDaimonMessageService messageService;
-    private final AIRequestPipeline aiRequestPipeline;
     private final TelegramProperties telegramProperties;
-    private final UserModelPreferenceService userModelPreferenceService;
     private final PersistentKeyboardService persistentKeyboardService;
-    private final ReplyImageAttachmentService replyImageAttachmentService;
 
     @SuppressWarnings("java:S107")
-    public MessageTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
-                                         TypingIndicatorService typingIndicatorService,
-                                         MessageLocalizationService messageLocalizationService,
-                                         TelegramUserService telegramUserService,
-                                         TelegramUserSessionService telegramUserSessionService,
-                                         TelegramMessageService telegramMessageService,
-                                         AIGatewayRegistry aiGatewayRegistry,
-                                         OpenDaimonMessageService messageService,
-                                         AIRequestPipeline aiRequestPipeline,
-                                         TelegramProperties telegramProperties,
-                                         UserModelPreferenceService userModelPreferenceService,
-                                         PersistentKeyboardService persistentKeyboardService,
-                                         ReplyImageAttachmentService replyImageAttachmentService) {
+    public MessageTelegramCommandHandler(
+            ObjectProvider<TelegramBot> telegramBotProvider,
+            TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
+            ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm,
+            TelegramMessageService telegramMessageService,
+            TelegramProperties telegramProperties,
+            PersistentKeyboardService persistentKeyboardService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
-        this.telegramUserService = telegramUserService;
-        this.telegramUserSessionService = telegramUserSessionService;
+        this.handlerFsm = handlerFsm;
         this.telegramMessageService = telegramMessageService;
-        this.aiGatewayRegistry = aiGatewayRegistry;
-        this.messageService = messageService;
-        this.aiRequestPipeline = aiRequestPipeline;
         this.telegramProperties = telegramProperties;
-        this.userModelPreferenceService = userModelPreferenceService;
         this.persistentKeyboardService = persistentKeyboardService;
-        this.replyImageAttachmentService = replyImageAttachmentService;
     }
 
     @Override
@@ -98,381 +78,197 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
 
     @Override
     public String handleInner(TelegramCommand command) {
-        OpenDaimonMessage userMessage = null;
-        Set<ModelCapabilities> modelCapabilities = Set.of();
         Message message = command.update().getMessage();
-        ConversationThread thread;
+
+        // Create streaming callback that sends paragraphs to Telegram
+        Integer[] replyToMessageId = {message != null ? message.getMessageId() : null};
+        MessageHandlerContext ctx = new MessageHandlerContext(command, message,
+                htmlText -> {
+                    sendMessage(command.telegramId(), htmlText, replyToMessageId[0]);
+                    replyToMessageId[0] = null;
+                });
 
         try {
-            // Get user and their role
-            if (message == null) {
-                throw new IllegalStateException("Message is required for message command");
-            }
-            TelegramUser telegramUser = telegramUserService.getOrCreateUser(message.getFrom());
-
-            // Get or create user session
-            TelegramUserSession session = telegramUserSessionService.getOrCreateSession(telegramUser);
-
-            boolean hasNoText = command.userText() == null || command.userText().isBlank();
-            boolean hasNoAttachments = command.attachments() == null || command.attachments().isEmpty();
-            if (hasNoText && hasNoAttachments) {
-                String emptyRequestText = messageLocalizationService.getMessage(
-                        "telegram.message.empty.after.mention",
-                        command.languageCode(),
-                        formatBotMention());
-                sendErrorMessage(command.telegramId(), emptyRequestText, message.getMessageId());
-                return null;
-            }
-
-            // Save user request (including attachment refs when present)
-            // Thread and role are obtained or created inside saveUserMessage
-            userMessage = telegramMessageService.saveUserMessage(
-                    telegramUser, session, command.userText(),
-                    RequestType.TEXT, null, command.attachments(), command.telegramId(),
-                    message.getMessageId());
-
-            // Get thread and role from saved message for further use
-            thread = userMessage.getThread();
-            AssistantRole assistantRole = userMessage.getAssistantRole();
-            String assistantRoleContent = assistantRole.getContent();
-            Integer assistantRoleVersion = assistantRole.getVersion();
-            Long assistantRoleId = assistantRole.getId();
-
-            log.info("Using conversation thread: {} with AssistantRole {} (v{})",
-                    thread.getThreadKey(), assistantRoleId, assistantRoleVersion);
-
-            // Resolve image attachments from the message being replied to (if any).
-            // Done after save (so reply images are NOT stored as current message's attachments)
-            // but before createCommand (so VISION capability is detected).
-            Message replyToMessage = message.getReplyToMessage();
-            if (replyToMessage != null && !command.hasAttachments()) {
-                List<Attachment> replyAttachments = replyImageAttachmentService
-                        .resolveReplyImageAttachments(replyToMessage, thread);
-                for (Attachment att : replyAttachments) {
-                    command.addAttachment(att);
-                }
-            }
-
-            // Process request and get response
-            long startTime = System.currentTimeMillis();
-
-            // Pass metadata required for context building
-            // ConversationHistoryAiCommandFactory uses ContextBuilderService for context
-            // If metadata has threadKey - ConversationHistoryAiCommandFactory is used
-            // Otherwise DefaultAiCommandFactory (fallback)
-            Map<String, String> metadata = prepareMetadata(
-                    thread, assistantRoleContent, assistantRoleId, telegramUser);
-
-            List<String> ragDocIds = messageService.findRagDocumentIds(thread);
-            if (!ragDocIds.isEmpty()) {
-                metadata.put(RAG_DOCUMENT_IDS_FIELD, String.join(",", ragDocIds));
-            }
-
-            List<Attachment> atts = command.attachments() != null ? command.attachments() : List.of();
-            String attachmentTypes = atts.stream().map(a -> a.type().toString()).toList().toString();
-            log.info("Creating AI command: threadKey={}, userText='{}', attachmentsCount={}, attachmentTypes={}",
-                    thread.getThreadKey(), command.userText(), atts.size(), attachmentTypes);
-            AICommand aiCommand = aiRequestPipeline.prepareCommand(command, metadata);
-            modelCapabilities = aiCommand.modelCapabilities();
-            AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
-                    .stream()
-                    .findFirst()
-                    .orElseThrow(() -> new RuntimeException(AIUtils.NO_SUPPORTED_AI_GATEWAY));
-            AIResponse aiResponse;
-            ResponseContext ctx;
-            try {
-                aiResponse = aiGateway.generateResponse(aiCommand);
-                ctx = extractResponseContext(aiResponse, command, message);
-            } catch (ModelGuardrailException e) {
-                log.warn("Fixed model unavailable due to guardrail: model={}, userId={}", e.getModelId(), telegramUser.getId());
-                String notifyText = messageLocalizationService.getMessage(
-                        "common.error.model.guardrail", command.languageCode(), e.getModelId());
-                sendMessage(command.telegramId(), notifyText, message.getMessageId());
-                userModelPreferenceService.clearPreference(telegramUser.getId());
-                metadata.remove(PREFERRED_MODEL_ID_FIELD);
-                aiCommand = aiRequestPipeline.prepareCommand(command, metadata);
-                modelCapabilities = aiCommand.modelCapabilities();
-                aiResponse = aiGateway.generateResponse(aiCommand);
-                ctx = extractResponseContext(aiResponse, command, message);
-            }
-
-            if (ctx.responseTextOpt().isEmpty()) {
-                // One retry on empty content
-                log.debug("Empty content from model, retrying once");
-                aiResponse = aiGateway.generateResponse(aiCommand);
-                ctx = extractResponseContext(aiResponse, command, message);
-            }
-
-            if (ctx.responseTextOpt().isPresent()) {
-                String newRagDocIds = aiCommand.metadata().get(RAG_DOCUMENT_IDS_FIELD);
-                String newRagFilenames = aiCommand.metadata().get(RAG_FILENAMES_FIELD);
-                if (newRagFilenames != null) {
-                    messageService.updateRagMetadata(userMessage,
-                            Arrays.asList(newRagDocIds.split(",")),
-                            Arrays.asList(newRagFilenames.split(",")));
-                }
-                SavedResponse saved = saveSuccessResponse(
-                        telegramUser,
-                        userMessage.getThread(),
-                        aiResponse,
-                        ctx,
-                        modelCapabilities,
-                        assistantRoleContent,
-                        startTime);
-                // Use thread from saved assistant message — it has up-to-date totalTokens after updateThreadCounters
-                ConversationThread updatedThread = saved.thread();
-                if (ctx.alreadySentInStream()) {
-                    // Streaming: keyboard sent as a separate message (keyboard attached here would go to the wrong message)
-                    // Status message text shows the actual model from response; keyboard buttons reflect DB preference.
-                    persistentKeyboardService.sendKeyboard(command.telegramId(), telegramUser.getId(), updatedThread, saved.model());
-                } else {
-                    // Non-streaming: attach keyboard directly to the AI response message for reliable display on Android
-                    ReplyKeyboardMarkup keyboard = persistentKeyboardService.buildKeyboardMarkup(
-                            telegramUser.getId(), updatedThread);
-                    sendMessage(command.telegramId(),
-                            AIUtils.convertMarkdownToHtml(ctx.responseTextOpt().get()),
-                            message.getMessageId(),
-                            keyboard);
-                }
-            } else {
-                sendEmptyContentError(command, telegramUser, userMessage.getThread(), message, ctx, modelCapabilities, assistantRoleContent);
-                return null;
-            }
-        } catch (UserMessageTooLongException e) {
-            handleUserMessageTooLong(command, message, e);
-            return null;
-        } catch (DocumentContentNotExtractableException e) {
-            handleDocumentContentNotExtractable(command, message, userMessage, modelCapabilities, e);
-            return null;
-        } catch (UnsupportedModelCapabilityException e) {
-            handleUnsupportedModelCapability(command, message, userMessage, modelCapabilities, e);
-            return null;
+            handlerFsm.handle(ctx, MessageHandlerEvent.HANDLE);
         } catch (Exception e) {
-            handleProcessingException(command, message, userMessage, modelCapabilities, e);
-            return null;
+            // Action threw an exception that FSM didn't catch — classify and set on context
+            if (ctx.getErrorType() == null) {
+                classifyException(ctx, e);
+            }
         }
+
+        // Dispatch based on terminal state or error type
+        if (ctx.isCompleted()) {
+            sendSuccessResponse(ctx, command, message);
+        } else if (ctx.isError() || ctx.hasError()) {
+            dispatchError(ctx, command, message);
+        }
+
         return null;
     }
 
-    private void handleUserMessageTooLong(TelegramCommand command, Message message, UserMessageTooLongException e) {
+    // --- Success response sending ---
+
+    private void sendSuccessResponse(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        if (ctx.isAlreadySentInStream()) {
+            // Streaming: text already sent paragraph-by-paragraph, now send keyboard
+            persistentKeyboardService.sendKeyboard(
+                    command.telegramId(), ctx.getTelegramUser().getId(),
+                    ctx.getThread(), ctx.getResponseModel());
+        } else {
+            // Non-streaming: send text + keyboard (uses parent's sendMessage for proper exception wrapping)
+            String htmlText = AIUtils.convertMarkdownToHtml(ctx.getResponseText().orElseThrow());
+            ReplyKeyboardMarkup keyboard = persistentKeyboardService.buildKeyboardMarkup(
+                    ctx.getTelegramUser().getId(), ctx.getThread());
+            sendMessage(command.telegramId(), htmlText, message.getMessageId(), keyboard);
+        }
+    }
+
+    // --- Error dispatching ---
+
+    private void dispatchError(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        MessageHandlerErrorType errorType = ctx.getErrorType();
+        if (errorType == null) {
+            errorType = MessageHandlerErrorType.GENERAL;
+        }
+
+        switch (errorType) {
+            case INPUT_EMPTY -> handleEmptyInput(ctx, command, message);
+            case MESSAGE_TOO_LONG -> handleMessageTooLong(ctx, command, message);
+            case DOCUMENT_NOT_EXTRACTABLE -> handleDocumentError(ctx, command, message);
+            case UNSUPPORTED_CAPABILITY -> handleCapabilityError(ctx, command, message);
+            case SUMMARIZATION_FAILED -> handleSummarizationFailed(command, message);
+            case EMPTY_RESPONSE -> handleEmptyResponse(ctx, command, message);
+            case GENERAL -> handleGeneralError(ctx, command, message);
+        }
+    }
+
+    private void handleEmptyInput(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        String emptyRequestText = messageLocalizationService.getMessage(
+                "telegram.message.empty.after.mention",
+                command.languageCode(),
+                formatBotMention());
+        Integer replyToMessageId = message != null ? message.getMessageId() : null;
+        sendErrorMessage(command.telegramId(), emptyRequestText, replyToMessageId);
+    }
+
+    private void handleMessageTooLong(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        UserMessageTooLongException e = (UserMessageTooLongException) ctx.getException();
         log.warn("Message exceeds token limit: {}", e.getMessage());
         Integer replyToMessageId = message != null ? message.getMessageId() : null;
         String errorText = e.getEstimatedTokens() > 0 && e.getMaxAllowed() > 0
-                ? messageLocalizationService.getMessage("common.error.message.too.long", command.languageCode(), e.getEstimatedTokens(), e.getMaxAllowed())
+                ? messageLocalizationService.getMessage("common.error.message.too.long",
+                        command.languageCode(), e.getEstimatedTokens(), e.getMaxAllowed())
                 : e.getMessage();
         sendErrorMessage(command.telegramId(), errorText, replyToMessageId);
     }
 
-    private void handleDocumentContentNotExtractable(TelegramCommand command, Message message, OpenDaimonMessage userMessage,
-                                                    Set<ModelCapabilities> modelCapabilities,
-                                                    DocumentContentNotExtractableException e) {
+    private void handleDocumentError(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        DocumentContentNotExtractableException e = (DocumentContentNotExtractableException) ctx.getException();
         log.warn("Could not extract text from document: {}", e.getMessage());
         Integer replyToMessageId = message != null ? message.getMessageId() : null;
-        if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
-            String errorRoleContent = userMessage.getAssistantRole() != null
-                    ? userMessage.getAssistantRole().getContent()
-                    : null;
-            telegramMessageService.saveAssistantErrorMessage(
-                    telegramUser,
-                    e.getMessage(),
-                    modelCapabilities.toString(),
-                    errorRoleContent,
-                    null,
-                    userMessage.getThread());
-        }
+        saveErrorResponse(ctx, e.getMessage());
         sendErrorMessage(command.telegramId(), e.getMessage(), replyToMessageId);
     }
 
-    private void handleUnsupportedModelCapability(TelegramCommand command, Message message,
-                                                   OpenDaimonMessage userMessage,
-                                                   Set<ModelCapabilities> modelCapabilities,
-                                                   UnsupportedModelCapabilityException e) {
+    private void handleCapabilityError(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        UnsupportedModelCapabilityException e = (UnsupportedModelCapabilityException) ctx.getException();
         log.warn("Model capability mismatch: {}", e.getMessage());
         Integer replyToMessageId = message != null ? message.getMessageId() : null;
         String errorText = e.getModelId() != null
                 ? messageLocalizationService.getMessage(
                         "common.error.model.unsupported.capability",
-                        command.languageCode(),
-                        e.getModelId(),
-                        e.getMissingCapabilities())
+                        command.languageCode(), e.getModelId(), e.getMissingCapabilities())
                 : e.getMessage();
-        if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
-            String errorRoleContent = userMessage.getAssistantRole() != null
-                    ? userMessage.getAssistantRole().getContent() : null;
-            telegramMessageService.saveAssistantErrorMessage(
-                    telegramUser, errorText, modelCapabilities.toString(), errorRoleContent, null, userMessage.getThread());
-        }
+        saveErrorResponse(ctx, errorText);
         sendErrorMessage(command.telegramId(), errorText, replyToMessageId);
     }
 
-    private void handleProcessingException(TelegramCommand command, Message message, OpenDaimonMessage userMessage,
-                                           Set<ModelCapabilities> modelCapabilities, Exception e) {
-        DocumentContentNotExtractableException docEx = findDocumentContentNotExtractable(e);
-        if (docEx != null) {
-            handleDocumentContentNotExtractable(command, message, userMessage, modelCapabilities, docEx);
-            return;
-        }
-        SummarizationFailedException sumEx = findCause(e, SummarizationFailedException.class);
-        if (sumEx != null) {
-            handleSummarizationFailed(command, message);
-            return;
-        }
-        if (AIUtils.shouldLogWithoutStacktrace(e)) {
-            log.error(AbstractTelegramCommandHandler.LOG_ERROR_PROCESSING_MESSAGE, AIUtils.getRootCauseMessage(e));
-        } else {
-            log.error(AbstractTelegramCommandHandler.LOG_ERROR_PROCESSING_MESSAGE, e);
-        }
-        String userFacingMessage = messageLocalizationService.getMessage("common.error.processing", command.languageCode());
-        if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
-            String errorRoleContent = userMessage.getAssistantRole() != null
-                    ? userMessage.getAssistantRole().getContent()
-                    : null;
-            telegramMessageService.saveAssistantErrorMessage(
-                    telegramUser,
-                    userFacingMessage,
-                    modelCapabilities.toString(),
-                    errorRoleContent,
-                    null,
-                    userMessage.getThread());
-        }
-        Integer replyToMessageId = message != null ? message.getMessageId() : null;
-        sendErrorMessage(command.telegramId(), userFacingMessage, replyToMessageId);
-    }
-
     private void handleSummarizationFailed(TelegramCommand command, Message message) {
-        log.warn("Summarization failed for conversationId, notifying user to start new thread");
+        log.warn("Summarization failed, notifying user to start new thread");
         Integer replyToMessageId = message != null ? message.getMessageId() : null;
         String errorText = messageLocalizationService.getMessage(
                 "telegram.summarization.failed", command.languageCode());
         sendErrorMessage(command.telegramId(), errorText, replyToMessageId);
     }
 
-    private static DocumentContentNotExtractableException findDocumentContentNotExtractable(Throwable t) {
-        return findCause(t, DocumentContentNotExtractableException.class);
-    }
-
-    private static <T extends Throwable> T findCause(Throwable t, Class<T> type) {
-        while (t != null) {
-            if (type.isInstance(t)) {
-                return type.cast(t);
-            }
-            t = t.getCause();
-        }
-        return null;
-    }
-
-    private record ResponseContext(
-            Map<String, Object> usefulResponseData,
-            Optional<String> responseTextOpt,
-            Optional<String> errorOpt,
-            boolean alreadySentInStream
-    ) {}
-
-    private ResponseContext extractResponseContext(AIResponse aiResponse, TelegramCommand command, Message message) {
-        if (aiResponse.gatewaySource() == AIGateways.SPRINGAI && aiResponse instanceof SpringAIStreamResponse aiStreamResponse) {
-            Integer[] replyToMessageId = { message.getMessageId() };
-            int maxMessageLength = telegramProperties.getMaxMessageLength();
-            ChatResponse chatResponse = AIUtils.processStreamingResponseByParagraphs(
-                    aiStreamResponse.chatResponse(),
-                    maxMessageLength,
-                    s -> {
-                        log.debug("Sending message: {}", s);
-                        sendMessage(command.telegramId(), AIUtils.convertMarkdownToHtml(s), replyToMessageId[0]);
-                        replyToMessageId[0] = null;
-                    }
-            );
-            Map<String, Object> usefulResponseData = AIUtils.extractSpringAiUsefulData(chatResponse);
-            return new ResponseContext(usefulResponseData, AIUtils.extractText(chatResponse), extractError(chatResponse), true);
-        }
-        Map<String, Object> usefulResponseData = AIUtils.extractUsefulData(aiResponse);
-        return new ResponseContext(usefulResponseData, retrieveMessage(aiResponse), extractError(aiResponse), false);
-    }
-
-    private record SavedResponse(String model, ConversationThread thread) {}
-
-    private SavedResponse saveSuccessResponse(TelegramUser telegramUser,
-                                              ConversationThread thread,
-                                              AIResponse aiResponse, ResponseContext ctx,
-                                              Set<ModelCapabilities> modelCapabilities, String assistantRoleContent,
-                                              long startTime) {
-        String responseText = ctx.responseTextOpt().orElseThrow();
-        long processingTime = System.currentTimeMillis() - startTime;
-        String model = ctx.usefulResponseData() != null && ctx.usefulResponseData().containsKey("model")
-                ? String.valueOf(ctx.usefulResponseData().get("model"))
-                : null;
-        log.info("Gateway: [{}]. Model: [{}]", aiResponse.gatewaySource(), model);
-        var assistantMessage = telegramMessageService.saveAssistantMessage(
-                telegramUser,
-                responseText,
-                modelCapabilities.toString(),
-                assistantRoleContent,
-                (int) processingTime,
-                ctx.usefulResponseData(),
-                thread);
-        messageService.updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
-        return new SavedResponse(model, assistantMessage.getThread());
-    }
-
-    private void sendEmptyContentError(TelegramCommand command, TelegramUser telegramUser, ConversationThread thread, Message message,
-                                       ResponseContext ctx, Set<ModelCapabilities> modelCapabilities,
-                                       String assistantRoleContent) {
-        String detailedError = ctx.errorOpt().orElse(AIUtils.CONTENT_IS_EMPTY);
+    private void handleEmptyResponse(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        String detailedError = ctx.getResponseError().orElse(AIUtils.CONTENT_IS_EMPTY);
         log.warn("Empty content from model: {}. usefulResponseData={}",
-                detailedError,
-                ctx.usefulResponseData() != null ? ctx.usefulResponseData() : "null");
+                detailedError, ctx.getUsefulResponseData());
         telegramMessageService.saveAssistantErrorMessage(
-                telegramUser,
-                detailedError,
-                modelCapabilities.toString(),
-                assistantRoleContent,
-                ctx.usefulResponseData() != null && !ctx.usefulResponseData().isEmpty()
-                        ? ctx.usefulResponseData().toString()
-                        : null,
-                thread);
-        String userMessage = messageLocalizationService.getMessage("common.error.processing", command.languageCode());
+                ctx.getTelegramUser(), detailedError,
+                ctx.getModelCapabilities().toString(),
+                ctx.getAssistantRole() != null ? ctx.getAssistantRole().getContent() : null,
+                ctx.getUsefulResponseData() != null && !ctx.getUsefulResponseData().isEmpty()
+                        ? ctx.getUsefulResponseData().toString() : null,
+                ctx.getThread());
+        String userMessage = messageLocalizationService.getMessage(
+                "common.error.processing", command.languageCode());
         sendErrorMessage(command.telegramId(), userMessage, message.getMessageId());
     }
 
-    private Map<String, String> prepareMetadata(
-            ConversationThread thread,
-            String assistantRoleContent,
-            Long assistantRoleId,
-            TelegramUser telegramUser
-    ) {
-        Map<String, String> metadata = new HashMap<>();
-        metadata.put(THREAD_KEY_FIELD, thread.getThreadKey());
-        metadata.put(ASSISTANT_ROLE_ID_FIELD, assistantRoleId.toString());
-        metadata.put(USER_ID_FIELD, telegramUser.getId().toString());
-        // For backward compatibility also pass role (for fallback to DefaultAiCommandFactory).
-        // Telegram-specific bot identity is composed in this module.
-        metadata.put(ROLE_FIELD, withTelegramBotIdentity(assistantRoleContent));
-        if (telegramUser.getLanguageCode() != null) {
-            metadata.put(LANGUAGE_CODE_FIELD, telegramUser.getLanguageCode());
+    private void handleGeneralError(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        Exception e = ctx.getException();
+        if (AIUtils.shouldLogWithoutStacktrace(e)) {
+            log.error(AbstractTelegramCommandHandler.LOG_ERROR_PROCESSING_MESSAGE,
+                    AIUtils.getRootCauseMessage(e));
+        } else {
+            log.error(AbstractTelegramCommandHandler.LOG_ERROR_PROCESSING_MESSAGE, e);
         }
-        userModelPreferenceService.getPreferredModel(telegramUser.getId())
-                .ifPresent(modelId -> metadata.put(PREFERRED_MODEL_ID_FIELD, modelId));
-        return metadata;
+        String userFacingMessage = messageLocalizationService.getMessage(
+                "common.error.processing", command.languageCode());
+        saveErrorResponse(ctx, userFacingMessage);
+        Integer replyToMessageId = message != null ? message.getMessageId() : null;
+        sendErrorMessage(command.telegramId(), userFacingMessage, replyToMessageId);
     }
 
-    private String withTelegramBotIdentity(String assistantRoleContent) {
-        String baseRole = assistantRoleContent != null ? assistantRoleContent.trim() : "";
-        String normalizedBotUsername = normalizeBotUsername(telegramProperties.getUsername());
-        if (normalizedBotUsername == null) {
-            return baseRole;
+    private void saveErrorResponse(MessageHandlerContext ctx, String errorText) {
+        OpenDaimonMessage userMessage = ctx.getUserMessage();
+        if (userMessage != null && userMessage.getUser() instanceof TelegramUser telegramUser) {
+            String errorRoleContent = ctx.getAssistantRole() != null
+                    ? ctx.getAssistantRole().getContent() : null;
+            telegramMessageService.saveAssistantErrorMessage(
+                    telegramUser, errorText,
+                    ctx.getModelCapabilities().toString(),
+                    errorRoleContent, null,
+                    ctx.getThread());
         }
-        String identityClause = "You are bot with name " + normalizedBotUsername;
-        if (baseRole.contains(identityClause)) {
-            return baseRole;
-        }
-        if (baseRole.isEmpty()) {
-            return identityClause;
-        }
-        String separator = baseRole.endsWith(".") ? " " : ". ";
-        return baseRole + separator + identityClause;
     }
 
-    // createResponseMetadata and serializeToJson were removed;
-    // all data is already stored in message table and need not be duplicated in response_data
+    /**
+     * Classifies an uncaught exception from the FSM into a typed error.
+     */
+    private static void classifyException(MessageHandlerContext ctx, Exception e) {
+        Throwable t = e;
+        while (t != null) {
+            if (t instanceof UserMessageTooLongException) {
+                ctx.setErrorType(MessageHandlerErrorType.MESSAGE_TOO_LONG);
+                ctx.setException((UserMessageTooLongException) t);
+                return;
+            }
+            if (t instanceof DocumentContentNotExtractableException) {
+                ctx.setErrorType(MessageHandlerErrorType.DOCUMENT_NOT_EXTRACTABLE);
+                ctx.setException((DocumentContentNotExtractableException) t);
+                return;
+            }
+            if (t instanceof UnsupportedModelCapabilityException) {
+                ctx.setErrorType(MessageHandlerErrorType.UNSUPPORTED_CAPABILITY);
+                ctx.setException((UnsupportedModelCapabilityException) t);
+                return;
+            }
+            if (t instanceof SummarizationFailedException) {
+                ctx.setErrorType(MessageHandlerErrorType.SUMMARIZATION_FAILED);
+                ctx.setException((SummarizationFailedException) t);
+                return;
+            }
+            t = t.getCause();
+        }
+        ctx.setErrorType(MessageHandlerErrorType.GENERAL);
+        ctx.setException(e);
+    }
+
+    // --- Utility ---
 
     @Override
     public String getSupportedCommandText(String languageCode) {

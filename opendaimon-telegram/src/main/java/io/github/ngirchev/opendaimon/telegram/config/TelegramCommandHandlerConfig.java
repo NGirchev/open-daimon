@@ -15,6 +15,13 @@ import io.github.ngirchev.opendaimon.common.service.*;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.*;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerActions;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerFsmFactory;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
@@ -25,6 +32,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 
 @Configuration
 @ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true", matchIfMissing = true)
@@ -161,10 +169,17 @@ public class TelegramCommandHandlerConfig {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
-    public MessageTelegramCommandHandler messageTelegramCommandHandler(
+    public TelegramMessageSender telegramMessageSender(
             ObjectProvider<TelegramBot> telegramBotProvider,
-            TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
+            PersistentKeyboardService persistentKeyboardService) {
+        return new TelegramMessageSender(telegramBotProvider, messageLocalizationService, persistentKeyboardService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(MessageHandlerActions.class)
+    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
+    public TelegramMessageHandlerActions messageHandlerActions(
             TelegramUserService telegramUserService,
             TelegramUserSessionService telegramUserSessionService,
             TelegramMessageService telegramMessageService,
@@ -174,21 +189,42 @@ public class TelegramCommandHandlerConfig {
             TelegramProperties telegramProperties,
             UserModelPreferenceService userModelPreferenceService,
             PersistentKeyboardService persistentKeyboardService,
-            ReplyImageAttachmentService replyImageAttachmentService) {
+            ReplyImageAttachmentService replyImageAttachmentService,
+            TelegramMessageSender telegramMessageSender) {
+        return new TelegramMessageHandlerActions(
+                telegramUserService, telegramUserSessionService,
+                telegramMessageService, aiGatewayRegistry, messageService,
+                aiRequestPipeline, telegramProperties, userModelPreferenceService,
+                persistentKeyboardService, replyImageAttachmentService, telegramMessageSender);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
+    public ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> messageHandlerFsm(
+            MessageHandlerActions actions) {
+        return MessageHandlerFsmFactory.create(actions);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
+    public MessageTelegramCommandHandler messageTelegramCommandHandler(
+            ObjectProvider<TelegramBot> telegramBotProvider,
+            TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
+            ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm,
+            TelegramMessageService telegramMessageService,
+            TelegramProperties telegramProperties,
+            PersistentKeyboardService persistentKeyboardService) {
         return new MessageTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
                 messageLocalizationService,
-                telegramUserService,
-                telegramUserSessionService,
+                handlerFsm,
                 telegramMessageService,
-                aiGatewayRegistry,
-                messageService,
-                aiRequestPipeline,
                 telegramProperties,
-                userModelPreferenceService,
-                persistentKeyboardService,
-                replyImageAttachmentService
+                persistentKeyboardService
         );
     }
 

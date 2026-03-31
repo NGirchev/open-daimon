@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.service;
 
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
@@ -7,6 +8,11 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.CoalescingActions;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.CoalescingContext;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.CoalescingEvent;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.CoalescingFsmFactory;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.CoalescingState;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -17,9 +23,14 @@ import java.util.function.Consumer;
 /**
  * Coalesces user "prefix text" with a related next message (forwarded/media) in a short time window.
  * This helps avoid double responses when Telegram clients split one user intent into two updates.
+ *
+ * <p>Uses an FSM to model the decision tree for each incoming update. The FSM determines whether
+ * to wait for a possible pair, merge with a pending message, or process immediately.
+ *
+ * @see CoalescingFsmFactory for the transition graph
  */
 @Slf4j
-public class TelegramMessageCoalescingService {
+public class TelegramMessageCoalescingService implements CoalescingActions {
 
     public sealed interface CoalescingAction permits WaitForPossiblePair, ProcessSingle, ProcessMerged, ProcessPendingAndCurrent {
     }
@@ -38,6 +49,7 @@ public class TelegramMessageCoalescingService {
 
     private final TelegramProperties.MessageCoalescing properties;
     private final ScheduledExecutorService scheduledExecutorService;
+    private final ExDomainFsm<CoalescingContext, CoalescingState, CoalescingEvent> coalescingFsm;
 
     private final ConcurrentHashMap<UserChatKey, PendingFirstMessage> pendingByKey = new ConcurrentHashMap<>();
 
@@ -45,6 +57,7 @@ public class TelegramMessageCoalescingService {
                                             ScheduledExecutorService scheduledExecutorService) {
         this.properties = properties;
         this.scheduledExecutorService = scheduledExecutorService;
+        this.coalescingFsm = CoalescingFsmFactory.create(this);
     }
 
     public boolean isEnabled() {
@@ -52,47 +65,85 @@ public class TelegramMessageCoalescingService {
     }
 
     /**
-     * Handles incoming update and decides whether to:
-     * - delay it as a first candidate,
-     * - process as-is,
-     * - merge with existing pending candidate,
-     * - flush pending + process current separately.
+     * Handles incoming update via the coalescing FSM decision tree.
      */
     public CoalescingAction onIncomingUpdate(Update update, Consumer<Update> timeoutFlushConsumer) {
-        if (!isEnabled()) {
-            return new ProcessSingle(update, "coalescing_disabled");
-        }
-
-        UserChatKey key = extractUserChatKey(update);
-        if (key == null) {
-            return new ProcessSingle(update, "no_user_chat_key");
-        }
-
-        PendingFirstMessage pending = pendingByKey.get(key);
-        if (pending != null) {
-            if (canMerge(pending, update)) {
-                removePending(key, pending);
-                String linkType = resolveLinkType(pending, update);
-                log.debug("Message coalescing merge: chatId={}, userId={}, firstMessageId={}, secondMessageId={}, linkType={}",
-                        key.chatId, key.userId, pending.messageId, extractMessageId(update), linkType);
-                return new ProcessMerged(pending.update, update, linkType);
-            }
-            removePending(key, pending);
-            log.debug("Message coalescing no-merge: chatId={}, userId={}, firstMessageId={}, secondMessageId={}",
-                    key.chatId, key.userId, pending.messageId, extractMessageId(update));
-            return new ProcessPendingAndCurrent(pending.update, update, "no_merge");
-        }
-
-        if (isFirstCandidate(update)) {
-            holdFirstCandidate(update, key, timeoutFlushConsumer);
-            Integer messageId = extractMessageId(update);
-            log.debug("Message coalescing wait: chatId={}, userId={}, messageId={}, waitWindowMs={}",
-                    key.chatId, key.userId, messageId, properties.getWaitWindowMs());
-            return new WaitForPossiblePair(key.chatId, key.userId, messageId);
-        }
-
-        return new ProcessSingle(update, "not_first_candidate");
+        CoalescingContext ctx = new CoalescingContext(update, timeoutFlushConsumer);
+        coalescingFsm.handle(ctx, CoalescingEvent.EVALUATE);
+        return ctx.getResult();
     }
+
+    // ==================== CoalescingActions implementation ====================
+
+    @Override
+    public void checkEnabled(CoalescingContext ctx) {
+        ctx.setEnabled(isEnabled());
+        if (!isEnabled()) {
+            ctx.setResult(new ProcessSingle(ctx.getUpdate(), "coalescing_disabled"));
+            return;
+        }
+
+        UserChatKey key = extractUserChatKey(ctx.getUpdate());
+        ctx.setHasKey(key != null);
+        if (key == null) {
+            ctx.setResult(new ProcessSingle(ctx.getUpdate(), "no_user_chat_key"));
+        }
+    }
+
+    @Override
+    public void checkPending(CoalescingContext ctx) {
+        UserChatKey key = extractUserChatKey(ctx.getUpdate());
+        PendingFirstMessage pending = pendingByKey.get(key);
+
+        if (pending != null) {
+            ctx.setHasPending(true);
+            ctx.setCanMerge(canMerge(pending, ctx.getUpdate()));
+        } else {
+            ctx.setHasPending(false);
+            ctx.setFirstCandidate(isFirstCandidate(ctx.getUpdate()));
+        }
+    }
+
+    @Override
+    public void merge(CoalescingContext ctx) {
+        UserChatKey key = extractUserChatKey(ctx.getUpdate());
+        PendingFirstMessage pending = pendingByKey.get(key);
+        removePending(key, pending);
+
+        String linkType = resolveLinkType(pending, ctx.getUpdate());
+        log.debug("Message coalescing merge: chatId={}, userId={}, firstMessageId={}, secondMessageId={}, linkType={}",
+                key.chatId, key.userId, pending.messageId, extractMessageId(ctx.getUpdate()), linkType);
+        ctx.setResult(new ProcessMerged(pending.update, ctx.getUpdate(), linkType));
+    }
+
+    @Override
+    public void flushBoth(CoalescingContext ctx) {
+        UserChatKey key = extractUserChatKey(ctx.getUpdate());
+        PendingFirstMessage pending = pendingByKey.get(key);
+        removePending(key, pending);
+
+        log.debug("Message coalescing no-merge: chatId={}, userId={}, firstMessageId={}, secondMessageId={}",
+                key.chatId, key.userId, pending.messageId, extractMessageId(ctx.getUpdate()));
+        ctx.setResult(new ProcessPendingAndCurrent(pending.update, ctx.getUpdate(), "no_merge"));
+    }
+
+    @Override
+    public void holdCandidate(CoalescingContext ctx) {
+        UserChatKey key = extractUserChatKey(ctx.getUpdate());
+        holdFirstCandidate(ctx.getUpdate(), key, ctx.getTimeoutFlushConsumer());
+
+        Integer messageId = extractMessageId(ctx.getUpdate());
+        log.debug("Message coalescing wait: chatId={}, userId={}, messageId={}, waitWindowMs={}",
+                key.chatId, key.userId, messageId, properties.getWaitWindowMs());
+        ctx.setResult(new WaitForPossiblePair(key.chatId, key.userId, messageId));
+    }
+
+    @Override
+    public void processSingle(CoalescingContext ctx) {
+        ctx.setResult(new ProcessSingle(ctx.getUpdate(), "not_first_candidate"));
+    }
+
+    // ==================== Infrastructure (unchanged) ====================
 
     private void holdFirstCandidate(Update update, UserChatKey key, Consumer<Update> timeoutFlushConsumer) {
         PendingFirstMessage pending = new PendingFirstMessage(update, extractMessageId(update), System.currentTimeMillis());
