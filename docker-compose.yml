@@ -32,8 +32,10 @@ services:
       - MINIO_ENDPOINT=http://minio:9000
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    # External config override: place application.yml next to docker-compose.yml.
+    # If file is absent — app uses bundled defaults (Spring Boot ignores missing files in config/).
     volumes:
-      - ./application.yml:/app/config/application.yml:ro
+      - ./:/app/config/:ro
     depends_on:
       postgres:
         condition: service_healthy
