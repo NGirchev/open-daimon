@@ -158,7 +158,6 @@ open-daimon:
                 - google/gemini-2.5-flash
                 - openai/gpt-5-nano
                 - z-ai/glm-5-turbo
-                - qwen/qwen3-4b
                 - qwen/qwen3-vl-235b-a22b-thinking
                 - qwen/qwen3-vl-30b-a3b-thinking
             - roles: [ ADMIN, REGULAR ]
@@ -177,7 +176,6 @@ open-daimon:
                 - liquid/lfm-2.5-1.2b-thinking:free
                 - meta-llama/llama-3.2-3b-instruct:free
                 - nousresearch/hermes-3-llama-3.1-405b:free
-                - qwen/qwen3-4b:free
                 - stepfun/step-3.5-flash:free
           blacklist:
             exclude-model-ids: []  # add model IDs here to block them permanently
@@ -209,7 +207,7 @@ open-daimon:
               - SUMMARIZATION
               - VISION
             provider-type: OPENAI
-            priority: 3
+            priority: 1
             allowed-roles:
               - ADMIN
               - VIP
@@ -220,21 +218,10 @@ open-daimon:
               - WEB
               - VISION
             provider-type: OPENAI
-            priority: 2
+            priority: 1
             allowed-roles:
               - ADMIN
               - VIP
-          - name: "qwen3.5:4b"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - VISION
-              - WEB
-              - SUMMARIZATION
-            provider-type: OLLAMA
-            priority: 1
-            max-reasoning-tokens: 0  # Ollama does not support reasoning parameter
-            think: false  # Disable Qwen3 thinking mode — prevents token budget exhaustion that causes empty responses
           # Top 3 OpenRouter free models (explicit capabilities; others from include-model-ids get capabilities from API).
           - name: "openrouter/free"
             capabilities:
@@ -244,47 +231,31 @@ open-daimon:
               - WEB
               - VISION
             provider-type: OPENAI
-            priority: 3
-            allowed-roles:
-              - ADMIN
-              - REGULAR
-          - name: "meta-llama/llama-3.3-70b-instruct:free"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - WEB
-              - STRUCTURED_OUTPUT
-              - VISION
-              - FREE
-            provider-type: OPENAI
             priority: 1
             allowed-roles:
               - ADMIN
               - REGULAR
-          - name: "mistralai/mistral-small-3.1-24b-instruct:free"
+          - name: "qwen2.5:3b"
             capabilities:
+              - AUTO
               - CHAT
               - TOOL_CALLING
+              - SUMMARIZATION
               - WEB
-              - STRUCTURED_OUTPUT
-              - VISION
-              - FREE
-            provider-type: OPENAI
+            provider-type: OLLAMA
             priority: 1
-            allowed-roles:
-              - ADMIN
-              - REGULAR
-          - name: "google/gemini-2.0-flash-exp:free"
+          - name: "gemma3:4b"
             capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - WEB
-              - STRUCTURED_OUTPUT
               - VISION
-              - FREE
-            provider-type: OPENAI
+              - CHAT
+            provider-type: OLLAMA
+            priority: 2
+            max-output-tokens: 16384
+          - name: "nomic-embed-text:v1.5"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
             priority: 1
-            # allowed-roles not set — accessible to all roles
       rag:
         enabled: true
         chunk-size: 800
@@ -348,11 +319,6 @@ logging:
   level:
     root: INFO
     io.github.ngirchev.opendaimon: INFO
-    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway: DEBUG
-    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory: DEBUG
-    io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline: DEBUG
-    io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory: DEBUG
-    io.github.ngirchev.opendaimon.ai.springai.rest: DEBUG
     org.springframework.ai.chat.model.MessageAggregator: OFF
     reactor.core.publisher: WARN
     org.springframework.web.reactive.function.client: WARN
