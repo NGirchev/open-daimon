@@ -32,6 +32,8 @@ services:
       - MINIO_ENDPOINT=http://minio:9000
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - ./application.yml:/app/config/application.yml:ro
     depends_on:
       postgres:
         condition: service_healthy
