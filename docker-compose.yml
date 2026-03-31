@@ -28,12 +28,14 @@ services:
       - SERP_API_KEY=${SERP_API_KEY:-}
       # Database (use service name from docker-compose)
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-opendaimon}
-      # MinIO (use service name from docker-compose)
-      - MINIO_ENDPOINT=http://minio:9000
       - SPRING_DATASOURCE_USERNAME=${POSTGRES_USER:-postgres}
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-    # External config override: place application.yml next to docker-compose.yml.
-    # If file is absent — app uses bundled defaults (Spring Boot ignores missing files in config/).
+      # MinIO (use service name from docker-compose)
+      - MINIO_ENDPOINT=http://minio:9000
+      # Config override: place application.yml next to docker-compose.yml.
+      # optional: prefix = if file is absent, uses bundled defaults.
+      - SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/app/config/application.yml
+    # Mount project root so Spring Boot can find application.yml if it exists
     volumes:
       - ./:/app/config/:ro
     depends_on:
