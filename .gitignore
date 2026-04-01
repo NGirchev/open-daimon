@@ -45,3 +45,4 @@
 /.mcp.json
 /opendaimon-app/logs/opendaimon.log
 /application.yml
+/observability-agent.md
