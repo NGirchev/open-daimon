@@ -59,7 +59,7 @@ public final class MessageHandlerFsmFactory {
                 // === INPUT_VALIDATED → branch (auto) ===
                 .from(INPUT_VALIDATED).toMultiple()
                     .to(ERROR)
-                        .condition(guard(MessageHandlerContext::hasError))
+                        .onCondition(guard(MessageHandlerContext::hasError))
                         .end()
                     .to(MESSAGE_SAVED)
                         .action(action(actions::saveMessage))
@@ -83,7 +83,7 @@ public final class MessageHandlerFsmFactory {
                 // === COMMAND_CREATED → branch: success or error (auto) ===
                 .from(COMMAND_CREATED).toMultiple()
                     .to(ERROR)
-                        .condition(guard(MessageHandlerContext::hasError))
+                        .onCondition(guard(MessageHandlerContext::hasError))
                         .end()
                     .to(RESPONSE_GENERATED)
                         .action(action(actions::generateResponse))
@@ -93,10 +93,10 @@ public final class MessageHandlerFsmFactory {
                 // === RESPONSE_GENERATED → branch: has response or error (auto) ===
                 .from(RESPONSE_GENERATED).toMultiple()
                     .to(ERROR)
-                        .condition(guard(MessageHandlerContext::hasError))
+                        .onCondition(guard(MessageHandlerContext::hasError))
                         .end()
                     .to(RESPONSE_SAVED)
-                        .condition(guard(MessageHandlerContext::hasResponse))
+                        .onCondition(guard(MessageHandlerContext::hasResponse))
                         .action(action(actions::saveResponse))
                         .end()
                     .to(ERROR)

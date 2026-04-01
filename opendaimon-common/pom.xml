@@ -115,10 +115,6 @@
             <groupId>io.github.ngirchev</groupId>
             <artifactId>fsm</artifactId>
         </dependency>
-        <dependency>
-            <groupId>io.github.microutils</groupId>
-            <artifactId>kotlin-logging-jvm</artifactId>
-        </dependency>
 
         <dependency>
             <groupId>io.micrometer</groupId>
