@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
@@ -43,6 +44,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final ToolCallingManager toolCallingManager;
     private final List<ToolCallback> toolCallbacks;
     private final AgentMemory agentMemory;
+    private final FactExtractor factExtractor;
 
     /**
      * Conversation history maintained across iterations within a single agent execution.
@@ -55,11 +57,13 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
                                   List<ToolCallback> toolCallbacks,
-                                  AgentMemory agentMemory) {
+                                  AgentMemory agentMemory,
+                                  FactExtractor factExtractor) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : List.of();
         this.agentMemory = agentMemory;
+        this.factExtractor = factExtractor;
     }
 
     @Override
@@ -195,6 +199,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     @Override
     public void answer(AgentContext ctx) {
         ctx.setFinalAnswer(ctx.getCurrentTextResponse());
+        extractFacts(ctx);
         cleanup();
         log.info("Agent answer: final answer set, length={}",
                 ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0);
@@ -232,6 +237,19 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      * Recalls relevant facts from agent memory and formats them as context.
      * Returns null if memory is not configured or no facts are found.
      */
+    /**
+     * Extracts key facts from the completed conversation and stores them in memory.
+     * Best-effort — failures don't affect the agent response.
+     */
+    private void extractFacts(AgentContext ctx) {
+        if (factExtractor == null || !ctx.getStepHistory().isEmpty()) {
+            // Only extract when there were tool interactions (non-trivial conversations)
+            if (factExtractor != null) {
+                factExtractor.extractAndStore(ctx);
+            }
+        }
+    }
+
     private String recallMemoryContext(AgentContext ctx) {
         if (agentMemory == null || ctx.getConversationId() == null) {
             return null;

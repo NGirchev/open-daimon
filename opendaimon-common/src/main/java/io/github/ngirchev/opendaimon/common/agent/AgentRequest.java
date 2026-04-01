@@ -11,18 +11,25 @@ import java.util.Set;
  * @param metadata       additional context (e.g., user ID, channel info)
  * @param maxIterations  safety limit for ReAct loop iterations
  * @param enabledTools   tool names to make available (empty = all discovered tools)
+ * @param strategy       execution strategy (AUTO selects based on context)
  */
 public record AgentRequest(
         String task,
         String conversationId,
         Map<String, String> metadata,
         int maxIterations,
-        Set<String> enabledTools
+        Set<String> enabledTools,
+        AgentStrategy strategy
 ) {
 
     private static final int DEFAULT_MAX_ITERATIONS = 10;
 
     public AgentRequest(String task, String conversationId, Map<String, String> metadata) {
-        this(task, conversationId, metadata, DEFAULT_MAX_ITERATIONS, Set.of());
+        this(task, conversationId, metadata, DEFAULT_MAX_ITERATIONS, Set.of(), AgentStrategy.AUTO);
+    }
+
+    public AgentRequest(String task, String conversationId, Map<String, String> metadata,
+                        int maxIterations, Set<String> enabledTools) {
+        this(task, conversationId, metadata, maxIterations, enabledTools, AgentStrategy.AUTO);
     }
 }

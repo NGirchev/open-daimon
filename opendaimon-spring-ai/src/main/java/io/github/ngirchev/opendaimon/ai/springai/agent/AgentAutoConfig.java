@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
+import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.SemanticAgentMemory;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
@@ -59,15 +60,26 @@ public class AgentAutoConfig {
     // --- Agent Loop ---
 
     @Bean
+    @ConditionalOnMissingBean(FactExtractor.class)
+    @ConditionalOnBean(AgentMemory.class)
+    public FactExtractor factExtractor(ChatModel chatModel, AgentMemory agentMemory) {
+        return new FactExtractor(chatModel, agentMemory);
+    }
+
+    // --- Agent Loop ---
+
+    @Bean
     @ConditionalOnMissingBean(AgentLoopActions.class)
     public SpringAgentLoopActions agentLoopActions(
             ChatModel chatModel,
             ToolCallingManager toolCallingManager,
             ObjectProvider<List<ToolCallback>> toolCallbacksProvider,
-            ObjectProvider<AgentMemory> agentMemoryProvider) {
+            ObjectProvider<AgentMemory> agentMemoryProvider,
+            ObjectProvider<FactExtractor> factExtractorProvider) {
         List<ToolCallback> callbacks = toolCallbacksProvider.getIfAvailable(List::of);
         AgentMemory memory = agentMemoryProvider.getIfAvailable();
-        return new SpringAgentLoopActions(chatModel, toolCallingManager, callbacks, memory);
+        FactExtractor extractor = factExtractorProvider.getIfAvailable();
+        return new SpringAgentLoopActions(chatModel, toolCallingManager, callbacks, memory, extractor);
     }
 
     @Bean
@@ -78,10 +90,33 @@ public class AgentAutoConfig {
     }
 
     @Bean
-    @ConditionalOnMissingBean(AgentExecutor.class)
     public ReActAgentExecutor reActAgentExecutor(
             ExDomainFsm<AgentContext, AgentState, AgentEvent> agentFsm) {
         return new ReActAgentExecutor(agentFsm);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SimpleChainExecutor simpleChainExecutor(ChatModel chatModel) {
+        return new SimpleChainExecutor(chatModel);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PlanAndExecuteAgentExecutor planAndExecuteAgentExecutor(
+            ChatModel chatModel, ReActAgentExecutor reactExecutor) {
+        return new PlanAndExecuteAgentExecutor(chatModel, reactExecutor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(AgentExecutor.class)
+    public StrategyDelegatingAgentExecutor strategyDelegatingAgentExecutor(
+            ReActAgentExecutor reactExecutor,
+            SimpleChainExecutor simpleExecutor,
+            PlanAndExecuteAgentExecutor planAndExecuteExecutor,
+            ObjectProvider<List<ToolCallback>> toolCallbacksProvider) {
+        List<ToolCallback> tools = toolCallbacksProvider.getIfAvailable(List::of);
+        return new StrategyDelegatingAgentExecutor(reactExecutor, simpleExecutor, planAndExecuteExecutor, tools);
     }
 
     // --- Command Handler ---

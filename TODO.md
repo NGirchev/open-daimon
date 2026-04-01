@@ -65,6 +65,16 @@
   - New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
   - Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
 
+- [x] **FactExtractionMemory** — LLM auto-extracts key facts after agent conversations
+  - `FactExtractor` calls LLM to extract facts, stores via `AgentMemory.store()`
+  - Integrated into `SpringAgentLoopActions.answer()` (only for non-trivial conversations with tool use)
+  - Best-effort — failures don't affect agent response
+
+- [x] **AgentStrategy SPI** — configurable execution strategies
+  - `AgentStrategy` enum: AUTO, REACT, SIMPLE, PLAN_AND_EXECUTE
+  - `StrategyDelegatingAgentExecutor` — primary executor, selects strategy based on request
+  - `SimpleChainExecutor` — single LLM call without tools (fast path)
+  - `PlanAndExecuteAgentExecutor` — LLM generates plan, then executes each step with ReAct
+  - AUTO: selects REACT if tools available, SIMPLE otherwise
+
 - [ ] **REST Integration** — agent endpoint for REST/UI
-- [ ] **FactExtractionMemory** — LLM auto-extracts key facts after conversations
-- [ ] **AgentStrategy SPI** — Plan-and-Execute, simple chain (currently only ReAct)
