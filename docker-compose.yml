@@ -12,6 +12,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      # Spring profile
+      - SPRING_PROFILES_ACTIVE=logging
       # Logstash
       - LOGSTASH_HOST=logstash
       # Telegram
