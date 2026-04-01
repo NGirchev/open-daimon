@@ -158,7 +158,6 @@ open-daimon:
                 - google/gemini-2.5-flash
                 - openai/gpt-5-nano
                 - z-ai/glm-5-turbo
-                - qwen/qwen3-4b
                 - qwen/qwen3-vl-235b-a22b-thinking
                 - qwen/qwen3-vl-30b-a3b-thinking
             - roles: [ ADMIN, REGULAR ]
@@ -177,7 +176,6 @@ open-daimon:
                 - liquid/lfm-2.5-1.2b-thinking:free
                 - meta-llama/llama-3.2-3b-instruct:free
                 - nousresearch/hermes-3-llama-3.1-405b:free
-                - qwen/qwen3-4b:free
                 - stepfun/step-3.5-flash:free
           blacklist:
             exclude-model-ids: []  # add model IDs here to block them permanently
@@ -209,7 +207,7 @@ open-daimon:
               - SUMMARIZATION
               - VISION
             provider-type: OPENAI
-            priority: 3
+            priority: 1
             allowed-roles:
               - ADMIN
               - VIP
@@ -220,7 +218,7 @@ open-daimon:
               - WEB
               - VISION
             provider-type: OPENAI
-            priority: 2
+            priority: 1
             allowed-roles:
               - ADMIN
               - VIP
@@ -244,47 +242,36 @@ open-daimon:
               - WEB
               - VISION
             provider-type: OPENAI
+            priority: 2
+            allowed-roles:
+              - ADMIN
+              - REGULAR
+          - name: "qwen2.5:3b"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - SUMMARIZATION
+              - WEB
+            provider-type: OLLAMA
+            priority: 2
+          - name: "gemma3:4b"
+            capabilities:
+              - VISION
+              - CHAT
+            provider-type: OLLAMA
+            priority: 2
+            max-output-tokens: 16384
+          - name: "qwen3-embedding:4b"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
+            priority: 2
+          - name: "nomic-embed-text:v1.5"
+            capabilities:
+              - EMBEDDING
+            provider-type: OLLAMA
             priority: 3
-            allowed-roles:
-              - ADMIN
-              - REGULAR
-          - name: "meta-llama/llama-3.3-70b-instruct:free"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - WEB
-              - STRUCTURED_OUTPUT
-              - VISION
-              - FREE
-            provider-type: OPENAI
-            priority: 1
-            allowed-roles:
-              - ADMIN
-              - REGULAR
-          - name: "mistralai/mistral-small-3.1-24b-instruct:free"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - WEB
-              - STRUCTURED_OUTPUT
-              - VISION
-              - FREE
-            provider-type: OPENAI
-            priority: 1
-            allowed-roles:
-              - ADMIN
-              - REGULAR
-          - name: "google/gemini-2.0-flash-exp:free"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - WEB
-              - STRUCTURED_OUTPUT
-              - VISION
-              - FREE
-            provider-type: OPENAI
-            priority: 1
-            # allowed-roles not set — accessible to all roles
       rag:
         enabled: true
         chunk-size: 800

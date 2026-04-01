@@ -199,7 +199,6 @@ public class TelegramCommandHandlerConfig {
     }
 
     @Bean
-    @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
     public ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> messageHandlerFsm(
             MessageHandlerActions actions) {

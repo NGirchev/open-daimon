@@ -39,7 +39,7 @@ Pass `--local-image` to the wizard — it generates `docker-compose.yml` with `o
 **Step 1** — build the local image from the repository root:
 
 ```bash
-cd /path/to/open-daimon
+cd ..
 docker build -t open-daimon:local .
 ```
 

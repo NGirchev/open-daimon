@@ -44,3 +44,4 @@
 /logs/
 /.mcp.json
 /opendaimon-app/logs/opendaimon.log
+/application.yml

@@ -31,6 +31,7 @@
 - [ ] Asynchronous processing for telegram
 - [ ] Show simple description for the models
 - [ ] Clearing RAG + File
+- [ ] Hide Buttons for models if needed
 
 ## Agent Framework Pivot
 
