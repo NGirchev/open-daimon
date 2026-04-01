@@ -17,6 +17,7 @@ import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrato
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionRepository;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.ObjectProvider;
@@ -27,6 +28,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.List;
@@ -62,7 +64,7 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(FactExtractor.class)
     @ConditionalOnBean(AgentMemory.class)
-    public FactExtractor factExtractor(ChatModel chatModel, AgentMemory agentMemory) {
+    public FactExtractor factExtractor(OpenAiChatModel chatModel, AgentMemory agentMemory) {
         return new FactExtractor(chatModel, agentMemory);
     }
 
@@ -71,7 +73,7 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(AgentLoopActions.class)
     public SpringAgentLoopActions agentLoopActions(
-            ChatModel chatModel,
+            OpenAiChatModel chatModel,
             ToolCallingManager toolCallingManager,
             ObjectProvider<List<ToolCallback>> toolCallbacksProvider,
             ObjectProvider<AgentMemory> agentMemoryProvider,
@@ -82,8 +84,7 @@ public class AgentAutoConfig {
         return new SpringAgentLoopActions(chatModel, toolCallingManager, callbacks, memory, extractor);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
+    @Bean("agentLoopFsm")
     public ExDomainFsm<AgentContext, AgentState, AgentEvent> agentLoopFsm(
             AgentLoopActions actions) {
         return AgentLoopFsmFactory.create(actions);
@@ -91,25 +92,26 @@ public class AgentAutoConfig {
 
     @Bean
     public ReActAgentExecutor reActAgentExecutor(
+            @org.springframework.beans.factory.annotation.Qualifier("agentLoopFsm")
             ExDomainFsm<AgentContext, AgentState, AgentEvent> agentFsm) {
         return new ReActAgentExecutor(agentFsm);
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public SimpleChainExecutor simpleChainExecutor(ChatModel chatModel) {
+    public SimpleChainExecutor simpleChainExecutor(OpenAiChatModel chatModel) {
         return new SimpleChainExecutor(chatModel);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public PlanAndExecuteAgentExecutor planAndExecuteAgentExecutor(
-            ChatModel chatModel, ReActAgentExecutor reactExecutor) {
+            OpenAiChatModel chatModel, ReActAgentExecutor reactExecutor) {
         return new PlanAndExecuteAgentExecutor(chatModel, reactExecutor);
     }
 
+    @Primary
     @Bean
-    @ConditionalOnMissingBean(AgentExecutor.class)
     public StrategyDelegatingAgentExecutor strategyDelegatingAgentExecutor(
             ReActAgentExecutor reactExecutor,
             SimpleChainExecutor simpleExecutor,

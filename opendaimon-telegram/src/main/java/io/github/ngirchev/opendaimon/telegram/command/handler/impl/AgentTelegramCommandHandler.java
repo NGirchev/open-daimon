@@ -129,6 +129,6 @@ public class AgentTelegramCommandHandler extends AbstractTelegramCommandHandler 
 
     @Override
     public String getSupportedCommandText(String languageCode) {
-        return "agent - AI agent mode (autonomous task execution with tools)";
+        return "/agent - AI agent mode (autonomous task execution with tools)";
     }
 }

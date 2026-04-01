@@ -36,6 +36,9 @@ public class TelegramBotMenuService {
                     log.warn("No commands found for language {}", lang);
                     continue;
                 }
+                log.info("Bot menu commands for [{}]: {}", lang,
+                        commands.stream().map(c -> c.getCommand() + " - " + c.getDescription())
+                                .toList());
                 bot.setMyCommands(commands, lang);
             }
             log.info("Bot menu configured for languages: {}", SupportedLanguages.SUPPORTED_LANGUAGES);
