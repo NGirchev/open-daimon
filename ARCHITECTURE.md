@@ -156,6 +156,42 @@ message (base table, SINGLE_TABLE strategy)
 - **Service:** `PriorityRequestExecutor` uses Resilience4j bulkhead per user priority (VIP/REGULAR/BLOCKED)
 - **Sync:** `CommandSyncService` manages per-user semaphores (VIP: 3, others: 2 concurrent requests)
 
+### 5. Agent Framework (ReAct Loop)
+
+Autonomous AI agent that can use tools iteratively to solve tasks.
+
+**Architecture:**
+```
+/agent <task> → AgentTelegramCommandHandler
+    ↓
+AgentExecutor.execute(AgentRequest)
+    ↓
+AgentLoopFsmFactory (FSM with cyclic auto-transitions)
+    ↓
+┌─ THINKING ←──────────────────────────┐
+│   SpringAgentLoopActions.think()     │
+│   ChatModel.call() with tools        │
+│        ↓                             │
+├─ TOOL_EXECUTING                      │
+│   ToolCallingManager.executeToolCalls│
+│        ↓                             │
+└─ OBSERVING ──────────────────────────┘
+         (loop until final answer or max iterations)
+    ↓
+COMPLETED → AgentResult → send to user
+```
+
+**Key components:**
+- `AgentLoopFsmFactory` — FSM definition using `io.github.ngirchev:fsm` library
+- `SpringAgentLoopActions` — Spring AI integration with `internalToolExecutionEnabled=false`
+- `AgentMemory` SPI — optional semantic memory via VectorStore
+- `DefaultAgentOrchestrator` — multi-step DAG execution with topological sort
+- `PersistingAgentOrchestrator` — saves execution history to `agent_execution` tables
+
+**Available tools:** `web_search`, `fetch_url` (WebTools), `http_get`, `http_post` (HttpApiTool)
+
+**Configuration:** `open-daimon.agent.enabled=true`, `max-iterations=10`
+
 ## Dialog Processing Flow
 
 ```

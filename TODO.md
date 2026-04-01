@@ -35,37 +35,36 @@
 
 ## Agent Framework Pivot
 
-- [ ] **Agent Loop** — plan → act → observe → reflect cycle with configurable strategies
-  - Create `AgentExecutor` interface with default `ReActAgentExecutor` implementation
-  - Each iteration: LLM decides next action (tool call or final answer), executes it, feeds observation back
-  - Max iterations guard to prevent infinite loops
-  - Configurable strategies via `AgentStrategy` SPI: ReAct, Plan-and-Execute, simple chain
-  - Leverage existing `AIGateway` + `AIRequestPipeline` as the LLM backbone
+- [x] **Agent Loop** — ReAct cycle with FSM-based state management
+  - `AgentExecutor` interface with `ReActAgentExecutor` (FSM: THINKING → TOOL_EXECUTING → OBSERVING → loop)
+  - `SpringAgentLoopActions` using `ChatModel` with `internalToolExecutionEnabled=false`
+  - Max iterations guard, error handling, streaming via `Flux<AgentStreamEvent>`
+  - `AgentAutoConfig` with conditional beans (`open-daimon.agent.enabled`)
 
-- [ ] **Orchestration Layer** — multi-step task execution, tool chaining, error recovery
-  - Build on top of Agent Loop: `AgentOrchestrator` manages a DAG of steps
-  - Each step = agent call or tool call with input/output mapping
-  - Error recovery: retry with exponential backoff (reuse existing Resilience4j), fallback to alternative tool/model
-  - State machine per execution: PENDING → RUNNING → WAITING_TOOL → COMPLETED / FAILED
-  - Persist execution state in DB (new `agent_execution` table) for long-running tasks
+- [x] **Tool Use** — delegated to Spring AI (no custom ToolRegistry)
+  - Spring AI `@Tool` + `ToolCallingManager` + `SpringBeanToolCallbackResolver` handles discovery/invocation
+  - Built-in tools: `WebTools` (web_search, fetch_url), `HttpApiTool` (http_get, http_post)
 
-- [ ] **Pluggable Memory** — semantic long-term memory, fact extraction, beyond chat history
-  - Define `AgentMemory` SPI with methods: `store(fact)`, `recall(query, topK)`, `forget(factId)`
-  - `ConversationMemory` — adapter over existing `SummarizingChatMemory` (already implemented)
-  - `SemanticMemory` — VectorStore-backed (reuse existing Spring AI VectorStore + embedding infrastructure)
-  - `FactExtractionMemory` — after each conversation, LLM extracts key facts → stores as embeddings
-  - Memory is injected into Agent Loop as context before each LLM call
+- [x] **Orchestration Layer** — multi-step task execution with DAG
+  - `DefaultAgentOrchestrator` with topological sort (Kahn's algorithm) and cycle detection
+  - `PersistingAgentOrchestrator` decorator saves execution to DB
+  - Error recovery: failed step skips dependents, independent steps continue
+  - DB tables: `agent_execution`, `agent_execution_step` (Flyway V10)
+
+- [x] **Pluggable Memory** — semantic long-term memory
+  - `AgentMemory` SPI: `store(fact)`, `recall(query, topK)`, `forget(factId)`
+  - `SemanticAgentMemory` — VectorStore-backed similarity search
+  - `CompositeAgentMemory` — combines multiple memory sources
+  - Memory integrated into `think()` — recalls relevant facts before each LLM call
+
+- [x] **Telegram Integration** — `/agent` command
+  - `AgentTelegramCommandHandler` intercepts `/agent <task>`, delegates to `AgentExecutor`
+  - Registered via `TelegramCommandHandlerConfig` with `@ConditionalOnProperty`
 
 - [ ] **opendaimon-spring-boot-starter** — auto-configuration starter for easy integration
-  - New module `opendaimon-spring-boot-starter` with `spring.factories` / `AutoConfiguration.imports`
-  - Auto-configures: AgentExecutor, ToolRegistry, AgentMemory, AIGateway chain
-  - Properties namespace: `open-daimon.agent.*` (strategy, max-iterations, memory-type)
-  - Conditional beans: `@ConditionalOnProperty`, `@ConditionalOnClass` for optional modules
-  - Minimal dependency: just `opendaimon-common` + `opendaimon-spring-ai`, Telegram/REST/UI stay optional
+  - New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
+  - Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
 
-- [ ] **Tool Use Framework** — declarative tool definitions on top of Spring AI Function Calling
-  - `@AgentTool(name, description)` annotation on Spring beans — auto-registered in `ToolRegistry`
-  - `ToolRegistry` collects all tools, provides schema for LLM function calling prompt
-  - `ToolExecutor` handles invocation, input validation (JSON Schema), output serialization
-  - Built-in tools: `WebSearchTool`, `DatabaseQueryTool`, `HttpApiTool`, `CodeExecutionTool`
-  - Tool results feed back into Agent Loop as observations
+- [ ] **REST Integration** — agent endpoint for REST/UI
+- [ ] **FactExtractionMemory** — LLM auto-extracts key facts after conversations
+- [ ] **AgentStrategy SPI** — Plan-and-Execute, simple chain (currently only ReAct)

@@ -118,6 +118,7 @@ open-daimon:
       threads-enabled: true
       language-enabled: true
       model-enabled: true
+      agent-enabled: true
     message-coalescing:
       enabled: true
       wait-window-ms: 1200
@@ -287,6 +288,11 @@ open-daimon:
           vision-extraction-prompt: "Extract ALL text content from these image exactly as written. Output only the extracted text, no commentary."
     gateway-mock:
       enabled: false  # Disabled by default
+  agent:
+    enabled: true
+    max-iterations: 10
+    # memory:
+    #   enabled: true  # Requires VectorStore (RAG must be enabled)
 
 management:
   endpoints:
