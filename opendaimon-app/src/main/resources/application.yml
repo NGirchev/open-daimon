@@ -222,17 +222,6 @@ open-daimon:
             allowed-roles:
               - ADMIN
               - VIP
-          - name: "qwen3.5:4b"
-            capabilities:
-              - CHAT
-              - TOOL_CALLING
-              - VISION
-              - WEB
-              - SUMMARIZATION
-            provider-type: OLLAMA
-            priority: 1
-            max-reasoning-tokens: 0  # Ollama does not support reasoning parameter
-            think: false  # Disable Qwen3 thinking mode — prevents token budget exhaustion that causes empty responses
           # Top 3 OpenRouter free models (explicit capabilities; others from include-model-ids get capabilities from API).
           - name: "openrouter/free"
             capabilities:
@@ -335,11 +324,6 @@ logging:
   level:
     root: INFO
     io.github.ngirchev.opendaimon: INFO
-    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIGateway: DEBUG
-    io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory: DEBUG
-    io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline: DEBUG
-    io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory: DEBUG
-    io.github.ngirchev.opendaimon.ai.springai.rest: DEBUG
     org.springframework.ai.chat.model.MessageAggregator: OFF
     reactor.core.publisher: WARN
     org.springframework.web.reactive.function.client: WARN
