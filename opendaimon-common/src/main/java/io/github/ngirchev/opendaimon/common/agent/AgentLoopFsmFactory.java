@@ -34,8 +34,10 @@ import static io.github.ngirchev.opendaimon.common.agent.AgentState.*;
  *                    │   action: handleMaxIterations()
  *                    ├─[hasToolCall]───────────> TOOL_EXECUTING
  *                    │   action: executeTool()
- *                    └─[hasFinalAnswer]────────> ANSWERING
- *                        action: answer()
+ *                    ├─[hasFinalAnswer]────────> ANSWERING
+ *                    │   action: answer()
+ *                    └─[else]─────────────────> FAILED (terminal)
+ *                        action: handleError()  (empty LLM output)
  *
  * TOOL_EXECUTING ──[auto]──┬─[hasError]──> FAILED (terminal)
  *                          │   action: handleError()
@@ -89,7 +91,11 @@ public final class AgentLoopFsmFactory {
                         .action(action(actions::executeTool))
                         .end()
                     .to(ANSWERING)
+                        .onCondition(guard(AgentContext::hasFinalAnswer))
                         .action(action(actions::answer))
+                        .end()
+                    .to(FAILED)
+                        .action(action(actions::handleError))
                         .end()
                     .endMultiple()
 

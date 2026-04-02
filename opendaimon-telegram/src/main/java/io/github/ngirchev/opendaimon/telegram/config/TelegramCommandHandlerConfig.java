@@ -13,7 +13,7 @@ import io.github.ngirchev.opendaimon.common.repository.ConversationThreadReposit
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.service.*;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
-import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
+import io.github.ngirchev.opendaimon.common.agent.AgentCommandHandler;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.*;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerActions;
@@ -200,6 +200,7 @@ public class TelegramCommandHandlerConfig {
     }
 
     @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
     public ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> messageHandlerFsm(
             MessageHandlerActions actions) {
@@ -256,14 +257,12 @@ public class TelegramCommandHandlerConfig {
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
-            AgentExecutor agentExecutor,
-            @org.springframework.beans.factory.annotation.Value("${open-daimon.agent.max-iterations:10}") int maxIterations) {
+            AgentCommandHandler agentCommandHandler) {
         return new AgentTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
                 messageLocalizationService,
-                agentExecutor,
-                maxIterations
+                agentCommandHandler
         );
     }
 

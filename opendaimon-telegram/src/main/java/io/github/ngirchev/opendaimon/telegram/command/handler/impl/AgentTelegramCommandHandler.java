@@ -4,27 +4,24 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
-import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
-import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
-import io.github.ngirchev.opendaimon.common.agent.AgentResult;
-import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
+import io.github.ngirchev.opendaimon.common.agent.AgentChatCommand;
+import io.github.ngirchev.opendaimon.common.agent.AgentCommandHandler;
+import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandler;
-import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Telegram command handler for agent mode.
  *
- * <p>Intercepts messages with {@code /agent} command, delegates to {@link AgentExecutor},
- * and sends the agent's final answer back to the Telegram chat.
+ * <p>Intercepts messages with {@code /agent} command, delegates to {@link AgentCommandHandler}
+ * (through the standard command bus), and sends the agent's final answer back to the Telegram chat.
  *
  * <p>Usage: {@code /agent Search for Java 21 features and summarize them}
  */
@@ -34,18 +31,15 @@ public class AgentTelegramCommandHandler extends AbstractTelegramCommandHandler 
     public static final String AGENT_COMMAND = "/agent";
     private static final int AGENT_HANDLER_PRIORITY = 5;
 
-    private final AgentExecutor agentExecutor;
-    private final int maxIterations;
+    private final AgentCommandHandler agentCommandHandler;
 
     public AgentTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
-            AgentExecutor agentExecutor,
-            int maxIterations) {
+            AgentCommandHandler agentCommandHandler) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
-        this.agentExecutor = agentExecutor;
-        this.maxIterations = maxIterations;
+        this.agentCommandHandler = agentCommandHandler;
     }
 
     @Override
@@ -75,56 +69,33 @@ public class AgentTelegramCommandHandler extends AbstractTelegramCommandHandler 
 
         log.info("Agent command received: userId={}, task='{}'", command.userId(), userText);
 
-        String conversationId = resolveConversationId(command);
+        String conversationId = "telegram:" + command.userId();
 
-        AgentRequest request = new AgentRequest(
-                userText,
-                conversationId,
-                Map.of("channel", "telegram", "userId", String.valueOf(command.userId())),
-                maxIterations,
-                Set.of()
-        );
+        AgentChatCommand agentCommand = new AgentChatCommand(
+                command.userId(), userText, conversationId,
+                Map.of("channel", "telegram", "userId", String.valueOf(command.userId())));
 
-        AgentResult result = agentExecutor.execute(request);
+        AIResponse aiResponse = agentCommandHandler.handle(agentCommand);
+        String responseText = extractTextFromResponse(aiResponse);
 
-        String responseText = formatAgentResponse(result);
-
-        log.info("Agent completed: state={}, iterations={}, duration={}ms, responseLength={}",
-                result.terminalState(), result.iterationsUsed(),
-                result.totalDuration().toMillis(), responseText.length());
+        log.info("Agent completed: responseLength={}", responseText != null ? responseText.length() : 0);
 
         sendMessage(command.telegramId(), responseText, replyToMessageId);
     }
 
-    private String resolveConversationId(TelegramCommand command) {
-        return "telegram:" + command.userId();
-    }
-
-    private String formatAgentResponse(AgentResult result) {
-        var sb = new StringBuilder();
-
-        if (!result.steps().isEmpty()) {
-            sb.append("🔄 Agent completed in ").append(result.iterationsUsed())
-                    .append(" step(s) (").append(result.totalDuration().toSeconds()).append("s)\n\n");
-
-            for (AgentStepResult step : result.steps()) {
-                if (step.action() != null) {
-                    sb.append("🔧 ").append(step.action()).append('\n');
+    @SuppressWarnings("unchecked")
+    private String extractTextFromResponse(AIResponse aiResponse) {
+        Map<String, Object> data = aiResponse.toMap();
+        if (data.containsKey("choices")) {
+            var choices = (java.util.List<Map<String, Object>>) data.get("choices");
+            if (!choices.isEmpty()) {
+                var message = (Map<String, Object>) choices.getFirst().get("message");
+                if (message != null) {
+                    return (String) message.get("content");
                 }
             }
-            sb.append('\n');
         }
-
-        if (result.isSuccess() && result.finalAnswer() != null) {
-            sb.append(result.finalAnswer());
-        } else {
-            sb.append("⚠️ Agent finished with status: ").append(result.terminalState());
-            if (result.finalAnswer() != null) {
-                sb.append("\n\n").append(result.finalAnswer());
-            }
-        }
-
-        return sb.toString();
+        return "Agent completed (no response text)";
     }
 
     @Override

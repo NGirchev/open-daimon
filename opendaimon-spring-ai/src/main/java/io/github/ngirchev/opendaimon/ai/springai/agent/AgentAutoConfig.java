@@ -17,7 +17,6 @@ import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrato
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionRepository;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.tool.ToolCallingManager;
-import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.ObjectProvider;
@@ -64,7 +63,7 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(FactExtractor.class)
     @ConditionalOnBean(AgentMemory.class)
-    public FactExtractor factExtractor(OpenAiChatModel chatModel, AgentMemory agentMemory) {
+    public FactExtractor factExtractor(ChatModel chatModel, AgentMemory agentMemory) {
         return new FactExtractor(chatModel, agentMemory);
     }
 
@@ -73,7 +72,7 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(AgentLoopActions.class)
     public SpringAgentLoopActions agentLoopActions(
-            OpenAiChatModel chatModel,
+            ChatModel chatModel,
             ToolCallingManager toolCallingManager,
             ObjectProvider<List<ToolCallback>> toolCallbacksProvider,
             ObjectProvider<AgentMemory> agentMemoryProvider,
@@ -99,14 +98,14 @@ public class AgentAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public SimpleChainExecutor simpleChainExecutor(OpenAiChatModel chatModel) {
+    public SimpleChainExecutor simpleChainExecutor(ChatModel chatModel) {
         return new SimpleChainExecutor(chatModel);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public PlanAndExecuteAgentExecutor planAndExecuteAgentExecutor(
-            OpenAiChatModel chatModel, ReActAgentExecutor reactExecutor) {
+            ChatModel chatModel, ReActAgentExecutor reactExecutor) {
         return new PlanAndExecuteAgentExecutor(chatModel, reactExecutor);
     }
 
@@ -151,7 +150,7 @@ public class AgentAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean(HttpApiTool.class)
-    @ConditionalOnProperty(name = "open-daimon.agent.tools.http-api.enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(name = "open-daimon.agent.tools.http-api.enabled", havingValue = "true")
     public HttpApiTool httpApiTool(WebClient webClient) {
         return new HttpApiTool(webClient);
     }

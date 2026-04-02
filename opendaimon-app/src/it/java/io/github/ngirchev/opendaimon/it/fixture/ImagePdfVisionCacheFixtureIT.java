@@ -58,7 +58,7 @@ class ImagePdfVisionCacheFixtureIT {
 
         @Bean
         public EmbeddingModel embeddingModel() {
-            return new DeterministicEmbeddingModel();
+            return new DeterministicEmbeddingModel(EMBEDDING_DIMENSIONS);
         }
 
         @Bean
@@ -283,25 +283,4 @@ class ImagePdfVisionCacheFixtureIT {
      * Returns deterministic unit vectors so pipeline mechanics are tested
      * without real semantic matching.
      */
-    static class DeterministicEmbeddingModel implements EmbeddingModel {
-
-        @Override
-        public EmbeddingResponse call(EmbeddingRequest request) {
-            var embeddings = IntStream.range(0, request.getInstructions().size())
-                    .mapToObj(i -> new Embedding(unitVector(), i))
-                    .toList();
-            return new EmbeddingResponse(embeddings);
-        }
-
-        @Override
-        public float[] embed(Document document) {
-            return unitVector();
-        }
-
-        private float[] unitVector() {
-            float[] vector = new float[EMBEDDING_DIMENSIONS];
-            Arrays.fill(vector, 1.0f / (float) Math.sqrt(EMBEDDING_DIMENSIONS));
-            return vector;
-        }
-    }
 }

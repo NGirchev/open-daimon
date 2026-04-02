@@ -55,6 +55,9 @@ public final class AgentContext implements StateContext<AgentState> {
     // --- Streaming (optional, set externally for streaming execution) ---
     private java.util.function.Consumer<AgentStreamEvent> streamSink;
 
+    // --- Per-execution transient state (used by AgentLoopActions implementations) ---
+    private final Map<String, Object> extras = new java.util.HashMap<>();
+
     public AgentContext(String task, String conversationId, Map<String, String> metadata,
                         int maxIterations, Set<String> enabledTools) {
         this.task = task;
@@ -248,6 +251,25 @@ public final class AgentContext implements StateContext<AgentState> {
         if (streamSink != null) {
             streamSink.accept(event);
         }
+    }
+
+    // --- Extension map for implementation-specific state ---
+
+    /**
+     * Stores arbitrary transient state that lives for the duration of a single execution.
+     * Used by {@code AgentLoopActions} implementations to avoid ThreadLocal fields.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> T getExtra(String key) {
+        return (T) extras.get(key);
+    }
+
+    public void putExtra(String key, Object value) {
+        extras.put(key, value);
+    }
+
+    public void removeExtra(String key) {
+        extras.remove(key);
     }
 
     // --- Derived values ---

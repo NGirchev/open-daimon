@@ -1,5 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentResult;
@@ -40,6 +42,9 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
 
             Example: ["Search for current Bitcoin price", "Search for Bitcoin price one week ago", "Calculate the percentage change and explain the trend"]
             """;
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {};
 
     private final ChatModel chatModel;
     private final AgentExecutor reactExecutor;
@@ -136,6 +141,7 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
         }
 
         String cleaned = text.strip();
+        // Strip markdown code fences if present
         if (cleaned.startsWith("```")) {
             int firstNewline = cleaned.indexOf('\n');
             int lastBlock = cleaned.lastIndexOf("```");
@@ -148,32 +154,15 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
             return List.of();
         }
 
-        List<String> steps = new ArrayList<>();
-        int i = 0;
-        while (i < cleaned.length()) {
-            int start = cleaned.indexOf('"', i);
-            if (start == -1) break;
-            int end = findClosingQuote(cleaned, start + 1);
-            if (end == -1) break;
-            String step = cleaned.substring(start + 1, end)
-                    .replace("\\\"", "\"")
-                    .replace("\\n", " ")
-                    .strip();
-            if (!step.isEmpty()) {
-                steps.add(step);
-            }
-            i = end + 1;
+        try {
+            List<String> steps = OBJECT_MAPPER.readValue(cleaned, STRING_LIST_TYPE);
+            return steps.stream()
+                    .filter(s -> s != null && !s.isBlank())
+                    .map(String::strip)
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Failed to parse plan JSON, falling back to ReAct: {}", e.getMessage());
+            return List.of();
         }
-
-        return steps;
-    }
-
-    private int findClosingQuote(String text, int from) {
-        for (int i = from; i < text.length(); i++) {
-            if (text.charAt(i) == '"' && (i == 0 || text.charAt(i - 1) != '\\')) {
-                return i;
-            }
-        }
-        return -1;
     }
 }

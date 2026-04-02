@@ -32,9 +32,6 @@ public class AgentProperties {
     /** Default model name for agent LLM calls (null = use default from Spring AI config). */
     private String defaultModel;
 
-    /** Default execution strategy: auto, react, simple, plan-and-execute. */
-    private String strategy = "auto";
-
     /** Similarity threshold for semantic memory recall (0.0 to 1.0). */
     private double memorySimilarityThreshold = 0.7;
 }

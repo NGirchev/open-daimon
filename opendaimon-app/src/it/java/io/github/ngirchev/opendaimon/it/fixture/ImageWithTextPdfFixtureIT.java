@@ -88,7 +88,7 @@ class ImageWithTextPdfFixtureIT {
 
         @Bean
         public EmbeddingModel embeddingModel() {
-            return new DeterministicEmbeddingModel();
+            return new DeterministicEmbeddingModel(EMBEDDING_DIMENSIONS);
         }
 
         @Bean
@@ -359,19 +359,4 @@ class ImageWithTextPdfFixtureIT {
         @Override public boolean stream() { return false; }
     }
 
-    static class DeterministicEmbeddingModel implements EmbeddingModel {
-        @Override
-        public EmbeddingResponse call(EmbeddingRequest request) {
-            var embeddings = IntStream.range(0, request.getInstructions().size())
-                    .mapToObj(i -> new Embedding(unitVector(), i)).toList();
-            return new EmbeddingResponse(embeddings);
-        }
-        @Override
-        public float[] embed(Document document) { return unitVector(); }
-        private static float[] unitVector() {
-            float[] v = new float[384];
-            java.util.Arrays.fill(v, 1.0f / 384);
-            return v;
-        }
-    }
 }

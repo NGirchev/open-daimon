@@ -220,7 +220,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                         "common.error.model.guardrail", command.languageCode(), e.getModelId());
                 userModelPreferenceService.clearPreference(ctx.getTelegramUser().getId());
                 ctx.getMetadata().remove(PREFERRED_MODEL_ID_FIELD);
-                aiCommand = aiRequestPipeline.prepareCommand(command, ctx.getMetadata());
+                // Rebuild command without re-running document pipeline — metadata already has RAG results
+                aiCommand = aiRequestPipeline.rebuildCommandWithoutDocumentProcessing(command, ctx.getMetadata());
                 ctx.setAiCommand(aiCommand);
                 ctx.setModelCapabilities(aiCommand.modelCapabilities());
                 aiResponse = aiGateway.generateResponse(aiCommand);
@@ -252,7 +253,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         // Update RAG metadata if new documents were processed
         String newRagDocIds = aiCommand.metadata().get(RAG_DOCUMENT_IDS_FIELD);
         String newRagFilenames = aiCommand.metadata().get(RAG_FILENAMES_FIELD);
-        if (newRagFilenames != null) {
+        if (newRagFilenames != null && newRagDocIds != null) {
             messageService.updateRagMetadata(ctx.getUserMessage(),
                     Arrays.asList(newRagDocIds.split(",")),
                     Arrays.asList(newRagFilenames.split(",")));
@@ -349,7 +350,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
     private String withTelegramBotIdentity(String assistantRoleContent) {
         String baseRole = assistantRoleContent != null ? assistantRoleContent.trim() : "";
-        String normalizedBotUsername = normalizeBotUsername(telegramProperties.getUsername());
+        String normalizedBotUsername = telegramProperties.getNormalizedBotUsername();
         if (normalizedBotUsername == null) {
             return baseRole;
         }
@@ -364,14 +365,4 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         return baseRole + separator + identityClause;
     }
 
-    private String normalizeBotUsername(String username) {
-        if (username == null) {
-            return null;
-        }
-        String trimmed = username.trim();
-        if (trimmed.isBlank()) {
-            return null;
-        }
-        return trimmed.startsWith("@") ? trimmed : "@" + trimmed;
-    }
 }

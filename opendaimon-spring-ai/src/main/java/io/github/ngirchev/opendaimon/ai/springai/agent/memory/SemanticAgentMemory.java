@@ -60,12 +60,13 @@ public class SemanticAgentMemory implements AgentMemory {
 
     @Override
     public List<AgentFact> recall(String conversationId, String query, int topK) {
+        String sanitizedId = sanitizeFilterValue(conversationId);
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(query)
                 .topK(topK)
                 .similarityThreshold(similarityThreshold)
                 .filterExpression(METADATA_FACT_TYPE + " == 'true' && "
-                        + METADATA_CONVERSATION_ID + " == '" + conversationId + "'")
+                        + METADATA_CONVERSATION_ID + " == '" + sanitizedId + "'")
                 .build();
 
         List<Document> results = vectorStore.similaritySearch(searchRequest);
@@ -115,6 +116,17 @@ public class SemanticAgentMemory implements AgentMemory {
      */
     public static AgentFact createFact(String content, Map<String, String> metadata) {
         return new AgentFact(UUID.randomUUID().toString(), content, metadata, Instant.now());
+    }
+
+    /**
+     * Strips characters that could break filter expression syntax to prevent injection.
+     * Only allows alphanumeric, colon, hyphen, underscore, and dot.
+     */
+    private static String sanitizeFilterValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("[^a-zA-Z0-9:_.\\-]", "");
     }
 
     private String truncate(String text, int maxLength) {

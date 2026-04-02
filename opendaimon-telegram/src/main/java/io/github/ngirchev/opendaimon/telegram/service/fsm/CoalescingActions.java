@@ -23,7 +23,7 @@ public interface CoalescingActions {
      *
      * <p>Sets {@link CoalescingContext#isHasPending()},
      * {@link CoalescingContext#isCanMerge()},
-     * {@link CoalescingContext#isIsFirstCandidate()}.
+     * {@link CoalescingContext#isFirstCandidate()}.
      */
     void checkPending(CoalescingContext ctx);
 

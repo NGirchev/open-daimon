@@ -276,21 +276,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     }
 
     private String formatBotMention() {
-        String normalizedBotUsername = normalizeBotUsername(telegramProperties.getUsername());
-        if (normalizedBotUsername == null) {
-            return "@bot";
-        }
-        return normalizedBotUsername;
-    }
-
-    private String normalizeBotUsername(String username) {
-        if (username == null) {
-            return null;
-        }
-        String trimmed = username.trim();
-        if (trimmed.isBlank()) {
-            return null;
-        }
-        return trimmed.startsWith("@") ? trimmed : "@" + trimmed;
+        String normalized = telegramProperties.getNormalizedBotUsername();
+        return normalized != null ? normalized : "@bot";
     }
 }

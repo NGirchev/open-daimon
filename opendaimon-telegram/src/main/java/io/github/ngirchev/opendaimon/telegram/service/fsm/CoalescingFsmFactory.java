@@ -71,7 +71,7 @@ public final class CoalescingFsmFactory {
                         .action(action(actions::flushBoth))
                         .end()
                     .to(WAIT_FOR_PAIR)
-                        .onCondition(guard(CoalescingContext::isIsFirstCandidate))
+                        .onCondition(guard(CoalescingContext::isFirstCandidate))
                         .action(action(actions::holdCandidate))
                         .end()
                     .to(PROCESS_SINGLE)

@@ -97,7 +97,7 @@ public class ReActAgentExecutor implements AgentExecutor {
             } catch (Exception e) {
                 log.error("Agent stream execution failed: {}", e.getMessage(), e);
                 sink.tryEmitNext(AgentStreamEvent.error(e.getMessage(), 0));
-                sink.tryEmitComplete();
+                sink.tryEmitError(e);
             }
             return Flux.empty();
         }).subscribeOn(Schedulers.boundedElastic()).subscribe();

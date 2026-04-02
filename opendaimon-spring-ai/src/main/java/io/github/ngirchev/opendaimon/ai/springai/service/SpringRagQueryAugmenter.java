@@ -86,15 +86,10 @@ public class SpringRagQueryAugmenter implements IRagQueryAugmenter {
     }
 
     /**
-     * Parses comma-separated document IDs from metadata value.
+     * @deprecated Use {@link IRagQueryAugmenter#parseDocumentIds(String)} instead.
      */
+    @Deprecated(forRemoval = true)
     public static List<String> parseDocumentIds(String rawDocumentIds) {
-        if (rawDocumentIds == null || rawDocumentIds.isBlank()) {
-            return List.of();
-        }
-        return Arrays.stream(rawDocumentIds.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
+        return IRagQueryAugmenter.parseDocumentIds(rawDocumentIds);
     }
 }

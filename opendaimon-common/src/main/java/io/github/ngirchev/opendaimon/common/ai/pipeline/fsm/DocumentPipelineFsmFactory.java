@@ -32,16 +32,18 @@ import static io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentSta
  *
  * ANALYZED ──[auto]──┬─[textExtractable]──▶ TEXT_EXTRACTED
  *                    │   action: extractText()
- *                    └─[imageOnly]────────▶ VISION_OCR_COMPLETE
- *                        action: runVisionOcr()
+ *                    ├─[imageOnly]────────▶ VISION_OCR_COMPLETE
+ *                    │   action: runVisionOcr()
+ *                    └─[else]─────────────▶ ERROR
+ *                        action: handleUnsupported()
  *
  * TEXT_EXTRACTED ──[auto]──┬─[hasChunks]──▶ RAG_INDEXED (terminal)
- *                          │   action: indexInRag()
+ *                          │   action: confirmIndexed()
  *                          └─[noChunks]───▶ VISION_OCR_COMPLETE
  *                              action: runVisionOcr()  (fallback)
  *
  * VISION_OCR_COMPLETE ──[auto]──┬─[ocrSucceeded]──▶ RAG_INDEXED (terminal)
- *                               │   action: indexInRag()
+ *                               │   action: confirmIndexed()
  *                               └─[ocrFailed]─────▶ IMAGE_FALLBACK (terminal)
  * </pre>
  */
@@ -95,13 +97,16 @@ public final class DocumentPipelineFsmFactory {
                         .onCondition(guard(AttachmentProcessingContext::isImageOnly))
                         .action(action(actions::runVisionOcr))
                         .end()
+                    .to(ERROR)
+                        .action(action(actions::handleUnsupported))
+                        .end()
                     .endMultiple()
 
                 // === TEXT_EXTRACTED → branch: has chunks or fallback to OCR (auto-transition) ===
                 .from(TEXT_EXTRACTED).toMultiple()
                     .to(RAG_INDEXED)
                         .onCondition(guard(AttachmentProcessingContext::hasExtractedChunks))
-                        .action(action(actions::indexInRag))
+                        .action(action(actions::confirmIndexed))
                         .end()
                     .to(VISION_OCR_COMPLETE)
                         .action(action(actions::runVisionOcr))
@@ -112,7 +117,7 @@ public final class DocumentPipelineFsmFactory {
                 .from(VISION_OCR_COMPLETE).toMultiple()
                     .to(RAG_INDEXED)
                         .onCondition(guard(AttachmentProcessingContext::isVisionOcrSucceeded))
-                        .action(action(actions::indexInRag))
+                        .action(action(actions::confirmIndexed))
                         .end()
                     .to(IMAGE_FALLBACK)
                         .end()

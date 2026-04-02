@@ -163,7 +163,7 @@ class TelegramMockGatewayIT {
         }
 
         @Bean
-        public OpenDaimonMeterRegistry OpenDaimonMeterRegistry(MeterRegistry meterRegistry) {
+        public OpenDaimonMeterRegistry openDaimonMeterRegistry(MeterRegistry meterRegistry) {
             return new OpenDaimonMeterRegistry(meterRegistry);
         }
 
@@ -203,7 +203,7 @@ class TelegramMockGatewayIT {
         }
 
         @Bean
-        public OpenDaimonMessageService OpenDaimonMessageService(
+        public OpenDaimonMessageService openDaimonMessageService(
                 OpenDaimonMessageRepository messageRepository,
                 ConversationThreadService conversationThreadService,
                 AssistantRoleService assistantRoleService,

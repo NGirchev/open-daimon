@@ -51,12 +51,15 @@ public interface DocumentPipelineActions {
     void runVisionOcr(AttachmentProcessingContext ctx);
 
     /**
-     * Index extracted text chunks in VectorStore for RAG retrieval.
-     * Called during TEXT_EXTRACTED → RAG_INDEXED or VISION_OCR_COMPLETE → RAG_INDEXED.
+     * Confirms the pipeline reached RAG_INDEXED terminal state.
      *
-     * <p>Sets {@link AttachmentProcessingContext#getDocumentId()}.
+     * <p>The actual RAG indexing happens inside {@link #extractText} or {@link #runVisionOcr}
+     * (the underlying DocumentProcessingService performs extract + chunk + index in one call).
+     * This action is a confirmation hook for logging and post-processing.
+     *
+     * <p>Called during TEXT_EXTRACTED → RAG_INDEXED or VISION_OCR_COMPLETE → RAG_INDEXED.
      */
-    void indexInRag(AttachmentProcessingContext ctx);
+    void confirmIndexed(AttachmentProcessingContext ctx);
 
     /**
      * Handle unsupported attachment type.

@@ -95,6 +95,9 @@ public class TelegramMessageCoalescingService implements CoalescingActions {
         UserChatKey key = extractUserChatKey(ctx.getUpdate());
         PendingFirstMessage pending = pendingByKey.get(key);
 
+        // Capture the pending snapshot to avoid re-reading from the concurrent map later
+        ctx.setCapturedPending(pending);
+
         if (pending != null) {
             ctx.setHasPending(true);
             ctx.setCanMerge(canMerge(pending, ctx.getUpdate()));
@@ -107,7 +110,12 @@ public class TelegramMessageCoalescingService implements CoalescingActions {
     @Override
     public void merge(CoalescingContext ctx) {
         UserChatKey key = extractUserChatKey(ctx.getUpdate());
-        PendingFirstMessage pending = pendingByKey.get(key);
+        PendingFirstMessage pending = (PendingFirstMessage) ctx.getCapturedPending();
+        if (pending == null) {
+            log.debug("Message coalescing merge: pending already flushed by timeout, falling back to single");
+            ctx.setResult(new ProcessSingle(ctx.getUpdate(), "pending_timeout_race"));
+            return;
+        }
         removePending(key, pending);
 
         String linkType = resolveLinkType(pending, ctx.getUpdate());
@@ -119,7 +127,12 @@ public class TelegramMessageCoalescingService implements CoalescingActions {
     @Override
     public void flushBoth(CoalescingContext ctx) {
         UserChatKey key = extractUserChatKey(ctx.getUpdate());
-        PendingFirstMessage pending = pendingByKey.get(key);
+        PendingFirstMessage pending = (PendingFirstMessage) ctx.getCapturedPending();
+        if (pending == null) {
+            log.debug("Message coalescing flushBoth: pending already flushed by timeout, falling back to single");
+            ctx.setResult(new ProcessSingle(ctx.getUpdate(), "pending_timeout_race"));
+            return;
+        }
         removePending(key, pending);
 
         log.debug("Message coalescing no-merge: chatId={}, userId={}, firstMessageId={}, secondMessageId={}",

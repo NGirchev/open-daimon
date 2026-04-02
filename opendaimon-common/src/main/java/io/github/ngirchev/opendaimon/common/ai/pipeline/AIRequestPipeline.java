@@ -66,4 +66,13 @@ public class AIRequestPipeline {
 
         return ctx.getResult();
     }
+
+    /**
+     * Rebuilds an AICommand using the factory directly, skipping the document processing FSM.
+     * Use when metadata already contains RAG results from a prior pipeline run
+     * (e.g., guardrail retry after model switch).
+     */
+    public AICommand rebuildCommandWithoutDocumentProcessing(ICommand<?> command, Map<String, String> metadata) {
+        return factoryRegistry.createCommand(command, metadata);
+    }
 }

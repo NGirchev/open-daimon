@@ -27,7 +27,21 @@ public class TelegramProperties {
     
     @NotBlank(message = "Bot username cannot be blank")
     private String username;
-    
+
+    /**
+     * Returns the bot username prefixed with @ (normalized form for mentions).
+     */
+    public String getNormalizedBotUsername() {
+        if (username == null) {
+            return null;
+        }
+        String trimmed = username.trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        return trimmed.startsWith("@") ? trimmed : "@" + trimmed;
+    }
+
     /**
      * Access configuration for user priority levels.
      * Supports both environment variables and direct configuration.

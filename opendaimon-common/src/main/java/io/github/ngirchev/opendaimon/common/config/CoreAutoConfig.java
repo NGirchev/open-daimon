@@ -3,6 +3,7 @@ package io.github.ngirchev.opendaimon.common.config;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -205,17 +206,13 @@ public class CoreAutoConfig {
      */
     @Bean
     @ConditionalOnMissingBean(AIRequestPipelineActions.class)
+    @ConditionalOnBean(name = "documentPipelineFsm")
     public DefaultAIRequestPipelineActions aiRequestPipelineActions(
-            ObjectProvider<ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent>> documentFsmProvider,
+            ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentPipelineFsm,
             ObjectProvider<IRagQueryAugmenter> ragQueryAugmenterProvider,
             AICommandFactoryRegistry aiCommandFactoryRegistry) {
-        ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentFsm =
-                documentFsmProvider.getIfAvailable();
-        if (documentFsm == null) {
-            return null;
-        }
         return new DefaultAIRequestPipelineActions(
-                documentFsm,
+                documentPipelineFsm,
                 ragQueryAugmenterProvider.getIfAvailable(),
                 aiCommandFactoryRegistry);
     }
@@ -226,12 +223,9 @@ public class CoreAutoConfig {
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(AIRequestPipelineActions.class)
     public ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent> aiRequestPipelineFsm(
-            ObjectProvider<AIRequestPipelineActions> actionsProvider) {
-        AIRequestPipelineActions actions = actionsProvider.getIfAvailable();
-        if (actions == null) {
-            return null;
-        }
+            AIRequestPipelineActions actions) {
         log.info("Creating AI request pipeline FSM");
         return AIRequestPipelineFsmFactory.create(actions);
     }

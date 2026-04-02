@@ -29,7 +29,10 @@ public final class CoalescingContext implements StateContext<CoalescingState> {
     private boolean hasKey;
     private boolean hasPending;
     private boolean canMerge;
-    private boolean isFirstCandidate;
+    private boolean firstCandidate;
+
+    // --- Snapshot of pending message captured during checkPending (avoids re-read race) ---
+    private Object capturedPending;
 
     // --- Output ---
     private CoalescingAction result;
@@ -115,12 +118,20 @@ public final class CoalescingContext implements StateContext<CoalescingState> {
         return hasPending && !canMerge;
     }
 
-    public boolean isIsFirstCandidate() {
-        return isFirstCandidate;
+    public boolean isFirstCandidate() {
+        return firstCandidate;
     }
 
     public void setFirstCandidate(boolean firstCandidate) {
-        this.isFirstCandidate = firstCandidate;
+        this.firstCandidate = firstCandidate;
+    }
+
+    public Object getCapturedPending() {
+        return capturedPending;
+    }
+
+    public void setCapturedPending(Object capturedPending) {
+        this.capturedPending = capturedPending;
     }
 
     // --- Output ---

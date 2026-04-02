@@ -81,8 +81,10 @@ public class PersistingAgentOrchestrator implements AgentOrchestrator {
             stepEntity.setErrorMessage(stepResult.error());
             stepEntity.setIterationsUsed(stepResult.agentResult() != null
                     ? stepResult.agentResult().iterationsUsed() : 0);
-            stepEntity.setStartedAt(execution.getStartedAt());
-            stepEntity.setFinishedAt(Instant.now());
+            Instant stepFinished = Instant.now();
+            Instant stepStarted = stepFinished.minus(stepResult.duration());
+            stepEntity.setStartedAt(stepStarted);
+            stepEntity.setFinishedAt(stepFinished);
             stepEntity.setDurationMs(stepResult.duration().toMillis());
 
             execution.getSteps().add(stepEntity);

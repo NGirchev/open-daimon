@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.common.ai.pipeline;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -32,4 +33,17 @@ public interface IRagQueryAugmenter {
      * @return augmented query, or original query if no chunks found
      */
     String augmentFromStoredDocuments(String userQuery, List<String> documentIds);
+
+    /**
+     * Parses comma-separated document IDs from a raw metadata value.
+     */
+    static List<String> parseDocumentIds(String rawDocumentIds) {
+        if (rawDocumentIds == null || rawDocumentIds.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(rawDocumentIds.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
 }

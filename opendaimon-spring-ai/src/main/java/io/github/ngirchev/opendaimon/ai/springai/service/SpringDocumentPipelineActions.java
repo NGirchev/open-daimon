@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.content.Media;
 import org.springframework.ai.document.Document;
@@ -156,12 +157,12 @@ public class SpringDocumentPipelineActions implements DocumentPipelineActions {
     }
 
     @Override
-    public void indexInRag(AttachmentProcessingContext ctx) {
+    public void confirmIndexed(AttachmentProcessingContext ctx) {
         // Indexing already happened during extractText or runVisionOcr
         // (DocumentProcessingService.processPdf/processWithTika/processExtractedText
         //  perform extract + chunk + index in one call).
         // This action confirms the pipeline reached RAG_INDEXED state.
-        log.info("FSM indexInRag: confirmed for '{}', documentId={}, chunks={}",
+        log.info("FSM confirmIndexed: confirmed for '{}', documentId={}, chunks={}",
                 ctx.getProcessedFilename(), ctx.getDocumentId(),
                 ctx.getExtractedChunks().size());
     }
@@ -179,8 +180,7 @@ public class SpringDocumentPipelineActions implements DocumentPipelineActions {
 
     private List<Attachment> renderPdfToImageAttachments(byte[] pdfData, String filename) {
         try (PDDocument document = Loader.loadPDF(pdfData)) {
-            org.apache.pdfbox.rendering.PDFRenderer renderer =
-                    new org.apache.pdfbox.rendering.PDFRenderer(document);
+            PDFRenderer renderer = new PDFRenderer(document);
 
             int pageCount = document.getNumberOfPages();
             int pagesToRender = Math.min(pageCount, MAX_PDF_PAGES_TO_RENDER);

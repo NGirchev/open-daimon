@@ -23,6 +23,7 @@ import org.springframework.ai.tool.ToolCallback;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -46,13 +47,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final AgentMemory agentMemory;
     private final FactExtractor factExtractor;
 
-    /**
-     * Conversation history maintained across iterations within a single agent execution.
-     * Reset per execution — not shared across different AgentRequest invocations.
-     */
-    private final ThreadLocal<List<Message>> conversationHistory = ThreadLocal.withInitial(ArrayList::new);
-    private final ThreadLocal<Prompt> lastPrompt = new ThreadLocal<>();
-    private final ThreadLocal<ChatResponse> lastResponse = new ThreadLocal<>();
+    private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
+    private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
+    private static final String KEY_LAST_RESPONSE = "spring.lastResponse";
 
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
@@ -70,7 +67,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     public void think(AgentContext ctx) {
         ctx.emitEvent(AgentStreamEvent.thinking(ctx.getCurrentIteration()));
         try {
-            List<Message> messages = conversationHistory.get();
+            List<Message> messages = getOrCreateHistory(ctx);
 
             if (messages.isEmpty()) {
                 String systemPrompt = AgentPromptBuilder.buildSystemPrompt();
@@ -82,19 +79,20 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 messages.add(new UserMessage(AgentPromptBuilder.buildUserMessage(ctx)));
             }
 
+            List<ToolCallback> effectiveCallbacks = resolveEffectiveTools(ctx);
             ToolCallingChatOptions chatOptions = ToolCallingChatOptions.builder()
-                    .toolCallbacks(toolCallbacks)
+                    .toolCallbacks(effectiveCallbacks)
                     .internalToolExecutionEnabled(false)
                     .build();
 
             Prompt prompt = new Prompt(List.copyOf(messages), chatOptions);
-            lastPrompt.set(prompt);
+            ctx.putExtra(KEY_LAST_PROMPT, prompt);
 
             log.info("Agent think: iteration={}, messages={}, tools={}",
                     ctx.getCurrentIteration(), messages.size(), toolCallbacks.size());
 
             ChatResponse response = chatModel.call(prompt);
-            lastResponse.set(response);
+            ctx.putExtra(KEY_LAST_RESPONSE, response);
 
             if (response == null || response.getResult() == null) {
                 ctx.setErrorMessage("LLM returned empty response");
@@ -105,6 +103,10 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             if (response.hasToolCalls()) {
                 var toolCalls = output.getToolCalls();
+                if (toolCalls.size() > 1) {
+                    log.warn("Agent think: LLM returned {} tool calls, only the first will be executed. " +
+                            "Parallel tool calls are not yet supported.", toolCalls.size());
+                }
                 var firstToolCall = toolCalls.getFirst();
                 ctx.setCurrentThought("Calling tool: " + firstToolCall.name());
                 ctx.setCurrentToolName(firstToolCall.name());
@@ -132,8 +134,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.emitEvent(AgentStreamEvent.toolCall(
                 ctx.getCurrentToolName(), ctx.getCurrentToolArguments(), ctx.getCurrentIteration()));
         try {
-            Prompt prompt = lastPrompt.get();
-            ChatResponse response = lastResponse.get();
+            Prompt prompt = ctx.getExtra(KEY_LAST_PROMPT);
+            ChatResponse response = ctx.getExtra(KEY_LAST_RESPONSE);
 
             if (prompt == null || response == null) {
                 ctx.setErrorMessage("No prompt/response available for tool execution");
@@ -149,13 +151,11 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             ctx.setToolResult(AgentToolResult.success(ctx.getCurrentToolName(), observation));
 
-            List<Message> messages = conversationHistory.get();
+            List<Message> messages = getOrCreateHistory(ctx);
             if (!resultMessages.isEmpty()) {
                 Message lastMsg = resultMessages.getLast();
                 messages.add(lastMsg);
             }
-
-            messages.add(new UserMessage(AgentPromptBuilder.buildUserMessage(ctx)));
 
             log.info("Agent executeTool: completed, observation length={}",
                     observation != null ? observation.length() : 0);
@@ -169,16 +169,11 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void observe(AgentContext ctx) {
-        AgentToolResult toolResultVal = ctx.getToolResult();
-        String obs = toolResultVal != null && toolResultVal.success()
-                ? toolResultVal.result()
-                : (toolResultVal != null ? "Error: " + toolResultVal.error() : null);
-        ctx.emitEvent(AgentStreamEvent.observation(obs, ctx.getCurrentIteration()));
-
         AgentToolResult toolResult = ctx.getToolResult();
         String observation = toolResult != null && toolResult.success()
                 ? toolResult.result()
                 : (toolResult != null ? "Error: " + toolResult.error() : "No result");
+        ctx.emitEvent(AgentStreamEvent.observation(observation, ctx.getCurrentIteration()));
 
         ctx.recordStep(new AgentStepResult(
                 ctx.getCurrentIteration(),
@@ -200,7 +195,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     public void answer(AgentContext ctx) {
         ctx.setFinalAnswer(ctx.getCurrentTextResponse());
         extractFacts(ctx);
-        cleanup();
+        cleanup(ctx);
         log.info("Agent answer: final answer set, length={}",
                 ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0);
     }
@@ -223,13 +218,16 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         }
 
         ctx.setFinalAnswer(sb.toString());
-        cleanup();
+        cleanup(ctx);
         log.warn("Agent handleMaxIterations: {} iterations exhausted", ctx.getMaxIterations());
     }
 
     @Override
     public void handleError(AgentContext ctx) {
-        cleanup();
+        if (ctx.getErrorMessage() == null) {
+            ctx.setErrorMessage("LLM returned neither a tool call nor a final answer");
+        }
+        cleanup(ctx);
         log.error("Agent handleError: {}", ctx.getErrorMessage());
     }
 
@@ -242,11 +240,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      * Best-effort — failures don't affect the agent response.
      */
     private void extractFacts(AgentContext ctx) {
-        if (factExtractor == null || !ctx.getStepHistory().isEmpty()) {
+        if (factExtractor != null && !ctx.getStepHistory().isEmpty()) {
             // Only extract when there were tool interactions (non-trivial conversations)
-            if (factExtractor != null) {
-                factExtractor.extractAndStore(ctx);
-            }
+            factExtractor.extractAndStore(ctx);
         }
     }
 
@@ -272,6 +268,25 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     }
 
     /**
+     * Filters the full tool callback list by {@code ctx.getEnabledTools()}.
+     * If enabledTools is empty or null, all tools are available (default behavior).
+     */
+    private List<ToolCallback> resolveEffectiveTools(AgentContext ctx) {
+        Set<String> enabled = ctx.getEnabledTools();
+        if (enabled == null || enabled.isEmpty()) {
+            return toolCallbacks;
+        }
+        List<ToolCallback> filtered = toolCallbacks.stream()
+                .filter(cb -> enabled.contains(cb.getToolDefinition().name()))
+                .toList();
+        if (filtered.isEmpty()) {
+            log.warn("Agent think: enabledTools={} matched no registered tools, using all", enabled);
+            return toolCallbacks;
+        }
+        return filtered;
+    }
+
+    /**
      * Extracts the tool result text from the conversation history returned by
      * {@link ToolCallingManager#executeToolCalls}.
      */
@@ -283,9 +298,19 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         return last.getText();
     }
 
-    private void cleanup() {
-        conversationHistory.remove();
-        lastPrompt.remove();
-        lastResponse.remove();
+    private void cleanup(AgentContext ctx) {
+        ctx.removeExtra(KEY_CONVERSATION_HISTORY);
+        ctx.removeExtra(KEY_LAST_PROMPT);
+        ctx.removeExtra(KEY_LAST_RESPONSE);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Message> getOrCreateHistory(AgentContext ctx) {
+        List<Message> history = ctx.getExtra(KEY_CONVERSATION_HISTORY);
+        if (history == null) {
+            history = new ArrayList<>();
+            ctx.putExtra(KEY_CONVERSATION_HISTORY, history);
+        }
+        return history;
     }
 }

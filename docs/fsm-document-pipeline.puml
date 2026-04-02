@@ -32,10 +32,10 @@ CLASSIFIED --> ERROR : [else]\n//action: handleUnsupported()//
 ANALYZED --> TEXT_EXTRACTED : [textExtractable]\n//action: extractText()//
 ANALYZED --> VISION_OCR : [imageOnly]\n//action: runVisionOcr()//
 
-TEXT_EXTRACTED --> RAG_INDEXED : [hasChunks]\n//action: indexInRag()//
+TEXT_EXTRACTED --> RAG_INDEXED : [hasChunks]\n//action: confirmIndexed()//
 TEXT_EXTRACTED --> VISION_OCR : [noChunks — fallback]\n//action: runVisionOcr()//
 
-VISION_OCR --> RAG_INDEXED : [ocrSucceeded]\n//action: indexInRag()//
+VISION_OCR --> RAG_INDEXED : [ocrSucceeded]\n//action: confirmIndexed()//
 VISION_OCR --> IMAGE_FALLBACK : [ocrFailed]
 
 IMAGE_PASS --> [*]

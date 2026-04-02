@@ -17,7 +17,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -105,10 +104,7 @@ public class DefaultAIRequestPipelineActions implements AIRequestPipelineActions
             return;
         }
 
-        List<String> documentIds = Arrays.stream(rawDocumentIds.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
+        List<String> documentIds = IRagQueryAugmenter.parseDocumentIds(rawDocumentIds);
 
         if (documentIds.isEmpty()) {
             ctx.setAugmentedQuery(userQuery);
