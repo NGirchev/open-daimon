@@ -15,8 +15,11 @@ import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.ObjectProvider;
@@ -42,11 +45,32 @@ import java.util.List;
  * <p>All beans use {@code @ConditionalOnMissingBean} so they can be overridden
  * by application-specific configurations.
  */
+@Slf4j
 @AutoConfiguration
 @AutoConfigureAfter(SpringAIAutoConfig.class)
 @ConditionalOnProperty(name = "open-daimon.agent.enabled", havingValue = "true")
 @EnableConfigurationProperties(AgentProperties.class)
 public class AgentAutoConfig {
+
+    /**
+     * Resolves the ChatModel to use for agent operations.
+     * Prefers OpenAI if available, falls back to Ollama.
+     */
+    private static ChatModel resolveAgentChatModel(
+            ObjectProvider<OpenAiChatModel> openAiProvider,
+            ObjectProvider<OllamaChatModel> ollamaProvider) {
+        ChatModel model = openAiProvider.getIfAvailable();
+        if (model != null) {
+            log.info("Agent framework using OpenAI chat model");
+            return model;
+        }
+        model = ollamaProvider.getIfAvailable();
+        if (model != null) {
+            log.info("Agent framework using Ollama chat model");
+            return model;
+        }
+        throw new IllegalStateException("No ChatModel (OpenAI or Ollama) available for agent framework");
+    }
 
     // --- Agent Memory ---
 
@@ -63,8 +87,11 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(FactExtractor.class)
     @ConditionalOnBean(AgentMemory.class)
-    public FactExtractor factExtractor(ChatModel chatModel, AgentMemory agentMemory) {
-        return new FactExtractor(chatModel, agentMemory);
+    public FactExtractor factExtractor(
+            ObjectProvider<OpenAiChatModel> openAiProvider,
+            ObjectProvider<OllamaChatModel> ollamaProvider,
+            AgentMemory agentMemory) {
+        return new FactExtractor(resolveAgentChatModel(openAiProvider, ollamaProvider), agentMemory);
     }
 
     // --- Agent Loop ---
@@ -72,11 +99,13 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(AgentLoopActions.class)
     public SpringAgentLoopActions agentLoopActions(
-            ChatModel chatModel,
+            ObjectProvider<OpenAiChatModel> openAiProvider,
+            ObjectProvider<OllamaChatModel> ollamaProvider,
             ToolCallingManager toolCallingManager,
             ObjectProvider<List<ToolCallback>> toolCallbacksProvider,
             ObjectProvider<AgentMemory> agentMemoryProvider,
             ObjectProvider<FactExtractor> factExtractorProvider) {
+        ChatModel chatModel = resolveAgentChatModel(openAiProvider, ollamaProvider);
         List<ToolCallback> callbacks = toolCallbacksProvider.getIfAvailable(List::of);
         AgentMemory memory = agentMemoryProvider.getIfAvailable();
         FactExtractor extractor = factExtractorProvider.getIfAvailable();
@@ -98,15 +127,20 @@ public class AgentAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public SimpleChainExecutor simpleChainExecutor(ChatModel chatModel) {
-        return new SimpleChainExecutor(chatModel);
+    public SimpleChainExecutor simpleChainExecutor(
+            ObjectProvider<OpenAiChatModel> openAiProvider,
+            ObjectProvider<OllamaChatModel> ollamaProvider) {
+        return new SimpleChainExecutor(resolveAgentChatModel(openAiProvider, ollamaProvider));
     }
 
     @Bean
     @ConditionalOnMissingBean
     public PlanAndExecuteAgentExecutor planAndExecuteAgentExecutor(
-            ChatModel chatModel, ReActAgentExecutor reactExecutor) {
-        return new PlanAndExecuteAgentExecutor(chatModel, reactExecutor);
+            ObjectProvider<OpenAiChatModel> openAiProvider,
+            ObjectProvider<OllamaChatModel> ollamaProvider,
+            ReActAgentExecutor reactExecutor) {
+        return new PlanAndExecuteAgentExecutor(
+                resolveAgentChatModel(openAiProvider, ollamaProvider), reactExecutor);
     }
 
     @Primary

@@ -2,6 +2,7 @@ package io.github.ngirchev.opendaimon.telegram.config;
 
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -36,7 +37,7 @@ import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 
 @Configuration
-@ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true")
 public class TelegramCommandHandlerConfig {
 
     @Bean
@@ -200,7 +201,7 @@ public class TelegramCommandHandlerConfig {
     }
 
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(name = "messageHandlerFsm")
     @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
     public ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> messageHandlerFsm(
             MessageHandlerActions actions) {

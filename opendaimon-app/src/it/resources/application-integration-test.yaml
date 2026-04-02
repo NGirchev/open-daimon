@@ -19,6 +19,7 @@ open-daimon:
   ui:
     enabled: false
   telegram:
+    enabled: true
     token: test-token
     username: test-bot
     start-message: Hello from integration test
