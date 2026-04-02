@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
+import io.github.ngirchev.opendaimon.ai.springai.agent.memory.CompositeAgentMemory;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.SemanticAgentMemory;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
@@ -75,11 +76,27 @@ public class AgentAutoConfig {
     // --- Agent Memory ---
 
     @Bean
-    @ConditionalOnMissingBean(AgentMemory.class)
+    @ConditionalOnMissingBean(SemanticAgentMemory.class)
     @ConditionalOnBean(VectorStore.class)
     @ConditionalOnProperty(name = "open-daimon.agent.memory.enabled", havingValue = "true")
     public SemanticAgentMemory semanticAgentMemory(VectorStore vectorStore, AgentProperties properties) {
         return new SemanticAgentMemory(vectorStore, properties.getMemorySimilarityThreshold());
+    }
+
+    /**
+     * When multiple {@link AgentMemory} beans exist, combines them via {@link CompositeAgentMemory}.
+     * Marked {@code @Primary} so other beans (FactExtractor, AgentLoopActions) get the composite.
+     */
+    @Bean
+    @Primary
+    @ConditionalOnMissingBean(CompositeAgentMemory.class)
+    @ConditionalOnBean(SemanticAgentMemory.class)
+    public AgentMemory compositeAgentMemory(List<AgentMemory> memories) {
+        if (memories.size() == 1) {
+            return memories.getFirst();
+        }
+        log.info("Agent memory: composing {} memory sources", memories.size());
+        return new CompositeAgentMemory(memories);
     }
 
     // --- Agent Loop ---

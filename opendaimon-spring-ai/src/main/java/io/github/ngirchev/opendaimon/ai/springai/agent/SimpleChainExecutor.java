@@ -42,9 +42,8 @@ public class SimpleChainExecutor implements AgentExecutor {
             ));
 
             ChatResponse response = chatModel.call(prompt);
-            String answer = response != null && response.getResult() != null
-                    ? response.getResult().getOutput().getText()
-                    : null;
+            response.getResult();
+            String answer = response.getResult().getOutput().getText();
 
             Duration duration = Duration.between(start, Instant.now());
             log.info("SimpleChain completed: duration={}ms", duration.toMillis());

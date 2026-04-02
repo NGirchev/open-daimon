@@ -219,11 +219,9 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                 messageSender.sendNotification(command.telegramId(),
                         "common.error.model.guardrail", command.languageCode(), e.getModelId());
                 userModelPreferenceService.clearPreference(ctx.getTelegramUser().getId());
-                ctx.getMetadata().remove(PREFERRED_MODEL_ID_FIELD);
-                // Rebuild command without re-running document pipeline — metadata already has RAG results
-                aiCommand = aiRequestPipeline.rebuildCommandWithoutDocumentProcessing(command, ctx.getMetadata());
-                ctx.setAiCommand(aiCommand);
-                ctx.setModelCapabilities(aiCommand.modelCapabilities());
+                // Clear preferred model from metadata — gateway will select a different model.
+                // Reuse the existing aiCommand (preserves augmented query + processed attachments).
+                aiCommand.metadata().remove(PREFERRED_MODEL_ID_FIELD);
                 aiResponse = aiGateway.generateResponse(aiCommand);
                 extractResponseContext(ctx, aiResponse, command, message);
             }

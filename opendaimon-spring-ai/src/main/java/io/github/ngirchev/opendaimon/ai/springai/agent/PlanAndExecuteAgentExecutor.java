@@ -127,9 +127,7 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
         ));
 
         ChatResponse response = chatModel.call(prompt);
-        if (response == null || response.getResult() == null) {
-            return List.of();
-        }
+        response.getResult();
 
         String text = response.getResult().getOutput().getText();
         return parsePlanJson(text);

@@ -76,7 +76,7 @@ public class ReActAgentExecutor implements AgentExecutor {
                 );
 
                 // Install an event listener on the context
-                ctx.setStreamSink(event -> sink.tryEmitNext(event));
+                ctx.setStreamSink(sink::tryEmitNext);
 
                 agentFsm.handle(ctx, AgentEvent.START);
 

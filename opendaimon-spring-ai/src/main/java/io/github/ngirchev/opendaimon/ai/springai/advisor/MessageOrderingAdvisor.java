@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.advisor;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jetbrains.annotations.NotNull;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
@@ -30,6 +31,7 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
     
     private static final int ORDER = Ordered.LOWEST_PRECEDENCE - 100; // Runs after MessageChatMemoryAdvisor
     
+    @NotNull
     @Override
     public String getName() {
         return "MessageOrderingAdvisor";
@@ -40,13 +42,15 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
         return ORDER;
     }
     
+    @NotNull
     @Override
-    public ChatClientRequest before(ChatClientRequest request, AdvisorChain chain) {
+    public ChatClientRequest before(@NotNull ChatClientRequest request, @NotNull AdvisorChain chain) {
         return reorderMessages(request);
     }
     
+    @NotNull
     @Override
-    public ChatClientResponse after(ChatClientResponse response, AdvisorChain chain) {
+    public ChatClientResponse after(@NotNull ChatClientResponse response, @NotNull AdvisorChain chain) {
         // Do not change response, return as is
         return response;
     }
@@ -57,7 +61,7 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
     private ChatClientRequest reorderMessages(ChatClientRequest request) {
         Prompt prompt = request.prompt();
         List<Message> messages = prompt.getInstructions();
-        if (messages == null || messages.isEmpty()) {
+        if (messages.isEmpty()) {
             log.debug("No messages to reorder");
             return request;
         }

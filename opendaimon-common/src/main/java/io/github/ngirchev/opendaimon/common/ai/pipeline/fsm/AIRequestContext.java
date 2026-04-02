@@ -6,6 +6,8 @@ import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.command.IChatCommand;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
+import lombok.Getter;
+import lombok.Setter;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -28,32 +30,64 @@ public final class AIRequestContext implements StateContext<AIRequestState> {
     private Transition<AIRequestState> currentTransition;
 
     // --- Input (immutable after construction) ---
+    @Getter
     private final ICommand<?> command;
+    @Getter
     private final Map<String, String> metadata;
 
     // --- Validation results (set by validate action) ---
+    @Setter
+    @Getter
     private IChatCommand<?> chatCommand;
+    @Setter
+    @Getter
     private List<Attachment> attachments = List.of();
+    @Setter
+    @Getter
     private String userText;
 
     // --- Classification results (set by classify action) ---
+    @Setter
+    @Getter
     private boolean hasDocuments;
+    @Setter
+    @Getter
     private boolean hasFollowUpRag;
+    @Setter
+    @Getter
     private List<String> unrecognizedTypes = List.of();
 
     // --- Document processing results (set by processDocuments/collectResults actions) ---
+    @Setter
+    @Getter
     private List<AttachmentProcessingContext> fsmContexts = List.of();
+    @Setter
+    @Getter
     private List<String> allChunkTexts = new ArrayList<>();
+    @Setter
+    @Getter
     private List<String> processedDocumentIds = new ArrayList<>();
+    @Setter
+    @Getter
     private List<String> processedFilenames = new ArrayList<>();
+    @Setter
+    @Getter
     private List<Attachment> mutableAttachments = new ArrayList<>();
+    @Setter
+    @Getter
     private List<String> pdfAsImageFilenames = new ArrayList<>();
 
     // --- Query augmentation (set by augmentQuery/processFollowUpRag actions) ---
+    @Setter
+    @Getter
     private String augmentedQuery;
 
     // --- Output ---
+    @Setter
+    @Getter
     private AICommand result;
+    @Setter
+    @Getter
     private String errorMessage;
 
     public AIRequestContext(ICommand<?> command, Map<String, String> metadata) {
@@ -85,74 +119,12 @@ public final class AIRequestContext implements StateContext<AIRequestState> {
         this.currentTransition = transition;
     }
 
-    // --- Input accessors ---
-
-    public ICommand<?> getCommand() {
-        return command;
-    }
-
-    public Map<String, String> getMetadata() {
-        return metadata;
-    }
-
-    // --- Validation ---
-
-    public IChatCommand<?> getChatCommand() {
-        return chatCommand;
-    }
-
-    public void setChatCommand(IChatCommand<?> chatCommand) {
-        this.chatCommand = chatCommand;
-    }
-
-    public List<Attachment> getAttachments() {
-        return attachments;
-    }
-
-    public void setAttachments(List<Attachment> attachments) {
-        this.attachments = attachments;
-    }
-
-    public String getUserText() {
-        return userText;
-    }
-
-    public void setUserText(String userText) {
-        this.userText = userText;
-    }
-
-    // --- Classification guards ---
-
     public boolean isChatCommand() {
         return chatCommand != null;
     }
 
     public boolean isNotChatCommand() {
         return chatCommand == null;
-    }
-
-    public boolean isHasDocuments() {
-        return hasDocuments;
-    }
-
-    public void setHasDocuments(boolean hasDocuments) {
-        this.hasDocuments = hasDocuments;
-    }
-
-    public boolean isHasFollowUpRag() {
-        return hasFollowUpRag;
-    }
-
-    public void setHasFollowUpRag(boolean hasFollowUpRag) {
-        this.hasFollowUpRag = hasFollowUpRag;
-    }
-
-    public List<String> getUnrecognizedTypes() {
-        return unrecognizedTypes;
-    }
-
-    public void setUnrecognizedTypes(List<String> unrecognizedTypes) {
-        this.unrecognizedTypes = unrecognizedTypes;
     }
 
     public boolean hasUnrecognized() {
@@ -173,85 +145,6 @@ public final class AIRequestContext implements StateContext<AIRequestState> {
         return !hasDocuments && hasFollowUpRag;
     }
 
-    // --- Document processing ---
-
-    public List<AttachmentProcessingContext> getFsmContexts() {
-        return fsmContexts;
-    }
-
-    public void setFsmContexts(List<AttachmentProcessingContext> fsmContexts) {
-        this.fsmContexts = fsmContexts;
-    }
-
-    public List<String> getAllChunkTexts() {
-        return allChunkTexts;
-    }
-
-    public void setAllChunkTexts(List<String> allChunkTexts) {
-        this.allChunkTexts = allChunkTexts;
-    }
-
-    public List<String> getProcessedDocumentIds() {
-        return processedDocumentIds;
-    }
-
-    public void setProcessedDocumentIds(List<String> processedDocumentIds) {
-        this.processedDocumentIds = processedDocumentIds;
-    }
-
-    public List<String> getProcessedFilenames() {
-        return processedFilenames;
-    }
-
-    public void setProcessedFilenames(List<String> processedFilenames) {
-        this.processedFilenames = processedFilenames;
-    }
-
-    public List<Attachment> getMutableAttachments() {
-        return mutableAttachments;
-    }
-
-    public void setMutableAttachments(List<Attachment> mutableAttachments) {
-        this.mutableAttachments = mutableAttachments;
-    }
-
-    public List<String> getPdfAsImageFilenames() {
-        return pdfAsImageFilenames;
-    }
-
-    public void setPdfAsImageFilenames(List<String> pdfAsImageFilenames) {
-        this.pdfAsImageFilenames = pdfAsImageFilenames;
-    }
-
-    // --- Query augmentation ---
-
-    public String getAugmentedQuery() {
-        return augmentedQuery;
-    }
-
-    public void setAugmentedQuery(String augmentedQuery) {
-        this.augmentedQuery = augmentedQuery;
-    }
-
-    // --- Output ---
-
-    public AICommand getResult() {
-        return result;
-    }
-
-    public void setResult(AICommand result) {
-        this.result = result;
-    }
-
-    public String getErrorMessage() {
-        return errorMessage;
-    }
-
-    public void setErrorMessage(String errorMessage) {
-        this.errorMessage = errorMessage;
-    }
-
-    // --- Terminal state queries ---
 
     public boolean isPassthroughCompleted() {
         return state == AIRequestState.PASSTHROUGH;

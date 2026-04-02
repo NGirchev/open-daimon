@@ -102,11 +102,15 @@ public final class DocumentPipelineFsmFactory {
                         .end()
                     .endMultiple()
 
-                // === TEXT_EXTRACTED → branch: has chunks or fallback to OCR (auto-transition) ===
+                // === TEXT_EXTRACTED → branch: has chunks, error, or fallback to OCR (auto-transition) ===
                 .from(TEXT_EXTRACTED).toMultiple()
                     .to(RAG_INDEXED)
                         .onCondition(guard(AttachmentProcessingContext::hasExtractedChunks))
                         .action(action(actions::confirmIndexed))
+                        .end()
+                    .to(ERROR)
+                        .onCondition(guard(AttachmentProcessingContext::hasError))
+                        .action(action(actions::handleUnsupported))
                         .end()
                     .to(VISION_OCR_COMPLETE)
                         .action(action(actions::runVisionOcr))

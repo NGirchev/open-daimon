@@ -253,7 +253,8 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.agent", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "agent-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnBean(AgentCommandHandler.class)
     public AgentTelegramCommandHandler agentTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,

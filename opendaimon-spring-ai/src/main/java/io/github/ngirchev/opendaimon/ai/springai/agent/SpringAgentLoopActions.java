@@ -94,10 +94,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             ChatResponse response = chatModel.call(prompt);
             ctx.putExtra(KEY_LAST_RESPONSE, response);
 
-            if (response == null || response.getResult() == null) {
-                ctx.setErrorMessage("LLM returned empty response");
-                return;
-            }
+            response.getResult();
 
             var output = response.getResult().getOutput();
 
@@ -304,7 +301,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.removeExtra(KEY_LAST_RESPONSE);
     }
 
-    @SuppressWarnings("unchecked")
     private List<Message> getOrCreateHistory(AgentContext ctx) {
         List<Message> history = ctx.getExtra(KEY_CONVERSATION_HISTORY);
         if (history == null) {

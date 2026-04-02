@@ -165,6 +165,10 @@ public final class AttachmentProcessingContext implements StateContext<Attachmen
         this.errorMessage = errorMessage;
     }
 
+    public boolean hasError() {
+        return errorMessage != null && !errorMessage.isEmpty();
+    }
+
     // --- Terminal state queries ---
 
     public boolean isTerminalSuccess() {

@@ -100,10 +100,19 @@ public class SpringDocumentPipelineActions implements DocumentPipelineActions {
                     attachment.filename(), documentId, chunkTexts.size());
 
         } catch (DocumentContentNotExtractableException e) {
-            // Text extraction failed — FSM will route to vision OCR fallback
-            log.info("FSM extractText: text extraction failed for '{}', will fallback to vision OCR: {}",
-                    attachment.filename(), e.getMessage());
-            ctx.setExtractedChunks(List.of());
+            boolean isPdf = "pdf".equalsIgnoreCase(documentType);
+            if (isPdf) {
+                // PDF text extraction failed — FSM will route to vision OCR fallback
+                log.info("FSM extractText: PDF text extraction failed for '{}', will fallback to vision OCR: {}",
+                        attachment.filename(), e.getMessage());
+                ctx.setExtractedChunks(List.of());
+            } else {
+                // Non-PDF extraction failed — vision OCR is PDF-only, cannot help
+                log.warn("FSM extractText: non-PDF extraction failed for '{}' (type={}), no fallback available: {}",
+                        attachment.filename(), documentType, e.getMessage());
+                ctx.setErrorMessage("Cannot extract text from " + attachment.filename()
+                        + " (type: " + documentType + "): " + e.getMessage());
+            }
         }
     }
 

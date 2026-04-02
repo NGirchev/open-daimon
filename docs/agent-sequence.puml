@@ -1,0 +1,69 @@
+@startuml Agent ReAct Execution Sequence
+!theme plain
+skinparam backgroundColor white
+skinparam sequenceMessageAlign center
+
+title Agent Framework — ReAct Execution Flow
+
+actor User
+participant "TelegramBot" as Bot
+participant "AgentTelegram\nCommandHandler" as TgHandler
+participant "AgentCommand\nHandler" as CmdHandler
+participant "StrategyDelegating\nAgentExecutor" as Strategy
+participant "ReActAgent\nExecutor" as ReAct
+participant "FSM\n(ExDomainFsm)" as FSM
+participant "SpringAgent\nLoopActions" as Actions
+participant "ChatModel\n(LLM)" as LLM
+participant "ToolCalling\nManager" as Tools
+participant "AgentMemory" as Memory
+
+User -> Bot: /agent Search for Java 21 features
+Bot -> TgHandler: TelegramCommand
+TgHandler -> CmdHandler: AgentChatCommand\n(task, conversationId, metadata)
+CmdHandler -> Strategy: AgentRequest\n(strategy=AUTO)
+
+alt Tools available
+    Strategy -> ReAct: execute(request)
+else No tools
+    Strategy -> Strategy: SimpleChainExecutor\n(single LLM call)
+end
+
+ReAct -> ReAct: new AgentContext(task, maxIter=10)
+ReAct -> FSM: handle(ctx, START)
+
+group FSM auto-transitions
+    FSM -> Actions: **think(ctx)**
+    Actions -> Memory: recall(conversationId, task, topK=5)
+    Memory --> Actions: relevant facts
+    Actions -> Actions: build system prompt\n+ memory context
+    Actions -> LLM: chatModel.call(prompt)
+    LLM --> Actions: tool call: http_get("...")
+
+    FSM -> Actions: **executeTool(ctx)**
+    Actions -> Tools: executeToolCalls(prompt, response)
+    Tools --> Actions: observation text
+
+    FSM -> Actions: **observe(ctx)**
+    Actions -> Actions: recordStep(iteration=0)
+    Actions -> Actions: incrementIteration()
+
+    FSM -> Actions: **think(ctx)** [loop back]
+    Actions -> LLM: chatModel.call(prompt + history)
+    LLM --> Actions: final answer text
+
+    FSM -> Actions: **answer(ctx)**
+    Actions -> Actions: setFinalAnswer(text)
+    Actions -> Actions: extractFacts(ctx)
+    Actions -> Memory: store(facts)
+end
+
+FSM --> ReAct: ctx.state = COMPLETED
+ReAct -> ReAct: ctx.toResult()
+ReAct --> Strategy: AgentResult\n(answer, steps, COMPLETED)
+Strategy --> CmdHandler: AgentResult
+CmdHandler -> CmdHandler: toAIResponse(result)
+CmdHandler --> TgHandler: AIResponse
+TgHandler -> Bot: sendMessage(chatId, text)
+Bot --> User: Agent response
+
+@enduml
