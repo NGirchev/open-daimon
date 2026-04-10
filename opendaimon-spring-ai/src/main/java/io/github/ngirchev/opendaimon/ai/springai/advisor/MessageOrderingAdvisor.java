@@ -61,7 +61,7 @@ public class MessageOrderingAdvisor implements BaseAdvisor {
     private ChatClientRequest reorderMessages(ChatClientRequest request) {
         Prompt prompt = request.prompt();
         List<Message> messages = prompt.getInstructions();
-        if (messages.isEmpty()) {
+        if (messages == null || messages.isEmpty()) {
             log.debug("No messages to reorder");
             return request;
         }

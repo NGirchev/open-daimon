@@ -326,7 +326,7 @@ class MessageTelegramCommandHandlerIT {
                     telegramUserService, telegramUserSessionService, telegramMessageService,
                     aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
                     userModelPreferenceService, persistentKeyboardService, replyImageAttachmentService,
-                    messageSender);
+                    messageSender, null, 10);
             ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
                     MessageHandlerFsmFactory.create(actions);
             return new MessageTelegramCommandHandler(

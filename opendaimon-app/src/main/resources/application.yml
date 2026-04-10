@@ -118,7 +118,6 @@ open-daimon:
       threads-enabled: true
       language-enabled: true
       model-enabled: true
-      agent-enabled: true
     message-coalescing:
       enabled: true
       wait-window-ms: 1200
@@ -291,6 +290,9 @@ open-daimon:
   agent:
     enabled: true
     max-iterations: 10
+    tools:
+      http-api:
+        enabled: true
     # memory:
     #   enabled: true  # Requires VectorStore (RAG must be enabled)
 

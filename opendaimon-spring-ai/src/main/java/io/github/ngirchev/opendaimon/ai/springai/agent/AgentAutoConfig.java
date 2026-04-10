@@ -6,6 +6,7 @@ import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.SemanticAgentMemory;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
+import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentCommandHandler;
@@ -22,6 +23,7 @@ import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -34,6 +36,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -119,14 +123,13 @@ public class AgentAutoConfig {
             ObjectProvider<OpenAiChatModel> openAiProvider,
             ObjectProvider<OllamaChatModel> ollamaProvider,
             ToolCallingManager toolCallingManager,
-            ObjectProvider<List<ToolCallback>> toolCallbacksProvider,
+            List<ToolCallback> agentToolCallbacks,
             ObjectProvider<AgentMemory> agentMemoryProvider,
             ObjectProvider<FactExtractor> factExtractorProvider) {
         ChatModel chatModel = resolveAgentChatModel(openAiProvider, ollamaProvider);
-        List<ToolCallback> callbacks = toolCallbacksProvider.getIfAvailable(List::of);
         AgentMemory memory = agentMemoryProvider.getIfAvailable();
         FactExtractor extractor = factExtractorProvider.getIfAvailable();
-        return new SpringAgentLoopActions(chatModel, toolCallingManager, callbacks, memory, extractor);
+        return new SpringAgentLoopActions(chatModel, toolCallingManager, agentToolCallbacks, memory, extractor);
     }
 
     @Bean("agentLoopFsm")
@@ -166,9 +169,8 @@ public class AgentAutoConfig {
             ReActAgentExecutor reactExecutor,
             SimpleChainExecutor simpleExecutor,
             PlanAndExecuteAgentExecutor planAndExecuteExecutor,
-            ObjectProvider<List<ToolCallback>> toolCallbacksProvider) {
-        List<ToolCallback> tools = toolCallbacksProvider.getIfAvailable(List::of);
-        return new StrategyDelegatingAgentExecutor(reactExecutor, simpleExecutor, planAndExecuteExecutor, tools);
+            List<ToolCallback> agentToolCallbacks) {
+        return new StrategyDelegatingAgentExecutor(reactExecutor, simpleExecutor, planAndExecuteExecutor, agentToolCallbacks);
     }
 
     // --- Command Handler ---
@@ -195,6 +197,22 @@ public class AgentAutoConfig {
             return new PersistingAgentOrchestrator(core, repository);
         }
         return core;
+    }
+
+    // --- Agent tool callbacks ---
+
+    @Bean
+    @ConditionalOnMissingBean(name = "agentToolCallbacks")
+    public List<ToolCallback> agentToolCallbacks(
+            ObjectProvider<WebTools> webToolsProvider,
+            ObjectProvider<HttpApiTool> httpApiToolProvider) {
+        List<ToolCallback> callbacks = new ArrayList<>();
+        webToolsProvider.ifAvailable(tools ->
+                callbacks.addAll(Arrays.asList(ToolCallbacks.from(tools))));
+        httpApiToolProvider.ifAvailable(tool ->
+                callbacks.addAll(Arrays.asList(ToolCallbacks.from(tool))));
+        log.info("Agent tool callbacks registered: {}", callbacks.size());
+        return List.copyOf(callbacks);
     }
 
     // --- Built-in agent tools ---

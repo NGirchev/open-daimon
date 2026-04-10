@@ -1,5 +1,11 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
 
+import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
+import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
+import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
+import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
+import io.github.ngirchev.opendaimon.common.agent.AgentResult;
+import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
@@ -39,6 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static io.github.ngirchev.opendaimon.common.ai.command.AICommand.*;
 import static io.github.ngirchev.opendaimon.common.service.AIUtils.extractError;
@@ -72,6 +79,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
     /** Callback for sending messages — provided by the handler (wraps TelegramBot API). */
     private final TelegramMessageSender messageSender;
+
+    /** Agent executor — null when {@code open-daimon.agent.enabled=false}. */
+    private final AgentExecutor agentExecutor;
+    /** Agent max iterations — only used when {@code agentExecutor} is non-null. */
+    private final int agentMaxIterations;
 
     @Override
     public void resolveUser(MessageHandlerContext ctx) {
@@ -179,13 +191,16 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             ctx.setAiCommand(aiCommand);
             ctx.setModelCapabilities(aiCommand.modelCapabilities());
 
-            AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
-                    .stream()
-                    .findFirst()
-                    .orElseThrow(() -> new RuntimeException(AIUtils.NO_SUPPORTED_AI_GATEWAY));
-            ctx.setAiGateway(aiGateway);
+            // Agent mode uses AgentExecutor, not AIGateway — skip gateway lookup
+            if (agentExecutor == null) {
+                AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
+                        .stream()
+                        .findFirst()
+                        .orElseThrow(() -> new RuntimeException(AIUtils.NO_SUPPORTED_AI_GATEWAY));
+                ctx.setAiGateway(aiGateway);
+            }
 
-            log.debug("FSM createCommand: capabilities={}", aiCommand.modelCapabilities());
+            log.debug("FSM createCommand: capabilities={}, agentMode={}", aiCommand.modelCapabilities(), agentExecutor != null);
         } catch (UserMessageTooLongException e) {
             ctx.setErrorType(MessageHandlerErrorType.MESSAGE_TOO_LONG);
             ctx.setException(e);
@@ -202,6 +217,52 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
     @Override
     public void generateResponse(MessageHandlerContext ctx) {
+        if (agentExecutor != null) {
+            generateAgentResponse(ctx);
+        } else {
+            generateGatewayResponse(ctx);
+        }
+    }
+
+    private void generateAgentResponse(MessageHandlerContext ctx) {
+        TelegramCommand command = ctx.getCommand();
+        Map<String, String> metadata = ctx.getMetadata();
+
+        try {
+            Set<ModelCapabilities> capabilities = ctx.getModelCapabilities();
+            boolean hasToolAccess = capabilities != null
+                    && (capabilities.contains(ModelCapabilities.WEB)
+                        || capabilities.contains(ModelCapabilities.AUTO));
+            AgentStrategy strategy = hasToolAccess ? AgentStrategy.AUTO : AgentStrategy.SIMPLE;
+            log.info("FSM generateAgentResponse: capabilities={}, strategy={}", capabilities, strategy);
+
+            AgentRequest request = new AgentRequest(
+                    command.userText(),
+                    metadata.get(THREAD_KEY_FIELD),
+                    metadata,
+                    agentMaxIterations,
+                    Set.of(),
+                    strategy
+            );
+            AgentResult result = agentExecutor.execute(request);
+
+            log.info("FSM generateAgentResponse: state={}, iterations={}, duration={}",
+                    result.terminalState(), result.iterationsUsed(), result.totalDuration());
+
+            if (result.isSuccess() && result.finalAnswer() != null) {
+                ctx.setResponseText(result.finalAnswer());
+            } else if (result.terminalState() == AgentState.MAX_ITERATIONS
+                    && result.finalAnswer() != null) {
+                ctx.setResponseText(result.finalAnswer());
+            } else if (!ctx.hasResponse()) {
+                ctx.setErrorType(MessageHandlerErrorType.EMPTY_RESPONSE);
+            }
+        } catch (Exception e) {
+            handleGeneralException(ctx, e);
+        }
+    }
+
+    private void generateGatewayResponse(MessageHandlerContext ctx) {
         TelegramCommand command = ctx.getCommand();
         Message message = ctx.getMessage();
         AICommand aiCommand = ctx.getAiCommand();

@@ -65,7 +65,8 @@ import static org.mockito.Mockito.mock;
         "open-daimon.telegram.token=test-token",
         "open-daimon.telegram.username=test-bot",
         "open-daimon.telegram.commands.model-enabled=true",
-        "open-daimon.telegram.commands.language-enabled=true"
+        "open-daimon.telegram.commands.language-enabled=true",
+        "open-daimon.agent.max-iterations=10"
 })
 class StartTelegramTextCommandHandlerProviderTest {
 

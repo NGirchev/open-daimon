@@ -2,19 +2,20 @@ package io.github.ngirchev.opendaimon.telegram.config;
 
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
+import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.service.*;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
-import io.github.ngirchev.opendaimon.common.agent.AgentCommandHandler;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.*;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerActions;
@@ -192,12 +193,15 @@ public class TelegramCommandHandlerConfig {
             UserModelPreferenceService userModelPreferenceService,
             PersistentKeyboardService persistentKeyboardService,
             ReplyImageAttachmentService replyImageAttachmentService,
-            TelegramMessageSender telegramMessageSender) {
+            TelegramMessageSender telegramMessageSender,
+            ObjectProvider<AgentExecutor> agentExecutorProvider,
+            @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations) {
         return new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, userModelPreferenceService,
-                persistentKeyboardService, replyImageAttachmentService, telegramMessageSender);
+                persistentKeyboardService, replyImageAttachmentService, telegramMessageSender,
+                agentExecutorProvider.getIfAvailable(), agentMaxIterations);
     }
 
     @Bean
@@ -249,23 +253,6 @@ public class TelegramCommandHandlerConfig {
             TelegramUserRepository telegramUserRepository) {
         return new PersistentKeyboardService(userModelPreferenceService, coreCommonProperties, telegramBotProvider,
                 telegramProperties, messageLocalizationService, telegramUserRepository);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "agent-enabled", havingValue = "true", matchIfMissing = true)
-    @ConditionalOnBean(AgentCommandHandler.class)
-    public AgentTelegramCommandHandler agentTelegramCommandHandler(
-            ObjectProvider<TelegramBot> telegramBotProvider,
-            TypingIndicatorService typingIndicatorService,
-            MessageLocalizationService messageLocalizationService,
-            AgentCommandHandler agentCommandHandler) {
-        return new AgentTelegramCommandHandler(
-                telegramBotProvider,
-                typingIndicatorService,
-                messageLocalizationService,
-                agentCommandHandler
-        );
     }
 
     @Bean
