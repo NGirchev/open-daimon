@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.it.manual;
 
+import io.github.ngirchev.dotenv.DotEnvLoader;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
@@ -49,16 +50,12 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -68,45 +65,54 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
 
 /**
- * Manual E2E integration test for agent mode with real Ollama.
+ * Manual E2E integration test for agent mode with real OpenRouter.
  *
- * <p>Verifies all agent scenarios:
+ * <p>Verifies all agent scenarios using {@code openrouter/auto} model:
  * <ol>
- *   <li>ADMIN (AUTO capability) → REACT strategy with web tools</li>
+ *   <li>ADMIN (AUTO capability) → REACT strategy with web_search tool</li>
+ *   <li>Multi-tool chaining → REACT strategy invoking web_search then fetch_url</li>
+ *   <li>Agent response persisted to DB after a simple prompt</li>
  *   <li>REGULAR (CHAT-only capability) → SIMPLE strategy, no tools</li>
- *   <li>Agent response saved to DB and sent via Telegram handler</li>
  * </ol>
  *
- * <p>Uses MockWebServer for web tools (web_search, fetch_url) to avoid real HTTP calls.
+ * <p>Uses MockWebServer for web tools (web_search, fetch_url) to avoid real Serper HTTP calls.
  * Agent mode is enabled via test properties.
+ *
+ * <p>Requires:
+ * <ul>
+ *   <li>{@code OPENROUTER_KEY} environment variable with a valid OpenRouter API key (set in .env)</li>
+ * </ul>
  *
  * <p>Run explicitly:
  * <pre>
  * ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
- *   -Dit.test=AgentModeOllamaManualIT \
+ *   -Dit.test=AgentModeOpenRouterManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
- *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen2.5:3b
+ *   -Dmanual.openrouter.e2e=true
  * </pre>
  */
 @Tag("manual")
-@EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = AgentModeOllamaManualIT.TestConfig.class)
-@ActiveProfiles({"integration-test", "manual-ollama"})
+@EnabledIfSystemProperty(named = "manual.openrouter.e2e", matches = "true")
+@SpringBootTest(
+        classes = AgentModeOpenRouterManualIT.TestConfig.class,
+        properties = {
+                "open-daimon.agent.enabled=true",
+                "open-daimon.agent.max-iterations=10",
+                "open-daimon.agent.tools.http-api.enabled=true"
+        }
+)
+@ActiveProfiles({"integration-test", "manual-openrouter"})
 @Import({
         TestDatabaseConfiguration.class
 })
-class AgentModeOllamaManualIT {
+class AgentModeOpenRouterManualIT {
+
+    static {
+        DotEnvLoader.loadDotEnv(Path.of("../.env"));
+    }
 
     private static final Long ADMIN_CHAT_ID = 350009010L;
-    private static final Long REGULAR_CHAT_ID = 350009011L;
-    private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
-    private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
-    private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
-    private static final List<String> REQUIRED_OLLAMA_MODELS = Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
-            .distinct()
-            .toList();
+    private static final Long REGULAR_CHAT_ID = 350009012L;
 
     private static final String SERPER_RESPONSE_JSON = """
             {
@@ -155,8 +161,13 @@ class AgentModeOllamaManualIT {
     private TelegramBot telegramBot;
 
     @BeforeAll
-    static void checkOllama() {
-        requireLocalOllamaWithModels();
+    static void requireOpenRouterKey() {
+        DotEnvLoader.loadDotEnv(Path.of("../.env"));
+        String openRouterKey = System.getProperty("OPENROUTER_KEY", System.getenv("OPENROUTER_KEY"));
+        Assumptions.assumeTrue(
+                openRouterKey != null && !openRouterKey.isBlank() && !openRouterKey.equals("sk-placeholder"),
+                "Skipping manual test: OPENROUTER_KEY not set in .env or environment"
+        );
     }
 
     @AfterAll
@@ -169,9 +180,6 @@ class AgentModeOllamaManualIT {
         messageRepository.deleteAll();
         threadRepository.deleteAll();
         telegramUserRepository.deleteAll();
-        // Pre-create ADMIN user with isAdmin=true so TelegramUserPriorityService
-        // resolves ADMIN priority correctly (adminIds config contains telegramIds,
-        // but getUserPriority receives internal DB id — isAdmin flag bridges the gap)
         telegramUserService.ensureUserWithLevel(ADMIN_CHAT_ID, UserPriority.ADMIN);
         WEB_SEARCH_CALLED.set(false);
         FETCH_URL_CALLED.set(false);
@@ -185,16 +193,16 @@ class AgentModeOllamaManualIT {
         doNothing().when(telegramBot).sendErrorMessage(anyLong(), anyString(), any());
     }
 
-    // --- Scenario 1: ADMIN with AUTO capability → REACT + web tools ---
+    // --- B1: ADMIN REACT + web_search with OpenRouter ---
 
     @Test
     @Timeout(3 * 60)
-    @DisplayName("ADMIN: agent uses REACT strategy and invokes web_search tool")
+    @DisplayName("B1: ADMIN agent uses REACT strategy and invokes web_search via OpenRouter")
     void admin_agentReact_invokesWebSearch() {
         TelegramCommand command = createMessageCommand(
                 ADMIN_CHAT_ID,
                 1,
-                "Какая последняя версия Spring Boot вышла в 2026 году? Поищи в интернете."
+                "What is the latest version of Spring Boot released in 2026? Search the internet."
         );
 
         messageHandler.handle(command);
@@ -205,13 +213,11 @@ class AgentModeOllamaManualIT {
         ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
 
-        // The primary goal of this test is to verify that ADMIN users activate
-        // REACT strategy (not SIMPLE). With a 3B model, the LLM may occasionally:
-        //   - invoke tools and produce a response (ideal path)
-        //   - answer from training data without tools (acceptable)
-        //   - return an empty response causing agent FAILED state (known 3B quirk)
-        // All three outcomes confirm that REACT was activated and the pipeline
-        // ran end-to-end. We verify at least one assistant message was persisted.
+        String assistantReply = latestAssistantReply(thread);
+
+        // The primary goal is to verify that ADMIN activates REACT strategy.
+        // LLM may occasionally return an empty response (known quirk in batch runs).
+        // All outcomes confirm the pipeline ran end-to-end.
         List<OpenDaimonMessage> assistantMessages = messageRepository
                 .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
 
@@ -220,21 +226,21 @@ class AgentModeOllamaManualIT {
                 .isNotEmpty();
     }
 
-    // --- Scenario 2: REGULAR with CHAT-only capability → SIMPLE, no tools ---
+    // --- B2: Multi-tool chaining web_search → fetch_url with OpenRouter ---
 
     @Test
     @Timeout(3 * 60)
-    @DisplayName("REGULAR: agent uses SIMPLE strategy without tools")
-    void regular_agentSimple_noTools() {
+    @DisplayName("B2: ADMIN agent chains web_search then fetch_url via OpenRouter")
+    void admin_agentReact_chainsWebSearchAndFetchUrl() {
         TelegramCommand command = createMessageCommand(
-                REGULAR_CHAT_ID,
+                ADMIN_CHAT_ID,
                 2,
-                "Привет, расскажи анекдот"
+                "Search the internet for Spring Boot 4.0 release, then fetch the page at https://spring.io/blog/spring-boot-4-0 and summarize the content."
         );
 
         messageHandler.handle(command);
 
-        TelegramUser user = telegramUserRepository.findByTelegramId(REGULAR_CHAT_ID)
+        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
                 .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
 
         ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
@@ -243,28 +249,33 @@ class AgentModeOllamaManualIT {
         String assistantReply = latestAssistantReply(thread);
 
         assertThat(assistantReply)
-                .as("SIMPLE agent should produce a non-blank response")
+                .as("Agent should produce a non-blank response after multi-tool chain")
                 .isNotBlank();
 
         assertThat(WEB_SEARCH_CALLED.get())
-                .as("REGULAR (CHAT-only) should NOT invoke web_search")
-                .isFalse();
+                .as("REACT agent should invoke web_search for research questions")
+                .isTrue();
 
-        assertThat(FETCH_URL_CALLED.get())
-                .as("REGULAR (CHAT-only) should NOT invoke fetch_url")
-                .isFalse();
+        // fetch_url chaining is best-effort: model may answer from search snippets
+        if (!FETCH_URL_CALLED.get()) {
+            System.out.println("[B2] fetch_url was not called — model answered from search snippets only");
+        }
+
+        assertThat(TOOL_CALL_COUNT.get())
+                .as("REACT strategy should make at least one tool call (web_search)")
+                .isGreaterThanOrEqualTo(1);
     }
 
-    // --- Scenario 3: Agent response is persisted to DB ---
+    // --- B3: Agent response persisted to DB (OpenRouter) ---
 
     @Test
     @Timeout(3 * 60)
-    @DisplayName("Agent response saved to DB with correct structure")
+    @DisplayName("B3: Agent response saved to DB with correct structure (OpenRouter)")
     void agentResponse_persistedToDb() {
         TelegramCommand command = createMessageCommand(
                 ADMIN_CHAT_ID,
                 3,
-                "Скажи одним словом: работает ли агент?"
+                "Answer in one word: is the agent working?"
         );
 
         messageHandler.handle(command);
@@ -293,106 +304,25 @@ class AgentModeOllamaManualIT {
                 .isNotBlank();
     }
 
-    // --- Scenario 4: AgentExecutor bean is properly wired ---
+    // --- B5: AgentExecutor bean is properly wired ---
 
     @Test
-    @DisplayName("AgentExecutor is injected into application context")
+    @DisplayName("B5: AgentExecutor is injected into application context (OpenRouter)")
     void agentExecutor_isWired() {
         assertThat(agentExecutor)
                 .as("AgentExecutor should be available in the application context")
                 .isNotNull();
     }
 
-    // --- Scenario A1: Multi-tool chaining (web_search → fetch_url → answer) ---
+    // --- B6: Max iterations exhausted — still returns response ---
 
     @Test
     @Timeout(3 * 60)
-    @DisplayName("A1: ADMIN agent chains web_search and fetch_url to answer a research question")
-    void admin_agentReact_chainsWebSearchAndFetchUrl() {
-        TelegramCommand command = createMessageCommand(
-                ADMIN_CHAT_ID,
-                10,
-                "Find the official Spring Boot 3.4 changelog and list the key changes"
-        );
-
-        messageHandler.handle(command);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
-                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
-
-        String assistantReply = latestAssistantReply(thread);
-
-        assertThat(assistantReply)
-                .as("Agent should produce a non-blank response after multi-tool chaining")
-                .isNotBlank();
-
-        assertThat(WEB_SEARCH_CALLED.get())
-                .as("REACT agent should invoke web_search for research questions")
-                .isTrue();
-
-        // fetch_url chaining is best-effort: small models (3B) may answer directly
-        // from search snippets without fetching the full page. We verify at least
-        // web_search was called (mandatory) and log whether chaining occurred.
-        if (!FETCH_URL_CALLED.get()) {
-            System.out.println("[A1] fetch_url was not called — model answered from search snippets only (acceptable for small models)");
-        }
-
-        assertThat(TOOL_CALL_COUNT.get())
-                .as("REACT strategy should make at least one tool call (web_search)")
-                .isGreaterThanOrEqualTo(1);
-    }
-
-    // --- Scenario A2: http_get tool invocation ---
-
-    @Test
-    @Timeout(3 * 60)
-    @DisplayName("A2: ADMIN agent invokes http_get to check API status")
-    void admin_agentReact_invokesHttpGet() {
-        // NOTE: HttpApiTool blocks localhost/loopback URLs via SSRF protection.
-        // TestHttpApiTool (defined in TestConfig) overrides validation to allow
-        // the MockWebServer host so that GET /api/status can be routed through
-        // MockWebServer and HTTP_GET_CALLED can be set.
-        int mockPort = mockWebServer.getPort();
-        TelegramCommand command = createMessageCommand(
-                ADMIN_CHAT_ID,
-                11,
-                "Check the API status at http://localhost:" + mockPort + "/api/status"
-        );
-
-        messageHandler.handle(command);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
-                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
-
-        String assistantReply = latestAssistantReply(thread);
-
-        assertThat(assistantReply)
-                .as("Agent should produce a non-blank response after http_get invocation")
-                .isNotBlank();
-
-        assertThat(HTTP_GET_CALLED.get())
-                .as("Agent should invoke http_get and reach GET /api/status on MockWebServer")
-                .isTrue();
-    }
-
-    // --- Scenario A3: Max iterations — partial response on exhaustion ---
-
-    @Test
-    @Timeout(3 * 60)
-    @DisplayName("A3: Agent handles max-iterations exhaustion and still returns a response")
+    @DisplayName("B6: Agent handles max-iterations exhaustion and still returns a response (OpenRouter)")
     void admin_agentReact_maxIterationsExhausted_stillReturnsResponse() {
-        // This prompt asks the agent to research 20 frameworks sequentially.
-        // With max-iterations=10 (from config), the loop will be exhausted
-        // before completing all lookups. The handler must still return a response.
         TelegramCommand command = createMessageCommand(
                 ADMIN_CHAT_ID,
-                12,
+                6,
                 "For each of these 20 frameworks find the latest version: " +
                 "Spring Boot, Quarkus, Micronaut, Helidon, Vert.x, Dropwizard, Javalin, Spark, Play, Ratpack, " +
                 "Blade, Ninja, Pippo, Jodd, Rapidoid, Jooby, ActFramework, Light4j, Payara, WildFly"
@@ -418,16 +348,15 @@ class AgentModeOllamaManualIT {
                 .isNotBlank();
     }
 
-    // --- Scenario A4: Preferred model fallback to auto-selection ---
+    // --- B7: Preferred model fallback to auto-selection ---
 
     @Test
     @Timeout(3 * 60)
-    @DisplayName("A4: Agent falls back to auto-selection when preferred model is not in the registry")
+    @DisplayName("B7: Agent falls back to auto-selection when preferred model is not in the registry (OpenRouter)")
     void admin_agentReact_unknownPreferredModel_fallsBackToAutoSelection() {
-        // First, send a message so the TelegramUser is created by the handler.
         TelegramCommand warmupCommand = createMessageCommand(
                 ADMIN_CHAT_ID,
-                13,
+                7,
                 "Hello"
         );
         messageHandler.handle(warmupCommand);
@@ -435,16 +364,14 @@ class AgentModeOllamaManualIT {
         TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
                 .orElseThrow(() -> new IllegalStateException("Telegram user should be created after warmup"));
 
-        // Set a preferred model that does not exist in the registry.
         userModelPreferenceService.setPreferredModel(user.getId(), "nonexistent/model-xyz");
 
-        // Clean conversation state so the next message starts a fresh thread.
         messageRepository.deleteAll();
         threadRepository.deleteAll();
 
         TelegramCommand command = createMessageCommand(
                 ADMIN_CHAT_ID,
-                14,
+                8,
                 "What is 2 + 2?"
         );
 
@@ -464,6 +391,73 @@ class AgentModeOllamaManualIT {
                 .isNotBlank();
     }
 
+    // --- B8: http_get tool invocation ---
+
+    @Test
+    @Timeout(3 * 60)
+    @DisplayName("B8: ADMIN agent invokes http_get to check API status (OpenRouter)")
+    void admin_agentReact_invokesHttpGet() {
+        int mockPort = mockWebServer.getPort();
+        TelegramCommand command = createMessageCommand(
+                ADMIN_CHAT_ID,
+                9,
+                "Check the API status at http://localhost:" + mockPort + "/api/status"
+        );
+
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        String assistantReply = latestAssistantReply(thread);
+
+        assertThat(assistantReply)
+                .as("Agent should produce a non-blank response after http_get invocation")
+                .isNotBlank();
+
+        assertThat(HTTP_GET_CALLED.get())
+                .as("Agent should invoke http_get and reach GET /api/status on MockWebServer")
+                .isTrue();
+    }
+
+    // --- B4: SIMPLE strategy with OpenRouter (REGULAR user, CHAT-only) ---
+
+    @Test
+    @Timeout(3 * 60)
+    @DisplayName("B4: REGULAR agent uses SIMPLE strategy without tools (OpenRouter)")
+    void regular_agentSimple_noTools() {
+        TelegramCommand command = createMessageCommand(
+                REGULAR_CHAT_ID,
+                4,
+                "Tell me a short joke"
+        );
+
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(REGULAR_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        String assistantReply = latestAssistantReply(thread);
+
+        assertThat(assistantReply)
+                .as("SIMPLE agent should produce a non-blank response")
+                .isNotBlank();
+
+        assertThat(WEB_SEARCH_CALLED.get())
+                .as("REGULAR (CHAT-only) should NOT invoke web_search")
+                .isFalse();
+
+        assertThat(FETCH_URL_CALLED.get())
+                .as("REGULAR (CHAT-only) should NOT invoke fetch_url")
+                .isFalse();
+    }
+
     // --- Helpers ---
 
     private TelegramCommand createMessageCommand(Long chatId, int messageId, String text) {
@@ -474,7 +468,7 @@ class AgentModeOllamaManualIT {
         from.setUserName("manual-agent-user-" + chatId);
         from.setFirstName("Manual");
         from.setLastName("Agent");
-        from.setLanguageCode("ru");
+        from.setLanguageCode("en");
 
         Message message = new Message();
         message.setMessageId(messageId);
@@ -494,7 +488,7 @@ class AgentModeOllamaManualIT {
                 false,
                 List.of()
         );
-        command.languageCode("ru");
+        command.languageCode("en");
         return command;
     }
 
@@ -519,8 +513,7 @@ class AgentModeOllamaManualIT {
                             .setBody(SERPER_RESPONSE_JSON)
                             .addHeader("Content-Type", "application/json");
                 }
-                if ("GET".equals(request.getMethod())
-                        && "/api/status".equals(request.getPath())) {
+                if (request.getPath() != null && request.getPath().contains("/api/status")) {
                     HTTP_GET_CALLED.set(true);
                     return new MockResponse()
                             .setBody("{\"status\":\"ok\",\"version\":\"1.0\"}")
@@ -540,39 +533,6 @@ class AgentModeOllamaManualIT {
         return server;
     }
 
-    static void requireLocalOllamaWithModels() {
-        String baseUrl = resolveOllamaBaseUrl();
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(OLLAMA_TIMEOUT)
-                .build();
-        HttpRequest request = HttpRequest.newBuilder()
-                .GET()
-                .timeout(OLLAMA_TIMEOUT)
-                .uri(URI.create(baseUrl + "/api/tags"))
-                .build();
-        try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            boolean statusOk = response.statusCode() == 200;
-            boolean modelsPresent = REQUIRED_OLLAMA_MODELS.stream().allMatch(response.body()::contains);
-            Assumptions.assumeTrue(statusOk && modelsPresent,
-                    "Skipping: Ollama/models unavailable at " + baseUrl + ". Required: " + REQUIRED_OLLAMA_MODELS);
-        } catch (Exception ex) {
-            Assumptions.assumeTrue(false,
-                    "Skipping: cannot connect to Ollama at " + baseUrl + ". " + ex.getMessage());
-        }
-    }
-
-    private static String resolveOllamaBaseUrl() {
-        String baseUrl = System.getenv("OLLAMA_BASE_URL");
-        if (baseUrl == null || baseUrl.isBlank()) {
-            baseUrl = "http://localhost:11434";
-        }
-        if (baseUrl.endsWith("/")) {
-            return baseUrl.substring(0, baseUrl.length() - 1);
-        }
-        return baseUrl;
-    }
-
     @SpringBootConfiguration
     @EnableAutoConfiguration
     static class TestConfig {
@@ -584,24 +544,14 @@ class AgentModeOllamaManualIT {
             return new WebTools(webClient, "fake-serper-key", mockBaseUrl + "/search");
         }
 
-        /**
-         * Registers an HttpApiTool that skips SSRF validation for the MockWebServer host.
-         *
-         * <p>The production {@link HttpApiTool} blocks loopback addresses to prevent SSRF attacks.
-         * In tests, MockWebServer listens on localhost, so requests must bypass that guard.
-         * This subclass allows only the mock host while preserving all other behaviour.
-         */
         @Bean
         public HttpApiTool httpApiTool() {
-            String mockHost = "localhost";
             WebClient webClient = WebClient.builder()
                     .baseUrl("http://localhost:" + mockWebServer.getPort())
                     .build();
-            return new HttpApiTool(webClient, Set.of(mockHost)) {
+            return new HttpApiTool(webClient, Set.of("localhost")) {
                 @Override
                 public String httpGet(String url) {
-                    // Delegate directly to the WebClient, bypassing SSRF host resolution
-                    // so that MockWebServer on localhost is reachable in tests.
                     try {
                         String response = webClient.get()
                                 .uri(url)

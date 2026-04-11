@@ -23,7 +23,17 @@ spring:
 open-daimon:
   common:
     bulkhead:
-      enabled: false
+      enabled: true
+      instances:
+        ADMIN:
+          maxConcurrentCalls: 10
+          maxWaitDuration: 1s
+        VIP:
+          maxConcurrentCalls: 5
+          maxWaitDuration: 1s
+        REGULAR:
+          maxConcurrentCalls: 5
+          maxWaitDuration: 1s
   telegram:
     enabled: true
     token: test-token

@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.ai.springai.agent.memory.CompositeAgentMemo
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.SemanticAgentMemory;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
+import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
@@ -18,7 +19,6 @@ import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
@@ -58,23 +58,17 @@ import java.util.List;
 public class AgentAutoConfig {
 
     /**
-     * Resolves the ChatModel to use for agent operations.
-     * Prefers OpenAI if available, falls back to Ollama.
+     * Delegating ChatModel that resolves the best available model from the
+     * {@link SpringAIModelRegistry} on each call. Agent executors receive this
+     * bean as {@code ChatModel} — same model routing as the normal chat flow.
      */
-    private static ChatModel resolveAgentChatModel(
-            ObjectProvider<OpenAiChatModel> openAiProvider,
-            ObjectProvider<OllamaChatModel> ollamaProvider) {
-        ChatModel model = openAiProvider.getIfAvailable();
-        if (model != null) {
-            log.info("Agent framework using OpenAI chat model");
-            return model;
-        }
-        model = ollamaProvider.getIfAvailable();
-        if (model != null) {
-            log.info("Agent framework using Ollama chat model");
-            return model;
-        }
-        throw new IllegalStateException("No ChatModel (OpenAI or Ollama) available for agent framework");
+    @Bean
+    @ConditionalOnMissingBean(DelegatingAgentChatModel.class)
+    public DelegatingAgentChatModel delegatingAgentChatModel(
+            SpringAIModelRegistry registry,
+            ObjectProvider<OllamaChatModel> ollamaProvider,
+            ObjectProvider<OpenAiChatModel> openAiProvider) {
+        return new DelegatingAgentChatModel(registry, ollamaProvider, openAiProvider);
     }
 
     // --- Agent Memory ---
@@ -109,10 +103,9 @@ public class AgentAutoConfig {
     @ConditionalOnMissingBean(FactExtractor.class)
     @ConditionalOnBean(AgentMemory.class)
     public FactExtractor factExtractor(
-            ObjectProvider<OpenAiChatModel> openAiProvider,
-            ObjectProvider<OllamaChatModel> ollamaProvider,
+            DelegatingAgentChatModel agentChatModel,
             AgentMemory agentMemory) {
-        return new FactExtractor(resolveAgentChatModel(openAiProvider, ollamaProvider), agentMemory);
+        return new FactExtractor(agentChatModel, agentMemory);
     }
 
     // --- Agent Loop ---
@@ -120,16 +113,14 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(AgentLoopActions.class)
     public SpringAgentLoopActions agentLoopActions(
-            ObjectProvider<OpenAiChatModel> openAiProvider,
-            ObjectProvider<OllamaChatModel> ollamaProvider,
+            DelegatingAgentChatModel agentChatModel,
             ToolCallingManager toolCallingManager,
             List<ToolCallback> agentToolCallbacks,
             ObjectProvider<AgentMemory> agentMemoryProvider,
             ObjectProvider<FactExtractor> factExtractorProvider) {
-        ChatModel chatModel = resolveAgentChatModel(openAiProvider, ollamaProvider);
         AgentMemory memory = agentMemoryProvider.getIfAvailable();
         FactExtractor extractor = factExtractorProvider.getIfAvailable();
-        return new SpringAgentLoopActions(chatModel, toolCallingManager, agentToolCallbacks, memory, extractor);
+        return new SpringAgentLoopActions(agentChatModel, toolCallingManager, agentToolCallbacks, memory, extractor);
     }
 
     @Bean("agentLoopFsm")
@@ -148,19 +139,16 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean
     public SimpleChainExecutor simpleChainExecutor(
-            ObjectProvider<OpenAiChatModel> openAiProvider,
-            ObjectProvider<OllamaChatModel> ollamaProvider) {
-        return new SimpleChainExecutor(resolveAgentChatModel(openAiProvider, ollamaProvider));
+            DelegatingAgentChatModel agentChatModel) {
+        return new SimpleChainExecutor(agentChatModel);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public PlanAndExecuteAgentExecutor planAndExecuteAgentExecutor(
-            ObjectProvider<OpenAiChatModel> openAiProvider,
-            ObjectProvider<OllamaChatModel> ollamaProvider,
+            DelegatingAgentChatModel agentChatModel,
             ReActAgentExecutor reactExecutor) {
-        return new PlanAndExecuteAgentExecutor(
-                resolveAgentChatModel(openAiProvider, ollamaProvider), reactExecutor);
+        return new PlanAndExecuteAgentExecutor(agentChatModel, reactExecutor);
     }
 
     @Primary

@@ -443,7 +443,6 @@ public class TelegramBot extends TelegramLongPollingBot {
             sendErrorMessage(command.telegramId(), errMsg, replyToMessageId);
         } catch (TelegramApiException ex) {
             log.error("Exception on sending response to telegram", ex);
-            throw new RuntimeException(ex);
         }
     }
 

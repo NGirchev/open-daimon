@@ -96,6 +96,13 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
         TelegramUser telegramUser = telegramUserService.getOrCreateUser(message.getFrom());
         ctx.setTelegramUser(telegramUser);
+        // Ensure command carries the resolved internal user ID so that downstream
+        // components (e.g. AICommandFactory → UserPriorityService) can determine
+        // the correct user priority. TelegramBot sets this when creating the command,
+        // but direct handler invocations (tests, coalescing) may leave it null.
+        if (ctx.getCommand().userId() == null) {
+            ctx.getCommand().userId(telegramUser.getId());
+        }
 
         TelegramUserSession session = telegramUserSessionService.getOrCreateSession(telegramUser);
         ctx.setSession(session);
