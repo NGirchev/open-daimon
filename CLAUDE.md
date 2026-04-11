@@ -1,5 +1,7 @@
 # Claude Code Rules for open-daimon
 
+For general project rules, conventions, and architecture guidelines see [AGENTS.md](AGENTS.md).
+
 ## Critical Rules
 
 - NEVER run `git commit`, `git push`, `git stash pop`, `git reset`, `git rebase`, `git merge`, or `git cherry-pick` without explicit user request. Always ask first.
@@ -14,7 +16,7 @@
 
 ## Java / Testing
 
-- After modifying Java files, always run `./mvnw compile -pl <module>` before running tests.
+- After modifying Java files, always run `./mvnw clean compile -pl <module>` before running tests.
 - Run only the specific failing test, not the full suite, unless the user asks otherwise.
 - After each edit, verify compilation passes before proceeding to the next change.
 - When fixing a bug in a specific service (e.g. `TelegramUserPriorityService`), do NOT touch other services with similar names (e.g. `DefaultUserPriorityService`).
