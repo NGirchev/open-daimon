@@ -10,6 +10,7 @@ For general project rules, conventions, and architecture guidelines see [AGENTS.
 
 ## Debugging
 
+- Before analyzing logs or errors, ALWAYS read relevant module docs (`*_MODULE.md`, `docs/usecases/`) first. Understand the expected behavior from documentation before looking at code.
 - When the user provides logs, errors, or output and says they are current — trust them. Do not re-explore or second-guess the recency of provided information.
 - Analyze the root cause BEFORE exploring the codebase. Do not explore aimlessly.
 - Propose a fix targeting ONLY the specific file/component mentioned by the user.

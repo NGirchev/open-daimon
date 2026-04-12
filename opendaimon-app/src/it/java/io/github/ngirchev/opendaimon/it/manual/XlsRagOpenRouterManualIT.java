@@ -86,7 +86,10 @@ import static org.mockito.Mockito.reset;
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = XlsRagOpenRouterManualIT.TestConfig.class)
+@SpringBootTest(
+        classes = XlsRagOpenRouterManualIT.TestConfig.class,
+        properties = "open-daimon.agent.enabled=false"
+)
 @ActiveProfiles({"integration-test", "manual-openrouter"})
 @Import({
         TestDatabaseConfiguration.class

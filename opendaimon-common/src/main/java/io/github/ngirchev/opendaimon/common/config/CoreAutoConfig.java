@@ -3,6 +3,7 @@ package io.github.ngirchev.opendaimon.common.config;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -54,6 +55,7 @@ import java.util.List;
 
 @Slf4j
 @AutoConfiguration
+@AutoConfigureAfter(name = "io.github.ngirchev.opendaimon.ai.springai.config.RAGAutoConfig")
 @EnableConfigurationProperties(CoreCommonProperties.class)
 @Import({
         CoreJpaConfig.class,
@@ -203,6 +205,7 @@ public class CoreAutoConfig {
     /**
      * AI request pipeline actions — default implementation using document FSM and RAG augmenter.
      * Only created when document FSM is available (RAG enabled).
+     * Ordering guaranteed by @AutoConfigureAfter(RAGAutoConfig).
      */
     @Bean
     @ConditionalOnMissingBean(AIRequestPipelineActions.class)
@@ -222,7 +225,7 @@ public class CoreAutoConfig {
      * Only created when pipeline actions are available (RAG enabled).
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(name = "aiRequestPipelineFsm")
     @ConditionalOnBean(AIRequestPipelineActions.class)
     public ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent> aiRequestPipelineFsm(
             AIRequestPipelineActions actions) {

@@ -160,7 +160,7 @@ public class RAGAutoConfig {
      * Thread-safe singleton; each handle() call creates an internal FSM instance.
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(name = "documentPipelineFsm")
     public ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentPipelineFsm(
             DocumentPipelineActions actions) {
         log.info("Creating document processing FSM pipeline");

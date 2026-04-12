@@ -195,7 +195,7 @@ public class TelegramCommandHandlerConfig {
             ReplyImageAttachmentService replyImageAttachmentService,
             TelegramMessageSender telegramMessageSender,
             ObjectProvider<AgentExecutor> agentExecutorProvider,
-            @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations) {
+            @Value("${open-daimon.agent.max-iterations:10}") int agentMaxIterations) {
         return new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,

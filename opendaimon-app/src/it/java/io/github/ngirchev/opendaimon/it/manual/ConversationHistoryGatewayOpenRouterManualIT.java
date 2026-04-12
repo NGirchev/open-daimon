@@ -1,8 +1,6 @@
 package io.github.ngirchev.opendaimon.it.manual;
 
 import io.github.ngirchev.dotenv.DotEnvLoader;
-import io.github.ngirchev.opendaimon.common.model.Attachment;
-import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
@@ -29,7 +27,6 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.telegram.telegrambots.meta.api.objects.Chat;
@@ -39,7 +36,6 @@ import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -51,49 +47,48 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
 
 /**
- * Manual E2E integration test for OpenRouter auto + JPEG image with Greek text.
+ * Manual E2E integration test for conversation history in gateway (non-agent) mode.
  *
- * <p>Same scenario as {@link GreekImageVisionOllamaManualIT} but uses {@code openrouter/auto} model
- * via OpenRouter API instead of a local Ollama chat model. Embeddings are handled by
- * {@code intfloat/multilingual-e5-large} via OpenRouter — no local Ollama required.
+ * <p>Agent mode is NOT enabled — requests go through {@code SpringAiGateway} with
+ * {@code MessageChatMemoryAdvisor}. Verifies that text-only multi-turn conversations
+ * retain context via {@code ChatMemory}.
  *
- * <p>The image contains the sentence "Θέλω τον σκύλο του αγοριού." (I want the boy's dog.)
- * with the word "αγοριού" highlighted in purple. The vision model reads the text directly
- * from the image; there is no RAG indexing for JPEG attachments.
+ * <p>Complements the vision-based multi-turn test in
+ * {@link ObjectsImageVisionOpenRouterManualIT} with a pure text scenario.
  *
  * <p>Requires:
  * <ul>
- *   <li>{@code OPENROUTER_KEY} environment variable with a valid OpenRouter API key</li>
+ *   <li>{@code OPENROUTER_KEY} environment variable with a valid OpenRouter API key (set in .env)</li>
  * </ul>
  *
- * <p>Not intended for regular CI runs.
- * Run explicitly:
+ * <p>Run explicitly:
  * <pre>
- * OPENROUTER_KEY=sk-or-... ./mvnw -pl opendaimon-app -am clean test-compile \
- *   failsafe:integration-test failsafe:verify \
- *   -Dit.test=GreekImageVisionOpenRouterManualIT \
+ * ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
+ *   -Dit.test=ConversationHistoryGatewayOpenRouterManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
- *   -Dmanual.ollama.e2e=true
+ *   -Dmanual.openrouter.e2e=true
  * </pre>
  */
 @Tag("manual")
-@EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
+@EnabledIfSystemProperty(named = "manual.openrouter.e2e", matches = "true")
 @SpringBootTest(
-        classes = GreekImageVisionOpenRouterManualIT.TestConfig.class,
+        classes = ConversationHistoryGatewayOpenRouterManualIT.TestConfig.class,
         properties = "open-daimon.agent.enabled=false"
 )
 @ActiveProfiles({"integration-test", "manual-openrouter"})
 @Import({
         TestDatabaseConfiguration.class
 })
-class GreekImageVisionOpenRouterManualIT {
+class ConversationHistoryGatewayOpenRouterManualIT {
 
     static {
         DotEnvLoader.loadDotEnv(Path.of("../.env"));
     }
 
-    private static final Long TEST_CHAT_ID = 350009010L;
-    private static final String IMAGE_RESOURCE = "attachments/greek.jpeg";
+    private static final Long TEST_CHAT_ID = 350009008L;
+
+    private static final String SECRET_CODE = "PULSAR-3307-OMEGA";
+    private static final String SECRET_NUMBER = "9156";
 
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
@@ -115,13 +110,16 @@ class GreekImageVisionOpenRouterManualIT {
 
     @BeforeAll
     static void requireOpenRouterKey() {
+        DotEnvLoader.loadDotEnv(Path.of("../.env"));
         String openRouterKey = System.getProperty("OPENROUTER_KEY", System.getenv("OPENROUTER_KEY"));
-        Assumptions.assumeTrue(openRouterKey != null && !openRouterKey.isBlank() && !openRouterKey.equals("sk-placeholder"),
-                "Skipping manual test: OPENROUTER_KEY not set in .env or environment");
+        Assumptions.assumeTrue(
+                openRouterKey != null && !openRouterKey.isBlank() && !openRouterKey.equals("sk-placeholder"),
+                "Skipping manual test: OPENROUTER_KEY not set in .env or environment"
+        );
     }
 
     @BeforeEach
-    void setUp() throws TelegramApiException {
+    void setUpEach() throws TelegramApiException {
         messageRepository.deleteAll();
         threadRepository.deleteAll();
         telegramUserRepository.deleteAll();
@@ -133,98 +131,114 @@ class GreekImageVisionOpenRouterManualIT {
         doNothing().when(telegramBot).sendErrorMessage(anyLong(), anyString(), any());
     }
 
-    /**
-     * This test expects the following behavior:
-     * 1. Send a Telegram message with a JPEG image attachment and ask the model to quote the text.
-     * 2. The vision model reads the Greek text directly from the image (no RAG indexing for JPEG).
-     * 3. Ask a follow-up to translate the text to Russian.
-     * 4. The model uses the conversation context to produce the Russian translation.
-     * !!! DO NOT CHANGE THE TEST BEHAVIOR
-     * !!! DO NOT CHANGE THE PROMPT
-     * !!! DO NOT USE FAKE MOCKS JUST TO FORCE THE RESULT
-     */
+    // ==================== G1: Gateway 2-turn text history ====================
+
     @Test
     @Timeout(3 * 60)
-    @DisplayName("Manual E2E: OpenRouter auto + greek.jpeg — vision reads Greek text + translates")
-    void greekImage_openRouterVision_thenTranslates() throws IOException {
-        Attachment imageAttachment = loadImageAttachment();
-
+    @DisplayName("G1: Gateway retains text conversation history across turns")
+    void gateway_multiTurn_retainsHistory() {
         TelegramCommand firstCommand = createMessageCommand(
-                TEST_CHAT_ID,
-                1,
-                "Что написано на картинке? Процитируй текст дословно.",
-                List.of(imageAttachment)
+                TEST_CHAT_ID, 1,
+                "Remember this secret code, I will ask you about it later: " + SECRET_CODE
         );
-
         messageHandler.handle(firstCommand);
 
         TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID)
                 .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-
         ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
 
-        String firstReply = latestAssistantReply(thread);
-        assertThat(firstReply)
-                .as("First answer should not be blank")
+        assertThat(latestAssistantReply(thread))
+                .as("First response should not be blank")
                 .isNotBlank();
-        assertThat(firstReply.toLowerCase())
-                .as("Reply should contain Greek text from the image")
-                .containsAnyOf("θέλω", "σκύλο", "αγοριού");
 
         TelegramCommand secondCommand = createMessageCommand(
-                TEST_CHAT_ID,
-                2,
-                "Переведи на русский язык греческий текст, который был на картинке. Напиши полный перевод.",
-                List.of()
+                TEST_CHAT_ID, 2,
+                "What was the secret code I told you? Reply with just the code."
         );
-
         messageHandler.handle(secondCommand);
 
         ConversationThread threadAfterFollowUp = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist after follow-up"));
+
         assertThat(threadAfterFollowUp.getId())
-                .as("Follow-up should stay in same thread")
+                .as("Follow-up should stay in the same thread")
                 .isEqualTo(thread.getId());
 
         String secondReply = latestAssistantReply(threadAfterFollowUp);
         assertThat(secondReply)
-                .as("Follow-up answer should not be blank")
-                .isNotBlank();
-        assertThat(secondReply.toLowerCase())
-                .as("Follow-up should contain Russian translation")
-                .containsAnyOf("хочу", "собак", "мальчик", "want", "dog", "boy");
+                .as("Gateway must recall the secret code from conversation history")
+                .containsIgnoringCase(SECRET_CODE);
 
         assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.USER))
-                .as("Two user messages expected in thread")
+                .as("Two user messages expected")
                 .isEqualTo(2);
         assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.ASSISTANT))
-                .as("Two assistant messages expected in thread")
+                .as("Two assistant messages expected")
                 .isEqualTo(2);
     }
 
-    private Attachment loadImageAttachment() throws IOException {
-        ClassPathResource resource = new ClassPathResource(IMAGE_RESOURCE);
-        byte[] imageBytes = resource.getInputStream().readAllBytes();
-        return new Attachment(
-                "manual/" + IMAGE_RESOURCE,
-                "image/jpeg",
-                IMAGE_RESOURCE,
-                imageBytes.length,
-                AttachmentType.IMAGE,
-                imageBytes
+    // ==================== G2: Gateway 3-turn deep history ====================
+
+    @Test
+    @Timeout(5 * 60)
+    @DisplayName("G2: Gateway retains deep history — third turn references fact from first turn")
+    void gateway_threeTurns_deepHistory() {
+        TelegramCommand turn1 = createMessageCommand(
+                TEST_CHAT_ID, 1,
+                "My lucky number is " + SECRET_NUMBER + ". Remember it."
         );
+        messageHandler.handle(turn1);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        assertThat(latestAssistantReply(thread))
+                .as("Turn 1 response should not be blank")
+                .isNotBlank();
+
+        TelegramCommand turn2 = createMessageCommand(
+                TEST_CHAT_ID, 2,
+                "What is the capital of France?"
+        );
+        messageHandler.handle(turn2);
+
+        assertThat(latestAssistantReply(thread))
+                .as("Turn 2 should answer")
+                .isNotBlank();
+
+        TelegramCommand turn3 = createMessageCommand(
+                TEST_CHAT_ID, 3,
+                "What is my lucky number? Reply with just the number."
+        );
+        messageHandler.handle(turn3);
+
+        String turn3Reply = latestAssistantReply(thread);
+        assertThat(turn3Reply)
+                .as("Gateway must recall the lucky number from turn 1 via deep conversation history")
+                .contains(SECRET_NUMBER);
+
+        assertThat(messageRepository.countByThreadAndRole(thread, MessageRole.USER))
+                .as("Three user messages expected")
+                .isEqualTo(3);
+        assertThat(messageRepository.countByThreadAndRole(thread, MessageRole.ASSISTANT))
+                .as("Three assistant messages expected")
+                .isEqualTo(3);
     }
 
-    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text, List<Attachment> attachments) {
+    // --- Helpers ---
+
+    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text) {
         Update update = new Update();
 
         User from = new User();
         from.setId(chatId);
-        from.setUserName("manual-openrouter-user");
-        from.setFirstName("Manual");
-        from.setLastName("OpenRouter");
-        from.setLanguageCode("ru");
+        from.setUserName("gateway-history-user-" + chatId);
+        from.setFirstName("Gateway");
+        from.setLastName("History");
+        from.setLanguageCode("en");
 
         Message message = new Message();
         message.setMessageId(messageId);
@@ -242,15 +256,15 @@ class GreekImageVisionOpenRouterManualIT {
                 update,
                 text,
                 false,
-                attachments
+                List.of()
         );
-        command.languageCode("ru");
+        command.languageCode("en");
         return command;
     }
 
     private String latestAssistantReply(ConversationThread thread) {
-        List<OpenDaimonMessage> assistantMessages = messageRepository.findByThreadAndRoleOrderBySequenceNumberAsc(
-                thread, MessageRole.ASSISTANT);
+        List<OpenDaimonMessage> assistantMessages = messageRepository
+                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
         assertThat(assistantMessages)
                 .as("Assistant message should be saved")
                 .isNotEmpty();

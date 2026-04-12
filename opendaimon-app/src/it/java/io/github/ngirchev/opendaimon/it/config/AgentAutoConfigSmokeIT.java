@@ -15,6 +15,8 @@ import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
 import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,6 +77,16 @@ class AgentAutoConfigSmokeIT {
         @Bean
         public ToolCallingManager toolCallingManager() {
             return mock(ToolCallingManager.class);
+        }
+
+        @Bean
+        public SpringAIModelRegistry springAIModelRegistry() {
+            return mock(SpringAIModelRegistry.class);
+        }
+
+        @Bean
+        public ChatMemory chatMemory() {
+            return mock(ChatMemory.class);
         }
     }
 

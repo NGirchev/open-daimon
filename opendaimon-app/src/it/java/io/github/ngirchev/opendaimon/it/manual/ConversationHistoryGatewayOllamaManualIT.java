@@ -1,7 +1,5 @@
 package io.github.ngirchev.opendaimon.it.manual;
 
-import io.github.ngirchev.opendaimon.common.model.Attachment;
-import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
@@ -28,7 +26,6 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.telegram.telegrambots.meta.api.objects.Chat;
@@ -38,7 +35,6 @@ import org.telegram.telegrambots.meta.api.objects.User;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -55,41 +51,46 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
 
 /**
- * Manual E2E-like integration test for real Ollama + JPEG image with Greek text.
+ * Manual E2E integration test for conversation history in gateway (non-agent) mode
+ * with local Ollama.
  *
- * <p>The image contains the sentence "Θέλω τον σκύλο του αγοριού." (I want the boy's dog.)
- * with the word "αγοριού" highlighted in purple. The vision model reads the text directly
- * from the image; there is no RAG indexing for JPEG attachments.
+ * <p>Agent mode is NOT enabled — requests go through {@code SpringAiGateway} with
+ * {@code MessageChatMemoryAdvisor}. Verifies that text-only multi-turn conversations
+ * retain context via {@code ChatMemory}.
  *
- * <p>Not intended for regular CI runs.
- * Run explicitly:
+ * <p>Requires local Ollama with {@code qwen2.5:3b} and {@code nomic-embed-text:v1.5}.
+ *
+ * <p>Run explicitly:
  * <pre>
- * ./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify \
- *   -Dit.test=GreekImageVisionOllamaManualIT \
+ * ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
+ *   -Dit.test=ConversationHistoryGatewayOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
- *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.vision-model=gemma3:4b
+ *   -Dmanual.ollama.e2e=true
  * </pre>
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
 @SpringBootTest(
-        classes = GreekImageVisionOllamaManualIT.TestConfig.class,
+        classes = ConversationHistoryGatewayOllamaManualIT.TestConfig.class,
         properties = "open-daimon.agent.enabled=false"
 )
 @ActiveProfiles({"integration-test", "manual-ollama"})
 @Import({
         TestDatabaseConfiguration.class
 })
-class GreekImageVisionOllamaManualIT {
-    private static final Long TEST_CHAT_ID = 350009009L;
-    private static final String IMAGE_RESOURCE = "attachments/greek.jpeg";
+class ConversationHistoryGatewayOllamaManualIT {
+
+    private static final Long TEST_CHAT_ID = 350009008L;
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
-    private static final String VISION_MODEL_PROPERTY = "manual.ollama.vision-model";
-    private static final String DEFAULT_VISION_MODEL = "gemma3:4b";
-    private static final String VISION_MODEL = System.getProperty(VISION_MODEL_PROPERTY, DEFAULT_VISION_MODEL);
-    private static final List<String> REQUIRED_OLLAMA_MODELS =
-            Stream.of(VISION_MODEL, "nomic-embed-text:v1.5").distinct().toList();
+    private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
+    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
+    private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
+    private static final List<String> REQUIRED_OLLAMA_MODELS = Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
+            .distinct()
+            .toList();
+
+    private static final String SECRET_CODE = "HELIX-6620-QUASAR";
+    private static final String SECRET_NUMBER = "3847";
 
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
@@ -110,30 +111,12 @@ class GreekImageVisionOllamaManualIT {
     private TelegramBot telegramBot;
 
     @BeforeAll
-    static void requireLocalOllamaWithModels() {
-        String baseUrl = resolveOllamaBaseUrl();
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(OLLAMA_TIMEOUT)
-                .build();
-        HttpRequest request = HttpRequest.newBuilder()
-                .GET()
-                .timeout(OLLAMA_TIMEOUT)
-                .uri(URI.create(baseUrl + "/api/tags"))
-                .build();
-        try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            boolean statusOk = response.statusCode() == 200;
-            boolean modelsPresent = REQUIRED_OLLAMA_MODELS.stream().allMatch(response.body()::contains);
-            Assumptions.assumeTrue(statusOk && modelsPresent,
-                    "Skipping manual test: Ollama/models unavailable at " + baseUrl + ". Required: " + REQUIRED_OLLAMA_MODELS);
-        } catch (Exception ex) {
-            Assumptions.assumeTrue(false,
-                    "Skipping manual test: cannot connect to Ollama at " + baseUrl + ". " + ex.getMessage());
-        }
+    static void checkOllama() {
+        requireLocalOllamaWithModels();
     }
 
     @BeforeEach
-    void setUp() throws TelegramApiException {
+    void setUpEach() throws TelegramApiException {
         messageRepository.deleteAll();
         threadRepository.deleteAll();
         telegramUserRepository.deleteAll();
@@ -145,97 +128,113 @@ class GreekImageVisionOllamaManualIT {
         doNothing().when(telegramBot).sendErrorMessage(anyLong(), anyString(), any());
     }
 
-    /**
-     * This test expects the following behavior:
-     * 1. Send a Telegram message with a JPEG image attachment and ask the model to quote the text.
-     * 2. The vision model reads the Greek text directly from the image (no RAG indexing for JPEG).
-     * 3. Ask a follow-up to translate the text to Russian.
-     * 4. The model uses the conversation context to produce the Russian translation.
-     * !!! DO NOT CHANGE THE TEST BEHAVIOR
-     * !!! DO NOT CHANGE THE OLLAMA PROMPT
-     * !!! DO NOT USE FAKE MOCKS JUST TO FORCE THE RESULT
-     */
+    // ==================== G1: Gateway 2-turn text history ====================
+
     @Test
     @Timeout(3 * 60)
-    @DisplayName("Manual E2E: greek.jpeg — vision reads Greek text + follow-up translates")
-    void greekImage_visionReadsText_thenTranslates() throws IOException {
-        Attachment imageAttachment = loadImageAttachment();
-
+    @DisplayName("G1-Ollama: Gateway retains text conversation history across turns")
+    void gateway_multiTurn_retainsHistory() {
         TelegramCommand firstCommand = createMessageCommand(
-                TEST_CHAT_ID,
-                1,
-                "Что написано на картинке? Процитируй текст дословно.",
-                List.of(imageAttachment)
+                TEST_CHAT_ID, 1,
+                "Remember this secret code, I will ask you about it later: " + SECRET_CODE
         );
-
         messageHandler.handle(firstCommand);
 
         TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID)
                 .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-
         ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
 
-        String firstReply = latestAssistantReply(thread);
-        assertThat(firstReply)
-                .as("First answer should not be blank")
+        assertThat(latestAssistantReply(thread))
+                .as("First response should not be blank")
                 .isNotBlank();
-        assertThat(firstReply.toLowerCase())
-                .as("Reply should contain Greek text from the image")
-                .containsAnyOf("θέλω", "σκύλο", "αγοριού");
 
         TelegramCommand secondCommand = createMessageCommand(
-                TEST_CHAT_ID,
-                2,
-                "Переведи этот текст на русский язык",
-                List.of()
+                TEST_CHAT_ID, 2,
+                "What was the secret code I told you? Reply with just the code."
         );
-
         messageHandler.handle(secondCommand);
 
         ConversationThread threadAfterFollowUp = threadRepository.findMostRecentActiveThread(user)
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist after follow-up"));
+
         assertThat(threadAfterFollowUp.getId())
-                .as("Follow-up should stay in same thread")
+                .as("Follow-up should stay in the same thread")
                 .isEqualTo(thread.getId());
 
         String secondReply = latestAssistantReply(threadAfterFollowUp);
         assertThat(secondReply)
-                .as("Follow-up answer should not be blank")
-                .isNotBlank();
-        assertThat(secondReply.toLowerCase())
-                .as("Follow-up should contain Russian translation")
-                .containsAnyOf("хочу", "собак", "мальчик");
+                .as("Gateway must recall the secret code from conversation history")
+                .containsIgnoringCase(SECRET_CODE);
 
         assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.USER))
-                .as("Two user messages expected in thread")
+                .as("Two user messages expected")
                 .isEqualTo(2);
         assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.ASSISTANT))
-                .as("Two assistant messages expected in thread")
+                .as("Two assistant messages expected")
                 .isEqualTo(2);
     }
 
-    private Attachment loadImageAttachment() throws IOException {
-        ClassPathResource resource = new ClassPathResource(IMAGE_RESOURCE);
-        byte[] imageBytes = resource.getInputStream().readAllBytes();
-        return new Attachment(
-                "manual/" + IMAGE_RESOURCE,
-                "image/jpeg",
-                IMAGE_RESOURCE,
-                imageBytes.length,
-                AttachmentType.IMAGE,
-                imageBytes
+    // ==================== G2: Gateway 3-turn deep history ====================
+
+    @Test
+    @Timeout(5 * 60)
+    @DisplayName("G2-Ollama: Gateway retains deep history — third turn references fact from first turn")
+    void gateway_threeTurns_deepHistory() {
+        TelegramCommand turn1 = createMessageCommand(
+                TEST_CHAT_ID, 1,
+                "My lucky number is " + SECRET_NUMBER + ". Remember it."
         );
+        messageHandler.handle(turn1);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        assertThat(latestAssistantReply(thread))
+                .as("Turn 1 response should not be blank")
+                .isNotBlank();
+
+        TelegramCommand turn2 = createMessageCommand(
+                TEST_CHAT_ID, 2,
+                "What is the capital of France?"
+        );
+        messageHandler.handle(turn2);
+
+        assertThat(latestAssistantReply(thread))
+                .as("Turn 2 should answer")
+                .isNotBlank();
+
+        TelegramCommand turn3 = createMessageCommand(
+                TEST_CHAT_ID, 3,
+                "What is my lucky number? Reply with just the number."
+        );
+        messageHandler.handle(turn3);
+
+        String turn3Reply = latestAssistantReply(thread);
+        assertThat(turn3Reply)
+                .as("Gateway must recall the lucky number from turn 1 via deep conversation history")
+                .contains(SECRET_NUMBER);
+
+        assertThat(messageRepository.countByThreadAndRole(thread, MessageRole.USER))
+                .as("Three user messages expected")
+                .isEqualTo(3);
+        assertThat(messageRepository.countByThreadAndRole(thread, MessageRole.ASSISTANT))
+                .as("Three assistant messages expected")
+                .isEqualTo(3);
     }
 
-    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text, List<Attachment> attachments) {
+    // --- Helpers ---
+
+    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text) {
         Update update = new Update();
 
         User from = new User();
         from.setId(chatId);
-        from.setUserName("manual-ollama-user");
-        from.setFirstName("Manual");
-        from.setLastName("Ollama");
+        from.setUserName("gateway-history-user-" + chatId);
+        from.setFirstName("Gateway");
+        from.setLastName("History");
         from.setLanguageCode("ru");
 
         Message message = new Message();
@@ -254,19 +253,41 @@ class GreekImageVisionOllamaManualIT {
                 update,
                 text,
                 false,
-                attachments
+                List.of()
         );
         command.languageCode("ru");
         return command;
     }
 
     private String latestAssistantReply(ConversationThread thread) {
-        List<OpenDaimonMessage> assistantMessages = messageRepository.findByThreadAndRoleOrderBySequenceNumberAsc(
-                thread, MessageRole.ASSISTANT);
+        List<OpenDaimonMessage> assistantMessages = messageRepository
+                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
         assertThat(assistantMessages)
                 .as("Assistant message should be saved")
                 .isNotEmpty();
         return assistantMessages.getLast().getContent();
+    }
+
+    static void requireLocalOllamaWithModels() {
+        String baseUrl = resolveOllamaBaseUrl();
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(OLLAMA_TIMEOUT)
+                .build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .GET()
+                .timeout(OLLAMA_TIMEOUT)
+                .uri(URI.create(baseUrl + "/api/tags"))
+                .build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            boolean statusOk = response.statusCode() == 200;
+            boolean modelsPresent = REQUIRED_OLLAMA_MODELS.stream().allMatch(response.body()::contains);
+            Assumptions.assumeTrue(statusOk && modelsPresent,
+                    "Skipping: Ollama/models unavailable at " + baseUrl + ". Required: " + REQUIRED_OLLAMA_MODELS);
+        } catch (Exception ex) {
+            Assumptions.assumeTrue(false,
+                    "Skipping: cannot connect to Ollama at " + baseUrl + ". " + ex.getMessage());
+        }
     }
 
     private static String resolveOllamaBaseUrl() {

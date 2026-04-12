@@ -50,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
                 "io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig",
+        "open-daimon.agent.enabled=false",
         "open-daimon.telegram.enabled=true",
         "open-daimon.telegram.token=test-token",
         "open-daimon.telegram.username=test-bot",

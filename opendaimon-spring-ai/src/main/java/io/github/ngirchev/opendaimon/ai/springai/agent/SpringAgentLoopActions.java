@@ -9,7 +9,10 @@ import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentFact;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -46,6 +49,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final List<ToolCallback> toolCallbacks;
     private final AgentMemory agentMemory;
     private final FactExtractor factExtractor;
+    private final ChatMemory chatMemory;
 
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
     private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
@@ -55,12 +59,14 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                                   ToolCallingManager toolCallingManager,
                                   List<ToolCallback> toolCallbacks,
                                   AgentMemory agentMemory,
-                                  FactExtractor factExtractor) {
+                                  FactExtractor factExtractor,
+                                  ChatMemory chatMemory) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : List.of();
         this.agentMemory = agentMemory;
         this.factExtractor = factExtractor;
+        this.chatMemory = chatMemory;
     }
 
     @Override
@@ -76,6 +82,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     systemPrompt = systemPrompt + "\n\n" + memoryContext;
                 }
                 messages.add(new SystemMessage(systemPrompt));
+                loadConversationHistory(ctx, messages);
                 messages.add(new UserMessage(AgentPromptBuilder.buildUserMessage(ctx)));
             }
 
@@ -191,6 +198,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     @Override
     public void answer(AgentContext ctx) {
         ctx.setFinalAnswer(ctx.getCurrentTextResponse());
+        saveConversationHistory(ctx);
         extractFacts(ctx);
         cleanup(ctx);
         log.info("Agent answer: final answer set, length={}",
@@ -299,6 +307,58 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.removeExtra(KEY_CONVERSATION_HISTORY);
         ctx.removeExtra(KEY_LAST_PROMPT);
         ctx.removeExtra(KEY_LAST_RESPONSE);
+    }
+
+    /**
+     * Loads prior conversation turns from {@link ChatMemory} and appends them
+     * between the system prompt and the current user message. Skips any
+     * {@link SystemMessage} entries from memory (e.g. summaries) to avoid
+     * conflicting with the agent system prompt — the summary content is
+     * prepended to the first system message instead.
+     */
+    private void loadConversationHistory(AgentContext ctx, List<Message> messages) {
+        if (chatMemory == null || ctx.getConversationId() == null) {
+            return;
+        }
+        try {
+            List<Message> history = chatMemory.get(ctx.getConversationId());
+            if (history == null || history.isEmpty()) {
+                return;
+            }
+            for (Message msg : history) {
+                if (msg.getMessageType() == MessageType.SYSTEM) {
+                    // Append summary to existing system prompt instead of adding a second SystemMessage
+                    if (!messages.isEmpty() && messages.getFirst() instanceof SystemMessage existing) {
+                        messages.set(0, new SystemMessage(existing.getText() + "\n\n" + msg.getText()));
+                    }
+                } else {
+                    messages.add(msg);
+                }
+            }
+            log.info("Agent think: loaded {} history messages from ChatMemory", history.size());
+        } catch (Exception e) {
+            log.warn("Agent think: failed to load conversation history: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Persists the current user message and final assistant answer to
+     * {@link ChatMemory} so they are available in subsequent turns.
+     */
+    private void saveConversationHistory(AgentContext ctx) {
+        if (chatMemory == null || ctx.getConversationId() == null) {
+            return;
+        }
+        try {
+            String conversationId = ctx.getConversationId();
+            chatMemory.add(conversationId, List.of(
+                    new UserMessage(ctx.getTask()),
+                    new AssistantMessage(ctx.getCurrentTextResponse())
+            ));
+            log.info("Agent answer: saved user+assistant messages to ChatMemory");
+        } catch (Exception e) {
+            log.warn("Agent answer: failed to save conversation history: {}", e.getMessage());
+        }
     }
 
     private List<Message> getOrCreateHistory(AgentContext ctx) {

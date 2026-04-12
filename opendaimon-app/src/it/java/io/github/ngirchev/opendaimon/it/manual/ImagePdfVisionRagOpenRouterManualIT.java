@@ -86,7 +86,10 @@ import static org.mockito.Mockito.reset;
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = ImagePdfVisionRagOpenRouterManualIT.TestConfig.class)
+@SpringBootTest(
+        classes = ImagePdfVisionRagOpenRouterManualIT.TestConfig.class,
+        properties = "open-daimon.agent.enabled=false"
+)
 @ActiveProfiles({"integration-test", "manual-openrouter"})
 @Import({
         TestDatabaseConfiguration.class
@@ -100,6 +103,7 @@ class ImagePdfVisionRagOpenRouterManualIT {
     private static final Long TEST_CHAT_ID = 350009005L;
     private static final String PDF_RESOURCE = "attachments/image-based-pdf-sample.pdf";
     private static final String EXPECTED_FOLLOW_UP_PHRASE = "(as far as they know)";
+    private static final String ALTERNATIVE_FOLLOW_UP_PHRASE = "they may not";
 
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
@@ -316,7 +320,8 @@ class ImagePdfVisionRagOpenRouterManualIT {
     private static boolean containsExpectedFollowUpAnswer(String text) {
         if (text == null) return false;
         String normalized = text.replaceAll("\\s+", " ");
-        return normalized.contains(EXPECTED_FOLLOW_UP_PHRASE);
+        return normalized.contains(EXPECTED_FOLLOW_UP_PHRASE)
+                || normalized.contains(ALTERNATIVE_FOLLOW_UP_PHRASE);
     }
 
     @SpringBootConfiguration

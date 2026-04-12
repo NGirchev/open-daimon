@@ -8,7 +8,7 @@
 - [ ] alerting
 - [x] fix logs
 - [x] add pulse for conversation
-- [ ] Add RAG (search over old dialogs via OpenSearch/Elasticsearch/https://qdrant.tech/)
+- [ ] Add Memory RAG (search over old dialogs via OpenSearch/Elasticsearch/https://qdrant.tech/)
 - [ ] Add automatic topic completion detection (semantic similarity)
 - [ ] Integrate tiktoken for accurate token counting
 - [x] MCP internet
@@ -21,6 +21,7 @@
 - [ ] Rest whitelist
 - [ ] Reply options as buttons
 - [ ] Telegram RAG Module
+- [ ] Ability to read telegram chat history if needed
 - [ ] OpenCode Module (Claude)
 - [ ] MCP Module
 - [ ] Voice recognition
@@ -31,6 +32,10 @@
 - [ ] Asynchronous processing for telegram
 - [ ] Show simple description for the models
 - [ ] Clearing RAG + File
+- [ ] FSM pipeline resilience
+  - Make `extractText` and `runVisionOcr` idempotent (check VectorStore for existing chunks before writing)
+  - Persist FSM intermediate states to DB for crash recovery and retry
+  - Eliminate response loss window between AI call completion and DB save
 
 ## Agent Framework Pivot
 
@@ -144,5 +149,16 @@
   2026-04-11T07:20:05.389844438Z 	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.executeAndExtract(DefaultRestClient.java:814)
   2026-04-11T07:20:05.389846893Z 	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.body(DefaultRestClient.java:750)
   2026-04-11T07:20:05.389849206Z 	at org.springframework.ai.ollama.api.OllamaApi.chat(OllamaApi.java:115) - Also message was sent to personal chat instead of group
+- [ ] Bug: WebTools.fetchUrl DataBufferLimitException → model responds in English (2026-04-11)
+  - `WebClient` default buffer limit is 256KB (262144 bytes); large pages (e.g. GitHub issues) exceed it
+  - `fetchUrl` catches the exception and returns empty string `""`
+  - Model receives empty tool result, generates a fallback response ignoring the language instruction
+  - Root cause: `SpringAIAutoConfig.webClient()` creates WebClient via `builder.build()` without `maxInMemorySize`
+  - Observed: `google/gemini-2.5-flash-lite` via `openrouter/auto` responded in English despite `languageCode=ru`
+  - Fix 1: Set `maxInMemorySize` in `SpringAIAutoConfig.webClient()` (e.g. 2MB)
+  - Fix 2: Investigate why language instruction (`"Prefer responding in Russian"`) is lost after tool call failure — check if system message is preserved in the retry/fallback path
+  - Log: `WebTools.fetchUrl failed for url=[https://github.com/anthropics/claude-code/issues/42796]: DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144`
 - [ ] Cancel button for model selection + grouping
 - [ ] Bug - custom role for group chat is not working
+- [ ] Show thinking + smooth text display in telegram
+- [ ] Show thinking in web

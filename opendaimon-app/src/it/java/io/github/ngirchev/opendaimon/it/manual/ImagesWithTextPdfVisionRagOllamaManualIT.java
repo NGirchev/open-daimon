@@ -79,7 +79,10 @@ import static org.mockito.Mockito.reset;
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = ImagesWithTextPdfVisionRagOllamaManualIT.TestConfig.class)
+@SpringBootTest(
+        classes = ImagesWithTextPdfVisionRagOllamaManualIT.TestConfig.class,
+        properties = "open-daimon.agent.enabled=false"
+)
 @ActiveProfiles({"integration-test", "manual-ollama"})
 @Import({
         TestDatabaseConfiguration.class

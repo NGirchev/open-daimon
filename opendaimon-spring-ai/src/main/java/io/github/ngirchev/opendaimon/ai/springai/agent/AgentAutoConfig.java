@@ -18,6 +18,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionRepository;
+import org.springframework.ai.chat.memory.ChatMemory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.ollama.OllamaChatModel;
@@ -117,10 +118,11 @@ public class AgentAutoConfig {
             ToolCallingManager toolCallingManager,
             List<ToolCallback> agentToolCallbacks,
             ObjectProvider<AgentMemory> agentMemoryProvider,
-            ObjectProvider<FactExtractor> factExtractorProvider) {
+            ObjectProvider<FactExtractor> factExtractorProvider,
+            ObjectProvider<ChatMemory> chatMemoryProvider) {
         AgentMemory memory = agentMemoryProvider.getIfAvailable();
         FactExtractor extractor = factExtractorProvider.getIfAvailable();
-        return new SpringAgentLoopActions(agentChatModel, toolCallingManager, agentToolCallbacks, memory, extractor);
+        return new SpringAgentLoopActions(agentChatModel, toolCallingManager, agentToolCallbacks, memory, extractor, chatMemoryProvider.getIfAvailable());
     }
 
     @Bean("agentLoopFsm")
@@ -139,8 +141,9 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean
     public SimpleChainExecutor simpleChainExecutor(
-            DelegatingAgentChatModel agentChatModel) {
-        return new SimpleChainExecutor(agentChatModel);
+            DelegatingAgentChatModel agentChatModel,
+            ObjectProvider<ChatMemory> chatMemoryProvider) {
+        return new SimpleChainExecutor(agentChatModel, chatMemoryProvider.getIfAvailable());
     }
 
     @Bean
