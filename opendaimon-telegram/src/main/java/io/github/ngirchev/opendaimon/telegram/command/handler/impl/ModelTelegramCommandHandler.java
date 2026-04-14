@@ -20,6 +20,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
@@ -83,6 +84,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
     private final IUserPriorityService userPriorityService;
     private final PersistentKeyboardService persistentKeyboardService;
     private final ConversationThreadService conversationThreadService;
+    private final ModelSelectionSession modelSelectionSession;
 
     public ModelTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                        TypingIndicatorService typingIndicatorService,
@@ -92,7 +94,8 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                                        AIGatewayRegistry aiGatewayRegistry,
                                        IUserPriorityService userPriorityService,
                                        PersistentKeyboardService persistentKeyboardService,
-                                       ConversationThreadService conversationThreadService) {
+                                       ConversationThreadService conversationThreadService,
+                                       ModelSelectionSession modelSelectionSession) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.userModelPreferenceService = userModelPreferenceService;
@@ -100,6 +103,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         this.userPriorityService = userPriorityService;
         this.persistentKeyboardService = persistentKeyboardService;
         this.conversationThreadService = conversationThreadService;
+        this.modelSelectionSession = modelSelectionSession;
     }
 
     @Override
@@ -154,30 +158,9 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                 return;
             }
 
-            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-            // Auto button first
-            keyboard.add(List.of(createButton(
-                    messageLocalizationService.getMessage("telegram.model.auto", lang), CALLBACK_AUTO)));
-
-            // Category buttons with counts
-            for (ModelCategory category : CATEGORY_DEFINITIONS) {
-                long count = models.stream().filter(category.filter()).count();
-                if (count == 0) {
-                    continue;
-                }
-                String label = messageLocalizationService.getMessage(category.labelKey(), lang)
-                        + " " + messageLocalizationService.getMessage("telegram.model.cat.count", lang, count);
-                keyboard.add(List.of(createButton(label, CALLBACK_CAT_PREFIX + category.key())));
-            }
-
-            // Cancel button last
-            keyboard.add(List.of(createButton(
-                    messageLocalizationService.getMessage("telegram.model.cancel", lang), CALLBACK_CANCEL)));
-
-            String text = messageLocalizationService.getMessage("telegram.model.categories", lang);
-            SendMessage msg = new SendMessage(chatId.toString(), text);
-            msg.setReplyMarkup(new InlineKeyboardMarkup(keyboard));
+            MenuContent menu = buildCategoryMenuContent(models, lang);
+            SendMessage msg = new SendMessage(chatId.toString(), menu.text());
+            msg.setReplyMarkup(menu.markup());
             telegramBotProvider.getObject().execute(msg);
         } catch (Exception e) {
             throw new TelegramCommandHandlerException("Failed to send category menu", e);
@@ -217,6 +200,32 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         telegramBotProvider.getObject().execute(msg);
     }
 
+    /**
+     * Builds category menu content reused by both send and edit flows.
+     */
+    private MenuContent buildCategoryMenuContent(List<ModelInfo> models, String lang) {
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+        keyboard.add(List.of(createButton(
+                messageLocalizationService.getMessage("telegram.model.auto", lang), CALLBACK_AUTO)));
+
+        for (ModelCategory category : CATEGORY_DEFINITIONS) {
+            long count = models.stream().filter(category.filter()).count();
+            if (count == 0) {
+                continue;
+            }
+            String label = messageLocalizationService.getMessage(category.labelKey(), lang)
+                    + " " + messageLocalizationService.getMessage("telegram.model.cat.count", lang, count);
+            keyboard.add(List.of(createButton(label, CALLBACK_CAT_PREFIX + category.key())));
+        }
+
+        keyboard.add(List.of(createButton(
+                messageLocalizationService.getMessage("telegram.model.cancel", lang), CALLBACK_CANCEL)));
+
+        String text = messageLocalizationService.getMessage("telegram.model.categories", lang);
+        return new MenuContent(text, new InlineKeyboardMarkup(keyboard));
+    }
+
     // ==================== Model List within Category (Level 2) ====================
 
     private void showCategoryPage(Long chatId, Integer messageId, TelegramUser user,
@@ -227,18 +236,17 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
 
             ModelCategory category = findCategory(categoryKey);
             if (category == null) {
-                ackCallbackSilent(chatId, messageId);
+                log.warn("Unknown category '{}' for chat={}", categoryKey, chatId);
                 return;
             }
 
-            // Collect indices of models matching the category filter (global indices for selection)
             List<Integer> matchingIndices = IntStream.range(0, allModels.size())
                     .filter(i -> category.filter().test(allModels.get(i)))
                     .boxed()
                     .toList();
 
             if (matchingIndices.isEmpty()) {
-                ackCallbackSilent(chatId, messageId);
+                log.warn("Empty category '{}' for chat={}", categoryKey, chatId);
                 return;
             }
 
@@ -248,7 +256,6 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             int toIndex = Math.min(fromIndex + PAGE_SIZE, matchingIndices.size());
             List<Integer> pageIndices = matchingIndices.subList(fromIndex, toIndex);
 
-            // Build text header
             String catLabel = messageLocalizationService.getMessage(category.labelKey(), lang);
             String header = messageLocalizationService.getMessage(
                     "telegram.model.cat.header", lang, catLabel, safePage + 1, totalPages);
@@ -270,12 +277,10 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                         providerPrefix + model.name(), CALLBACK_PREFIX + globalIdx)));
             }
 
-            // Pagination row (only if multiple pages)
             if (totalPages > 1) {
                 keyboard.add(buildPaginationRow(categoryKey, safePage, totalPages, lang));
             }
 
-            // Navigation row: Back + Cancel
             keyboard.add(List.of(
                     createButton(messageLocalizationService.getMessage("telegram.model.back", lang), CALLBACK_BACK),
                     createButton(messageLocalizationService.getMessage("telegram.model.cancel", lang), CALLBACK_CANCEL)
@@ -317,10 +322,11 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         Long userId = user.getId();
         Integer messageId = extractMessageId(cq);
 
-        // Cancel — delete and return
+        // Cancel — delete, evict cache, return
         if (CALLBACK_CANCEL.equals(callbackData)) {
             ackCallback(cq.getId(), "");
             deleteMenuMessage(command.telegramId(), cq);
+            modelSelectionSession.evict(userId);
             return;
         }
 
@@ -364,6 +370,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             ackCallback(cq.getId(), messageLocalizationService.getMessage(
                     "telegram.model.ack.auto", user.getLanguageCode()));
             deleteMenuMessage(command.telegramId(), cq);
+            modelSelectionSession.evict(userId);
             sendPersistentKeyboard(command.telegramId(), userId);
             return;
         }
@@ -373,34 +380,15 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         userModelPreferenceService.setPreferredModel(userId, modelName);
         ackCallback(cq.getId(), "✅ " + modelName);
         deleteMenuMessage(command.telegramId(), cq);
+        modelSelectionSession.evict(userId);
         sendPersistentKeyboard(command.telegramId(), userId);
     }
 
     private void editToCategoryMenu(Long chatId, Integer messageId, TelegramUser user) {
         try {
             List<ModelInfo> models = fetchModels(user);
-            String lang = user.getLanguageCode();
-
-            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-            keyboard.add(List.of(createButton(
-                    messageLocalizationService.getMessage("telegram.model.auto", lang), CALLBACK_AUTO)));
-
-            for (ModelCategory category : CATEGORY_DEFINITIONS) {
-                long count = models.stream().filter(category.filter()).count();
-                if (count == 0) {
-                    continue;
-                }
-                String label = messageLocalizationService.getMessage(category.labelKey(), lang)
-                        + " " + messageLocalizationService.getMessage("telegram.model.cat.count", lang, count);
-                keyboard.add(List.of(createButton(label, CALLBACK_CAT_PREFIX + category.key())));
-            }
-
-            keyboard.add(List.of(createButton(
-                    messageLocalizationService.getMessage("telegram.model.cancel", lang), CALLBACK_CANCEL)));
-
-            String text = messageLocalizationService.getMessage("telegram.model.categories", lang);
-            editMenuMessage(chatId, messageId, text, new InlineKeyboardMarkup(keyboard));
+            MenuContent menu = buildCategoryMenuContent(models, user.getLanguageCode());
+            editMenuMessage(chatId, messageId, menu.text(), menu.markup());
         } catch (Exception e) {
             log.error("Failed to edit category menu: {}", e.getMessage(), e);
         }
@@ -423,6 +411,10 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
     }
 
     private List<ModelInfo> fetchModels(TelegramUser user) {
+        return modelSelectionSession.getOrFetch(user.getId(), () -> fetchModelsFromGateway(user));
+    }
+
+    private List<ModelInfo> fetchModelsFromGateway(TelegramUser user) {
         UserPriority userPriority = userPriorityService.getUserPriority(user.getId());
         Map<String, String> metadata = new HashMap<>();
         if (userPriority != null) {
@@ -527,14 +519,12 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         }
     }
 
-    private void ackCallbackSilent(Long chatId, Integer messageId) {
-        log.warn("Empty category or unknown category for chat={}, message={}", chatId, messageId);
-    }
-
     @Override
     public String getSupportedCommandText(String languageCode) {
         return messageLocalizationService.getMessage("telegram.command.model.desc", languageCode);
     }
 
     private record ModelCategory(String key, String labelKey, Predicate<ModelInfo> filter) {}
+
+    private record MenuContent(String text, InlineKeyboardMarkup markup) {}
 }

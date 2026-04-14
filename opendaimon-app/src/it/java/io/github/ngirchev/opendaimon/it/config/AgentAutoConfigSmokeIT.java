@@ -6,9 +6,11 @@ import io.github.ngirchev.opendaimon.ai.springai.agent.ReActAgentExecutor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.SimpleChainExecutor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions;
 import io.github.ngirchev.opendaimon.ai.springai.agent.StrategyDelegatingAgentExecutor;
+import io.github.ngirchev.opendaimon.ai.springai.agent.memory.SemanticAgentMemory;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
+import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
 import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
 import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
@@ -18,6 +20,7 @@ import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -58,6 +61,8 @@ import static org.mockito.Mockito.mock;
                 "io.github.ngirchev.opendaimon.telegram.config.TelegramAutoConfig",
         "open-daimon.agent.enabled=true",
         "open-daimon.agent.max-iterations=5",
+        "open-daimon.agent.memory.enabled=true",
+        "open-daimon.agent.memory-similarity-threshold=0.7",
         "open-daimon.common.bulkhead.enabled=false",
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"
@@ -85,6 +90,11 @@ class AgentAutoConfigSmokeIT extends AbstractContainerIT {
         @Bean
         public ChatMemory chatMemory() {
             return mock(ChatMemory.class);
+        }
+
+        @Bean
+        public VectorStore vectorStore() {
+            return mock(VectorStore.class);
         }
     }
 
@@ -114,6 +124,13 @@ class AgentAutoConfigSmokeIT extends AbstractContainerIT {
         AgentOrchestrator orchestrator = context.getBean(AgentOrchestrator.class);
         assertThat(orchestrator).isNotNull();
         assertThat(orchestrator.getClass().getSimpleName()).isEqualTo("DefaultAgentOrchestrator");
+    }
+
+    @Test
+    @DisplayName("AgentAutoConfig — SemanticAgentMemory registered when memory enabled + VectorStore present")
+    void semanticAgentMemory_registeredWhenEnabled() {
+        assertThat(context.getBean(SemanticAgentMemory.class)).isNotNull();
+        assertThat(context.getBean(AgentMemory.class)).isNotNull();
     }
 
     @Test

@@ -25,6 +25,7 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHa
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
@@ -195,6 +196,7 @@ public class TelegramCommandHandlerConfig {
             ReplyImageAttachmentService replyImageAttachmentService,
             TelegramMessageSender telegramMessageSender,
             ObjectProvider<AgentExecutor> agentExecutorProvider,
+            // No default here — all defaults live in application.yml only (see coding-style.md)
             @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations) {
         return new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
@@ -257,6 +259,12 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    public ModelSelectionSession modelSelectionSession() {
+        return new ModelSelectionSession();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "model-enabled", havingValue = "true", matchIfMissing = true)
     public ModelTelegramCommandHandler modelTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
@@ -267,7 +275,8 @@ public class TelegramCommandHandlerConfig {
             AIGatewayRegistry aiGatewayRegistry,
             IUserPriorityService userPriorityService,
             PersistentKeyboardService persistentKeyboardService,
-            ConversationThreadService conversationThreadService) {
+            ConversationThreadService conversationThreadService,
+            ModelSelectionSession modelSelectionSession) {
         return new ModelTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
@@ -277,7 +286,8 @@ public class TelegramCommandHandlerConfig {
                 aiGatewayRegistry,
                 userPriorityService,
                 persistentKeyboardService,
-                conversationThreadService
+                conversationThreadService,
+                modelSelectionSession
         );
     }
 }
