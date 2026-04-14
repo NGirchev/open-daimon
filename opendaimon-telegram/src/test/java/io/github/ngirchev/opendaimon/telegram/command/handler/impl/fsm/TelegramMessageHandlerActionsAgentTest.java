@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
+import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
@@ -14,6 +15,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
@@ -25,8 +27,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Flux;
 
-import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,35 +58,39 @@ class TelegramMessageHandlerActionsAgentTest {
     @Mock private TelegramMessageSender messageSender;
     @Mock private AgentExecutor agentExecutor;
 
+    private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
 
     @BeforeEach
     void setUp() {
         TelegramProperties telegramProperties = new TelegramProperties();
         telegramProperties.setMaxMessageLength(4096);
+        agentStreamRenderer = new TelegramAgentStreamRenderer();
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, userModelPreferenceService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, MAX_ITERATIONS);
+                agentExecutor, agentStreamRenderer, MAX_ITERATIONS);
     }
 
     @Test
-    @DisplayName("generateResponse delegates to agent when agentExecutor is present")
+    @DisplayName("generateResponse delegates to agent stream when agentExecutor is present")
     void generateResponse_agentEnabled_delegatesToAgent() {
         MessageHandlerContext ctx = createContextWithMetadata("Search for Java 21 features");
 
-        AgentResult result = new AgentResult(
-                "Java 21 introduces virtual threads and pattern matching.",
-                List.of(), AgentState.COMPLETED, 3, Duration.ofSeconds(5), "gpt-4");
-        when(agentExecutor.execute(any(AgentRequest.class))).thenReturn(result);
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.metadata("gpt-4", 3),
+                AgentStreamEvent.finalAnswer("Java 21 introduces virtual threads and pattern matching.", 3));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
         assertThat(ctx.getResponseText()).isPresent();
         assertThat(ctx.getResponseText().get()).isEqualTo("Java 21 introduces virtual threads and pattern matching.");
+        assertThat(ctx.getResponseModel()).isEqualTo("gpt-4");
         assertThat(ctx.getErrorType()).isNull();
     }
 
@@ -92,9 +99,9 @@ class TelegramMessageHandlerActionsAgentTest {
     void generateResponse_agentEnabled_buildsCorrectRequest() {
         MessageHandlerContext ctx = createContextWithMetadata("Summarize this");
 
-        AgentResult result = new AgentResult("Summary", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1), null);
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("Summary", 1));
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
-        when(agentExecutor.execute(captor.capture())).thenReturn(result);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
@@ -107,17 +114,16 @@ class TelegramMessageHandlerActionsAgentTest {
     }
 
     @Test
-    @DisplayName("generateResponse sets EMPTY_RESPONSE when agent fails without answer")
-    void generateResponse_agentFailed_setsEmptyResponse() {
+    @DisplayName("generateResponse sets error when agent stream emits ERROR event")
+    void generateResponse_agentFailed_setsError() {
         MessageHandlerContext ctx = createContextWithMetadata("Do something");
 
-        AgentResult result = new AgentResult(null, List.of(), AgentState.FAILED, 2, Duration.ofSeconds(3), null);
-        when(agentExecutor.execute(any(AgentRequest.class))).thenReturn(result);
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.error("Agent failed", 2));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
-        assertThat(ctx.hasResponse()).isFalse();
-        assertThat(ctx.getErrorType()).isEqualTo(MessageHandlerErrorType.EMPTY_RESPONSE);
+        assertThat(ctx.getErrorType()).isEqualTo(MessageHandlerErrorType.GENERAL);
     }
 
     @Test
@@ -125,9 +131,10 @@ class TelegramMessageHandlerActionsAgentTest {
     void generateResponse_maxIterations_returnsPartialAnswer() {
         MessageHandlerContext ctx = createContextWithMetadata("Complex task");
 
-        AgentResult result = new AgentResult(
-                "Partial answer so far...", List.of(), AgentState.MAX_ITERATIONS, 10, Duration.ofSeconds(30), null);
-        when(agentExecutor.execute(any(AgentRequest.class))).thenReturn(result);
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.maxIterations("Partial answer so far...", 10));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
@@ -141,7 +148,7 @@ class TelegramMessageHandlerActionsAgentTest {
     void generateResponse_agentException_setsGeneralError() {
         MessageHandlerContext ctx = createContextWithMetadata("Crash test");
 
-        when(agentExecutor.execute(any(AgentRequest.class)))
+        when(agentExecutor.executeStream(any(AgentRequest.class)))
                 .thenThrow(new RuntimeException("Agent crashed"));
 
         actions.generateResponse(ctx);
@@ -157,9 +164,9 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Search something",
                 Set.of(ModelCapabilities.CHAT, ModelCapabilities.WEB));
 
-        AgentResult result = new AgentResult("Found it", List.of(), AgentState.COMPLETED, 2, Duration.ofSeconds(3), null);
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("Found it", 2));
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
-        when(agentExecutor.execute(captor.capture())).thenReturn(result);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
@@ -172,9 +179,9 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Hello",
                 Set.of(ModelCapabilities.CHAT));
 
-        AgentResult result = new AgentResult("Hi", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1), null);
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("Hi", 1));
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
-        when(agentExecutor.execute(captor.capture())).thenReturn(result);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
@@ -186,9 +193,9 @@ class TelegramMessageHandlerActionsAgentTest {
     void generateResponse_nullCapabilities_usesSimpleStrategy() {
         MessageHandlerContext ctx = createContextWithMetadata("Hello", null);
 
-        AgentResult result = new AgentResult("Hi", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1), null);
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("Hi", 1));
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
-        when(agentExecutor.execute(captor.capture())).thenReturn(result);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
@@ -201,9 +208,9 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Search the web",
                 Set.of(ModelCapabilities.AUTO));
 
-        AgentResult result = new AgentResult("Result", List.of(), AgentState.COMPLETED, 3, Duration.ofSeconds(5), null);
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("Result", 3));
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
-        when(agentExecutor.execute(captor.capture())).thenReturn(result);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
@@ -217,9 +224,9 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Just chat",
                 Set.of(ModelCapabilities.CHAT));
 
-        AgentResult result = new AgentResult("Reply", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1), null);
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("Reply", 1));
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
-        when(agentExecutor.execute(captor.capture())).thenReturn(result);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
 
         actions.generateResponse(ctx);
 
@@ -227,11 +234,45 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(ctx.getResponseText()).hasValue("Reply");
     }
 
+    @Test
+    @DisplayName("generateResponse sends intermediate events to Telegram via streamingParagraphSender")
+    void generateResponse_withToolCalls_sendsIntermediateEvents() {
+        List<String> sentMessages = new ArrayList<>();
+        MessageHandlerContext ctx = createContextWithMetadata("Search for Bitcoin price",
+                Set.of(ModelCapabilities.WEB), sentMessages::add);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
+                AgentStreamEvent.observation("Current price: $50,000", 0),
+                AgentStreamEvent.metadata("gpt-4o", 1),
+                AgentStreamEvent.finalAnswer("Bitcoin is currently $50,000.", 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // 3 intermediate events + 1 final answer sent via streaming sender
+        assertThat(sentMessages).hasSize(4);
+        assertThat(sentMessages.get(0)).contains("Thinking");
+        assertThat(sentMessages.get(1)).contains("web_search");
+        assertThat(sentMessages.get(2)).contains("$50,000");
+        assertThat(sentMessages.get(3)).contains("Bitcoin is currently $50,000.");
+        assertThat(ctx.getResponseText()).hasValue("Bitcoin is currently $50,000.");
+        assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
+        assertThat(ctx.isAlreadySentInStream()).isTrue();
+    }
+
     private MessageHandlerContext createContextWithMetadata(String userText) {
         return createContextWithMetadata(userText, Set.of(ModelCapabilities.AUTO));
     }
 
     private MessageHandlerContext createContextWithMetadata(String userText, Set<ModelCapabilities> capabilities) {
+        return createContextWithMetadata(userText, capabilities, s -> {});
+    }
+
+    private MessageHandlerContext createContextWithMetadata(String userText,
+                                                            Set<ModelCapabilities> capabilities,
+                                                            java.util.function.Consumer<String> sender) {
         TelegramCommand command = mock(TelegramCommand.class);
         when(command.userText()).thenReturn(userText);
 
@@ -239,7 +280,7 @@ class TelegramMessageHandlerActionsAgentTest {
         metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
         metadata.put(AICommand.USER_ID_FIELD, "42");
 
-        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, sender);
         ctx.setMetadata(metadata);
         if (capabilities != null) {
             ctx.setModelCapabilities(capabilities);

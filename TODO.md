@@ -41,6 +41,7 @@
 - [ ] Show thinking in web
 - [ ] Different models in the flow
 - [ ] Add balance loader
+- [ ] WebTools need to parse result
 
 ## Agent Framework Pivot
 
@@ -156,6 +157,7 @@
   2026-04-11T07:20:05.389844438Z 	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.executeAndExtract(DefaultRestClient.java:814)
   2026-04-11T07:20:05.389846893Z 	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.body(DefaultRestClient.java:750)
   2026-04-11T07:20:05.389849206Z 	at org.springframework.ai.ollama.api.OllamaApi.chat(OllamaApi.java:115) - Also message was sent to personal chat instead of group
+- [ ] Bug: WebTools.fetchUrl 403 Forbidden on Medium/Cloudflare sites — no User-Agent header in webClient request (WebTools.java:107)
 - [ ] Bug: WebTools.fetchUrl DataBufferLimitException → model responds in English (2026-04-11)
   - `WebClient` default buffer limit is 256KB (262144 bytes); large pages (e.g. GitHub issues) exceed it
   - `fetchUrl` catches the exception and returns empty string `""`

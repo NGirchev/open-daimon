@@ -105,6 +105,12 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 ctx.setModelName(response.getMetadata().getModel());
             }
 
+            // Emit reasoning content if available from provider (OpenRouter/Anthropic)
+            String reasoning = extractReasoning(response);
+            if (reasoning != null && !reasoning.isBlank()) {
+                ctx.emitEvent(AgentStreamEvent.thinking(reasoning, ctx.getCurrentIteration()));
+            }
+
             response.getResult();
 
             var output = response.getResult().getOutput();
@@ -307,6 +313,32 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.removeExtra(KEY_CONVERSATION_HISTORY);
         ctx.removeExtra(KEY_LAST_PROMPT);
         ctx.removeExtra(KEY_LAST_RESPONSE);
+    }
+
+    /**
+     * Attempts to extract reasoning/thinking content from the LLM response metadata.
+     * Providers like OpenRouter may include reasoning in generation metadata under
+     * keys such as "reasoningContent".
+     *
+     * @return reasoning text, or null if not available
+     */
+    private String extractReasoning(ChatResponse response) {
+        try {
+            if (response == null || response.getResult() == null) {
+                return null;
+            }
+            var metadata = response.getResult().getMetadata();
+            if (metadata == null) {
+                return null;
+            }
+            Object reasoning = metadata.get("reasoningContent");
+            if (reasoning instanceof String text && !text.isBlank()) {
+                return text;
+            }
+        } catch (Exception e) {
+            log.debug("Could not extract reasoning from response: {}", e.getMessage());
+        }
+        return null;
     }
 
     /**

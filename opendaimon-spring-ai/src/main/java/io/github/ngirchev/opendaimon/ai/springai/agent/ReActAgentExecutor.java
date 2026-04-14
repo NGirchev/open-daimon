@@ -80,8 +80,14 @@ public class ReActAgentExecutor implements AgentExecutor {
 
                 agentFsm.handle(ctx, AgentEvent.START);
 
-                // Emit terminal event based on final state
+                // Emit metadata (model name) before terminal event
                 AgentResult result = ctx.toResult();
+                if (result.modelName() != null) {
+                    sink.tryEmitNext(AgentStreamEvent.metadata(
+                            result.modelName(), result.iterationsUsed()));
+                }
+
+                // Emit terminal event based on final state
                 if (result.isSuccess()) {
                     sink.tryEmitNext(AgentStreamEvent.finalAnswer(
                             result.finalAnswer(), result.iterationsUsed()));

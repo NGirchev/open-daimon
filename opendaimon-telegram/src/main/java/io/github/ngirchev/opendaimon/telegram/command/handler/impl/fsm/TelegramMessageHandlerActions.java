@@ -2,10 +2,9 @@ package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
+import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
-import io.github.ngirchev.opendaimon.common.agent.AgentResult;
-import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
@@ -31,6 +30,7 @@ import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
@@ -82,6 +82,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
     /** Agent executor — null when {@code open-daimon.agent.enabled=false}. */
     private final AgentExecutor agentExecutor;
+    /** Renderer for agent stream events — null when {@code agentExecutor} is null. */
+    private final TelegramAgentStreamRenderer agentStreamRenderer;
     /** Agent max iterations — only used when {@code agentExecutor} is non-null. */
     private final int agentMaxIterations;
 
@@ -251,26 +253,72 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     Set.of(),
                     strategy
             );
-            AgentResult result = agentExecutor.execute(request);
 
-            log.info("FSM generateAgentResponse: state={}, iterations={}, duration={}, model={}",
-                    result.terminalState(), result.iterationsUsed(), result.totalDuration(),
-                    result.modelName());
+            // Stream agent events — sends intermediate status messages to Telegram
+            // and captures the terminal event for final answer extraction.
+            AgentStreamEvent lastEvent = agentExecutor.executeStream(request)
+                    .doOnNext(event -> sendAgentEventToTelegram(ctx, event))
+                    .blockLast();
 
-            if (result.modelName() != null) {
-                ctx.setResponseModel(result.modelName());
-            }
+            extractAgentResult(ctx, lastEvent);
 
-            if (result.isSuccess() && result.finalAnswer() != null) {
-                ctx.setResponseText(result.finalAnswer());
-            } else if (result.terminalState() == AgentState.MAX_ITERATIONS
-                    && result.finalAnswer() != null) {
-                ctx.setResponseText(result.finalAnswer());
-            } else if (!ctx.hasResponse()) {
-                ctx.setErrorType(MessageHandlerErrorType.EMPTY_RESPONSE);
+            // Send final answer text via streaming sender — the post-FSM handler
+            // only sends keyboard when alreadySentInStream=true.
+            if (ctx.hasResponse()) {
+                String answerText = ctx.getResponseText().orElse("");
+                String htmlAnswer = AIUtils.convertMarkdownToHtml(answerText);
+                log.info("FSM generateAgentResponse: sending final answer, textLength={}, htmlLength={}",
+                        answerText.length(), htmlAnswer.length());
+                ctx.getStreamingParagraphSender().accept(htmlAnswer);
+                ctx.setAlreadySentInStream(true);
+            } else {
+                log.warn("FSM generateAgentResponse: no response text after extractAgentResult");
             }
         } catch (Exception e) {
             handleGeneralException(ctx, e);
+        }
+    }
+
+    private void sendAgentEventToTelegram(MessageHandlerContext ctx, AgentStreamEvent event) {
+        log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}",
+                event.type(), event.iteration(),
+                event.content() != null ? event.content().length() : 0);
+        // Capture model name from metadata event
+        if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
+            ctx.setResponseModel(event.content());
+            return;
+        }
+        if (agentStreamRenderer == null) {
+            return;
+        }
+        String html = agentStreamRenderer.render(event);
+        if (html != null) {
+            log.info("FSM agentStreamEvent: sending rendered HTML, length={}", html.length());
+            ctx.getStreamingParagraphSender().accept(html);
+            ctx.setAlreadySentInStream(true);
+        }
+    }
+
+    private void extractAgentResult(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {
+        if (lastEvent == null) {
+            ctx.setErrorType(MessageHandlerErrorType.EMPTY_RESPONSE);
+            return;
+        }
+
+        log.info("FSM generateAgentResponse: terminalEvent={}, iteration={}",
+                lastEvent.type(), lastEvent.iteration());
+
+        if (lastEvent.type() == AgentStreamEvent.EventType.FINAL_ANSWER
+                && lastEvent.content() != null) {
+            ctx.setResponseText(lastEvent.content());
+        } else if (lastEvent.type() == AgentStreamEvent.EventType.MAX_ITERATIONS
+                && lastEvent.content() != null) {
+            ctx.setResponseText(lastEvent.content());
+        } else if (lastEvent.type() == AgentStreamEvent.EventType.ERROR) {
+            ctx.setErrorType(MessageHandlerErrorType.GENERAL);
+            ctx.setException(new RuntimeException(lastEvent.content()));
+        } else if (!ctx.hasResponse()) {
+            ctx.setErrorType(MessageHandlerErrorType.EMPTY_RESPONSE);
         }
     }
 

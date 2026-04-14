@@ -32,11 +32,17 @@ public record AgentStreamEvent(
         /** Agent execution failed. Content = error message. */
         ERROR,
         /** Agent reached max iterations. Content = partial answer. */
-        MAX_ITERATIONS
+        MAX_ITERATIONS,
+        /** Agent metadata (e.g. model name). Content = metadata value. */
+        METADATA
     }
 
     public static AgentStreamEvent thinking(int iteration) {
         return new AgentStreamEvent(EventType.THINKING, null, iteration, Instant.now());
+    }
+
+    public static AgentStreamEvent thinking(String reasoningContent, int iteration) {
+        return new AgentStreamEvent(EventType.THINKING, reasoningContent, iteration, Instant.now());
     }
 
     public static AgentStreamEvent toolCall(String toolName, String args, int iteration) {
@@ -57,5 +63,9 @@ public record AgentStreamEvent(
 
     public static AgentStreamEvent maxIterations(String partialAnswer, int iteration) {
         return new AgentStreamEvent(EventType.MAX_ITERATIONS, partialAnswer, iteration, Instant.now());
+    }
+
+    public static AgentStreamEvent metadata(String content, int iteration) {
+        return new AgentStreamEvent(EventType.METADATA, content, iteration, Instant.now());
     }
 }

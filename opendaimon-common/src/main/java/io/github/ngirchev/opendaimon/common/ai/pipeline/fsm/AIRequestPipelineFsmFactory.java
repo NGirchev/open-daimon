@@ -108,32 +108,24 @@ public final class AIRequestPipelineFsmFactory {
                     .endMultiple()
 
                 // === FOLLOW_UP_RAG → COMMAND_BUILT (auto-transition) ===
-                .from(FOLLOW_UP_RAG).toMultiple()
-                    .to(COMMAND_BUILT)
-                        .action(action(actions::buildCommand))
-                        .end()
-                    .endMultiple()
+                .from(FOLLOW_UP_RAG).to(COMMAND_BUILT)
+                    .action(action(actions::buildCommand))
+                    .end()
 
                 // === DOCUMENTS_PROCESSING → RESULTS_COLLECTED (auto-transition) ===
-                .from(DOCUMENTS_PROCESSING).toMultiple()
-                    .to(RESULTS_COLLECTED)
-                        .action(action(actions::collectResults))
-                        .end()
-                    .endMultiple()
+                .from(DOCUMENTS_PROCESSING).to(RESULTS_COLLECTED)
+                    .action(action(actions::collectResults))
+                    .end()
 
                 // === RESULTS_COLLECTED → QUERY_AUGMENTED (auto-transition) ===
-                .from(RESULTS_COLLECTED).toMultiple()
-                    .to(QUERY_AUGMENTED)
-                        .action(action(actions::augmentQuery))
-                        .end()
-                    .endMultiple()
+                .from(RESULTS_COLLECTED).to(QUERY_AUGMENTED)
+                    .action(action(actions::augmentQuery))
+                    .end()
 
                 // === QUERY_AUGMENTED → COMMAND_BUILT (auto-transition) ===
-                .from(QUERY_AUGMENTED).toMultiple()
-                    .to(COMMAND_BUILT)
-                        .action(action(actions::buildCommand))
-                        .end()
-                    .endMultiple()
+                .from(QUERY_AUGMENTED).to(COMMAND_BUILT)
+                    .action(action(actions::buildCommand))
+                    .end()
 
                 .build();
 

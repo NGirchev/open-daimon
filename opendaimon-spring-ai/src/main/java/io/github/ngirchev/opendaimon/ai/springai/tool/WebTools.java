@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -67,9 +68,9 @@ public class WebTools {
                         : null;
                     return new SearchHit(title, url, snippet);
                 })
-                .filter(hit -> hit != null)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toMap(
-                    hit -> hit.url(),
+                        SearchHit::url,
                     hit -> hit,
                     (existing, replacement) -> existing
                 ))
@@ -120,8 +121,9 @@ public class WebTools {
             Document doc = Jsoup.parse(html);
             doc.select("script, style, nav, footer, header").remove();
 
-            String text = doc.body() != null ? doc.body().text() : "";
-            // avoid token overflow
+            doc.body();
+            String text = doc.body().text();
+            // avoid token overflow - todo add additional model call to grep and parse the result
             return text.length() > 6000 ? text.substring(0, 6000) : text;
         } catch (WebClientResponseException e) {
             log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning empty string.", url, e.getMessage());

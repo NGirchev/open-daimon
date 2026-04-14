@@ -4,8 +4,10 @@ import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
+import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 
@@ -46,6 +48,18 @@ public class StrategyDelegatingAgentExecutor implements AgentExecutor {
             case SIMPLE -> simpleExecutor.execute(request);
             case PLAN_AND_EXECUTE -> planAndExecuteExecutor.execute(request);
             case REACT, AUTO -> reactExecutor.execute(request);
+        };
+    }
+
+    @Override
+    public Flux<AgentStreamEvent> executeStream(AgentRequest request) {
+        AgentStrategy strategy = resolveStrategy(request);
+        log.info("Agent stream strategy resolved: requested={}, resolved={}", request.strategy(), strategy);
+
+        return switch (strategy) {
+            case SIMPLE -> simpleExecutor.executeStream(request);
+            case PLAN_AND_EXECUTE -> planAndExecuteExecutor.executeStream(request);
+            case REACT, AUTO -> reactExecutor.executeStream(request);
         };
     }
 

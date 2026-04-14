@@ -111,16 +111,13 @@ public final class AgentLoopFsmFactory {
                     .endMultiple()
 
                 // === OBSERVING → THINKING (auto-transition, loop back) ===
-                .from(OBSERVING).toMultiple()
-                    .to(THINKING)
-                        .action(action(actions::think))
-                        .end()
-                    .endMultiple()
+                .from(OBSERVING).to(THINKING)
+                    .action(action(actions::think))
+                    .end()
 
                 // === ANSWERING → COMPLETED (auto-transition, terminal) ===
-                .from(ANSWERING).toMultiple()
-                    .to(COMPLETED).end()
-                    .endMultiple()
+                .from(ANSWERING).to(COMPLETED)
+                    .end()
 
                 .build();
 
