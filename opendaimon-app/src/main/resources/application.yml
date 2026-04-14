@@ -290,6 +290,7 @@ open-daimon:
   agent:
     enabled: true
     max-iterations: 10
+    memory-similarity-threshold: 0.7
     tools:
       http-api:
         enabled: true

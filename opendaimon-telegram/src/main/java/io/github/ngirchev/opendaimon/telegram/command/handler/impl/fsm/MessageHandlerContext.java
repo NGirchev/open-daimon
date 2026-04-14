@@ -15,6 +15,11 @@ import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
 import org.jetbrains.annotations.Nullable;
 import org.telegram.telegrambots.meta.api.objects.Message;
 
+import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
+import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
+import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
+import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
+
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -134,7 +139,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.session = session;
     }
 
-    public boolean isHasInput() {
+    public boolean hasInput() {
         return hasInput;
     }
 
@@ -300,6 +305,39 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
 
     public boolean isError() {
         return state == MessageHandlerState.ERROR;
+    }
+
+    /**
+     * Classifies an exception by walking the cause chain and sets the error type
+     * and exception on this context. Shared by handler and FSM actions.
+     */
+    public void classifyAndSetError(Exception e) {
+        Throwable t = e;
+        while (t != null) {
+            if (t instanceof UserMessageTooLongException) {
+                this.errorType = MessageHandlerErrorType.MESSAGE_TOO_LONG;
+                this.exception = (UserMessageTooLongException) t;
+                return;
+            }
+            if (t instanceof DocumentContentNotExtractableException) {
+                this.errorType = MessageHandlerErrorType.DOCUMENT_NOT_EXTRACTABLE;
+                this.exception = (DocumentContentNotExtractableException) t;
+                return;
+            }
+            if (t instanceof UnsupportedModelCapabilityException) {
+                this.errorType = MessageHandlerErrorType.UNSUPPORTED_CAPABILITY;
+                this.exception = (UnsupportedModelCapabilityException) t;
+                return;
+            }
+            if (t instanceof SummarizationFailedException) {
+                this.errorType = MessageHandlerErrorType.SUMMARIZATION_FAILED;
+                this.exception = (SummarizationFailedException) t;
+                return;
+            }
+            t = t.getCause();
+        }
+        this.errorType = MessageHandlerErrorType.GENERAL;
+        this.exception = e;
     }
 
     @Override

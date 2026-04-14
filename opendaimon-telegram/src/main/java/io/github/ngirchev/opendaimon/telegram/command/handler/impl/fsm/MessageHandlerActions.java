@@ -27,7 +27,7 @@ public interface MessageHandlerActions {
      * Validate that input is not empty (text or attachments present).
      * Called during USER_RESOLVED → INPUT_VALIDATED transition.
      *
-     * <p>Sets {@link MessageHandlerContext#isHasInput()}.
+     * <p>Sets {@link MessageHandlerContext#hasInput()}.
      * If empty, sets error type to {@link MessageHandlerErrorType#INPUT_EMPTY}.
      */
     void validateInput(MessageHandlerContext ctx);

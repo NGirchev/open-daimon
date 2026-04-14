@@ -27,6 +27,7 @@
 **/.DS_Store
 /.env
 /target/
+*.class
 /.claude/worktrees/*
 /scripts/ollama-check-vision.ps1
 /opendaimon.code-workspace

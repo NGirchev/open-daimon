@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentLoopFsmFactoryTest {
@@ -205,6 +206,50 @@ class AgentLoopFsmFactoryTest {
         fsm.handle(ctx, AgentEvent.START);
 
         assertEquals(AgentState.MAX_ITERATIONS, ctx.getState());
+    }
+
+    @Test
+    @DisplayName("Event on terminal COMPLETED state throws exception")
+    void eventOnTerminalCompleted_throws() {
+        thinkBehavior = ctx -> {
+            ctx.setCurrentThought("Direct answer");
+            ctx.setCurrentTextResponse("42");
+        };
+
+        AgentContext ctx = createContext(10);
+        fsm.handle(ctx, AgentEvent.START);
+        assertEquals(AgentState.COMPLETED, ctx.getState());
+
+        // Fire START again on terminal state — FSM rejects illegal transition
+        assertThrows(Exception.class, () -> fsm.handle(ctx, AgentEvent.START));
+    }
+
+    @Test
+    @DisplayName("Event on terminal FAILED state throws exception")
+    void eventOnTerminalFailed_throws() {
+        thinkBehavior = ctx -> ctx.setErrorMessage("fail");
+
+        AgentContext ctx = createContext(10);
+        fsm.handle(ctx, AgentEvent.START);
+        assertEquals(AgentState.FAILED, ctx.getState());
+
+        assertThrows(Exception.class, () -> fsm.handle(ctx, AgentEvent.START));
+    }
+
+    @Test
+    @DisplayName("Event on terminal MAX_ITERATIONS state throws exception")
+    void eventOnTerminalMaxIterations_throws() {
+        thinkBehavior = ctx -> {
+            ctx.setCurrentThought("Need more tools");
+            ctx.setCurrentToolName("infinite_tool");
+            ctx.setCurrentToolArguments("{}");
+        };
+
+        AgentContext ctx = createContext(1);
+        fsm.handle(ctx, AgentEvent.START);
+        assertEquals(AgentState.MAX_ITERATIONS, ctx.getState());
+
+        assertThrows(Exception.class, () -> fsm.handle(ctx, AgentEvent.START));
     }
 
     private AgentContext createContext(int maxIterations) {

@@ -24,14 +24,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AgentProperties {
 
     /** Feature flag: when true, agent auto-configuration and beans are enabled. */
-    private boolean enabled = false;
+    private boolean enabled;
 
     /** Maximum number of ReAct loop iterations before forced termination. */
-    private int maxIterations = 10;
+    private int maxIterations;
 
     /** Default model name for agent LLM calls (null = use default from Spring AI config). */
     private String defaultModel;
 
     /** Similarity threshold for semantic memory recall (0.0 to 1.0). */
-    private double memorySimilarityThreshold = 0.7;
+    private double memorySimilarityThreshold;
 }

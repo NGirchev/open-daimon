@@ -90,7 +90,7 @@ public final class CoalescingContext implements StateContext<CoalescingState> {
         this.enabled = enabled;
     }
 
-    public boolean isHasKey() {
+    public boolean hasKey() {
         return hasKey;
     }
 
@@ -98,7 +98,7 @@ public final class CoalescingContext implements StateContext<CoalescingState> {
         this.hasKey = hasKey;
     }
 
-    public boolean isHasPending() {
+    public boolean hasPending() {
         return hasPending;
     }
 

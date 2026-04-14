@@ -237,10 +237,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     }
 
     /**
-     * Recalls relevant facts from agent memory and formats them as context.
-     * Returns null if memory is not configured or no facts are found.
-     */
-    /**
      * Extracts key facts from the completed conversation and stores them in memory.
      * Best-effort — failures don't affect the agent response.
      */
@@ -297,10 +293,10 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      */
     private String extractToolObservation(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
-            return null;
+            return "(no tool output)";
         }
-        Message last = messages.getLast();
-        return last.getText();
+        String text = messages.getLast().getText();
+        return text != null ? text : "(no tool output)";
     }
 
     private void cleanup(AgentContext ctx) {

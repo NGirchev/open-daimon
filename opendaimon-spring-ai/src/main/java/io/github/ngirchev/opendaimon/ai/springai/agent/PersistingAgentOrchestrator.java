@@ -8,6 +8,7 @@ import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionEnti
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionRepository;
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionStepEntity;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
@@ -30,6 +31,7 @@ public class PersistingAgentOrchestrator implements AgentOrchestrator {
     }
 
     @Override
+    @Transactional
     public OrchestrationResult execute(OrchestrationPlan plan) {
         AgentExecutionEntity execution = createExecution(plan);
         try {
@@ -41,9 +43,11 @@ public class PersistingAgentOrchestrator implements AgentOrchestrator {
         OrchestrationResult result = delegate.execute(plan);
 
         try {
-            updateExecution(execution, result);
-            repository.save(execution);
-            log.info("Agent execution persisted: id={}, status={}", execution.getId(), execution.getStatus());
+            AgentExecutionEntity updated = createExecution(plan);
+            updated.setId(execution.getId());
+            updateExecution(updated, result);
+            repository.save(updated);
+            log.info("Agent execution persisted: id={}, status={}", updated.getId(), updated.getStatus());
         } catch (Exception e) {
             log.warn("Failed to persist agent execution result: {}", e.getMessage());
         }

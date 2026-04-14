@@ -110,8 +110,7 @@ public class TelegramMessageCoalescingService implements CoalescingActions {
     @Override
     public void merge(CoalescingContext ctx) {
         UserChatKey key = extractUserChatKey(ctx.getUpdate());
-        PendingFirstMessage pending = (PendingFirstMessage) ctx.getCapturedPending();
-        if (pending == null) {
+        if (!(ctx.getCapturedPending() instanceof PendingFirstMessage pending)) {
             log.debug("Message coalescing merge: pending already flushed by timeout, falling back to single");
             ctx.setResult(new ProcessSingle(ctx.getUpdate(), "pending_timeout_race"));
             return;
@@ -127,8 +126,7 @@ public class TelegramMessageCoalescingService implements CoalescingActions {
     @Override
     public void flushBoth(CoalescingContext ctx) {
         UserChatKey key = extractUserChatKey(ctx.getUpdate());
-        PendingFirstMessage pending = (PendingFirstMessage) ctx.getCapturedPending();
-        if (pending == null) {
+        if (!(ctx.getCapturedPending() instanceof PendingFirstMessage pending)) {
             log.debug("Message coalescing flushBoth: pending already flushed by timeout, falling back to single");
             ctx.setResult(new ProcessSingle(ctx.getUpdate(), "pending_timeout_race"));
             return;
@@ -320,13 +318,13 @@ public class TelegramMessageCoalescingService implements CoalescingActions {
     private record UserChatKey(Long chatId, Long userId) {
     }
 
-    private static final class PendingFirstMessage {
+    static final class PendingFirstMessage {
         private final Update update;
         private final Integer messageId;
         private final long createdAtMillis;
         private volatile ScheduledFuture<?> timeoutFuture;
 
-        private PendingFirstMessage(Update update, Integer messageId, long createdAtMillis) {
+        PendingFirstMessage(Update update, Integer messageId, long createdAtMillis) {
             this.update = update;
             this.messageId = messageId;
             this.createdAtMillis = createdAtMillis;

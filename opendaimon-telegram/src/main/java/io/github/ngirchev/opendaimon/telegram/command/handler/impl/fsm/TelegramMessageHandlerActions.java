@@ -13,7 +13,7 @@ import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
 import io.github.ngirchev.opendaimon.common.exception.ModelGuardrailException;
-import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
+
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
@@ -385,33 +385,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     }
 
     private void handleGeneralException(MessageHandlerContext ctx, Exception e) {
-        // Check for DocumentContentNotExtractableException in cause chain
-        DocumentContentNotExtractableException docEx = findCause(e, DocumentContentNotExtractableException.class);
-        if (docEx != null) {
-            ctx.setErrorType(MessageHandlerErrorType.DOCUMENT_NOT_EXTRACTABLE);
-            ctx.setException(docEx);
-            return;
-        }
-
-        SummarizationFailedException sumEx = findCause(e, SummarizationFailedException.class);
-        if (sumEx != null) {
-            ctx.setErrorType(MessageHandlerErrorType.SUMMARIZATION_FAILED);
-            ctx.setException(sumEx);
-            return;
-        }
-
-        ctx.setErrorType(MessageHandlerErrorType.GENERAL);
-        ctx.setException(e);
-    }
-
-    private static <T extends Throwable> T findCause(Throwable t, Class<T> type) {
-        while (t != null) {
-            if (type.isInstance(t)) {
-                return type.cast(t);
-            }
-            t = t.getCause();
-        }
-        return null;
+        ctx.classifyAndSetError(e);
     }
 
     private String withTelegramBotIdentity(String assistantRoleContent) {

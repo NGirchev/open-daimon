@@ -7,7 +7,6 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.exception.DocumentContentNotExtractableException;
-import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
@@ -32,6 +31,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Telegram message handler that delegates processing to an FSM pipeline.
@@ -81,11 +81,11 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         Message message = command.update().getMessage();
 
         // Create streaming callback that sends paragraphs to Telegram
-        Integer[] replyToMessageId = {message != null ? message.getMessageId() : null};
+        AtomicReference<Integer> replyToMessageId = new AtomicReference<>(message != null ? message.getMessageId() : null);
         MessageHandlerContext ctx = new MessageHandlerContext(command, message,
                 htmlText -> {
-                    sendMessage(command.telegramId(), htmlText, replyToMessageId[0]);
-                    replyToMessageId[0] = null;
+                    sendMessage(command.telegramId(), htmlText, replyToMessageId.get());
+                    replyToMessageId.set(null);
                 });
 
         try {
@@ -93,7 +93,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         } catch (Exception e) {
             // Action threw an exception that FSM didn't catch — classify and set on context
             if (ctx.getErrorType() == null) {
-                classifyException(ctx, e);
+                ctx.classifyAndSetError(e);
             }
         }
 
@@ -234,38 +234,6 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                     errorRoleContent, null,
                     ctx.getThread());
         }
-    }
-
-    /**
-     * Classifies an uncaught exception from the FSM into a typed error.
-     */
-    private static void classifyException(MessageHandlerContext ctx, Exception e) {
-        Throwable t = e;
-        while (t != null) {
-            if (t instanceof UserMessageTooLongException) {
-                ctx.setErrorType(MessageHandlerErrorType.MESSAGE_TOO_LONG);
-                ctx.setException((UserMessageTooLongException) t);
-                return;
-            }
-            if (t instanceof DocumentContentNotExtractableException) {
-                ctx.setErrorType(MessageHandlerErrorType.DOCUMENT_NOT_EXTRACTABLE);
-                ctx.setException((DocumentContentNotExtractableException) t);
-                return;
-            }
-            if (t instanceof UnsupportedModelCapabilityException) {
-                ctx.setErrorType(MessageHandlerErrorType.UNSUPPORTED_CAPABILITY);
-                ctx.setException((UnsupportedModelCapabilityException) t);
-                return;
-            }
-            if (t instanceof SummarizationFailedException) {
-                ctx.setErrorType(MessageHandlerErrorType.SUMMARIZATION_FAILED);
-                ctx.setException((SummarizationFailedException) t);
-                return;
-            }
-            t = t.getCause();
-        }
-        ctx.setErrorType(MessageHandlerErrorType.GENERAL);
-        ctx.setException(e);
     }
 
     // --- Utility ---

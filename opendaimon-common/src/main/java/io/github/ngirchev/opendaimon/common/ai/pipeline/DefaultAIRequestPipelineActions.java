@@ -145,6 +145,7 @@ public class DefaultAIRequestPipelineActions implements AIRequestPipelineActions
                 log.error("Document FSM failed for '{}': {}",
                         attachment.filename(), e.getMessage(), e);
                 docCtx.setErrorMessage(e.getMessage());
+                docCtx.setState(AttachmentState.ERROR);
             }
             contexts.add(docCtx);
         }
@@ -216,7 +217,6 @@ public class DefaultAIRequestPipelineActions implements AIRequestPipelineActions
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public void buildCommand(AIRequestContext ctx) {
         IChatCommand<?> chatCommand = ctx.getChatCommand();
         String augmentedQuery = ctx.getAugmentedQuery();
@@ -227,7 +227,9 @@ public class DefaultAIRequestPipelineActions implements AIRequestPipelineActions
         OrchestratedChatCommand<?> orchestrated = new OrchestratedChatCommand<>(
                 chatCommand, augmentedQuery, attachments);
 
-        AICommand result = factoryRegistry.createCommand((ICommand) orchestrated, metadata);
+        @SuppressWarnings("unchecked")
+        var unchecked = (ICommand) orchestrated;
+        AICommand result = factoryRegistry.createCommand(unchecked, metadata);
         ctx.setResult(result);
 
         log.debug("FSM buildCommand: orchestrated command built");

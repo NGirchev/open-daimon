@@ -157,7 +157,7 @@ public final class AgentContext implements StateContext<AgentState> {
     }
 
     public Map<String, String> getMetadata() {
-        return metadata;
+        return Map.copyOf(metadata);
     }
 
     public int getMaxIterations() {
@@ -165,7 +165,7 @@ public final class AgentContext implements StateContext<AgentState> {
     }
 
     public Set<String> getEnabledTools() {
-        return enabledTools;
+        return Set.copyOf(enabledTools);
     }
 
     // --- Iteration state accessors ---

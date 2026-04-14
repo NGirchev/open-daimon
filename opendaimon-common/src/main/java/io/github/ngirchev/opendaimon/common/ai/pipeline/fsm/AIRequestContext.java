@@ -128,7 +128,7 @@ public final class AIRequestContext implements StateContext<AIRequestState> {
     }
 
     public boolean hasUnrecognized() {
-        return unrecognizedTypes != null && !unrecognizedTypes.isEmpty();
+        return !unrecognizedTypes.isEmpty();
     }
 
     /**

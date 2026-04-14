@@ -52,6 +52,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import lombok.extern.slf4j.Slf4j;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -92,6 +94,7 @@ import static org.mockito.Mockito.reset;
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
 @SpringBootTest(classes = AgentModeOllamaManualIT.TestConfig.class)
 @ActiveProfiles({"integration-test", "manual-ollama"})
+@Slf4j
 class AgentModeOllamaManualIT extends AbstractContainerIT {
 
     private static final Long ADMIN_CHAT_ID = 350009010L;
@@ -333,7 +336,7 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
         // from search snippets without fetching the full page. We verify at least
         // web_search was called (mandatory) and log whether chaining occurred.
         if (!FETCH_URL_CALLED.get()) {
-            System.out.println("[A1] fetch_url was not called — model answered from search snippets only (acceptable for small models)");
+            log.info("[A1] fetch_url was not called — model answered from search snippets only (acceptable for small models)");
         }
 
         assertThat(TOOL_CALL_COUNT.get())

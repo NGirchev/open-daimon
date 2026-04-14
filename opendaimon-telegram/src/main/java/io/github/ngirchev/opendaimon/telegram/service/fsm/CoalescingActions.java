@@ -12,7 +12,7 @@ public interface CoalescingActions {
      * Check if coalescing is enabled and extract user-chat key.
      * Called during RECEIVED → ENABLED_CHECKED transition.
      *
-     * <p>Sets {@link CoalescingContext#isEnabled()}, {@link CoalescingContext#isHasKey()}.
+     * <p>Sets {@link CoalescingContext#isEnabled()}, {@link CoalescingContext#hasKey()}.
      * If disabled or no key, sets result to ProcessSingle.
      */
     void checkEnabled(CoalescingContext ctx);
@@ -21,7 +21,7 @@ public interface CoalescingActions {
      * Check pending message and merge eligibility.
      * Called during ENABLED_CHECKED → PENDING_CHECKED transition.
      *
-     * <p>Sets {@link CoalescingContext#isHasPending()},
+     * <p>Sets {@link CoalescingContext#hasPending()},
      * {@link CoalescingContext#isCanMerge()},
      * {@link CoalescingContext#isFirstCandidate()}.
      */

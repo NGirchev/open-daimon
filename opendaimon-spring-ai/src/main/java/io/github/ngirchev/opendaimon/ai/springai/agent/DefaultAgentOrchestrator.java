@@ -12,11 +12,14 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 
 /**
@@ -47,7 +50,7 @@ public class DefaultAgentOrchestrator implements AgentOrchestrator {
         log.info("Orchestration started: plan='{}', steps={}", plan.name(), plan.steps().size());
 
         Map<String, StepResult> completedSteps = new HashMap<>();
-        Set<String> failedStepIds = new java.util.HashSet<>();
+        Set<String> failedStepIds = new HashSet<>();
         List<StepResult> stepResults = new ArrayList<>();
 
         List<OrchestrationStep> executionOrder = resolveExecutionOrder(plan.steps());
@@ -178,7 +181,7 @@ public class DefaultAgentOrchestrator implements AgentOrchestrator {
         }
 
         // Start with steps that have no dependencies
-        java.util.Queue<String> ready = new java.util.ArrayDeque<>();
+        Queue<String> ready = new ArrayDeque<>();
         for (var entry : inDegree.entrySet()) {
             if (entry.getValue() == 0) {
                 ready.add(entry.getKey());
