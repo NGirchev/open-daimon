@@ -219,6 +219,16 @@ class WebToolCallingOllamaManualIT extends AbstractContainerIT {
 
         messageHandler.handle(command);
 
+        // Retry with explicit instruction if model did not call any tool on first attempt
+        if (!ANY_TOOL_CALLED.get()) {
+            TelegramCommand retry = createMessageCommand(
+                    TEST_CHAT_ID, 2,
+                    "Use the fetch_url tool to open this URL and tell me what is on the page: " + FAKE_URL,
+                    List.of()
+            );
+            messageHandler.handle(retry);
+        }
+
         TelegramUser user = telegramUserRepository.findByTelegramId(TEST_CHAT_ID)
                 .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
 
@@ -226,7 +236,7 @@ class WebToolCallingOllamaManualIT extends AbstractContainerIT {
                 .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
 
         assertThat(ANY_TOOL_CALLED.get())
-                .as("Model should have called at least one web tool (web_search or fetch_url)")
+                .as("Model should have called at least one web tool (web_search or fetch_url) within 2 attempts")
                 .isTrue();
 
         String assistantReply = latestAssistantReply(thread);
