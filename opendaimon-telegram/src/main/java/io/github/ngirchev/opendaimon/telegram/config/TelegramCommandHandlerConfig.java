@@ -25,6 +25,7 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHa
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.InMemoryModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
@@ -260,7 +261,7 @@ public class TelegramCommandHandlerConfig {
     @Bean
     @ConditionalOnMissingBean
     public ModelSelectionSession modelSelectionSession() {
-        return new ModelSelectionSession();
+        return new InMemoryModelSelectionSession();
     }
 
     @Bean

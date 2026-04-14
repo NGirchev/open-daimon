@@ -33,6 +33,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
         TelegramFlywayConfig.class,
         TelegramServiceConfig.class,
         TelegramCommandHandlerConfig.class,
+        TelegramCacheConfig.class,
 })
 @ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true")
 public class TelegramAutoConfig {

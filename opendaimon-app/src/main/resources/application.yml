@@ -118,6 +118,8 @@ open-daimon:
       threads-enabled: true
       language-enabled: true
       model-enabled: true
+    cache:
+      redis-enabled: false  # FEATURE FLAG - enable distributed Redis cache for session data
     message-coalescing:
       enabled: true
       wait-window-ms: 1200
@@ -315,6 +317,13 @@ spring:
 
   flyway:
     enabled: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
 
   ai:
     ollama:
