@@ -118,11 +118,14 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                     command.telegramId(), ctx.getTelegramUser().getId(),
                     ctx.getThread(), ctx.getResponseModel());
         } else {
-            // Non-streaming: send text + keyboard (uses parent's sendMessage for proper exception wrapping)
+            // Non-streaming: send text + keyboard, then status message with model name
             String htmlText = AIUtils.convertMarkdownToHtml(ctx.getResponseText().orElseThrow());
             ReplyKeyboardMarkup keyboard = persistentKeyboardService.buildKeyboardMarkup(
                     ctx.getTelegramUser().getId(), ctx.getThread());
             sendMessage(command.telegramId(), htmlText, message.getMessageId(), keyboard);
+            persistentKeyboardService.sendKeyboard(
+                    command.telegramId(), ctx.getTelegramUser().getId(),
+                    ctx.getThread(), ctx.getResponseModel());
         }
     }
 

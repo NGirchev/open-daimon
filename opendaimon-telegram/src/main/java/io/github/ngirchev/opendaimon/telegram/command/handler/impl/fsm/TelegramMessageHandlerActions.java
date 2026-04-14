@@ -253,8 +253,13 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             );
             AgentResult result = agentExecutor.execute(request);
 
-            log.info("FSM generateAgentResponse: state={}, iterations={}, duration={}",
-                    result.terminalState(), result.iterationsUsed(), result.totalDuration());
+            log.info("FSM generateAgentResponse: state={}, iterations={}, duration={}, model={}",
+                    result.terminalState(), result.iterationsUsed(), result.totalDuration(),
+                    result.modelName());
+
+            if (result.modelName() != null) {
+                ctx.setResponseModel(result.modelName());
+            }
 
             if (result.isSuccess() && result.finalAnswer() != null) {
                 ctx.setResponseText(result.finalAnswer());

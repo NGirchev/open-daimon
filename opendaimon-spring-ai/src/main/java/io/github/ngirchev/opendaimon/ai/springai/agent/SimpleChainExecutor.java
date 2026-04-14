@@ -58,17 +58,18 @@ public class SimpleChainExecutor implements AgentExecutor {
             ChatResponse response = chatModel.call(prompt);
             response.getResult();
             String answer = response.getResult().getOutput().getText();
+            String modelName = response.getMetadata() != null ? response.getMetadata().getModel() : null;
 
             saveConversationHistory(request, answer);
 
             Duration duration = Duration.between(start, Instant.now());
-            log.info("SimpleChain completed: duration={}ms", duration.toMillis());
+            log.info("SimpleChain completed: duration={}ms, model={}", duration.toMillis(), modelName);
 
-            return new AgentResult(answer, List.of(), AgentState.COMPLETED, 0, duration);
+            return new AgentResult(answer, List.of(), AgentState.COMPLETED, 0, duration, modelName);
         } catch (Exception e) {
             Duration duration = Duration.between(start, Instant.now());
             log.error("SimpleChain failed: {}", e.getMessage(), e);
-            return new AgentResult(null, List.of(), AgentState.FAILED, 0, duration);
+            return new AgentResult(null, List.of(), AgentState.FAILED, 0, duration, null);
         }
     }
 

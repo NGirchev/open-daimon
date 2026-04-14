@@ -101,6 +101,10 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             ChatResponse response = chatModel.call(prompt);
             ctx.putExtra(KEY_LAST_RESPONSE, response);
 
+            if (response.getMetadata() != null && response.getMetadata().getModel() != null) {
+                ctx.setModelName(response.getMetadata().getModel());
+            }
+
             response.getResult();
 
             var output = response.getResult().getOutput();

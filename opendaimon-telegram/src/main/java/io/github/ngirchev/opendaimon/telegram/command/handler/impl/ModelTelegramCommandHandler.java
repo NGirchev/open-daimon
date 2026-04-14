@@ -28,6 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
@@ -41,6 +42,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
 
     private static final String CALLBACK_PREFIX = "MODEL_";
     private static final String CALLBACK_AUTO = CALLBACK_PREFIX + "AUTO";
+    private static final String CALLBACK_CANCEL = CALLBACK_PREFIX + "CANCEL";
 
     private static final Set<ModelCapabilities> DISPLAY_CAPS = Set.of(
             ModelCapabilities.VISION,
@@ -160,6 +162,12 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                 keyboard.add(List.of(btn));
             }
 
+            // Cancel button last
+            String cancelLabel = messageLocalizationService.getMessage("telegram.model.cancel", lang);
+            InlineKeyboardButton cancelBtn = new InlineKeyboardButton(cancelLabel);
+            cancelBtn.setCallbackData(CALLBACK_CANCEL);
+            keyboard.add(List.of(cancelBtn));
+
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup(keyboard);
             SendMessage msg = new SendMessage(chatId.toString(), text.toString());
             msg.setReplyMarkup(markup);
@@ -197,6 +205,12 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         TelegramUser user = telegramUserService.getOrCreateUser(cq.getFrom());
         Long userId = user.getId();
 
+        if (CALLBACK_CANCEL.equals(callbackData)) {
+            ackCallback(cq.getId(), "");
+            deleteMenuMessage(command.telegramId(), cq);
+            return;
+        }
+
         if (CALLBACK_AUTO.equals(callbackData)) {
             userModelPreferenceService.clearPreference(userId);
             ackCallback(cq.getId(), messageLocalizationService.getMessage(
@@ -206,6 +220,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             userModelPreferenceService.setPreferredModel(userId, modelName);
             ackCallback(cq.getId(), "✅ " + modelName);
         }
+        deleteMenuMessage(command.telegramId(), cq);
         ConversationThread thread = conversationThreadService.findCurrentThread(
                 ThreadScopeKind.TELEGRAM_CHAT, command.telegramId()).orElse(null);
         persistentKeyboardService.sendKeyboard(command.telegramId(), userId, thread);
@@ -232,6 +247,17 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             log.warn("Unrecognised model callback data '{}', treating as model name", raw);
         }
         return raw;
+    }
+
+    private void deleteMenuMessage(Long chatId, CallbackQuery callbackQuery) {
+        if (callbackQuery.getMessage() instanceof Message menuMessage) {
+            try {
+                telegramBotProvider.getObject().execute(
+                        new DeleteMessage(chatId.toString(), menuMessage.getMessageId()));
+            } catch (Exception e) {
+                log.warn("Failed to delete model menu message: {}", e.getMessage());
+            }
+        }
     }
 
     private void ackCallback(String callbackQueryId, String text) {

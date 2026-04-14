@@ -71,6 +71,7 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
             List<AgentStepResult> allSteps = new ArrayList<>();
             StringBuilder accumulatedContext = new StringBuilder();
             String lastAnswer = null;
+            String lastModelName = null;
             int totalIterations = 0;
 
             for (int i = 0; i < plan.size(); i++) {
@@ -96,6 +97,9 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
                 allSteps.addAll(stepResult.steps());
                 totalIterations += stepResult.iterationsUsed();
 
+                if (stepResult.modelName() != null) {
+                    lastModelName = stepResult.modelName();
+                }
                 if (stepResult.isSuccess() && stepResult.finalAnswer() != null) {
                     lastAnswer = stepResult.finalAnswer();
                     accumulatedContext.append("Step ").append(i + 1).append(": ").append(stepTask)
@@ -103,7 +107,8 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
                 } else {
                     log.warn("PlanAndExecute step {} failed: {}", i + 1, stepResult.terminalState());
                     Duration duration = Duration.between(start, Instant.now());
-                    return new AgentResult(lastAnswer, allSteps, AgentState.FAILED, totalIterations, duration);
+                    return new AgentResult(lastAnswer, allSteps, AgentState.FAILED, totalIterations, duration,
+                            stepResult.modelName());
                 }
             }
 
@@ -111,12 +116,12 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
             log.info("PlanAndExecute completed: {} steps, {} iterations, {}ms",
                     plan.size(), totalIterations, duration.toMillis());
 
-            return new AgentResult(lastAnswer, allSteps, AgentState.COMPLETED, totalIterations, duration);
+            return new AgentResult(lastAnswer, allSteps, AgentState.COMPLETED, totalIterations, duration, lastModelName);
 
         } catch (Exception e) {
             Duration duration = Duration.between(start, Instant.now());
             log.error("PlanAndExecute failed: {}", e.getMessage(), e);
-            return new AgentResult(null, List.of(), AgentState.FAILED, 0, duration);
+            return new AgentResult(null, List.of(), AgentState.FAILED, 0, duration, null);
         }
     }
 

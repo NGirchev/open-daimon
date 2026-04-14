@@ -36,6 +36,10 @@
   - Make `extractText` and `runVisionOcr` idempotent (check VectorStore for existing chunks before writing)
   - Persist FSM intermediate states to DB for crash recovery and retry
   - Eliminate response loss window between AI call completion and DB save
+- [ ] Cancel button for model selection + grouping
+- [ ] Show thinking + smooth text display in telegram
+- [ ] Show thinking in web
+- [ ] Different models in the flow
 
 ## Agent Framework Pivot
 
@@ -83,6 +87,8 @@
 
 - [ ] **REST Integration** — agent endpoint for REST/UI
 
+## Bugs
+- [ ] Bug - custom role for group chat is not working
 - [ ] Bug 2026-04-11 10:56:21.190 [opendaimon_bot Telegram Connection] ERROR o.t.t.u.DefaultBotSession - api.telegram.org
   2026-04-11T10:56:21.190938830Z java.net.UnknownHostException: api.telegram.org
   2026-04-11T10:56:21.190941994Z 	at java.base/java.net.InetAddress$CachedLookup.get(Unknown Source)...
@@ -158,7 +164,3 @@
   - Fix 1: Set `maxInMemorySize` in `SpringAIAutoConfig.webClient()` (e.g. 2MB)
   - Fix 2: Investigate why language instruction (`"Prefer responding in Russian"`) is lost after tool call failure — check if system message is preserved in the retry/fallback path
   - Log: `WebTools.fetchUrl failed for url=[https://github.com/anthropics/claude-code/issues/42796]: DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144`
-- [ ] Cancel button for model selection + grouping
-- [ ] Bug - custom role for group chat is not working
-- [ ] Show thinking + smooth text display in telegram
-- [ ] Show thinking in web

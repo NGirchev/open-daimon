@@ -51,6 +51,7 @@ public final class AgentContext implements StateContext<AgentState> {
 
     // --- Output ---
     private String finalAnswer;
+    private String modelName;
 
     // --- Streaming (optional, set externally for streaming execution) ---
     private java.util.function.Consumer<AgentStreamEvent> streamSink;
@@ -238,6 +239,14 @@ public final class AgentContext implements StateContext<AgentState> {
         this.finalAnswer = finalAnswer;
     }
 
+    public String getModelName() {
+        return modelName;
+    }
+
+    public void setModelName(String modelName) {
+        this.modelName = modelName;
+    }
+
     // --- Streaming ---
 
     public void setStreamSink(java.util.function.Consumer<AgentStreamEvent> streamSink) {
@@ -287,7 +296,8 @@ public final class AgentContext implements StateContext<AgentState> {
                 getStepHistory(),
                 state,
                 currentIteration,
-                getDuration()
+                getDuration(),
+                modelName
         );
     }
 

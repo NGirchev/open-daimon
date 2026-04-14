@@ -77,7 +77,7 @@ class TelegramMessageHandlerActionsAgentTest {
 
         AgentResult result = new AgentResult(
                 "Java 21 introduces virtual threads and pattern matching.",
-                List.of(), AgentState.COMPLETED, 3, Duration.ofSeconds(5));
+                List.of(), AgentState.COMPLETED, 3, Duration.ofSeconds(5), "gpt-4");
         when(agentExecutor.execute(any(AgentRequest.class))).thenReturn(result);
 
         actions.generateResponse(ctx);
@@ -92,7 +92,7 @@ class TelegramMessageHandlerActionsAgentTest {
     void generateResponse_agentEnabled_buildsCorrectRequest() {
         MessageHandlerContext ctx = createContextWithMetadata("Summarize this");
 
-        AgentResult result = new AgentResult("Summary", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1));
+        AgentResult result = new AgentResult("Summary", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1), null);
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
         when(agentExecutor.execute(captor.capture())).thenReturn(result);
 
@@ -111,7 +111,7 @@ class TelegramMessageHandlerActionsAgentTest {
     void generateResponse_agentFailed_setsEmptyResponse() {
         MessageHandlerContext ctx = createContextWithMetadata("Do something");
 
-        AgentResult result = new AgentResult(null, List.of(), AgentState.FAILED, 2, Duration.ofSeconds(3));
+        AgentResult result = new AgentResult(null, List.of(), AgentState.FAILED, 2, Duration.ofSeconds(3), null);
         when(agentExecutor.execute(any(AgentRequest.class))).thenReturn(result);
 
         actions.generateResponse(ctx);
@@ -126,7 +126,7 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Complex task");
 
         AgentResult result = new AgentResult(
-                "Partial answer so far...", List.of(), AgentState.MAX_ITERATIONS, 10, Duration.ofSeconds(30));
+                "Partial answer so far...", List.of(), AgentState.MAX_ITERATIONS, 10, Duration.ofSeconds(30), null);
         when(agentExecutor.execute(any(AgentRequest.class))).thenReturn(result);
 
         actions.generateResponse(ctx);
@@ -157,7 +157,7 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Search something",
                 Set.of(ModelCapabilities.CHAT, ModelCapabilities.WEB));
 
-        AgentResult result = new AgentResult("Found it", List.of(), AgentState.COMPLETED, 2, Duration.ofSeconds(3));
+        AgentResult result = new AgentResult("Found it", List.of(), AgentState.COMPLETED, 2, Duration.ofSeconds(3), null);
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
         when(agentExecutor.execute(captor.capture())).thenReturn(result);
 
@@ -172,7 +172,7 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Hello",
                 Set.of(ModelCapabilities.CHAT));
 
-        AgentResult result = new AgentResult("Hi", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1));
+        AgentResult result = new AgentResult("Hi", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1), null);
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
         when(agentExecutor.execute(captor.capture())).thenReturn(result);
 
@@ -186,7 +186,7 @@ class TelegramMessageHandlerActionsAgentTest {
     void generateResponse_nullCapabilities_usesSimpleStrategy() {
         MessageHandlerContext ctx = createContextWithMetadata("Hello", null);
 
-        AgentResult result = new AgentResult("Hi", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1));
+        AgentResult result = new AgentResult("Hi", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1), null);
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
         when(agentExecutor.execute(captor.capture())).thenReturn(result);
 
@@ -201,7 +201,7 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Search the web",
                 Set.of(ModelCapabilities.AUTO));
 
-        AgentResult result = new AgentResult("Result", List.of(), AgentState.COMPLETED, 3, Duration.ofSeconds(5));
+        AgentResult result = new AgentResult("Result", List.of(), AgentState.COMPLETED, 3, Duration.ofSeconds(5), null);
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
         when(agentExecutor.execute(captor.capture())).thenReturn(result);
 
@@ -217,7 +217,7 @@ class TelegramMessageHandlerActionsAgentTest {
         MessageHandlerContext ctx = createContextWithMetadata("Just chat",
                 Set.of(ModelCapabilities.CHAT));
 
-        AgentResult result = new AgentResult("Reply", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1));
+        AgentResult result = new AgentResult("Reply", List.of(), AgentState.COMPLETED, 1, Duration.ofSeconds(1), null);
         ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
         when(agentExecutor.execute(captor.capture())).thenReturn(result);
 
