@@ -7,7 +7,7 @@ import io.github.ngirchev.opendaimon.common.config.CoreAutoConfig;
 import io.github.ngirchev.opendaimon.common.service.CommandSyncService;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +28,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = ITTestConfiguration.class)
 @ActiveProfiles("test")
 @Import({
-        TestDatabaseConfiguration.class,
         CoreAutoConfig.class
 })
 @TestPropertySource(properties = {
@@ -54,7 +53,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"
 })
-class CoreAutoConfigSmokeIT {
+class CoreAutoConfigSmokeIT extends AbstractContainerIT {
 
     @Autowired
     private ApplicationContext context;

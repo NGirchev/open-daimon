@@ -13,7 +13,7 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegr
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -32,7 +32,6 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -85,10 +84,7 @@ import static org.mockito.Mockito.reset;
         properties = "open-daimon.agent.enabled=false"
 )
 @ActiveProfiles({"integration-test", "manual-ollama"})
-@Import({
-        TestDatabaseConfiguration.class
-})
-class WebToolCallingOllamaManualIT {
+class WebToolCallingOllamaManualIT extends AbstractContainerIT {
     private static final Long TEST_CHAT_ID = 350009002L;
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";

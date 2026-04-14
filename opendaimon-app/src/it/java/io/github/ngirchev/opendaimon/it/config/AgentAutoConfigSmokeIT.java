@@ -12,7 +12,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
 import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
@@ -40,7 +40,6 @@ import static org.mockito.Mockito.mock;
 @SpringBootTest(classes = ITTestConfiguration.class)
 @ActiveProfiles("test")
 @Import({
-        TestDatabaseConfiguration.class,
         AgentAutoConfigSmokeIT.MockChatModelConfig.class,
         AgentAutoConfig.class
 })
@@ -64,7 +63,7 @@ import static org.mockito.Mockito.mock;
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"
 })
-class AgentAutoConfigSmokeIT {
+class AgentAutoConfigSmokeIT extends AbstractContainerIT {
 
     @TestConfiguration
     static class MockChatModelConfig {

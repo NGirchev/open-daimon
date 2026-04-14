@@ -19,7 +19,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
 import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -38,7 +38,6 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -102,10 +101,7 @@ import static org.mockito.Mockito.reset;
         }
 )
 @ActiveProfiles({"integration-test", "manual-openrouter"})
-@Import({
-        TestDatabaseConfiguration.class
-})
-class AgentModeOpenRouterManualIT {
+class AgentModeOpenRouterManualIT extends AbstractContainerIT {
 
     static {
         DotEnvLoader.loadDotEnv(Path.of("../.env"));

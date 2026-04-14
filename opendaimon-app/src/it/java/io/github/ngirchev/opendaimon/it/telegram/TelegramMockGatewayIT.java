@@ -66,7 +66,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -97,14 +97,13 @@ import static org.mockito.Mockito.when;
 @ActiveProfiles("integration-test")
 @EnableConfigurationProperties(CoreCommonProperties.class)
 @Import({
-        TestDatabaseConfiguration.class,
         CoreFlywayConfig.class,
         CoreJpaConfig.class,
         TelegramFlywayConfig.class,
         TelegramJpaConfig.class,
         TelegramMockGatewayIT.TestOverrides.class
 })
-class TelegramMockGatewayIT {
+class TelegramMockGatewayIT extends AbstractContainerIT {
 
     @TestConfiguration
     static class TestOverrides {

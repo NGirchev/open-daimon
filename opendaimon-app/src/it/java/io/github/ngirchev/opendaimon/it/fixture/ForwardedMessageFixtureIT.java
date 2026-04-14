@@ -11,7 +11,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -61,14 +61,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("integration-test")
 @EnableConfigurationProperties(CoreCommonProperties.class)
 @Import({
-        TestDatabaseConfiguration.class,
         CoreFlywayConfig.class,
         CoreJpaConfig.class,
         TelegramFlywayConfig.class,
         TelegramJpaConfig.class,
         TelegramFixtureConfig.class
 })
-class ForwardedMessageFixtureIT {
+class ForwardedMessageFixtureIT extends AbstractContainerIT {
 
     @Autowired
     TelegramFixtureConfig.RecordingTelegramBot telegramBot;

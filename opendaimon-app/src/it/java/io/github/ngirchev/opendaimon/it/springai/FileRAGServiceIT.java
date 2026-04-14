@@ -25,7 +25,7 @@ import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingServi
 import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
 import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -57,7 +57,6 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @ActiveProfiles("integration-test")
 @Import({
-        TestDatabaseConfiguration.class,
         CoreFlywayConfig.class,
         CoreJpaConfig.class,
         SpringAIFlywayConfig.class,
@@ -72,7 +71,7 @@ import static org.junit.jupiter.api.Assertions.*;
         "open-daimon.ai.spring-ai.rag.top-k=3",
         "open-daimon.ai.spring-ai.rag.similarity-threshold=0.5"
 })
-class FileRAGServiceIT {
+class FileRAGServiceIT extends AbstractContainerIT {
 
     @BeforeAll
     static void loadEnv() {

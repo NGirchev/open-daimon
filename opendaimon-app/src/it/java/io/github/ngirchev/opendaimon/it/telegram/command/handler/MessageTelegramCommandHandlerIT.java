@@ -60,7 +60,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -81,7 +81,6 @@ import org.mockito.ArgumentCaptor;
 @ActiveProfiles("test")
 @EnableConfigurationProperties(TelegramProperties.class)
 @Import({
-        TestDatabaseConfiguration.class,
         BulkHeadAutoConfig.class,
         CoreAutoConfig.class,
         TelegramJpaConfig.class,
@@ -116,7 +115,7 @@ import org.mockito.ArgumentCaptor;
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"
 })
-class MessageTelegramCommandHandlerIT {
+class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
 
     @TestConfiguration
     static class TestConfig {

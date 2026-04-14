@@ -12,5 +12,8 @@
       "Bash(git:merge*)",
       "Bash(git:cherry-pick*)"
     ]
+  },
+  "enabledPlugins": {
+    "everything-claude-code@everything-claude-code": true
   }
 }
