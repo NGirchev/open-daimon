@@ -94,6 +94,10 @@ public class MessageTelegramCommandHandler {
 
 - Configuration namespace is `open-daimon.*` (modules `telegram`, `rest`, `ui`, `ai.spring-ai`); feature toggles use `*.enabled`.
 - Config keys and comments live in `opendaimon-app/src/main/resources/application.yml`.
+- **Feature Toggles:** All toggle property keys are centralized in `FeatureToggle` (opendaimon-common).
+  Never use raw string literals in `@ConditionalOnProperty` — always reference constants from
+  `FeatureToggle.Module`, `FeatureToggle.Feature`, or `FeatureToggle.TelegramCommand`.
+  See [docs/feature-toggles.md](docs/feature-toggles.md) for full conventions.
 
 ### Module Auto-Configuration
 

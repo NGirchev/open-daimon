@@ -40,6 +40,7 @@
 - [ ] Show thinking + smooth text display in telegram
 - [ ] Show thinking in web
 - [ ] Different models in the flow
+- [ ] Add balance loader
 
 ## Agent Framework Pivot
 

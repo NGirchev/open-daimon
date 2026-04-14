@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
@@ -36,7 +37,7 @@ import io.github.ngirchev.opendaimon.rest.exception.RestExceptionHandler;
         RestJpaConfig.class,
         RestFlywayConfig.class
 })
-@ConditionalOnProperty(name = "open-daimon.rest.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.REST_ENABLED, havingValue = "true")
 public class RestAutoConfig {
 
     @Bean

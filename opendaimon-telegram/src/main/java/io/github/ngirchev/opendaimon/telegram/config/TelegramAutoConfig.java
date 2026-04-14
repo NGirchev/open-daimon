@@ -10,6 +10,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.telegram.telegrambots.bots.DefaultBotOptions;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
@@ -35,7 +36,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
         TelegramCommandHandlerConfig.class,
         TelegramCacheConfig.class,
 })
-@ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.TELEGRAM_ENABLED, havingValue = "true")
 public class TelegramAutoConfig {
 
     @Bean

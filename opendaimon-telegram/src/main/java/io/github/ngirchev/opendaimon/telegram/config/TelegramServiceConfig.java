@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Lazy;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
@@ -175,7 +176,7 @@ public class TelegramServiceConfig {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnProperty(
-            name = "open-daimon.telegram.file-upload.enabled",
+            name = FeatureToggle.Feature.TELEGRAM_FILE_UPLOAD_ENABLED,
             havingValue = "true")
     public TelegramFileService telegramFileService(
             ObjectProvider<TelegramBot> telegramBotProvider,

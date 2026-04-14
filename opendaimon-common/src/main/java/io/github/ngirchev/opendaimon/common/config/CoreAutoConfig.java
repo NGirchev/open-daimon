@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.web.client.RestTemplate;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.service.NoOpPriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.bulkhead.service.impl.NoOpUserPriorityService;
@@ -169,7 +170,7 @@ public class CoreAutoConfig {
      */
     @Bean
     @ConditionalOnMissingBean(IUserPriorityService.class)
-    @ConditionalOnProperty(name = "open-daimon.common.bulkhead.enabled", havingValue = "false", matchIfMissing = true)
+    @ConditionalOnProperty(name = FeatureToggle.Feature.BULKHEAD_ENABLED, havingValue = "false", matchIfMissing = true)
     public IUserPriorityService noOpUserPriorityService() {
         return new NoOpUserPriorityService();
     }
@@ -181,7 +182,7 @@ public class CoreAutoConfig {
      */
     @Bean
     @ConditionalOnMissingBean(PriorityRequestExecutor.class)
-    @ConditionalOnProperty(name = "open-daimon.common.bulkhead.enabled", havingValue = "false", matchIfMissing = true)
+    @ConditionalOnProperty(name = FeatureToggle.Feature.BULKHEAD_ENABLED, havingValue = "false", matchIfMissing = true)
     public PriorityRequestExecutor noOpPriorityRequestExecutor() {
         return new NoOpPriorityRequestExecutor();
     }

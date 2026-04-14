@@ -4,6 +4,7 @@ import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.CompositeAgentMemory;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.SemanticAgentMemory;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
@@ -53,7 +54,7 @@ import java.util.List;
 @Slf4j
 @AutoConfiguration
 @AutoConfigureAfter(SpringAIAutoConfig.class)
-@ConditionalOnProperty(name = "open-daimon.agent.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.AGENT_ENABLED, havingValue = "true")
 @EnableConfigurationProperties(AgentProperties.class)
 public class AgentAutoConfig {
 
@@ -76,7 +77,7 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(SemanticAgentMemory.class)
     @ConditionalOnBean(VectorStore.class)
-    @ConditionalOnProperty(name = "open-daimon.agent.memory.enabled", havingValue = "true")
+    @ConditionalOnProperty(name = FeatureToggle.Feature.AGENT_MEMORY_ENABLED, havingValue = "true")
     public SemanticAgentMemory semanticAgentMemory(VectorStore vectorStore, AgentProperties properties) {
         return new SemanticAgentMemory(vectorStore, properties.getMemorySimilarityThreshold());
     }
@@ -200,7 +201,7 @@ public class AgentAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean(HttpApiTool.class)
-    @ConditionalOnProperty(name = "open-daimon.agent.tools.http-api.enabled", havingValue = "true")
+    @ConditionalOnProperty(name = FeatureToggle.Feature.AGENT_HTTP_API_TOOL_ENABLED, havingValue = "true")
     public HttpApiTool httpApiTool(WebClient webClient) {
         return new HttpApiTool(webClient);
     }

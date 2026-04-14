@@ -10,6 +10,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
@@ -70,7 +71,7 @@ import io.github.ngirchev.opendaimon.common.service.SummarizationService;
 @AutoConfigureBefore(name = "org.springframework.ai.model.tool.autoconfigure.ToolCallingAutoConfiguration")
 @EnableConfigurationProperties({SpringAIProperties.class, OpenRouterModelsProperties.class})
 @Import(SpringAIFlywayConfig.class)
-@ConditionalOnProperty(name = "open-daimon.ai.spring-ai.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.SPRING_AI_ENABLED, havingValue = "true")
 public class SpringAIAutoConfig {
 
     @Bean
@@ -81,7 +82,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public OpenRouterModelsApiClient openRouterModelsApiClient(
             RestTemplate restTemplate,
             ObjectMapper objectMapper
@@ -92,7 +93,7 @@ public class SpringAIAutoConfig {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnClass(Flux.class)
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public OpenRouterStreamMetricsTracker openRouterStreamMetricsTracker(
             ObjectProvider<OpenRouterModelStatsRecorder> openRouterModelStatsRecorderProvider
     ) {
@@ -115,7 +116,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public SpringAIModelRegistryRefreshScheduler springAIModelRegistryRefreshScheduler(SpringAIModelRegistry registry) {
         return new SpringAIModelRegistryRefreshScheduler(registry);
     }
@@ -128,7 +129,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public OpenRouterFreeModelResolver openRouterFreeModelResolver(
             RestTemplate restTemplate,
             ObjectMapper objectMapper,
@@ -163,7 +164,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public OpenRouterModelRotationAspect openRouterModelRotationAspect(
             OpenRouterRotationRegistry openRouterRotationRegistry,
             SpringAIProperties springAIProperties
