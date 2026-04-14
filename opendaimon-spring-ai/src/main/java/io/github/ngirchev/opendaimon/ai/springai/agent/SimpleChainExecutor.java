@@ -4,6 +4,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentState;
+import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -14,6 +15,10 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -71,6 +76,38 @@ public class SimpleChainExecutor implements AgentExecutor {
             log.error("SimpleChain failed: {}", e.getMessage(), e);
             return new AgentResult(null, List.of(), AgentState.FAILED, 0, duration, null);
         }
+    }
+
+    @Override
+    public Flux<AgentStreamEvent> executeStream(AgentRequest request) {
+        Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
+        Flux<AgentStreamEvent> eventFlux = sink.asFlux();
+
+        Flux.defer(() -> {
+            try {
+                sink.tryEmitNext(AgentStreamEvent.thinking(0));
+
+                AgentResult result = execute(request);
+
+                if (result.modelName() != null) {
+                    sink.tryEmitNext(AgentStreamEvent.metadata(result.modelName(), 0));
+                }
+                if (result.isSuccess() && result.finalAnswer() != null) {
+                    sink.tryEmitNext(AgentStreamEvent.finalAnswer(result.finalAnswer(), 0));
+                } else {
+                    sink.tryEmitNext(AgentStreamEvent.error(
+                            "SimpleChain failed", 0));
+                }
+                sink.tryEmitComplete();
+            } catch (Exception e) {
+                log.error("SimpleChain stream failed: {}", e.getMessage(), e);
+                sink.tryEmitNext(AgentStreamEvent.error(e.getMessage(), 0));
+                sink.tryEmitError(e);
+            }
+            return Flux.empty();
+        }).subscribeOn(Schedulers.boundedElastic()).subscribe();
+
+        return eventFlux;
     }
 
     private void loadConversationHistory(AgentRequest request, List<Message> messages) {

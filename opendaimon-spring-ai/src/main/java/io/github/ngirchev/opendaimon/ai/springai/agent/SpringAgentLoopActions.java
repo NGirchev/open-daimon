@@ -128,7 +128,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
             } else {
-                String text = output.getText();
+                String text = stripThinkTags(output.getText());
                 ctx.setCurrentThought("Final answer ready");
                 ctx.setCurrentTextResponse(text);
                 log.info("Agent think: final answer, length={}",
@@ -316,29 +316,70 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     }
 
     /**
-     * Attempts to extract reasoning/thinking content from the LLM response metadata.
-     * Providers like OpenRouter may include reasoning in generation metadata under
-     * keys such as "reasoningContent".
+     * Attempts to extract reasoning/thinking content from the LLM response.
+     *
+     * <p>Two sources are checked:
+     * <ol>
+     *   <li>Generation metadata key "reasoningContent" (OpenRouter/Anthropic)</li>
+     *   <li>{@code <think>...</think>} tags in text output (Ollama with think=true)</li>
+     * </ol>
      *
      * @return reasoning text, or null if not available
      */
     private String extractReasoning(ChatResponse response) {
         try {
-            if (response == null || response.getResult() == null) {
+            if (response == null) {
                 return null;
+            } else {
+                response.getResult();
             }
+            // 1. Check metadata (OpenRouter/Anthropic)
             var metadata = response.getResult().getMetadata();
-            if (metadata == null) {
-                return null;
-            }
             Object reasoning = metadata.get("reasoningContent");
             if (reasoning instanceof String text && !text.isBlank()) {
                 return text;
+            }
+            // 2. Check <think> tags in text (Ollama)
+            var output = response.getResult().getOutput();
+            if (output.getText() != null) {
+                return extractThinkTags(output.getText());
             }
         } catch (Exception e) {
             log.debug("Could not extract reasoning from response: {}", e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Extracts content from {@code <think>...</think>} tags (Ollama thinking mode).
+     * Returns the thinking text, or null if no tags found.
+     */
+    static String extractThinkTags(String text) {
+        if (text == null) {
+            return null;
+        }
+        int start = text.indexOf("<think>");
+        int end = text.indexOf("</think>");
+        if (start < 0 || end < 0 || end <= start) {
+            return null;
+        }
+        String thinking = text.substring(start + "<think>".length(), end).trim();
+        return thinking.isEmpty() ? null : thinking;
+    }
+
+    /**
+     * Strips {@code <think>...</think>} block from text, returning only the answer part.
+     */
+    static String stripThinkTags(String text) {
+        if (text == null) {
+            return null;
+        }
+        int start = text.indexOf("<think>");
+        int end = text.indexOf("</think>");
+        if (start < 0 || end < 0 || end <= start) {
+            return text;
+        }
+        return (text.substring(0, start) + text.substring(end + "</think>".length())).trim();
     }
 
     /**

@@ -197,7 +197,7 @@ open-daimon:
         response-timeout-seconds: 600  # 10 minutes for HTTP requests to AI providers
         stream-timeout-seconds: 600   # 10 minutes for streaming
       # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
-      # Ollama models (run locally: ollama pull qwen2.5:7b).
+      # Ollama models (run locally: ollama pull qwen3.5:4b).
       models:
         list:
           - name: "openrouter/auto"
@@ -219,6 +219,7 @@ open-daimon:
               - TOOL_CALLING
               - WEB
               - VISION
+              - THINKING
             provider-type: OPENAI
             priority: 1
             allowed-roles:
@@ -237,15 +238,18 @@ open-daimon:
             allowed-roles:
               - ADMIN
               - REGULAR
-          - name: "qwen2.5:3b"
+          - name: "qwen3.5:4b"
             capabilities:
               - AUTO
               - CHAT
               - TOOL_CALLING
               - SUMMARIZATION
               - WEB
+              - THINKING
             provider-type: OLLAMA
             priority: 2
+            think: true
+            max-reasoning-tokens: 4000
           - name: "gemma3:4b"
             capabilities:
               - VISION

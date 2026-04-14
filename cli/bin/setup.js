@@ -259,17 +259,17 @@ async function main() {
     if (ollamaAlive) {
       console.log('OK');
       const doPullModel = await confirm({
-        message: 'Pull default model qwen2.5:3b now? (~1.9 GB, supports tool calling)',
+        message: 'Pull default model qwen3.5:4b now? (~1.9 GB, supports tool calling)',
         default: true,
       });
       if (doPullModel) {
-        await pullOllamaModel('qwen2.5:3b');
+        await pullOllamaModel('qwen3.5:4b');
       }
     } else {
       console.log('UNREACHABLE');
       console.log('   ⚠  Ollama is not running at ' + ollamaUrl.trim());
       console.log('   Start it with: ollama serve');
-      console.log('   Then manually pull the model: ollama pull qwen2.5:3b');
+      console.log('   Then manually pull the model: ollama pull qwen3.5:4b');
       const continueAnyway = await confirm({
         message: 'Continue setup anyway?',
         default: true,

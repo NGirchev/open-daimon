@@ -56,7 +56,7 @@ import static org.mockito.Mockito.reset;
  * {@code MessageChatMemoryAdvisor}. Verifies that text-only multi-turn conversations
  * retain context via {@code ChatMemory}.
  *
- * <p>Requires local Ollama with {@code qwen2.5:3b} and {@code nomic-embed-text:v1.5}.
+ * <p>Requires local Ollama with {@code qwen3.5:4b} and {@code nomic-embed-text:v1.5}.
  *
  * <p>Run explicitly:
  * <pre>
@@ -78,7 +78,7 @@ class ConversationHistoryGatewayOllamaManualIT extends AbstractContainerIT {
     private static final Long TEST_CHAT_ID = 350009008L;
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
+    private static final String DEFAULT_CHAT_MODEL = "qwen3.5:4b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS = Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
             .distinct()

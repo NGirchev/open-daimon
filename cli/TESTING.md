@@ -143,7 +143,7 @@ Wizard input:
 | Admin Telegram ID | `123456789` |
 | AI provider | **Ollama** |
 | Ollama URL | *(press Enter to accept default `http://localhost:11434`)* |
-| Pull qwen2.5:3b? | No (or Yes if Ollama is running) |
+| Pull qwen3.5:4b? | No (or Yes if Ollama is running) |
 | Serper? | No |
 | Services | uncheck all |
 | DB password | `mypassword` |
@@ -170,7 +170,7 @@ cat /tmp/test-ollama/application-local.yml
 - `SPRING_PROFILES_ACTIVE=local`
 - `prometheus.yml` must NOT be created (monitoring not selected)
 - `logstash.conf` must NOT be created (logging not selected)
-- `application-local.yml` contains `provider-type: OLLAMA`, `qwen2.5:3b`, `nomic-embed-text:v1.5`
+- `application-local.yml` contains `provider-type: OLLAMA`, `qwen3.5:4b`, `nomic-embed-text:v1.5`
 - `spring.ai.ollama.base-url: ${OLLAMA_BASE_URL:http://localhost:11434}`
 
 ---

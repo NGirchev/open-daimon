@@ -262,14 +262,12 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
             extractAgentResult(ctx, lastEvent);
 
-            // Send final answer text via streaming sender — the post-FSM handler
-            // only sends keyboard when alreadySentInStream=true.
+            // Send final answer text via streaming sender, split by paragraphs
+            // to respect Telegram's max message length (same as gateway path).
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
-                String htmlAnswer = AIUtils.convertMarkdownToHtml(answerText);
-                log.info("FSM generateAgentResponse: sending final answer, textLength={}, htmlLength={}",
-                        answerText.length(), htmlAnswer.length());
-                ctx.getStreamingParagraphSender().accept(htmlAnswer);
+                log.info("FSM generateAgentResponse: sending final answer, textLength={}", answerText.length());
+                sendTextByParagraphs(answerText, ctx.getStreamingParagraphSender());
                 ctx.setAlreadySentInStream(true);
             } else {
                 log.warn("FSM generateAgentResponse: no response text after extractAgentResult");
@@ -319,6 +317,31 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             ctx.setException(new RuntimeException(lastEvent.content()));
         } else if (!ctx.hasResponse()) {
             ctx.setErrorType(MessageHandlerErrorType.EMPTY_RESPONSE);
+        }
+    }
+
+    /**
+     * Splits text by double newlines (paragraphs), converts each to HTML,
+     * and sends via the provided sender. Respects Telegram max message length.
+     */
+    private void sendTextByParagraphs(String text, java.util.function.Consumer<String> sender) {
+        int maxLength = telegramProperties.getMaxMessageLength();
+        String[] paragraphs = text.split("\n\n");
+        StringBuilder buffer = new StringBuilder();
+
+        for (String paragraph : paragraphs) {
+            if (buffer.length() + paragraph.length() + 2 > maxLength && !buffer.isEmpty()) {
+                sender.accept(AIUtils.convertMarkdownToHtml(buffer.toString().trim()));
+                buffer.setLength(0);
+            }
+            if (!buffer.isEmpty()) {
+                buffer.append("\n\n");
+            }
+            buffer.append(paragraph);
+        }
+
+        if (!buffer.isEmpty()) {
+            sender.accept(AIUtils.convertMarkdownToHtml(buffer.toString().trim()));
         }
     }
 

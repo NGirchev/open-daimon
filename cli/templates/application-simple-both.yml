@@ -46,7 +46,7 @@ open-daimon:
             allowed-roles:
               - ADMIN
               - VIP
-          - name: "qwen2.5:3b"
+          - name: "qwen3.5:4b"
             capabilities:
               - AUTO
               - CHAT

@@ -38,6 +38,10 @@
   - Eliminate response loss window between AI call completion and DB save
 - [x] Cancel button for model selection + grouping
 - [ ] Show thinking + smooth text display in telegram
+  - [x] Agent observability: intermediate events (thinking, tool_call, observation) shown in Telegram
+  - [x] Agent final answer: stream by paragraphs (like gateway path) instead of single message
+  - [x] Ollama thinking: parse `<think>...</think>` tags from getText() and show as reasoning content
+  - [ ] OpenRouter reasoning: verify `reasoningContent` in Generation metadata for models with extended thinking
 - [ ] Show thinking in web
 - [ ] Different models in the flow
 - [ ] Add balance loader

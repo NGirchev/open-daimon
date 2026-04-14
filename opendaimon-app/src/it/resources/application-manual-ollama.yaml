@@ -65,7 +65,7 @@ open-daimon:
           url: https://google.serper.dev/search
       models:
         list:
-          - name: ${manual.ollama.chat-model:qwen2.5:3b}
+          - name: ${manual.ollama.chat-model:qwen3.5:4b}
             capabilities:
               - AUTO
               - CHAT

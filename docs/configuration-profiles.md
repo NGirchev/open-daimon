@@ -76,7 +76,7 @@ spring.ai.ollama.base-url: ${OLLAMA_BASE_URL}
 ```
 
 **Explicit `models.list`:**
-- `qwen2.5:3b` — chat / tool calling / web / summarization
+- `qwen3.5:4b` — chat / tool calling / web / summarization
 - `gemma3:4b` — vision / chat
 - `nomic-embed-text:v1.5` — embeddings
 
@@ -95,14 +95,14 @@ spring.ai.model.embedding: ollama  # local embeddings
 > If you explicitly set the property to `openai`, the condition evaluates to **false** and
 > `OllamaChatModel` bean is never created — even though Ollama models are in the `models.list`.
 > Any request routed to an OLLAMA-typed model will fail with:
-> `IllegalStateException: Model 'qwen2.5:3b' requires provider OLLAMA, but Ollama client is not configured`.
+> `IllegalStateException: Model 'qwen3.5:4b' requires provider OLLAMA, but Ollama client is not configured`.
 >
 > Without the property, `matchIfMissing=true` on both `OllamaChatAutoConfiguration` and
 > `OpenAiChatAutoConfiguration` ensures that both models are created automatically.
 
 **Explicit `models.list`:**
 - `openrouter/auto` — cloud chat (ADMIN + VIP only)
-- `qwen2.5:3b` — local chat / tool calling / web (all roles)
+- `qwen3.5:4b` — local chat / tool calling / web (all roles)
 - `gemma3:4b` — local vision / chat (all roles)
 - `nomic-embed-text:v1.5` — local embeddings
 

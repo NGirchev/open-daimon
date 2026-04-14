@@ -62,7 +62,7 @@ import static org.mockito.Mockito.reset;
 /**
  * Manual E2E-like integration test for real Ollama + web tool calling (fetch_url).
  *
- * <p>Verifies that qwen2.5:3b (or another chat model) invokes the {@code fetch_url} tool
+ * <p>Verifies that qwen3.5:4b (or another chat model) invokes the {@code fetch_url} tool
  * when the user message contains a URL. A real {@link WebTools} instance is used (preserving
  * {@code @Tool} annotations for Spring AI discovery), backed by a {@link MockWebServer} that
  * returns predictable HTML content instead of making real network requests.
@@ -74,7 +74,7 @@ import static org.mockito.Mockito.reset;
  *   -Dit.test=WebToolCallingOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
  *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen2.5:3b
+ *   -Dmanual.ollama.chat-model=qwen3.5:4b
  * </pre>
  */
 @Tag("manual")
@@ -88,7 +88,7 @@ class WebToolCallingOllamaManualIT extends AbstractContainerIT {
     private static final Long TEST_CHAT_ID = 350009002L;
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
+    private static final String DEFAULT_CHAT_MODEL = "qwen3.5:4b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS = Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
             .distinct()

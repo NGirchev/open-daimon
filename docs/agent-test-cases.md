@@ -48,7 +48,7 @@ Legend: **DONE** = implemented and passing, **TODO** = not yet implemented.
 ### How to run
 
 ```bash
-# Ollama tests (requires local Ollama with qwen2.5:3b + nomic-embed-text:v1.5)
+# Ollama tests (requires local Ollama with qwen3.5:4b + nomic-embed-text:v1.5)
 ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
   -Dit.test=AgentModeOllamaManualIT \
   -Dmanual.ollama.e2e=true
