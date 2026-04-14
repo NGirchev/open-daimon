@@ -36,7 +36,7 @@
   - Make `extractText` and `runVisionOcr` idempotent (check VectorStore for existing chunks before writing)
   - Persist FSM intermediate states to DB for crash recovery and retry
   - Eliminate response loss window between AI call completion and DB save
-- [ ] Cancel button for model selection + grouping
+- [x] Cancel button for model selection + grouping
 - [ ] Show thinking + smooth text display in telegram
 - [ ] Show thinking in web
 - [ ] Different models in the flow
