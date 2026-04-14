@@ -41,10 +41,9 @@ Legend: **DONE** = implemented and passing, **TODO** = not yet implemented.
 | 12 | `AgentModeOpenRouterManualIT` | SIMPLE strategy with OpenRouter | SIMPLE | none | **DONE** |
 | 13 | `AgentAutoConfigSmokeIT` | Full context loading with all agent beans | — | — | **DONE** |
 | 14 | `AgentAutoConfigSmokeIT` | StrategyDelegatingAgentExecutor as primary | — | — | **DONE** |
-| 15 | `AgentAutoConfigSmokeIT` | AgentCommandHandler registration | — | — | **DONE** |
-| 16 | `AgentAutoConfigSmokeIT` | AgentOrchestrator registration | — | — | **DONE** |
-| 17 | — | http_post tool invocation via agent | REACT | http_post | **TODO** |
-| 18 | — | PlanAndExecute strategy E2E | PLAN_AND_EXECUTE | any | **TODO** |
+| 15 | `AgentAutoConfigSmokeIT` | AgentOrchestrator registration | — | — | **DONE** |
+| 16 | — | http_post tool invocation via agent | REACT | http_post | **TODO** |
+| 17 | — | PlanAndExecute strategy E2E | PLAN_AND_EXECUTE | any | **TODO** |
 
 ### How to run
 

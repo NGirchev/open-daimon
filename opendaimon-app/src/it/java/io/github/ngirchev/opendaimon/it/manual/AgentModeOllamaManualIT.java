@@ -119,10 +119,10 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
             }
             """;
 
-    static final AtomicBoolean WEB_SEARCH_CALLED = new AtomicBoolean(false);
-    static final AtomicBoolean FETCH_URL_CALLED = new AtomicBoolean(false);
-    static final AtomicBoolean HTTP_GET_CALLED = new AtomicBoolean(false);
-    static final AtomicInteger TOOL_CALL_COUNT = new AtomicInteger(0);
+    final AtomicBoolean WEB_SEARCH_CALLED = new AtomicBoolean(false);
+    final AtomicBoolean FETCH_URL_CALLED = new AtomicBoolean(false);
+    final AtomicBoolean HTTP_GET_CALLED = new AtomicBoolean(false);
+    final AtomicInteger TOOL_CALL_COUNT = new AtomicInteger(0);
 
     private static final MockWebServer mockWebServer = createMockWebServer();
 
@@ -176,6 +176,7 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
         FETCH_URL_CALLED.set(false);
         HTTP_GET_CALLED.set(false);
         TOOL_CALL_COUNT.set(0);
+        mockWebServer.setDispatcher(createDispatcher());
 
         reset(telegramBot);
         doNothing().when(telegramBot).showTyping(anyLong());
@@ -506,9 +507,8 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
         return assistantMessages.getLast().getContent();
     }
 
-    private static MockWebServer createMockWebServer() {
-        MockWebServer server = new MockWebServer();
-        server.setDispatcher(new Dispatcher() {
+    private Dispatcher createDispatcher() {
+        return new Dispatcher() {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
                 TOOL_CALL_COUNT.incrementAndGet();
@@ -530,7 +530,11 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
                         .setBody("<html><body><h1>Spring Boot 4.0</h1><p>Released March 2026.</p></body></html>")
                         .addHeader("Content-Type", "text/html");
             }
-        });
+        };
+    }
+
+    private static MockWebServer createMockWebServer() {
+        MockWebServer server = new MockWebServer();
         try {
             server.start();
         } catch (IOException e) {

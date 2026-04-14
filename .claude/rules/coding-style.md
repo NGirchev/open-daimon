@@ -12,6 +12,9 @@ CORRECT: update(original, field, value) → returns new copy with change
 
 Rationale: Immutable data prevents hidden side effects, makes debugging easier, and enables safe concurrency.
 
+**Approved exception — FSM context objects:**
+Classes implementing `StateContext` (e.g. `AIRequestContext`, `AgentContext`, `MessageHandlerContext`) are mutable by design. They serve as single-use accumulators that FSM actions populate during one `handle()` invocation. Each context instance is created, populated, and discarded within a single thread — no sharing, no concurrency risk.
+
 ## Core Principles
 
 ### KISS (Keep It Simple)

@@ -10,7 +10,6 @@ import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentEvent;
-import io.github.ngirchev.opendaimon.common.agent.AgentCommandHandler;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopFsmFactory;
@@ -162,15 +161,6 @@ public class AgentAutoConfig {
             PlanAndExecuteAgentExecutor planAndExecuteExecutor,
             List<ToolCallback> agentToolCallbacks) {
         return new StrategyDelegatingAgentExecutor(reactExecutor, simpleExecutor, planAndExecuteExecutor, agentToolCallbacks);
-    }
-
-    // --- Command Handler ---
-
-    @Bean
-    @ConditionalOnMissingBean(AgentCommandHandler.class)
-    public AgentCommandHandler agentCommandHandler(
-            AgentExecutor agentExecutor, AgentProperties properties) {
-        return new AgentCommandHandler(agentExecutor, properties.getMaxIterations());
     }
 
     // --- Orchestration ---

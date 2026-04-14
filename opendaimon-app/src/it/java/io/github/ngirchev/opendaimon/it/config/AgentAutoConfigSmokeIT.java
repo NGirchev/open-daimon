@@ -7,7 +7,6 @@ import io.github.ngirchev.opendaimon.ai.springai.agent.SimpleChainExecutor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions;
 import io.github.ngirchev.opendaimon.ai.springai.agent.StrategyDelegatingAgentExecutor;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
-import io.github.ngirchev.opendaimon.common.agent.AgentCommandHandler;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
@@ -107,12 +106,6 @@ class AgentAutoConfigSmokeIT extends AbstractContainerIT {
     void primaryExecutor_isStrategyDelegating() {
         AgentExecutor executor = context.getBean(AgentExecutor.class);
         assertThat(executor).isInstanceOf(StrategyDelegatingAgentExecutor.class);
-    }
-
-    @Test
-    @DisplayName("AgentAutoConfig — AgentCommandHandler registered")
-    void agentCommandHandler_registered() {
-        assertThat(context.getBean(AgentCommandHandler.class)).isNotNull();
     }
 
     @Test

@@ -294,8 +294,8 @@ open-daimon:
     tools:
       http-api:
         enabled: true
-    # memory:
-    #   enabled: true  # Requires VectorStore (RAG must be enabled)
+    memory:
+      enabled: true  # Requires VectorStore (RAG must be enabled)
 
 management:
   endpoints:

@@ -162,8 +162,8 @@ Autonomous AI agent that can use tools iteratively to solve tasks.
 
 **Architecture:**
 ```
-/agent <task> → AgentTelegramCommandHandler
-    ↓
+Message → TelegramMessageHandlerActions.generateResponse()
+    ↓ (when open-daimon.agent.enabled=true)
 AgentExecutor.execute(AgentRequest)
     ↓
 AgentLoopFsmFactory (FSM with cyclic auto-transitions)

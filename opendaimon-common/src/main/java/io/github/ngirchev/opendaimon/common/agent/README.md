@@ -9,7 +9,7 @@ driven by a Finite State Machine.
 ```
 opendaimon-common/agent/          <-- Interfaces, FSM factory, domain objects
 opendaimon-spring-ai/agent/       <-- Spring AI implementations (ChatModel, tools, memory)
-opendaimon-telegram/handler/impl/ <-- Telegram channel adapter (/agent command)
+opendaimon-telegram/handler/impl/ <-- Telegram channel adapter (FSM-based agent invocation)
 ```
 
 ## Execution Strategies
@@ -44,63 +44,54 @@ ANSWERING ──[auto]──> COMPLETED (terminal)
 - **FSM is a stateless singleton** — each execution creates a fresh `AgentContext`.
 - Guard predicates evaluate on `AgentContext` fields.
 
-## Sequence: Telegram /agent Command
+## Sequence: Telegram Message → Agent Execution
+
+Agent mode is activated at the application level via `open-daimon.agent.enabled=true`.
+When enabled, `TelegramMessageHandlerActions.generateResponse()` delegates to `AgentExecutor`
+directly (no separate command/handler layer).
 
 ```
-User                 TelegramBot     AgentTelegramCH    AgentCommandHandler    StrategyDelegating    ReActExecutor      FSM        SpringAgentLoopActions    LLM       ToolCallingManager
- │                       │                │                    │                     │                    │            │                │                    │              │
- │ /agent <task>         │                │                    │                     │                    │            │                │                    │              │
- │──────────────────────>│                │                    │                     │                    │            │                │                    │              │
- │                       │ TelegramCommand│                    │                     │                    │            │                │                    │              │
- │                       │───────────────>│                    │                     │                    │            │                │                    │              │
- │                       │                │ AgentChatCommand   │                     │                    │            │                │                    │              │
- │                       │                │───────────────────>│                     │                    │            │                │                    │              │
- │                       │                │                    │ AgentRequest         │                    │            │                │                    │              │
- │                       │                │                    │────────────────────> │                    │            │                │                    │              │
- │                       │                │                    │                     │  execute(request)   │            │                │                    │              │
- │                       │                │                    │                     │───────────────────> │            │                │                    │              │
- │                       │                │                    │                     │                    │ handle(ctx) │                │                    │              │
- │                       │                │                    │                     │                    │──────────> │                │                    │              │
- │                       │                │                    │                     │                    │            │  think(ctx)    │                    │              │
- │                       │                │                    │                     │                    │            │───────────────>│                    │              │
- │                       │                │                    │                     │                    │            │                │  recall memory     │              │
- │                       │                │                    │                     │                    │            │                │  chatModel.call()  │              │
- │                       │                │                    │                     │                    │            │                │───────────────────>│              │
- │                       │                │                    │                     │                    │            │                │   tool call / text │              │
- │                       │                │                    │                     │                    │            │                │<───────────────────│              │
- │                       │                │                    │                     │                    │            │  [hasToolCall] │                    │              │
- │                       │                │                    │                     │                    │            │───────────────>│                    │              │
- │                       │                │                    │                     │                    │            │  executeTool() │                    │              │
- │                       │                │                    │                     │                    │            │───────────────>│                    │              │
- │                       │                │                    │                     │                    │            │                │  executeToolCalls()│              │
- │                       │                │                    │                     │                    │            │                │─────────────────────────────────>│
- │                       │                │                    │                     │                    │            │                │   observation      │              │
- │                       │                │                    │                     │                    │            │                │<─────────────────────────────────│
- │                       │                │                    │                     │                    │            │  observe()     │                    │              │
- │                       │                │                    │                     │                    │            │───────────────>│                    │              │
- │                       │                │                    │                     │                    │            │                │  record step       │              │
- │                       │                │                    │                     │                    │            │  loop back     │                    │              │
- │                       │                │                    │                     │                    │            │  think(ctx)    │                    │              │
- │                       │                │                    │                     │                    │            │───────────────>│                    │              │
- │                       │                │                    │                     │                    │            │                │  chatModel.call()  │              │
- │                       │                │                    │                     │                    │            │                │───────────────────>│              │
- │                       │                │                    │                     │                    │            │                │   final answer     │              │
- │                       │                │                    │                     │                    │            │                │<───────────────────│              │
- │                       │                │                    │                     │                    │            │ [hasFinalAnswer]                    │              │
- │                       │                │                    │                     │                    │            │  answer()      │                    │              │
- │                       │                │                    │                     │                    │            │───────────────>│                    │              │
- │                       │                │                    │                     │                    │            │                │  extract facts     │              │
- │                       │                │                    │                     │                    │ AgentResult │                │                    │              │
- │                       │                │                    │                     │  AgentResult        │<───────────│                │                    │              │
- │                       │                │                    │                     │<───────────────────│            │                │                    │              │
- │                       │                │                    │ AIResponse           │                    │            │                │                    │              │
- │                       │                │                    │<────────────────────│                    │            │                │                    │              │
- │                       │                │  response text     │                     │                    │            │                │                    │              │
- │                       │                │<───────────────────│                     │                    │            │                │                    │              │
- │                       │  sendMessage   │                    │                     │                    │            │                │                    │              │
- │                       │<───────────────│                    │                     │                    │            │                │                    │              │
- │  Agent response       │                │                    │                     │                    │            │                │                    │              │
- │<──────────────────────│                │                    │                     │                    │            │                │                    │              │
+User                 TelegramBot     MessageHandler(FSM)    TelegramMessageHandlerActions    StrategyDelegating    ReActExecutor      FSM        SpringAgentLoopActions    LLM       ToolCallingManager
+ │                       │                │                         │                              │                    │            │                │                    │              │
+ │ <message>             │                │                         │                              │                    │            │                │                    │              │
+ │──────────────────────>│                │                         │                              │                    │            │                │                    │              │
+ │                       │ TelegramCommand│                         │                              │                    │            │                │                    │              │
+ │                       │───────────────>│                         │                              │                    │            │                │                    │              │
+ │                       │                │  generateResponse(ctx)  │                              │                    │            │                │                    │              │
+ │                       │                │───────────────────────> │                              │                    │            │                │                    │              │
+ │                       │                │                         │ AgentRequest                  │                    │            │                │                    │              │
+ │                       │                │                         │────────────────────────────> │                    │            │                │                    │              │
+ │                       │                │                         │                              │  execute(request)   │            │                │                    │              │
+ │                       │                │                         │                              │───────────────────> │            │                │                    │              │
+ │                       │                │                         │                              │                    │ handle(ctx) │                │                    │              │
+ │                       │                │                         │                              │                    │──────────> │                │                    │              │
+ │                       │                │                         │                              │                    │            │  think(ctx)    │                    │              │
+ │                       │                │                         │                              │                    │            │───────────────>│                    │              │
+ │                       │                │                         │                              │                    │            │                │  chatModel.call()  │              │
+ │                       │                │                         │                              │                    │            │                │───────────────────>│              │
+ │                       │                │                         │                              │                    │            │                │   tool call / text │              │
+ │                       │                │                         │                              │                    │            │                │<───────────────────│              │
+ │                       │                │                         │                              │                    │            │  [hasToolCall] │                    │              │
+ │                       │                │                         │                              │                    │            │  executeTool() │                    │              │
+ │                       │                │                         │                              │                    │            │───────────────>│                    │              │
+ │                       │                │                         │                              │                    │            │                │  executeToolCalls()│              │
+ │                       │                │                         │                              │                    │            │                │─────────────────────────────────>│
+ │                       │                │                         │                              │                    │            │                │   observation      │              │
+ │                       │                │                         │                              │                    │            │                │<─────────────────────────────────│
+ │                       │                │                         │                              │                    │            │  observe()     │                    │              │
+ │                       │                │                         │                              │                    │            │  loop → think  │                    │              │
+ │                       │                │                         │                              │                    │            │  answer()      │                    │              │
+ │                       │                │                         │                              │                    │ AgentResult │                │                    │              │
+ │                       │                │                         │                              │  AgentResult        │<───────────│                │                    │              │
+ │                       │                │                         │                              │<───────────────────│            │                │                    │              │
+ │                       │                │                         │ responseText                  │                    │            │                │                    │              │
+ │                       │                │                         │<────────────────────────────│                    │            │                │                    │              │
+ │                       │                │  ctx.setResponseText()  │                              │                    │            │                │                    │              │
+ │                       │                │<───────────────────────│                              │                    │            │                │                    │              │
+ │                       │  sendMessage   │                         │                              │                    │            │                │                    │              │
+ │                       │<───────────────│                         │                              │                    │            │                │                    │              │
+ │  Agent response       │                │                         │                              │                    │            │                │                    │              │
+ │<──────────────────────│                │                         │                              │                    │            │                │                    │              │
 ```
 
 ## Memory Architecture
@@ -179,8 +170,6 @@ StrategyDelegatingAgentExecutor (@Primary AgentExecutor)
   ├──> SimpleChainExecutor
   └──> PlanAndExecuteAgentExecutor
 
-AgentCommandHandler (StrategyDelegatingAgentExecutor, maxIterations)
-
 DefaultAgentOrchestrator (StrategyDelegatingAgentExecutor)
   └──> PersistingAgentOrchestrator (if AgentExecutionRepository available)
 
@@ -216,8 +205,8 @@ open-daimon:
 4. **SPI interfaces in common module** — `AgentExecutor`, `AgentMemory`, `AgentOrchestrator`
    have zero Spring AI dependency. Swappable implementations.
 
-5. **Channel-agnostic command handler** — `AgentCommandHandler` processes `AgentChatCommand`
-   from any channel. Telegram/REST adapters convert at boundary.
+5. **Application-level activation** — agent mode is toggled via `open-daimon.agent.enabled=true`.
+   `TelegramMessageHandlerActions` checks for `AgentExecutor` presence and delegates directly.
 
 6. **Opt-in tools** — `HttpApiTool` requires explicit `enabled: true` to prevent SSRF.
    Tool filtering by `enabledTools` per request.

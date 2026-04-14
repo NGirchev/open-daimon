@@ -21,14 +21,12 @@ MessageTelegramCommandHandler (FSM-driven)
   ├── saveResponse (to DB, update RAG metadata)
   └── sendResponse (stream/non-stream + keyboard)
 
-AgentTelegramCommandHandler (simple, no FSM)
-  ├── validate /agent prefix
-  ├── AgentCommandHandler.handle(AgentChatCommand)
-  └── sendMessage (plain text, no keyboard, no DB save)
+(AgentTelegramCommandHandler — REMOVED, was a simple handler that skipped
+ message persistence, threading, streaming, keyboard rendering, RAG metadata)
 ```
 
-**Problem**: `AgentTelegramCommandHandler` skips message persistence, threading, streaming,
-keyboard rendering, RAG metadata tracking, and error handling. It cannot replace the message handler.
+**Resolved**: The standalone `/agent` command handler has been removed.
+Agent mode now works transparently through the existing FSM message handler.
 
 ## Target Architecture
 
@@ -143,7 +141,7 @@ This is a separate effort — synchronous agent execution is sufficient for Phas
 | `messageHandlerActions` | always (when telegram enabled) | always (inject agent optionally) |
 | `messageTelegramCommandHandler` | always | always (handles both modes) |
 | `agentTelegramCommandHandler` | `agent.enabled=true` | **REMOVED** |
-| `AgentCommandHandler` | `agent.enabled=true` | `agent.enabled=true` (still needed for REST/UI) |
+| `AgentCommandHandler` | `agent.enabled=true` | **REMOVED** (agent invoked directly via FSM actions) |
 
 ## Configuration
 

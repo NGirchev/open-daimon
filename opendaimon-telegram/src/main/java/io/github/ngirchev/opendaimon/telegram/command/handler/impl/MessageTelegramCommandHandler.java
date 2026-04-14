@@ -104,6 +104,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             dispatchError(ctx, command, message);
         }
 
+        // Returns null intentionally — this handler sends responses via FSM actions
+        // and streaming callbacks, not via the parent's handleInner() return value mechanism.
         return null;
     }
 

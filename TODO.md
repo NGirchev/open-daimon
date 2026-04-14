@@ -61,9 +61,9 @@
   - `CompositeAgentMemory` — combines multiple memory sources
   - Memory integrated into `think()` — recalls relevant facts before each LLM call
 
-- [x] **Telegram Integration** — `/agent` command
-  - `AgentTelegramCommandHandler` intercepts `/agent <task>`, delegates to `AgentExecutor`
-  - Registered via `TelegramCommandHandlerConfig` with `@ConditionalOnProperty`
+- [x] **Telegram Integration** — agent mode via application property
+  - `TelegramMessageHandlerActions` delegates to `AgentExecutor` when `open-daimon.agent.enabled=true`
+  - Agent mode is transparent — no `/agent` command, all messages go through agent pipeline
 
 - [ ] **opendaimon-spring-boot-starter** — auto-configuration starter for easy integration
   - New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
