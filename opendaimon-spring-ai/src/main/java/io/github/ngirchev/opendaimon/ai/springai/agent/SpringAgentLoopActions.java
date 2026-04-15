@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
@@ -87,10 +88,15 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             }
 
             List<ToolCallback> effectiveCallbacks = resolveEffectiveTools(ctx);
-            ToolCallingChatOptions chatOptions = ToolCallingChatOptions.builder()
+            String preferredModelId = ctx.getMetadata() != null
+                    ? ctx.getMetadata().get(AICommand.PREFERRED_MODEL_ID_FIELD) : null;
+            ToolCallingChatOptions.Builder optionsBuilder = ToolCallingChatOptions.builder()
                     .toolCallbacks(effectiveCallbacks)
-                    .internalToolExecutionEnabled(false)
-                    .build();
+                    .internalToolExecutionEnabled(false);
+            if (preferredModelId != null) {
+                optionsBuilder.model(preferredModelId);
+            }
+            ToolCallingChatOptions chatOptions = optionsBuilder.build();
 
             Prompt prompt = new Prompt(List.copyOf(messages), chatOptions);
             ctx.putExtra(KEY_LAST_PROMPT, prompt);
@@ -101,12 +107,14 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             ChatResponse response = chatModel.call(prompt);
             ctx.putExtra(KEY_LAST_RESPONSE, response);
 
-            if (response.getMetadata() != null && response.getMetadata().getModel() != null) {
+            if (response.getMetadata().getModel() != null) {
                 ctx.setModelName(response.getMetadata().getModel());
             }
 
-            // Emit reasoning content if available from provider (OpenRouter/Anthropic)
+            // Emit reasoning content if available from provider (OpenRouter/Anthropic/Ollama)
             String reasoning = extractReasoning(response);
+            log.info("Agent think: reasoning extracted, length={}",
+                    reasoning != null ? reasoning.length() : 0);
             if (reasoning != null && !reasoning.isBlank()) {
                 ctx.emitEvent(AgentStreamEvent.thinking(reasoning, ctx.getCurrentIteration()));
             }
@@ -326,23 +334,35 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      *
      * @return reasoning text, or null if not available
      */
-    private String extractReasoning(ChatResponse response) {
+    static String extractReasoning(ChatResponse response) {
         try {
             if (response == null) {
                 return null;
             } else {
                 response.getResult();
             }
-            // 1. Check metadata (OpenRouter/Anthropic)
             var metadata = response.getResult().getMetadata();
-            Object reasoning = metadata.get("reasoningContent");
-            if (reasoning instanceof String text && !text.isBlank()) {
+            // 1. Check "thinking" metadata key (Spring AI Ollama 1.1+ with think=true)
+            Object thinking = metadata.get("thinking");
+            if (thinking instanceof String text && !text.isBlank()) {
+                log.info("Agent extractReasoning: found 'thinking' metadata, length={}", text.length());
                 return text;
             }
-            // 2. Check <think> tags in text (Ollama)
+            // 2. Check "reasoningContent" metadata key (OpenRouter/Anthropic)
+            Object reasoning = metadata.get("reasoningContent");
+            if (reasoning instanceof String text && !text.isBlank()) {
+                log.info("Agent extractReasoning: found 'reasoningContent' metadata, length={}", text.length());
+                return text;
+            }
+            // 3. Fallback: check <think> tags in text (older Ollama or custom models)
             var output = response.getResult().getOutput();
-            if (output.getText() != null) {
-                return extractThinkTags(output.getText());
+            if (output != null && output.getText() != null) {
+                String rawText = output.getText();
+                boolean hasThinkTags = rawText.contains("<think>");
+                if (hasThinkTags) {
+                    log.info("Agent extractReasoning: found <think> tags, textLength={}", rawText.length());
+                    return extractThinkTags(rawText);
+                }
             }
         } catch (Exception e) {
             log.debug("Could not extract reasoning from response: {}", e.getMessage());

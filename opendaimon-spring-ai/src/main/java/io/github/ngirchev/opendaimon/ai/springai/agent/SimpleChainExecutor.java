@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentResult;
@@ -14,7 +15,9 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -58,12 +61,14 @@ public class SimpleChainExecutor implements AgentExecutor {
             loadConversationHistory(request, messages);
             messages.add(new UserMessage(request.task()));
 
-            Prompt prompt = new Prompt(messages);
+            ChatOptions options = buildOptions(request);
+            Prompt prompt = new Prompt(messages, options);
 
             ChatResponse response = chatModel.call(prompt);
             response.getResult();
-            String answer = response.getResult().getOutput().getText();
-            String modelName = response.getMetadata() != null ? response.getMetadata().getModel() : null;
+            String rawText = response.getResult().getOutput().getText();
+            String answer = SpringAgentLoopActions.stripThinkTags(rawText);
+            String modelName = response.getMetadata().getModel();
 
             saveConversationHistory(request, answer);
 
@@ -87,16 +92,39 @@ public class SimpleChainExecutor implements AgentExecutor {
             try {
                 sink.tryEmitNext(AgentStreamEvent.thinking(0));
 
-                AgentResult result = execute(request);
+                List<Message> messages = new ArrayList<>();
+                messages.add(new SystemMessage(SYSTEM_PROMPT));
+                loadConversationHistory(request, messages);
+                messages.add(new UserMessage(request.task()));
 
-                if (result.modelName() != null) {
-                    sink.tryEmitNext(AgentStreamEvent.metadata(result.modelName(), 0));
+                ChatOptions options = buildOptions(request);
+                ChatResponse response = chatModel.call(new Prompt(messages, options));
+                response.getResult();
+                String rawText = response.getResult().getOutput().getText();
+                String modelName = response.getMetadata() != null
+                        ? response.getMetadata().getModel() : null;
+
+                // Extract thinking content from metadata (OpenRouter) or <think> tags (Ollama)
+                String reasoning = SpringAgentLoopActions.extractReasoning(response);
+                log.info("SimpleChain stream: model={}, rawTextLength={}, reasoningLength={}, rawFirst100='{}'",
+                        modelName,
+                        rawText != null ? rawText.length() : 0,
+                        reasoning != null ? reasoning.length() : 0,
+                        rawText != null ? rawText.substring(0, Math.min(100, rawText.length())) : "null");
+                if (reasoning != null && !reasoning.isBlank()) {
+                    sink.tryEmitNext(AgentStreamEvent.thinking(reasoning, 0));
                 }
-                if (result.isSuccess() && result.finalAnswer() != null) {
-                    sink.tryEmitNext(AgentStreamEvent.finalAnswer(result.finalAnswer(), 0));
+
+                String answer = SpringAgentLoopActions.stripThinkTags(rawText);
+                saveConversationHistory(request, answer);
+
+                if (modelName != null) {
+                    sink.tryEmitNext(AgentStreamEvent.metadata(modelName, 0));
+                }
+                if (answer != null && !answer.isBlank()) {
+                    sink.tryEmitNext(AgentStreamEvent.finalAnswer(answer, 0));
                 } else {
-                    sink.tryEmitNext(AgentStreamEvent.error(
-                            "SimpleChain failed", 0));
+                    sink.tryEmitNext(AgentStreamEvent.error("SimpleChain: empty response", 0));
                 }
                 sink.tryEmitComplete();
             } catch (Exception e) {
@@ -108,6 +136,15 @@ public class SimpleChainExecutor implements AgentExecutor {
         }).subscribeOn(Schedulers.boundedElastic()).subscribe();
 
         return eventFlux;
+    }
+
+    private ChatOptions buildOptions(AgentRequest request) {
+        String preferredModelId = request.metadata() != null
+                ? request.metadata().get(AICommand.PREFERRED_MODEL_ID_FIELD) : null;
+        if (preferredModelId == null) {
+            return null;
+        }
+        return ToolCallingChatOptions.builder().model(preferredModelId).build();
     }
 
     private void loadConversationHistory(AgentRequest request, List<Message> messages) {

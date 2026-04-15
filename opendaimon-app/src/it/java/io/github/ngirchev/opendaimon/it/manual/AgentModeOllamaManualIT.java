@@ -3,6 +3,9 @@ package io.github.ngirchev.opendaimon.it.manual;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
+import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
+import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
+import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
@@ -56,6 +59,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,8 +69,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+
+import org.mockito.ArgumentCaptor;
 
 /**
  * Manual E2E integration test for agent mode with real Ollama.
@@ -462,6 +471,211 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
                 .as("Agent should produce a response even when the preferred model is unavailable " +
                     "(registry should fall back to auto-selection)")
                 .isNotBlank();
+    }
+
+    // --- Scenario A5: Thinking content extracted from Ollama <think> tags ---
+
+    @Test
+    @Timeout(5 * 60)
+    @DisplayName("A5: executeStream emits THINKING event with reasoning content from Ollama")
+    void admin_agentStream_emitsThinkingContent() {
+        AgentRequest request = new AgentRequest(
+                "Сколько будет 17 * 23? Подумай пошагово.",
+                "test-thinking-" + System.currentTimeMillis(),
+                Map.of(),
+                5,
+                Set.of(),
+                AgentStrategy.SIMPLE
+        );
+
+        List<AgentStreamEvent> events = agentExecutor.executeStream(request)
+                .collectList()
+                .block(Duration.ofMinutes(3));
+
+        assertThat(events).isNotNull().isNotEmpty();
+
+        log.info("=== A5: All stream events ===");
+        for (AgentStreamEvent event : events) {
+            log.info("  type={}, iteration={}, contentLength={}, contentPreview='{}'",
+                    event.type(), event.iteration(),
+                    event.content() != null ? event.content().length() : 0,
+                    event.content() != null
+                            ? event.content().substring(0, Math.min(200, event.content().length()))
+                            : "null");
+        }
+
+        // Check THINKING events
+        List<AgentStreamEvent> thinkingEvents = events.stream()
+                .filter(e -> e.type() == AgentStreamEvent.EventType.THINKING)
+                .toList();
+        log.info("=== A5: THINKING events: {} ===", thinkingEvents.size());
+        for (AgentStreamEvent e : thinkingEvents) {
+            log.info("  THINKING content: '{}'",
+                    e.content() != null ? e.content().substring(0, Math.min(300, e.content().length())) : "null");
+        }
+
+        // At least one THINKING event should exist (status event)
+        assertThat(thinkingEvents).as("Should have at least one THINKING event").isNotEmpty();
+
+        // Check FINAL_ANSWER
+        List<AgentStreamEvent> finalAnswers = events.stream()
+                .filter(e -> e.type() == AgentStreamEvent.EventType.FINAL_ANSWER)
+                .toList();
+        assertThat(finalAnswers).as("Should have FINAL_ANSWER event").hasSize(1);
+        assertThat(finalAnswers.getFirst().content())
+                .as("Final answer should not contain <think> tags")
+                .doesNotContain("<think>");
+
+        // If model supports thinking, second THINKING event should have reasoning content
+        List<AgentStreamEvent> thinkingWithContent = thinkingEvents.stream()
+                .filter(e -> e.content() != null && !e.content().isBlank())
+                .toList();
+        if (thinkingWithContent.isEmpty()) {
+            log.warn("=== A5: No THINKING events with reasoning content — model may not support extended thinking ===");
+        } else {
+            log.info("=== A5: Found {} THINKING events with reasoning content ===", thinkingWithContent.size());
+            assertThat(thinkingWithContent.getFirst().content())
+                    .as("Reasoning content should not contain <think> tags")
+                    .doesNotContain("<think>");
+        }
+    }
+
+    // --- Scenario A6: SIMPLE strategy — thinking content reaches Telegram ---
+
+    @Test
+    @Timeout(5 * 60)
+    @DisplayName("A6: SIMPLE strategy — thinking content is sent to Telegram as HTML message")
+    void regular_simpleStrategy_thinkingContentSentToTelegram() throws TelegramApiException {
+        // Capture all messages sent via streamingParagraphSender
+        // (which calls sendMessage(Long, String, Integer))
+        ArgumentCaptor<String> textCaptor = ArgumentCaptor.forClass(String.class);
+
+        TelegramCommand command = createMessageCommand(
+                REGULAR_CHAT_ID,
+                20,
+                "Сколько будет 17 * 23? Подумай пошагово."
+        );
+
+        messageHandler.handle(command);
+
+        // Verify sendMessage was called at least once (4-arg overload: chatId, text, replyToMessageId, replyMarkup)
+        verify(telegramBot, atLeastOnce())
+                .sendMessage(eq(REGULAR_CHAT_ID), textCaptor.capture(), any(), any());
+
+        List<String> sentMessages = textCaptor.getAllValues();
+        log.info("=== A6: Telegram messages sent ({}) ===", sentMessages.size());
+        for (int i = 0; i < sentMessages.size(); i++) {
+            log.info("  [{}] length={}, preview='{}'", i, sentMessages.get(i).length(),
+                    sentMessages.get(i).substring(0, Math.min(200, sentMessages.get(i).length())));
+        }
+
+        // At least one message should be a thinking event with reasoning content (not just "Thinking...")
+        List<String> thinkingMessages = sentMessages.stream()
+                .filter(m -> m.contains("🤔") || m.contains("\uD83E\uDD14"))
+                .toList();
+        log.info("=== A6: Thinking messages: {} ===", thinkingMessages.size());
+        for (String m : thinkingMessages) {
+            log.info("  THINKING: '{}'", m.substring(0, Math.min(300, m.length())));
+        }
+
+        assertThat(thinkingMessages)
+                .as("At least one thinking message should be sent to Telegram")
+                .isNotEmpty();
+
+        // At least one thinking message should contain real reasoning (not just "Thinking...")
+        List<String> thinkingWithContent = thinkingMessages.stream()
+                .filter(m -> m.length() > 30) // "🤔 Thinking..." is ~20 chars
+                .toList();
+        if (thinkingWithContent.isEmpty()) {
+            log.warn("=== A6: All thinking messages are placeholders — model may not support extended thinking ===");
+        } else {
+            log.info("=== A6: Found {} thinking messages with real reasoning content ===", thinkingWithContent.size());
+            assertThat(thinkingWithContent.getFirst())
+                    .as("Thinking message should contain HTML-formatted reasoning")
+                    .contains("<i>");
+        }
+
+        // Verify final answer was also sent
+        List<String> nonThinkingMessages = sentMessages.stream()
+                .filter(m -> !m.contains("🤔") && !m.contains("\uD83E\uDD14"))
+                .toList();
+        assertThat(nonThinkingMessages)
+                .as("Final answer should also be sent to Telegram")
+                .isNotEmpty();
+    }
+
+    // --- Scenario A7: REACT strategy — thinking + tool_call events reach Telegram ---
+
+    @Test
+    @Timeout(5 * 60)
+    @DisplayName("A7: REACT strategy — thinking and tool_call events are sent to Telegram")
+    void admin_reactStrategy_thinkingAndToolCallSentToTelegram() throws TelegramApiException {
+        ArgumentCaptor<String> textCaptor = ArgumentCaptor.forClass(String.class);
+
+        TelegramCommand command = createMessageCommand(
+                ADMIN_CHAT_ID,
+                21,
+                "Какая последняя версия Spring Boot? Поищи в интернете и подумай."
+        );
+
+        messageHandler.handle(command);
+
+        verify(telegramBot, atLeastOnce())
+                .sendMessage(eq(ADMIN_CHAT_ID), textCaptor.capture(), any(), any());
+
+        List<String> sentMessages = textCaptor.getAllValues();
+        log.info("=== A7: Telegram messages sent ({}) ===", sentMessages.size());
+        for (int i = 0; i < sentMessages.size(); i++) {
+            log.info("  [{}] length={}, preview='{}'", i, sentMessages.get(i).length(),
+                    sentMessages.get(i).substring(0, Math.min(200, sentMessages.get(i).length())));
+        }
+
+        // Check for thinking messages
+        List<String> thinkingMessages = sentMessages.stream()
+                .filter(m -> m.contains("🤔") || m.contains("\uD83E\uDD14"))
+                .toList();
+        log.info("=== A7: Thinking messages: {} ===", thinkingMessages.size());
+
+        // Check for tool call messages
+        List<String> toolCallMessages = sentMessages.stream()
+                .filter(m -> m.contains("🔧") || m.contains("\uD83D\uDD27"))
+                .toList();
+        log.info("=== A7: Tool call messages: {} ===", toolCallMessages.size());
+
+        // Check for observation messages
+        List<String> observationMessages = sentMessages.stream()
+                .filter(m -> m.contains("📋") || m.contains("\uD83D\uDCCB"))
+                .toList();
+        log.info("=== A7: Observation messages: {} ===", observationMessages.size());
+
+        assertThat(sentMessages)
+                .as("At least one message should be sent to Telegram (intermediate or final)")
+                .isNotEmpty();
+
+        // For REACT strategy, at least thinking status should be sent
+        assertThat(thinkingMessages)
+                .as("REACT strategy should emit at least one THINKING event to Telegram")
+                .isNotEmpty();
+
+        // If tools were called, verify tool call messages appeared
+        if (WEB_SEARCH_CALLED.get()) {
+            assertThat(toolCallMessages)
+                    .as("When web_search is called, tool call message should be sent to Telegram")
+                    .isNotEmpty();
+            assertThat(observationMessages)
+                    .as("When web_search is called, observation message should be sent to Telegram")
+                    .isNotEmpty();
+        }
+
+        // Verify final answer was sent (non-event messages)
+        List<String> finalAnswerMessages = sentMessages.stream()
+                .filter(m -> !m.contains("🤔") && !m.contains("\uD83E\uDD14")
+                        && !m.contains("🔧") && !m.contains("\uD83D\uDD27")
+                        && !m.contains("📋") && !m.contains("\uD83D\uDCCB"))
+                .toList();
+        assertThat(finalAnswerMessages)
+                .as("Final answer should be sent to Telegram")
+                .isNotEmpty();
     }
 
     // --- Helpers ---

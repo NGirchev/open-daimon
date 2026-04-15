@@ -53,6 +53,9 @@ open-daimon:
     spring-ai:
       enabled: true
       mock: false
+      timeouts:
+        response-timeout-seconds: 600
+        stream-timeout-seconds: 600
       openrouter-auto-rotation:
         models:
           enabled: false
@@ -72,8 +75,11 @@ open-daimon:
               - TOOL_CALLING
               - WEB
               - SUMMARIZATION
+              - THINKING
             provider-type: OLLAMA
             priority: 1
+            think: true
+            max-reasoning-tokens: 4000
           - name: ${manual.ollama.vision-model:gemma3:4b}
             capabilities:
               - CHAT
