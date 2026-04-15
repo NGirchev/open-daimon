@@ -14,6 +14,7 @@
 - When the user provides logs, errors, or output and says they are current — trust them. Do not re-explore or second-guess the recency of provided information.
 - Analyze the root cause BEFORE exploring the codebase. Do not explore aimlessly.
 - Propose a fix targeting ONLY the specific file/component mentioned by the user.
+- **Escalation rule:** If the same issue persists after 2–3 fix attempts, STOP and ask the user for guidance. Do not keep guessing — the user likely has context you are missing.
 
 ## Java / Testing
 

@@ -51,6 +51,10 @@ import static org.mockito.Mockito.reset;
 /**
  * Manual E2E integration test for OpenRouter auto + JPEG image vision capability.
  *
+ * <p><b>TODO:</b> Switch from {@code openrouter/auto} to an explicit vision model
+ * (e.g. {@code z-ai/glm-4.5v} which has VISION capability, or {@code google/gemini-2.5-flash-preview}).
+ * {@code openrouter/auto} routes to unpredictable models, making test results non-reproducible.
+ *
  * <p>Same scenario as {@link ObjectsImageVisionOllamaManualIT} but uses {@code openrouter/auto} model
  * via OpenRouter API instead of a local Ollama chat model. Embeddings are handled by
  * {@code intfloat/multilingual-e5-large} via OpenRouter — no local Ollama required.
