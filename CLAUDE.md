@@ -1,6 +1,6 @@
 # Claude Code Rules for open-daimon
 
-For general project rules, conventions, and architecture guidelines see [AGENTS.md](AGENTS.md).
+@AGENTS.md
 
 ## Critical Rules
 
@@ -10,7 +10,7 @@ For general project rules, conventions, and architecture guidelines see [AGENTS.
 
 ## Debugging
 
-- Before analyzing logs or errors, ALWAYS read relevant module docs (`*_MODULE.md`, `docs/usecases/`) first. Understand the expected behavior from documentation before looking at code.
+- Before analyzing logs or errors, review module and use case documentation loaded in context. If not loaded, read the corresponding `*_MODULE.md` from the module root. Understand the expected behavior from documentation before looking at code.
 - When the user provides logs, errors, or output and says they are current — trust them. Do not re-explore or second-guess the recency of provided information.
 - Analyze the root cause BEFORE exploring the codebase. Do not explore aimlessly.
 - Propose a fix targeting ONLY the specific file/component mentioned by the user.
@@ -27,9 +27,5 @@ For general project rules, conventions, and architecture guidelines see [AGENTS.
 
 - When changing logic related to a use case in `docs/usecases/`, run fixture tests: `./mvnw clean verify -pl opendaimon-app -am -Pfixture`
 - Fixture tests are tagged with `@Tag("fixture")` and located in `opendaimon-app/src/it/java/.../it/fixture/`
-- Use case → fixture test mapping:
-  - `forwarded-message.md` → `ForwardedMessageFixtureIT`
-  - `auto-mode-model-selection.md` → `AutoModeModelSelectionFixtureIT`
-  - `text-pdf-rag.md` → `TextPdfRagFixtureIT`
-  - `image-pdf-vision-cache.md` → `ImagePdfVisionCacheFixtureIT`
+- Full use case -> test mapping and run instructions load automatically when working on fixture files.
 - If a fixture test fails after your change, investigate and fix before proceeding.

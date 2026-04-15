@@ -43,6 +43,7 @@
   - [x] Ollama thinking: parse `<think>...</think>` tags from getText() and show as reasoning content
   - [ ] OpenRouter reasoning: verify `reasoningContent` in Generation metadata for models with extended thinking
 - [ ] Show thinking in web
+- [ ] Provider Registry — replace ProviderType enum with String + Strategy pattern ([plan](docs/provider-registry-plan.md))
 - [ ] Different models in the flow
 - [ ] Add balance loader
 - [ ] WebTools need to parse result
