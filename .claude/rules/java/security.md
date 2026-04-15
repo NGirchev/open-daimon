@@ -4,14 +4,25 @@ paths:
 ---
 # Java Security
 
-> This file extends [common/security.md](../common/security.md) with Java-specific content.
+## Mandatory Security Checks
+
+Before ANY commit:
+- [ ] No hardcoded secrets (API keys, passwords, tokens)
+- [ ] All user inputs validated
+- [ ] SQL injection prevention (parameterized queries)
+- [ ] XSS prevention (sanitized HTML)
+- [ ] CSRF protection enabled
+- [ ] Authentication/authorization verified
+- [ ] Rate limiting on all endpoints
+- [ ] Error messages don't leak sensitive data
 
 ## Secrets Management
 
 - Never hardcode API keys, tokens, or credentials in source code
 - Use environment variables: `System.getenv("API_KEY")`
-- Use a secret manager (Vault, AWS Secrets Manager) for production secrets
-- Keep local config files with secrets in `.gitignore`
+- Use a secret manager (Vault, AWS Secrets Manager) for production
+- Validate that required secrets are present at startup
+- Rotate any secrets that may have been exposed
 
 ```java
 // BAD
@@ -24,17 +35,13 @@ Objects.requireNonNull(apiKey, "PAYMENT_API_KEY must be set");
 
 ## SQL Injection Prevention
 
-- Always use parameterized queries — never concatenate user input into SQL
-- Use `PreparedStatement` or your framework's parameterized query API
-- Validate and sanitize any input used in native queries
+Always use parameterized queries — never concatenate user input into SQL:
 
 ```java
-// BAD — SQL injection via string concatenation
-Statement stmt = conn.createStatement();
+// BAD — SQL injection
 String sql = "SELECT * FROM orders WHERE name = '" + name + "'";
-stmt.executeQuery(sql);
 
-// GOOD — PreparedStatement with parameterized query
+// GOOD — PreparedStatement
 PreparedStatement ps = conn.prepareStatement("SELECT * FROM orders WHERE name = ?");
 ps.setString(1, name);
 
@@ -45,22 +52,9 @@ jdbcTemplate.query("SELECT * FROM orders WHERE name = ?", mapper, name);
 ## Input Validation
 
 - Validate all user input at system boundaries before processing
-- Use Bean Validation (`@NotNull`, `@NotBlank`, `@Size`) on DTOs when using a validation framework
+- Use Bean Validation (`@NotNull`, `@NotBlank`, `@Size`) on DTOs
 - Sanitize file paths and user-provided strings before use
-- Reject input that fails validation with clear error messages
-
-```java
-// Validate manually in plain Java
-public Order createOrder(String customerName, BigDecimal amount) {
-    if (customerName == null || customerName.isBlank()) {
-        throw new IllegalArgumentException("Customer name is required");
-    }
-    if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-        throw new IllegalArgumentException("Amount must be positive");
-    }
-    return new Order(customerName, amount);
-}
-```
+- Fail fast with clear error messages
 
 ## Authentication and Authorization
 
@@ -69,32 +63,24 @@ public Order createOrder(String customerName, BigDecimal amount) {
 - Enforce authorization checks at service boundaries
 - Clear sensitive data from logs — never log passwords, tokens, or PII
 
-## Dependency Security
-
-- Run `mvn dependency:tree` or `./gradlew dependencies` to audit transitive dependencies
-- Use OWASP Dependency-Check or Snyk to scan for known CVEs
-- Keep dependencies updated — set up Dependabot or Renovate
-
 ## Error Messages
 
 - Never expose stack traces, internal paths, or SQL errors in API responses
-- Map exceptions to safe, generic client messages at handler boundaries
 - Log detailed errors server-side; return generic messages to clients
 
-```java
-// Log the detail, return a generic message
-try {
-    return orderService.findById(id);
-} catch (OrderNotFoundException ex) {
-    log.warn("Order not found: id={}", id);
-    return ApiResponse.error("Resource not found");  // generic, no internals
-} catch (Exception ex) {
-    log.error("Unexpected error processing order id={}", id, ex);
-    return ApiResponse.error("Internal server error");  // never expose ex.getMessage()
-}
-```
+## Dependency Security
 
-## References
+- Use OWASP Dependency-Check or Snyk to scan for known CVEs
+- Keep dependencies updated — set up Dependabot or Renovate
 
-See skill: `springboot-security` for Spring Security authentication and authorization patterns.
+## Security Response Protocol
+
+If security issue found:
+1. STOP immediately
+2. Use **security-reviewer** agent
+3. Fix CRITICAL issues before continuing
+4. Rotate any exposed secrets
+5. Review entire codebase for similar issues
+
+See skill: `springboot-security` for Spring Security patterns.
 See skill: `security-review` for general security checklists.

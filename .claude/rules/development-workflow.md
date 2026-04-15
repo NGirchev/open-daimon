@@ -1,44 +1,52 @@
 # Development Workflow
 
-> This file extends [common/git-workflow.md](./git-workflow.md) with the full feature development process that happens before git operations.
+## Available Agents
 
-The Feature Implementation Workflow describes the development pipeline: research, planning, TDD, code review, and then committing to git.
+Located in `~/.claude/agents/`:
+
+| Agent | Purpose | When to Use |
+|-------|---------|-------------|
+| planner | Implementation planning | Complex features, refactoring |
+| architect | System design | Architectural decisions |
+| tdd-guide | Test-driven development | New features, bug fixes |
+| code-reviewer | Code review | After writing code |
+| security-reviewer | Security analysis | Before commits |
+| build-error-resolver | Fix build errors | When build fails |
+| java-reviewer | Java/Spring Boot review | Java projects |
+
+**Immediate agent usage** (no user prompt needed):
+1. Complex feature requests → **planner**
+2. Code just written/modified → **code-reviewer**
+3. Bug fix or new feature → **tdd-guide**
+4. Architectural decision → **architect**
+
+ALWAYS use parallel execution for independent agent operations.
 
 ## Feature Implementation Workflow
 
 0. **Research & Reuse** _(mandatory before any new implementation)_
-   - **GitHub code search first:** Run `gh search repos` and `gh search code` to find existing implementations, templates, and patterns before writing anything new.
-   - **Library docs second:** Use Context7 or primary vendor docs to confirm API behavior, package usage, and version-specific details before implementing.
-   - **Exa only when the first two are insufficient:** Use Exa for broader web research or discovery after GitHub search and primary docs.
-   - **Check package registries:** Search npm, PyPI, crates.io, and other registries before writing utility code. Prefer battle-tested libraries over hand-rolled solutions.
-   - **Search for adaptable implementations:** Look for open-source projects that solve 80%+ of the problem and can be forked, ported, or wrapped.
-   - Prefer adopting or porting a proven approach over writing net-new code when it meets the requirement.
+   - **GitHub code search first:** `gh search repos` and `gh search code` for existing implementations
+   - **Library docs second:** Use Context7 or vendor docs to confirm API behavior
+   - **Check package registries** before writing utility code
+   - Prefer adopting a proven approach over writing net-new code
 
 1. **Plan First**
    - Use **planner** agent to create implementation plan
-   - Generate planning docs before coding: PRD, architecture, system_design, tech_doc, task_list
-   - Identify dependencies and risks
-   - Break down into phases
+   - Identify dependencies and risks, break down into phases
 
 2. **TDD Approach**
    - Use **tdd-guide** agent
-   - Write tests first (RED)
-   - Implement to pass tests (GREEN)
-   - Refactor (IMPROVE)
+   - Write tests first (RED) → Implement (GREEN) → Refactor (IMPROVE)
    - Verify 80%+ coverage
 
 3. **Code Review**
    - Use **code-reviewer** agent immediately after writing code
    - Address CRITICAL and HIGH issues
-   - Fix MEDIUM issues when possible
 
 4. **Commit & Push**
-   - Detailed commit messages
    - Follow conventional commits format
-   - See [git-workflow.md](./git-workflow.md) for commit message format and PR process
+   - See [git-workflow.md](git-workflow.md) for commit message format and PR process
 
 5. **Pre-Review Checks**
-   - Verify all automated checks (CI/CD) are passing
-   - Resolve any merge conflicts
-   - Ensure branch is up to date with target branch
-   - Only request review after these checks pass
+   - All CI/CD checks passing, merge conflicts resolved
+   - Branch up to date with target branch

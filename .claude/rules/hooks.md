@@ -6,6 +6,13 @@
 - **PostToolUse**: After tool execution (auto-format, checks)
 - **Stop**: When session ends (final verification)
 
+## Java PostToolUse Hooks
+
+Configure in `~/.claude/settings.json`:
+- **google-java-format**: Auto-format `.java` files after edit
+- **checkstyle**: Run style checks after editing Java files
+- **./mvnw compile**: Verify compilation after changes
+
 ## Auto-Accept Permissions
 
 Use with caution:
@@ -21,10 +28,3 @@ Use TodoWrite tool to:
 - Verify understanding of instructions
 - Enable real-time steering
 - Show granular implementation steps
-
-Todo list reveals:
-- Out of order steps
-- Missing items
-- Extra unnecessary items
-- Wrong granularity
-- Misinterpreted requirements

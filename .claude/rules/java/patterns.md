@@ -4,7 +4,13 @@ paths:
 ---
 # Java Patterns
 
-> This file extends [common/patterns.md](../common/patterns.md) with Java-specific content.
+## Skeleton Projects
+
+When implementing new functionality:
+1. Search for battle-tested skeleton projects
+2. Use parallel agents to evaluate options (security, extensibility, relevance)
+3. Clone best match as foundation
+4. Iterate within proven structure
 
 ## Repository Pattern
 
@@ -57,12 +63,6 @@ public class NotificationService {
         this.emailSender = emailSender;
     }
 }
-
-// BAD — field injection (untestable without reflection, requires framework magic)
-public class NotificationService {
-    @Inject // or @Autowired
-    private EmailSender emailSender;
-}
 ```
 
 ## DTO Mapping
@@ -86,25 +86,16 @@ public class SearchCriteria {
     private final String query;
     private final int page;
     private final int size;
-    private final String sortBy;
 
-    private SearchCriteria(Builder builder) {
-        this.query = builder.query;
-        this.page = builder.page;
-        this.size = builder.size;
-        this.sortBy = builder.sortBy;
-    }
+    private SearchCriteria(Builder builder) { ... }
 
     public static class Builder {
         private String query = "";
         private int page = 0;
         private int size = 20;
-        private String sortBy = "id";
 
-        public Builder query(String query) { this.query = query; return this; }
-        public Builder page(int page) { this.page = page; return this; }
-        public Builder size(int size) { this.size = size; return this; }
-        public Builder sortBy(String sortBy) { this.sortBy = sortBy; return this; }
+        public Builder query(String q) { this.query = q; return this; }
+        public Builder page(int p) { this.page = p; return this; }
         public SearchCriteria build() { return new SearchCriteria(this); }
     }
 }
@@ -117,17 +108,9 @@ public sealed interface PaymentResult permits PaymentSuccess, PaymentFailure {
     record PaymentSuccess(String transactionId, BigDecimal amount) implements PaymentResult {}
     record PaymentFailure(String errorCode, String message) implements PaymentResult {}
 }
-
-// Exhaustive handling (Java 21+)
-String message = switch (result) {
-    case PaymentSuccess s -> "Paid: " + s.transactionId();
-    case PaymentFailure f -> "Failed: " + f.errorCode();
-};
 ```
 
 ## API Response Envelope
-
-Consistent API responses:
 
 ```java
 public record ApiResponse<T>(boolean success, T data, String error) {
@@ -139,8 +122,6 @@ public record ApiResponse<T>(boolean success, T data, String error) {
     }
 }
 ```
-
-## References
 
 See skill: `springboot-patterns` for Spring Boot architecture patterns.
 See skill: `jpa-patterns` for entity design and query optimization.

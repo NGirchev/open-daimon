@@ -4,7 +4,17 @@ paths:
 ---
 # Java Testing
 
-> This file extends [common/testing.md](../common/testing.md) with Java-specific content.
+## Test-Driven Development
+
+MANDATORY workflow:
+1. Write test first (RED)
+2. Run test — it should FAIL
+3. Write minimal implementation (GREEN)
+4. Run test — it should PASS
+5. Refactor (IMPROVE)
+6. Verify coverage (80%+)
+
+Use **tdd-guide** agent PROACTIVELY for new features, enforces write-tests-first.
 
 ## Test Framework
 
@@ -25,7 +35,7 @@ src/test/java/com/example/app/
 
 Mirror the `src/main/java` package structure in `src/test/java`.
 
-## Unit Test Pattern
+## Unit Test Pattern (AAA)
 
 ```java
 @ExtendWith(MockitoExtension.class)
@@ -42,25 +52,17 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("findById returns order when exists")
-    void findById_existingOrder_returnsOrder() {
+    void shouldReturnOrderWhenExists() {
+        // Arrange
         var order = new Order(1L, "Alice", BigDecimal.TEN);
         when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
 
+        // Act
         var result = orderService.findById(1L);
 
+        // Assert
         assertThat(result.customerName()).isEqualTo("Alice");
         verify(orderRepository).findById(1L);
-    }
-
-    @Test
-    @DisplayName("findById throws when order not found")
-    void findById_missingOrder_throws() {
-        when(orderRepository.findById(99L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> orderService.findById(99L))
-            .isInstanceOf(OrderNotFoundException.class)
-            .hasMessageContaining("99");
     }
 }
 ```
@@ -74,50 +76,24 @@ class OrderServiceTest {
     "50.00, 0, 50.00",
     "200.00, 25, 150.00"
 })
-@DisplayName("discount applied correctly")
-void applyDiscount(BigDecimal price, int pct, BigDecimal expected) {
+void shouldApplyDiscountCorrectly(BigDecimal price, int pct, BigDecimal expected) {
     assertThat(PricingUtils.discount(price, pct)).isEqualByComparingTo(expected);
 }
 ```
 
 ## Integration Tests
 
-Use Testcontainers for real database integration:
-
-```java
-@Testcontainers
-class OrderRepositoryIT {
-
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
-
-    private OrderRepository repository;
-
-    @BeforeEach
-    void setUp() {
-        var dataSource = new PGSimpleDataSource();
-        dataSource.setUrl(postgres.getJdbcUrl());
-        dataSource.setUser(postgres.getUsername());
-        dataSource.setPassword(postgres.getPassword());
-        repository = new JdbcOrderRepository(dataSource);
-    }
-
-    @Test
-    void save_and_findById() {
-        var saved = repository.save(new Order(null, "Bob", BigDecimal.ONE));
-        var found = repository.findById(saved.getId());
-        assertThat(found).isPresent();
-    }
-}
-```
-
+Use Testcontainers for real database integration.
 For Spring Boot integration tests, see skill: `springboot-tdd`.
 
 ## Test Naming
 
-Use descriptive names with `@DisplayName`:
-- `methodName_scenario_expectedBehavior()` for method names
-- `@DisplayName("human-readable description")` for reports
+Use descriptive names with `should...When...` pattern:
+```java
+void shouldReturnEmptyListWhenNoMarketsMatchQuery() {}
+void shouldThrowExceptionWhenApiKeyIsMissing() {}
+void shouldFallBackToSubstringSearchWhenRedisIsUnavailable() {}
+```
 
 ## Coverage
 
@@ -125,7 +101,10 @@ Use descriptive names with `@DisplayName`:
 - Use JaCoCo for coverage reporting
 - Focus on service and domain logic — skip trivial getters/config classes
 
-## References
+## Troubleshooting Test Failures
 
-See skill: `springboot-tdd` for Spring Boot TDD patterns with MockMvc and Testcontainers.
-See skill: `java-coding-standards` for testing expectations.
+1. Check test isolation
+2. Verify mocks are correct
+3. Fix implementation, not tests (unless tests are wrong)
+
+See skill: `springboot-tdd` for Spring Boot TDD patterns.
