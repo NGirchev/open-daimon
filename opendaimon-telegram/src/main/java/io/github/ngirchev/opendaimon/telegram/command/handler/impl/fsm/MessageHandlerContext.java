@@ -20,6 +20,8 @@ import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedExcepti
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -50,6 +52,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
      * text to user in real-time during the generateResponse action.
      */
     private final Consumer<String> streamingParagraphSender;
+    private Integer nextReplyToMessageId;
 
     // --- Intermediate results ---
     private TelegramUser telegramUser;
@@ -71,6 +74,8 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private String responseError;
     private boolean alreadySentInStream;
     private String responseModel;
+    private Integer agentProgressMessageId;
+    private final List<String> agentProgressChunks = new ArrayList<>();
 
     // --- Error handling ---
     private Exception exception;
@@ -81,6 +86,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.command = command;
         this.message = message;
         this.streamingParagraphSender = streamingParagraphSender;
+        this.nextReplyToMessageId = message != null ? message.getMessageId() : null;
         this.state = MessageHandlerState.RECEIVED;
     }
 
@@ -119,6 +125,16 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
 
     public Consumer<String> getStreamingParagraphSender() {
         return streamingParagraphSender;
+    }
+
+    public Integer consumeNextReplyToMessageId() {
+        Integer value = nextReplyToMessageId;
+        nextReplyToMessageId = null;
+        return value;
+    }
+
+    public void clearNextReplyToMessageId() {
+        nextReplyToMessageId = null;
     }
 
     // --- Intermediate accessors ---
@@ -259,6 +275,36 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
 
     public void setResponseModel(String responseModel) {
         this.responseModel = responseModel;
+    }
+
+    public Integer getAgentProgressMessageId() {
+        return agentProgressMessageId;
+    }
+
+    public void setAgentProgressMessageId(Integer agentProgressMessageId) {
+        this.agentProgressMessageId = agentProgressMessageId;
+    }
+
+    /**
+     * Appends a new HTML chunk to the progress message body and returns
+     * the complete HTML that should be sent via editMessageText.
+     * If the resulting text exceeds maxLength, oldest chunks are dropped.
+     */
+    public String appendAgentProgressChunk(String htmlChunk, int maxLength) {
+        if (htmlChunk == null || htmlChunk.isBlank()) {
+            return buildProgressHtml();
+        }
+        agentProgressChunks.add(htmlChunk);
+        String merged = buildProgressHtml();
+        while (merged.length() > maxLength && agentProgressChunks.size() > 1) {
+            agentProgressChunks.remove(0);
+            merged = buildProgressHtml();
+        }
+        return merged;
+    }
+
+    private String buildProgressHtml() {
+        return String.join("\n", agentProgressChunks);
     }
 
     // --- Error handling ---

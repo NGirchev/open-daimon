@@ -2,8 +2,6 @@ package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
-import io.github.ngirchev.opendaimon.common.agent.AgentResult;
-import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -22,22 +20,29 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import reactor.core.publisher.Flux;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -234,53 +239,234 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(ctx.getResponseText()).hasValue("Reply");
     }
 
-    @Test
-    @DisplayName("generateResponse sends intermediate events to Telegram via streamingParagraphSender")
-    void generateResponse_withToolCalls_sendsIntermediateEvents() {
-        List<String> sentMessages = new ArrayList<>();
-        MessageHandlerContext ctx = createContextWithMetadata("Search for Bitcoin price",
-                Set.of(ModelCapabilities.WEB), sentMessages::add);
+    // ── Edit-in-place agent status message tests ──────────────────────
 
-        Flux<AgentStreamEvent> stream = Flux.just(
-                AgentStreamEvent.thinking(0),
-                AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
-                AgentStreamEvent.observation("Current price: $50,000", 0),
-                AgentStreamEvent.metadata("gpt-4o", 1),
-                AgentStreamEvent.finalAnswer("Bitcoin is currently $50,000.", 1));
-        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+    @Nested
+    @DisplayName("Agent stream edit-in-place")
+    class AgentStreamEditInPlace {
 
-        actions.generateResponse(ctx);
+        private static final Long CHAT_ID = 12345L;
+        private static final int USER_MSG_ID = 100;
+        private static final int STATUS_MSG_ID = 555;
 
-        // 3 intermediate events + 1 final answer sent via streaming sender
-        assertThat(sentMessages).hasSize(4);
-        assertThat(sentMessages.get(0)).contains("Thinking");
-        assertThat(sentMessages.get(1)).contains("web_search");
-        assertThat(sentMessages.get(2)).contains("$50,000");
-        assertThat(sentMessages.get(3)).contains("Bitcoin is currently $50,000.");
-        assertThat(ctx.getResponseText()).hasValue("Bitcoin is currently $50,000.");
-        assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
-        assertThat(ctx.isAlreadySentInStream()).isTrue();
+        @Test
+        @DisplayName("should send first agent event as new message with link preview disabled")
+        void shouldSendFirstAgentEventAsNewMessage() {
+            MessageHandlerContext ctx = createContextWithMessage("Search web",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("Result", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true));
+            assertThat(ctx.isAlreadySentInStream()).isTrue();
+            assertThat(ctx.getAgentProgressMessageId()).isEqualTo(STATUS_MSG_ID);
+        }
+
+        @Test
+        @DisplayName("should edit status message on subsequent events with link preview disabled")
+        void shouldEditStatusMessageOnSubsequentEvents() {
+            MessageHandlerContext ctx = createContextWithMessage("Search Bitcoin",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
+                    AgentStreamEvent.observation("Current price: $50,000", 0),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("Bitcoin is $50,000.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true));
+            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), anyString(), eq(true));
+        }
+
+        @Test
+        @DisplayName("should accumulate all events in one edited message")
+        void shouldAccumulateAllEventsInOneMessage() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.toolCall("web_search", "query", 0),
+                    AgentStreamEvent.observation("Result found", 0),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("Answer", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> htmlCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), htmlCaptor.capture(), eq(true));
+
+            String lastEditHtml = htmlCaptor.getValue();
+            assertThat(lastEditHtml).contains("Thinking");
+            assertThat(lastEditHtml).contains("web_search");
+            assertThat(lastEditHtml).contains("Result found");
+        }
+
+        @Test
+        @DisplayName("should send final answer as separate message via messageSender.sendHtml")
+        void shouldSendFinalAnswerAsSeparateMessage() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.toolCall("web_search", "query", 0),
+                    AgentStreamEvent.observation("Found", 0),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("The answer is 42.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // Final answer sent via messageSender.sendHtml (separate message, no reply)
+            ArgumentCaptor<String> finalCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender).sendHtml(eq(CHAT_ID), finalCaptor.capture(), isNull());
+            assertThat(finalCaptor.getValue()).contains("The answer is 42.");
+
+            // Final answer must NOT appear in edit calls
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
+            for (String editHtml : editCaptor.getAllValues()) {
+                assertThat(editHtml).doesNotContain("The answer is 42.");
+            }
+        }
+
+        @Test
+        @DisplayName("should retry send when first sendHtmlAndGetId returns null")
+        void shouldRetrySendWhenFirstSendReturnsNull() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            // First call returns null (bot unavailable), second returns ID.
+            // After first consumeNextReplyToMessageId() returns USER_MSG_ID,
+            // subsequent calls return null (consumed).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(null);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.toolCall("web_search", "query", 0),
+                    AgentStreamEvent.observation("Found", 0),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("Answer", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // After second send succeeded, OBSERVATION should be an edit
+            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), anyString(), eq(true));
+        }
+
+        @Test
+        @DisplayName("should not call editHtml when no status message ID captured")
+        void shouldNotEditWhenNoMessageId() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            // Bot always unavailable
+            when(messageSender.sendHtmlAndGetId(anyLong(), anyString(), any(), eq(true)))
+                    .thenReturn(null);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.toolCall("web_search", "query", 0),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("Answer", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            verify(messageSender, never()).editHtml(anyLong(), anyInt(), anyString(), eq(true));
+        }
+
+        @Test
+        @DisplayName("intermediate events should NOT go through streamingParagraphSender")
+        void shouldNotSendIntermediateEventsThroughParagraphSender() {
+            MessageHandlerContext ctx = createContextWithMessage("Search Bitcoin",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
+                    AgentStreamEvent.observation("Price: $50,000", 0),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("Bitcoin is $50,000.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // Final answer goes through messageSender.sendHtml, not paragraph sender
+            verify(messageSender).sendHtml(eq(CHAT_ID), anyString(), isNull());
+            assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
+            assertThat(ctx.isAlreadySentInStream()).isTrue();
+        }
+
+        private MessageHandlerContext createContextWithMessage(String userText,
+                                                                Set<ModelCapabilities> capabilities) {
+            TelegramCommand command = mock(TelegramCommand.class);
+            when(command.userText()).thenReturn(userText);
+            when(command.telegramId()).thenReturn(CHAT_ID);
+
+            Message message = mock(Message.class);
+            when(message.getMessageId()).thenReturn(USER_MSG_ID);
+
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+            metadata.put(AICommand.USER_ID_FIELD, "42");
+
+            MessageHandlerContext ctx = new MessageHandlerContext(command, message, s -> {});
+            ctx.setMetadata(metadata);
+            if (capabilities != null) {
+                ctx.setModelCapabilities(capabilities);
+            }
+            return ctx;
+        }
     }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
 
     private MessageHandlerContext createContextWithMetadata(String userText) {
         return createContextWithMetadata(userText, Set.of(ModelCapabilities.AUTO));
     }
 
     private MessageHandlerContext createContextWithMetadata(String userText, Set<ModelCapabilities> capabilities) {
-        return createContextWithMetadata(userText, capabilities, s -> {});
-    }
-
-    private MessageHandlerContext createContextWithMetadata(String userText,
-                                                            Set<ModelCapabilities> capabilities,
-                                                            java.util.function.Consumer<String> sender) {
         TelegramCommand command = mock(TelegramCommand.class);
         when(command.userText()).thenReturn(userText);
+        when(command.telegramId()).thenReturn(42L);
 
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
         metadata.put(AICommand.USER_ID_FIELD, "42");
 
-        MessageHandlerContext ctx = new MessageHandlerContext(command, null, sender);
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
         ctx.setMetadata(metadata);
         if (capabilities != null) {
             ctx.setModelCapabilities(capabilities);

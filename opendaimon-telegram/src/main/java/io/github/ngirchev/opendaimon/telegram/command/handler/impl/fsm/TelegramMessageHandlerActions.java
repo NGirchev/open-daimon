@@ -236,6 +236,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private void generateAgentResponse(MessageHandlerContext ctx) {
         TelegramCommand command = ctx.getCommand();
         Map<String, String> metadata = ctx.getMetadata();
+        Long chatId = command.telegramId();
 
         try {
             Set<ModelCapabilities> capabilities = ctx.getModelCapabilities();
@@ -254,20 +255,21 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     strategy
             );
 
-            // Stream agent events — sends intermediate status messages to Telegram
+            // Stream agent events — edits a single status message in Telegram
             // and captures the terminal event for final answer extraction.
             AgentStreamEvent lastEvent = agentExecutor.executeStream(request)
-                    .doOnNext(event -> sendAgentEventToTelegram(ctx, event))
+                    .doOnNext(event -> handleAgentStreamEvent(ctx, event))
                     .blockLast();
 
             extractAgentResult(ctx, lastEvent);
 
-            // Send final answer text via streaming sender, split by paragraphs
-            // to respect Telegram's max message length (same as gateway path).
+            // Final answer is sent as a separate Telegram message (not as an edit
+            // of the progress message).
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
                 log.info("FSM generateAgentResponse: sending final answer, textLength={}", answerText.length());
-                sendTextByParagraphs(answerText, ctx.getStreamingParagraphSender());
+                ctx.clearNextReplyToMessageId();
+                sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, null));
                 ctx.setAlreadySentInStream(true);
             } else {
                 log.warn("FSM generateAgentResponse: no response text after extractAgentResult");
@@ -277,10 +279,16 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
     }
 
-    private void sendAgentEventToTelegram(MessageHandlerContext ctx, AgentStreamEvent event) {
+    /**
+     * Handles a single agent stream event by accumulating rendered HTML into one
+     * Telegram status message. The first renderable event sends a new message;
+     * subsequent events edit it. Link previews are disabled for status messages.
+     */
+    private void handleAgentStreamEvent(MessageHandlerContext ctx, AgentStreamEvent event) {
         log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}",
                 event.type(), event.iteration(),
                 event.content() != null ? event.content().length() : 0);
+
         // Capture model name from metadata event
         if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
             ctx.setResponseModel(event.content());
@@ -289,12 +297,28 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         if (agentStreamRenderer == null) {
             return;
         }
+
         String html = agentStreamRenderer.render(event);
-        if (html != null) {
-            log.info("FSM agentStreamEvent: sending rendered HTML, length={}", html.length());
-            ctx.getStreamingParagraphSender().accept(html);
-            ctx.setAlreadySentInStream(true);
+        if (html == null) {
+            return;
         }
+
+        Long chatId = ctx.getCommand().telegramId();
+        String progressHtml = ctx.appendAgentProgressChunk(html, telegramProperties.getMaxMessageLength());
+        Integer progressMessageId = ctx.getAgentProgressMessageId();
+
+        if (progressMessageId == null) {
+            Integer sentMessageId = messageSender.sendHtmlAndGetId(
+                    chatId, progressHtml, ctx.consumeNextReplyToMessageId(), true);
+            if (sentMessageId != null) {
+                ctx.setAgentProgressMessageId(sentMessageId);
+                log.info("FSM agentStreamEvent: created progress message id={}", sentMessageId);
+            }
+        } else {
+            messageSender.editHtml(chatId, progressMessageId, progressHtml, true);
+            log.info("FSM agentStreamEvent: updated progress message id={}", progressMessageId);
+        }
+        ctx.setAlreadySentInStream(true);
     }
 
     private void extractAgentResult(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {
