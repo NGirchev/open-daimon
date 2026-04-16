@@ -346,6 +346,7 @@ logging:
   level:
     root: INFO
     io.github.ngirchev.opendaimon: INFO
+    io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions: DEBUG
     org.springframework.ai.chat.model.MessageAggregator: OFF
     reactor.core.publisher: WARN
     org.springframework.web.reactive.function.client: WARN

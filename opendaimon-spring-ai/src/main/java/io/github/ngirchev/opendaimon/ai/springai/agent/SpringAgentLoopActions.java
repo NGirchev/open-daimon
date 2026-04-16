@@ -28,6 +28,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -72,6 +73,19 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     /** Matches loose inner tags: {@code <name>}, {@code <arg_key>}, {@code <arg_value>} with content. */
     private static final Pattern TOOL_CALL_INNER_TAGS_PATTERN =
             Pattern.compile("<(name|arg_key|arg_value)>.*?</\\1>", Pattern.DOTALL);
+
+    private static final String KEY_FALLBACK_TOOL_CALL = "spring.fallbackToolCall";
+
+    /** Matches {@code <name>toolName</name>} inside raw tool call markup. */
+    private static final Pattern NAME_TAG_PATTERN =
+            Pattern.compile("<name>(\\w+)</name>");
+
+    /** Matches {@code <arg_key>key</arg_key>...<arg_value>value</arg_value>} pairs. */
+    private static final Pattern ARG_PAIR_PATTERN =
+            Pattern.compile("<arg_key>(.*?)</arg_key>\\s*<arg_value>(.*?)</arg_value>", Pattern.DOTALL);
+
+    /** Parsed raw tool call from text output (fallback for models without structured function calling). */
+    record RawToolCall(String name, String arguments) {}
 
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
@@ -165,11 +179,23 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
             } else {
-                String text = stripToolCallTags(stripThinkTags(output.getText()));
-                ctx.setCurrentThought("Final answer ready");
-                ctx.setCurrentTextResponse(text);
-                log.info("Agent think: final answer, length={}",
-                        text != null ? text.length() : 0);
+                String rawText = stripThinkTags(output.getText());
+                RawToolCall rawToolCall = tryParseRawToolCall(rawText);
+                if (rawToolCall != null) {
+                    ctx.setCurrentThought("Calling tool (fallback): " + rawToolCall.name());
+                    ctx.setCurrentToolName(rawToolCall.name());
+                    ctx.setCurrentToolArguments(rawToolCall.arguments());
+                    ctx.putExtra(KEY_FALLBACK_TOOL_CALL, Boolean.TRUE);
+                    log.info("Agent think: raw tool call detected via fallback — tool={}, args={}",
+                            rawToolCall.name(), rawToolCall.arguments());
+                } else {
+                    String text = stripToolCallTags(rawText);
+                    ctx.setCurrentThought("Final answer ready");
+                    ctx.setCurrentTextResponse(text);
+                    log.info("Agent think: final answer, length={}",
+                            text != null ? text.length() : 0);
+                    log.debug("Agent think: final answer text:\n{}", text);
+                }
             }
 
             messages.add(output);
@@ -185,6 +211,11 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.emitEvent(AgentStreamEvent.toolCall(
                 ctx.getCurrentToolName(), ctx.getCurrentToolArguments(), ctx.getCurrentIteration()));
         try {
+            if (Boolean.TRUE.equals(ctx.getExtra(KEY_FALLBACK_TOOL_CALL))) {
+                executeFallbackToolCall(ctx);
+                return;
+            }
+
             Prompt prompt = ctx.getExtra(KEY_LAST_PROMPT);
             ChatResponse response = ctx.getExtra(KEY_LAST_RESPONSE);
 
@@ -251,6 +282,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         cleanup(ctx);
         log.info("Agent answer: final answer set, length={}",
                 ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0);
+        log.debug("Agent answer: final answer text:\n{}", ctx.getFinalAnswer());
     }
 
     @Override
@@ -346,6 +378,126 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         }
         String text = messages.getLast().getText();
         return text != null ? text : "(no tool output)";
+    }
+
+    /**
+     * Attempts to parse a tool call from raw XML tags in the text output.
+     *
+     * <p>Some models (especially via Ollama/OpenRouter) emit tool calls as XML tags
+     * in text instead of using the structured function calling API. This method
+     * detects such patterns and parses them into a usable tool call.
+     *
+     * <p>Requirements for a valid parse:
+     * <ul>
+     *   <li>At least one {@code <arg_key>/<arg_value>} pair must be present</li>
+     *   <li>Tool name found via {@code <name>} tag or by matching registered tool names</li>
+     *   <li>Tool name must correspond to a registered tool callback</li>
+     * </ul>
+     *
+     * @param text raw text output from the LLM (after think-tag stripping)
+     * @return parsed tool call, or null if no valid tool call pattern found
+     */
+    RawToolCall tryParseRawToolCall(String text) {
+        if (text == null) {
+            return null;
+        }
+
+        Matcher firstArgCheck = ARG_PAIR_PATTERN.matcher(text);
+        if (!firstArgCheck.find()) {
+            return null;
+        }
+
+        String toolName = null;
+        Matcher nameMatcher = NAME_TAG_PATTERN.matcher(text);
+        if (nameMatcher.find()) {
+            toolName = nameMatcher.group(1).trim();
+        }
+
+        if (toolName == null) {
+            for (ToolCallback cb : toolCallbacks) {
+                String name = cb.getToolDefinition().name();
+                if (text.contains(name)) {
+                    toolName = name;
+                    break;
+                }
+            }
+        }
+
+        if (toolName == null) {
+            return null;
+        }
+
+        String resolvedName = toolName;
+        boolean registered = toolCallbacks.stream()
+                .anyMatch(cb -> cb.getToolDefinition().name().equals(resolvedName));
+        if (!registered) {
+            return null;
+        }
+
+        Matcher argMatcher = ARG_PAIR_PATTERN.matcher(text);
+        StringBuilder json = new StringBuilder("{");
+        boolean first = true;
+        while (argMatcher.find()) {
+            if (!first) {
+                json.append(",");
+            }
+            json.append("\"").append(escapeJson(argMatcher.group(1).trim())).append("\":");
+            json.append("\"").append(escapeJson(argMatcher.group(2).trim())).append("\"");
+            first = false;
+        }
+        json.append("}");
+
+        log.info("Agent think: parsed raw tool call — tool={}, args={}", toolName, json);
+        return new RawToolCall(toolName, json.toString());
+    }
+
+    /**
+     * Executes a tool call that was parsed from raw text (fallback path).
+     * Directly invokes the matching {@link ToolCallback} instead of going through
+     * {@link ToolCallingManager}, since there is no structured tool call in the
+     * {@link ChatResponse} for the manager to process.
+     */
+    private void executeFallbackToolCall(AgentContext ctx) {
+        String toolName = ctx.getCurrentToolName();
+        String toolArgs = ctx.getCurrentToolArguments();
+
+        ToolCallback callback = toolCallbacks.stream()
+                .filter(cb -> cb.getToolDefinition().name().equals(toolName))
+                .findFirst()
+                .orElse(null);
+
+        if (callback == null) {
+            ctx.setErrorMessage("Fallback tool not found: " + toolName);
+            return;
+        }
+
+        log.info("Agent executeTool (fallback): tool={}, args={}", toolName, toolArgs);
+
+        String result = callback.call(toolArgs);
+        ctx.setToolResult(AgentToolResult.success(toolName, result));
+
+        List<Message> messages = getOrCreateHistory(ctx);
+        messages.add(new UserMessage("[Tool result: " + toolName + "]\n" + result));
+
+        ctx.removeExtra(KEY_FALLBACK_TOOL_CALL);
+
+        log.info("Agent executeTool (fallback): completed, result length={}",
+                result != null ? result.length() : 0);
+        log.debug("Agent executeTool (fallback): raw result:\n{}", result);
+    }
+
+    /**
+     * Escapes special characters for JSON string values.
+     */
+    static String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     private void cleanup(AgentContext ctx) {
