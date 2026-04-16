@@ -76,6 +76,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private String responseModel;
     private Integer agentProgressMessageId;
     private final List<String> agentProgressChunks = new ArrayList<>();
+    private boolean lastChunkIsThinking;
 
     // --- Error handling ---
     private Exception exception;
@@ -289,12 +290,21 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
      * Appends a new HTML chunk to the progress message body and returns
      * the complete HTML that should be sent via editMessageText.
      * If the resulting text exceeds maxLength, oldest chunks are dropped.
+     *
+     * <p>When {@code isThinking} is false and the previous chunk was a thinking
+     * placeholder, the placeholder is replaced instead of accumulated —
+     * so "🤔 Thinking..." only stays visible while the agent is actively thinking.
      */
-    public String appendAgentProgressChunk(String htmlChunk, int maxLength) {
+    public String appendAgentProgressChunk(String htmlChunk, int maxLength, boolean isThinking) {
         if (htmlChunk == null || htmlChunk.isBlank()) {
             return buildProgressHtml();
         }
+        if (lastChunkIsThinking && !agentProgressChunks.isEmpty()) {
+            agentProgressChunks.remove(agentProgressChunks.size() - 1);
+        }
         agentProgressChunks.add(htmlChunk);
+        lastChunkIsThinking = isThinking;
+
         String merged = buildProgressHtml();
         while (merged.length() > maxLength && agentProgressChunks.size() > 1) {
             agentProgressChunks.remove(0);
@@ -304,7 +314,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     }
 
     private String buildProgressHtml() {
-        return String.join("\n", agentProgressChunks);
+        return String.join("\n\n", agentProgressChunks);
     }
 
     // --- Error handling ---

@@ -120,9 +120,21 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             log.info("Agent think: iteration={}, messages={}, tools={}",
                     ctx.getCurrentIteration(), messages.size(), toolCallbacks.size());
+            if (log.isDebugEnabled()) {
+                log.debug("Agent think: raw prompt messages:\n{}", messages.stream()
+                        .map(m -> "[" + m.getMessageType() + "] " + m.getText())
+                        .collect(Collectors.joining("\n---\n")));
+            }
 
             ChatResponse response = chatModel.call(prompt);
             ctx.putExtra(KEY_LAST_RESPONSE, response);
+            if (log.isDebugEnabled()) {
+                var debugOutput = response.getResult().getOutput();
+                log.debug("Agent think: raw LLM response text:\n{}", debugOutput.getText());
+                if (response.hasToolCalls()) {
+                    log.debug("Agent think: raw tool calls: {}", debugOutput.getToolCalls());
+                }
+            }
 
             if (response.getMetadata().getModel() != null) {
                 ctx.setModelName(response.getMetadata().getModel());
@@ -198,6 +210,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             log.info("Agent executeTool: completed, observation length={}",
                     observation != null ? observation.length() : 0);
+            log.debug("Agent executeTool: raw observation:\n{}", observation);
 
         } catch (Exception e) {
             log.error("Agent executeTool failed: tool={}, error={}",

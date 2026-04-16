@@ -304,7 +304,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
 
         Long chatId = ctx.getCommand().telegramId();
-        String progressHtml = ctx.appendAgentProgressChunk(html, telegramProperties.getMaxMessageLength());
+        boolean isThinking = event.type() == AgentStreamEvent.EventType.THINKING;
+        String progressHtml = ctx.appendAgentProgressChunk(html, telegramProperties.getMaxMessageLength(), isThinking);
         Integer progressMessageId = ctx.getAgentProgressMessageId();
 
         if (progressMessageId == null) {

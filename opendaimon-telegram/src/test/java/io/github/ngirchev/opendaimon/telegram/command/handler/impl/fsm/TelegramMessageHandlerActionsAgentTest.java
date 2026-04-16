@@ -317,7 +317,8 @@ class TelegramMessageHandlerActionsAgentTest {
             verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), htmlCaptor.capture(), eq(true));
 
             String lastEditHtml = htmlCaptor.getValue();
-            assertThat(lastEditHtml).contains("Thinking");
+            // Thinking chunk replaced by tool_call — only tool call and observation remain
+            assertThat(lastEditHtml).doesNotContain("Thinking");
             assertThat(lastEditHtml).contains("web_search");
             assertThat(lastEditHtml).contains("Result found");
         }
@@ -402,6 +403,68 @@ class TelegramMessageHandlerActionsAgentTest {
             actions.generateResponse(ctx);
 
             verify(messageSender, never()).editHtml(anyLong(), anyInt(), anyString(), eq(true));
+        }
+
+        @Test
+        @DisplayName("should replace thinking chunk with next non-thinking event, keep last thinking")
+        void shouldReplaceThinkingWithNextEvent() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.toolCall("web_search", "query", 0),
+                    AgentStreamEvent.observation("Result found", 0),
+                    AgentStreamEvent.thinking(1),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("Answer", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> htmlCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), htmlCaptor.capture(), eq(true));
+
+            String lastEditHtml = htmlCaptor.getValue();
+            // Iteration 0: thinking replaced by tool_call
+            assertThat(lastEditHtml).contains("web_search");
+            assertThat(lastEditHtml).contains("Result found");
+            // Iteration 1: last thinking stays visible (nothing replaced it)
+            assertThat(lastEditHtml).contains("Thinking");
+        }
+
+        @Test
+        @DisplayName("should replace consecutive thinking events (reasoning replaces placeholder)")
+        void shouldReplaceConsecutiveThinkingEvents() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.thinking("I should search for this", 0),
+                    AgentStreamEvent.toolCall("web_search", "query", 0),
+                    AgentStreamEvent.observation("Found", 0),
+                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.finalAnswer("Answer", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> htmlCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), htmlCaptor.capture(), eq(true));
+
+            String lastEditHtml = htmlCaptor.getValue();
+            // Both thinking events replaced: placeholder by reasoning, reasoning by tool_call
+            assertThat(lastEditHtml).doesNotContain("Thinking");
+            assertThat(lastEditHtml).doesNotContain("I should search");
+            assertThat(lastEditHtml).contains("web_search");
+            assertThat(lastEditHtml).contains("Found");
         }
 
         @Test
