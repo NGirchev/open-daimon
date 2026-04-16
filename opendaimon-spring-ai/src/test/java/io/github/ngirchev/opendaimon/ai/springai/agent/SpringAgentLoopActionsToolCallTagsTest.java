@@ -106,4 +106,147 @@ class SpringAgentLoopActionsToolCallTagsTest {
         assertThat(SpringAgentLoopActions.stripToolCallTags(text))
                 .isEqualTo("<think>reasoning</think>Answer");
     }
+
+    // --- Unclosed inner tag tests ---
+
+    @Test
+    void shouldStripUnclosedArgValueTag() {
+        String text = "some answer\n<arg_value>https://example.com/page";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("some answer");
+    }
+
+    @Test
+    void shouldStripUnclosedNameTag() {
+        String text = "answer text\n<name>web_search";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("answer text");
+    }
+
+    @Test
+    void shouldStripUnclosedArgKeyTag() {
+        String text = "response here\n<arg_key>query";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("response here");
+    }
+
+    @Test
+    void shouldStripMultipleUnclosedInnerTags() {
+        String text = "answer\n<arg_key>url\n<arg_value>https://example.com";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("answer");
+    }
+
+    @Test
+    void shouldStripMixOfClosedAndUnclosedInnerTags() {
+        String text = "text\n<arg_key>query</arg_key>\n<arg_value>some value without closing";
+        String result = SpringAgentLoopActions.stripToolCallTags(text);
+        assertThat(result)
+                .doesNotContain("<arg_key>")
+                .doesNotContain("<arg_value>")
+                .startsWith("text");
+    }
+
+    @Test
+    void shouldHandleEmptyUnclosedArgValueTag() {
+        String text = "answer\n<arg_value>";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("answer");
+    }
+
+    @Test
+    void shouldStripArgValueWithUrlAndNoCloseTag() {
+        String text = "Here is info.\n<arg_value>https://quarkus.io/blog/new-benchmarks/";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("Here is info.");
+    }
+
+    // --- Bare tool name tests ---
+
+    @Test
+    void shouldStripBareToolNameOnOwnLine() {
+        String text = "some answer\nhttp_get\n\nmore text";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .doesNotContain("http_get");
+    }
+
+    @Test
+    void shouldNotStripWordWithoutUnderscoreOnOwnLine() {
+        String text = "Hello\nQuarkus\nDone";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("Hello\nQuarkus\nDone");
+    }
+
+    @Test
+    void shouldNotStripToolNameEmbeddedInSentence() {
+        String text = "I used http_get to fetch the data";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("I used http_get to fetch the data");
+    }
+
+    @Test
+    void shouldStripMultipleBareToolNamesOnSeparateLines() {
+        String text = "result\nhttp_get\nweb_search\nfetch_url\nend";
+        String result = SpringAgentLoopActions.stripToolCallTags(text);
+        assertThat(result)
+                .doesNotContain("http_get")
+                .doesNotContain("web_search")
+                .doesNotContain("fetch_url")
+                .contains("result")
+                .contains("end");
+    }
+
+    @Test
+    void shouldPreserveLegitimateTextWithUnderscores() {
+        String text = "Use snake_case naming convention in your code";
+        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
+                .isEqualTo("Use snake_case naming convention in your code");
+    }
+
+    // --- Combined real-world scenarios ---
+
+    @Test
+    void shouldStripExactBugFromLogs() {
+        // Exact reproduction of the bug from opendaimon.log iteration 6
+        String text = "Я собрал достаточно информации из различных источников "
+                + "о производительности Quarkus и Spring Boot в 2026 году. "
+                + "Теперь я могу предоставить вам сравнительный анализ с конкретными цифрами.\n"
+                + "http_get\n"
+                + "<arg_key>url</arg_key>\n"
+                + "<arg_value>https://quarkus.io/blog/new-benchmarks/\n"
+                + "</tool_call>";
+        String result = SpringAgentLoopActions.stripToolCallTags(text);
+        assertThat(result)
+                .contains("Я собрал достаточно информации")
+                .contains("конкретными цифрами")
+                .doesNotContain("http_get")
+                .doesNotContain("<arg_key>")
+                .doesNotContain("<arg_value>")
+                .doesNotContain("</tool_call>")
+                .doesNotContain("quarkus.io");
+    }
+
+    @Test
+    void shouldStripUnclosedArgValueFollowedByToolCallClose() {
+        // Model skips </arg_value> and goes straight to </tool_call>
+        String text = "answer\n<arg_value>some content\n</tool_call>";
+        String result = SpringAgentLoopActions.stripToolCallTags(text);
+        assertThat(result)
+                .isEqualTo("answer")
+                .doesNotContain("<arg_value>")
+                .doesNotContain("</tool_call>");
+    }
+
+    @Test
+    void shouldHandleBareToolNameWithUnclosedTagsAndOrphanedClose() {
+        String text = "Let me search.\nweb_search\n<arg_key>query</arg_key>\n"
+                + "<arg_value>test query\n</tool_call>";
+        String result = SpringAgentLoopActions.stripToolCallTags(text);
+        assertThat(result)
+                .startsWith("Let me search.")
+                .doesNotContain("web_search")
+                .doesNotContain("<arg_key>")
+                .doesNotContain("<arg_value>")
+                .doesNotContain("</tool_call>");
+    }
 }

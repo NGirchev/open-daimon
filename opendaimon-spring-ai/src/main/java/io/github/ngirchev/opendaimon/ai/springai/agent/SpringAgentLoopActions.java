@@ -15,6 +15,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -73,6 +74,14 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     /** Matches loose inner tags: {@code <name>}, {@code <arg_key>}, {@code <arg_value>} with content. */
     private static final Pattern TOOL_CALL_INNER_TAGS_PATTERN =
             Pattern.compile("<(name|arg_key|arg_value)>.*?</\\1>", Pattern.DOTALL);
+
+    /** Matches unclosed inner tags: e.g. {@code <arg_value>content} without a closing tag. */
+    private static final Pattern TOOL_CALL_UNCLOSED_INNER_TAG_PATTERN =
+            Pattern.compile("<(name|arg_key|arg_value)>[^\n]*");
+
+    /** Matches a bare tool-like name on its own line (e.g. {@code http_get}, {@code web_search}). */
+    private static final Pattern BARE_TOOL_NAME_PATTERN =
+            Pattern.compile("(?m)^\\s*\\w+_\\w+\\s*$");
 
     private static final String KEY_FALLBACK_TOOL_CALL = "spring.fallbackToolCall";
 
@@ -178,6 +187,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 ctx.setCurrentToolArguments(firstToolCall.arguments());
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
+                messages.add(output);
             } else {
                 String rawText = stripThinkTags(output.getText());
                 RawToolCall rawToolCall = tryParseRawToolCall(rawText);
@@ -188,6 +198,12 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     ctx.putExtra(KEY_FALLBACK_TOOL_CALL, Boolean.TRUE);
                     log.info("Agent think: raw tool call detected via fallback — tool={}, args={}",
                             rawToolCall.name(), rawToolCall.arguments());
+                    // Add cleaned message to history — raw XML confuses the model on next iterations
+                    String cleanedText = stripToolCallTags(rawText);
+                    messages.add(new AssistantMessage(
+                            cleanedText != null && !cleanedText.isEmpty()
+                                    ? cleanedText
+                                    : "Calling tool: " + rawToolCall.name()));
                 } else {
                     String text = stripToolCallTags(rawText);
                     ctx.setCurrentThought("Final answer ready");
@@ -195,10 +211,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     log.info("Agent think: final answer, length={}",
                             text != null ? text.length() : 0);
                     log.debug("Agent think: final answer text:\n{}", text);
+                    messages.add(output);
                 }
             }
-
-            messages.add(output);
 
         } catch (Exception e) {
             log.error("Agent think failed: {}", e.getMessage(), e);
@@ -376,8 +391,17 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         if (messages == null || messages.isEmpty()) {
             return "(no tool output)";
         }
-        String text = messages.getLast().getText();
-        return text != null ? text : "(no tool output)";
+        Message last = messages.getLast();
+        if (last instanceof ToolResponseMessage trm) {
+            String joined = trm.getResponses().stream()
+                    .map(ToolResponseMessage.ToolResponse::responseData)
+                    .collect(Collectors.joining("\n"));
+            if (!joined.isBlank()) {
+                return joined;
+            }
+        }
+        String text = last.getText();
+        return (text != null && !text.isBlank()) ? text : "(no tool output)";
     }
 
     /**
@@ -593,7 +617,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      * <ul>
      *   <li>{@code <tool_call>...</tool_call>} blocks (including partial/unclosed)</li>
      *   <li>Orphaned {@code </tool_call>} closing tags</li>
-     *   <li>Loose {@code <name>}, {@code <arg_key>}, {@code <arg_value>} tags and their content</li>
+     *   <li>Closed inner tags: {@code <name>x</name>}, {@code <arg_key>x</arg_key>}, etc.</li>
+     *   <li>Unclosed inner tags: {@code <arg_value>content} without closing tag</li>
+     *   <li>Bare tool-like names on their own line (e.g. {@code http_get})</li>
      * </ul>
      */
     static String stripToolCallTags(String text) {
@@ -604,6 +630,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         result = TOOL_CALL_OPEN_PATTERN.matcher(result).replaceAll("");
         result = TOOL_CALL_CLOSE_PATTERN.matcher(result).replaceAll("");
         result = TOOL_CALL_INNER_TAGS_PATTERN.matcher(result).replaceAll("");
+        result = TOOL_CALL_UNCLOSED_INNER_TAG_PATTERN.matcher(result).replaceAll("");
+        result = BARE_TOOL_NAME_PATTERN.matcher(result).replaceAll("");
         return result.trim().isEmpty() ? "" : result.trim();
     }
 

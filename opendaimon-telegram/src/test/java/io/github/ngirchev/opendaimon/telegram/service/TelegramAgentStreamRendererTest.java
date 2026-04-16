@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,7 +13,7 @@ class TelegramAgentStreamRendererTest {
 
     @BeforeEach
     void setUp() {
-        renderer = new TelegramAgentStreamRenderer();
+        renderer = new TelegramAgentStreamRenderer(new ObjectMapper());
     }
 
     @Test
@@ -37,13 +38,14 @@ class TelegramAgentStreamRendererTest {
     }
 
     @Test
-    void shouldRenderToolCallWithNameAndArgs() {
-        AgentStreamEvent event = AgentStreamEvent.toolCall("web_search", "bitcoin price", 1);
+    void shouldRenderToolCallWithFriendlyLabelAndQuery() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall("web_search", "{\"query\":\"bitcoin price\"}", 1);
 
         String html = renderer.render(event);
 
-        assertThat(html).contains("<code>web_search</code>");
+        assertThat(html).contains("Searching the web:");
         assertThat(html).contains("bitcoin price");
+        assertThat(html).doesNotContain("<code>");
     }
 
     @Test
@@ -53,28 +55,29 @@ class TelegramAgentStreamRendererTest {
 
         String html = renderer.render(event);
 
-        assertThat(html).contains("<code>web_search</code>");
+        assertThat(html).contains("Searching the web...");
     }
 
     @Test
-    void shouldRenderObservation() {
+    void shouldRenderObservationAsCompactDone() {
         AgentStreamEvent event = AgentStreamEvent.observation("The current price is $50,000", 1);
 
         String html = renderer.render(event);
 
-        assertThat(html).contains("<blockquote>");
-        assertThat(html).contains("The current price is $50,000");
+        assertThat(html).contains("Done");
+        assertThat(html).doesNotContain("The current price");
+        assertThat(html).doesNotContain("<blockquote>");
     }
 
     @Test
-    void shouldTruncateLongObservation() {
+    void shouldRenderCompactObservationForLongContent() {
         String longContent = "A".repeat(600);
         AgentStreamEvent event = AgentStreamEvent.observation(longContent, 1);
 
         String html = renderer.render(event);
 
-        assertThat(html).contains("...");
-        assertThat(html.length()).isLessThan(600);
+        assertThat(html).contains("Done");
+        assertThat(html).doesNotContain("AAA");
     }
 
     @Test
@@ -117,7 +120,7 @@ class TelegramAgentStreamRendererTest {
 
         String html = renderer.render(event);
 
-        assertThat(html).contains("No result");
+        assertThat(html).contains("Done");
     }
 
     @Test
@@ -127,6 +130,101 @@ class TelegramAgentStreamRendererTest {
 
         String html = renderer.render(event);
 
-        assertThat(html).contains("Tool call");
+        assertThat(html).contains("Using a tool...");
+    }
+
+    @Test
+    void shouldRenderDefaultLabelForUnknownTool() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall("run", "{}", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Using a tool...");
+        assertThat(html).doesNotContain("run");
+    }
+
+    @Test
+    void shouldRenderFriendlyLabelAndUrlForFetchUrl() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall("fetch_url", "{\"url\":\"https://example.com\"}", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Reading a web page:");
+        assertThat(html).contains("https://example.com");
+    }
+
+    @Test
+    void shouldRenderFriendlyLabelAndUrlForHttpGet() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall("http_get", "{\"url\":\"https://api.example.com\"}", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Making an HTTP request:");
+        assertThat(html).contains("https://api.example.com");
+    }
+
+    @Test
+    void shouldRenderFriendlyLabelAndUrlForHttpPost() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall(
+                "http_post", "{\"url\":\"https://api.x\",\"body\":\"payload\"}", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Sending an HTTP request:");
+        assertThat(html).contains("https://api.x");
+        assertThat(html).doesNotContain("payload");
+    }
+
+    @Test
+    void shouldFallBackToLabelOnlyWhenArgsJsonMalformed() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall("web_search", "{not json", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Searching the web...");
+        assertThat(html).doesNotContain("not json");
+    }
+
+    @Test
+    void shouldFallBackToLabelOnlyWhenArgKeyMissing() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall("web_search", "{\"foo\":\"bar\"}", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Searching the web...");
+        assertThat(html).doesNotContain("bar");
+    }
+
+    @Test
+    void shouldFallBackToLabelOnlyWhenUrlBlank() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall("fetch_url", "{\"url\":\"\"}", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Reading a web page...");
+    }
+
+    @Test
+    void shouldEscapeHtmlInToolCallArgument() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall(
+                "fetch_url", "{\"url\":\"https://x/<script>\"}", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("&lt;script&gt;");
+        assertThat(html).doesNotContain("<script>");
+    }
+
+    @Test
+    void shouldTruncateVeryLongToolCallArgument() {
+        String longUrl = "https://example.com/" + "a".repeat(300);
+        AgentStreamEvent event = AgentStreamEvent.toolCall(
+                "fetch_url", "{\"url\":\"" + longUrl + "\"}", 1);
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Reading a web page:");
+        assertThat(html).doesNotContain(longUrl);
+        assertThat(html).endsWith("...");
     }
 }

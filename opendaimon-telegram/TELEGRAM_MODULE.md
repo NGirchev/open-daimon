@@ -150,6 +150,7 @@ Evaluated in order — first match wins:
 3. Intermediate events (`THINKING`, `TOOL_CALL`, `OBSERVATION`, `ERROR`) are rendered to HTML and delivered as:
    - first event → `sendMessageAndGetId(..., replyTo=<user message>)` with link previews disabled
    - next events → `editMessageHtml(...)` on the same progress message, appending new progress blocks to existing content and keeping link previews disabled
+   - `TOOL_CALL` renders as `🔧 <b>{label}:</b> {arg}` where the argument is extracted from the tool call JSON — `query` for `web_search` and `url` for `fetch_url`/`http_get`/`http_post`. The argument is HTML-escaped and truncated to 200 chars. When the argument is missing/blank/malformed JSON or the tool is unknown, the line degrades to the bare label with trailing `...` (e.g. `🔧 <b>Searching the web...</b>`, fallback label `Using a tool`).
 4. `METADATA` event updates response model in context (not sent as chat text)
 5. `FINAL_ANSWER`/`MAX_ITERATIONS` content is sent as a separate Telegram message (not message edit, not reply)
 6. Assistant response is persisted in DB; keyboard status is sent afterwards

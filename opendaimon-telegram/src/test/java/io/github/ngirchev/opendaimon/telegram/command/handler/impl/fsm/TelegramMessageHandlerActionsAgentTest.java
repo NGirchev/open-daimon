@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
@@ -70,7 +71,7 @@ class TelegramMessageHandlerActionsAgentTest {
     void setUp() {
         TelegramProperties telegramProperties = new TelegramProperties();
         telegramProperties.setMaxMessageLength(4096);
-        agentStreamRenderer = new TelegramAgentStreamRenderer();
+        agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
@@ -319,8 +320,8 @@ class TelegramMessageHandlerActionsAgentTest {
             String lastEditHtml = htmlCaptor.getValue();
             // Thinking chunk replaced by tool_call — only tool call and observation remain
             assertThat(lastEditHtml).doesNotContain("Thinking");
-            assertThat(lastEditHtml).contains("web_search");
-            assertThat(lastEditHtml).contains("Result found");
+            assertThat(lastEditHtml).contains("Searching the web");
+            assertThat(lastEditHtml).contains("Done");
         }
 
         @Test
@@ -430,8 +431,8 @@ class TelegramMessageHandlerActionsAgentTest {
 
             String lastEditHtml = htmlCaptor.getValue();
             // Iteration 0: thinking replaced by tool_call
-            assertThat(lastEditHtml).contains("web_search");
-            assertThat(lastEditHtml).contains("Result found");
+            assertThat(lastEditHtml).contains("Searching the web");
+            assertThat(lastEditHtml).contains("Done");
             // Iteration 1: last thinking stays visible (nothing replaced it)
             assertThat(lastEditHtml).contains("Thinking");
         }
@@ -463,8 +464,8 @@ class TelegramMessageHandlerActionsAgentTest {
             // Both thinking events replaced: placeholder by reasoning, reasoning by tool_call
             assertThat(lastEditHtml).doesNotContain("Thinking");
             assertThat(lastEditHtml).doesNotContain("I should search");
-            assertThat(lastEditHtml).contains("web_search");
-            assertThat(lastEditHtml).contains("Found");
+            assertThat(lastEditHtml).contains("Searching the web");
+            assertThat(lastEditHtml).contains("Done");
         }
 
         @Test
