@@ -28,6 +28,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -55,6 +56,22 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
     private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
     private static final String KEY_LAST_RESPONSE = "spring.lastResponse";
+
+    /** Matches complete {@code <tool_call>...</tool_call>} blocks including content. */
+    private static final Pattern TOOL_CALL_BLOCK_PATTERN =
+            Pattern.compile("<tool_call>.*?</tool_call>", Pattern.DOTALL);
+
+    /** Matches orphaned {@code <tool_call>} tag without closing — consumes to end of string. */
+    private static final Pattern TOOL_CALL_OPEN_PATTERN =
+            Pattern.compile("<tool_call>.*", Pattern.DOTALL);
+
+    /** Matches orphaned {@code </tool_call>} closing tag. */
+    private static final Pattern TOOL_CALL_CLOSE_PATTERN =
+            Pattern.compile("</tool_call>");
+
+    /** Matches loose inner tags: {@code <name>}, {@code <arg_key>}, {@code <arg_value>} with content. */
+    private static final Pattern TOOL_CALL_INNER_TAGS_PATTERN =
+            Pattern.compile("<(name|arg_key|arg_value)>.*?</\\1>", Pattern.DOTALL);
 
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
@@ -136,7 +153,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
             } else {
-                String text = stripThinkTags(output.getText());
+                String text = stripToolCallTags(stripThinkTags(output.getText()));
                 ctx.setCurrentThought("Final answer ready");
                 ctx.setCurrentTextResponse(text);
                 log.info("Agent think: final answer, length={}",
@@ -232,10 +249,11 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
         for (AgentStepResult step : history) {
             if (step.observation() != null) {
+                String obs = stripToolCallTags(step.observation());
                 sb.append("- ").append(step.action()).append(": ").append(
-                        step.observation().length() > 200
-                                ? step.observation().substring(0, 200) + "..."
-                                : step.observation()
+                        obs != null && obs.length() > 200
+                                ? obs.substring(0, 200) + "..."
+                                : (obs != null ? obs : "")
                 ).append('\n');
             }
         }
@@ -400,6 +418,28 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             return text;
         }
         return (text.substring(0, start) + text.substring(end + "</think>".length())).trim();
+    }
+
+    /**
+     * Strips raw XML tool call markup that some models emit in text responses
+     * instead of using the structured function calling API.
+     *
+     * <p>Removes:
+     * <ul>
+     *   <li>{@code <tool_call>...</tool_call>} blocks (including partial/unclosed)</li>
+     *   <li>Orphaned {@code </tool_call>} closing tags</li>
+     *   <li>Loose {@code <name>}, {@code <arg_key>}, {@code <arg_value>} tags and their content</li>
+     * </ul>
+     */
+    static String stripToolCallTags(String text) {
+        if (text == null) {
+            return null;
+        }
+        String result = TOOL_CALL_BLOCK_PATTERN.matcher(text).replaceAll("");
+        result = TOOL_CALL_OPEN_PATTERN.matcher(result).replaceAll("");
+        result = TOOL_CALL_CLOSE_PATTERN.matcher(result).replaceAll("");
+        result = TOOL_CALL_INNER_TAGS_PATTERN.matcher(result).replaceAll("");
+        return result.trim().isEmpty() ? "" : result.trim();
     }
 
     /**
