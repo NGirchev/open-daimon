@@ -154,6 +154,8 @@ Evaluated in order — first match wins:
 4. `METADATA` event updates response model in context (not sent as chat text)
    - if only transient `THINKING` blocks were shown and a terminal event arrives (`FINAL_ANSWER`/`MAX_ITERATIONS`), the temporary progress message is deleted
 5. `FINAL_ANSWER`/`MAX_ITERATIONS` content is sent as a separate Telegram message (not message edit), as a reply to the original user message
+   - if terminal content contains mixed payload (`user text + tool markers`), Telegram extracts user-visible prefix and sends it
+   - if terminal content contains only raw tool payload (no user-visible prefix), flow marks it as `EMPTY_RESPONSE` and routes to standard error handling
 6. Assistant response is persisted in DB; keyboard status is sent afterwards
 
 ---

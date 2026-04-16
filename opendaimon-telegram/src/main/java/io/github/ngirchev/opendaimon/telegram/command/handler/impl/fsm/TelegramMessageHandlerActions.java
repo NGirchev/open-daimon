@@ -66,6 +66,8 @@ import static io.github.ngirchev.opendaimon.common.service.AIUtils.retrieveMessa
 @Slf4j
 @RequiredArgsConstructor
 public class TelegramMessageHandlerActions implements MessageHandlerActions {
+    private static final String RAW_TOOL_PAYLOAD_ERROR = "raw_tool_payload_in_final_answer";
+    private static final Set<String> TOOL_NAMES = Set.of("http_get", "http_post", "web_search", "fetch_url");
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -339,15 +341,23 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         log.info("FSM generateAgentResponse: terminalEvent={}, iteration={}, content='{}'",
                 lastEvent.type(), lastEvent.iteration(), normalizeForLog(lastEvent.content()));
 
-        if (lastEvent.type() == AgentStreamEvent.EventType.FINAL_ANSWER
+        if ((lastEvent.type() == AgentStreamEvent.EventType.FINAL_ANSWER
+                || lastEvent.type() == AgentStreamEvent.EventType.MAX_ITERATIONS)
                 && lastEvent.content() != null) {
-            ctx.setResponseText(lastEvent.content());
             if (looksLikeToolCallPayload(lastEvent.content())) {
-                log.warn("FSM generateAgentResponse: FINAL_ANSWER looks like raw tool payload, content='{}'",
-                        normalizeForLog(lastEvent.content()));
+                String recoveredUserText = extractUserTextBeforeToolPayload(lastEvent.content());
+                if (!recoveredUserText.isBlank()) {
+                    log.warn("FSM generateAgentResponse: {} contains mixed payload, recovered user text, content='{}'",
+                            lastEvent.type(), normalizeForLog(lastEvent.content()));
+                    ctx.setResponseText(recoveredUserText);
+                    return;
+                }
+                log.warn("FSM generateAgentResponse: {} contains raw tool payload without recoverable text, content='{}'",
+                        lastEvent.type(), normalizeForLog(lastEvent.content()));
+                ctx.setResponseError(RAW_TOOL_PAYLOAD_ERROR);
+                ctx.setErrorType(MessageHandlerErrorType.EMPTY_RESPONSE);
+                return;
             }
-        } else if (lastEvent.type() == AgentStreamEvent.EventType.MAX_ITERATIONS
-                && lastEvent.content() != null) {
             ctx.setResponseText(lastEvent.content());
         } else if (lastEvent.type() == AgentStreamEvent.EventType.ERROR) {
             ctx.setErrorType(MessageHandlerErrorType.GENERAL);
@@ -519,16 +529,57 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     }
 
     private static boolean looksLikeToolCallPayload(String text) {
+        return findFirstToolPayloadIndex(text) >= 0;
+    }
+
+    private static String extractUserTextBeforeToolPayload(String text) {
         if (text == null || text.isBlank()) {
-            return false;
+            return "";
         }
+        int markerIndex = findFirstToolPayloadIndex(text);
+        String candidate = markerIndex >= 0 ? text.substring(0, markerIndex) : text;
+        return candidate.trim();
+    }
+
+    private static int findFirstToolPayloadIndex(String text) {
+        if (text == null || text.isBlank()) {
+            return -1;
+        }
+        int firstIndex = Integer.MAX_VALUE;
         String lowered = text.toLowerCase(Locale.ROOT);
-        return lowered.contains("<tool_call")
-                || lowered.contains("</tool_call>")
-                || lowered.contains("<arg_key>")
-                || lowered.contains("<arg_value>")
-                || lowered.contains("<tool_name>")
-                || lowered.contains("</tool_name>");
+        String[] markers = {
+                "<tool_call",
+                "</tool_call>",
+                "<arg_key>",
+                "</arg_key>",
+                "<arg_value>",
+                "</arg_value>",
+                "<tool_name>",
+                "</tool_name>"
+        };
+        for (String marker : markers) {
+            int markerIndex = lowered.indexOf(marker);
+            if (markerIndex >= 0 && markerIndex < firstIndex) {
+                firstIndex = markerIndex;
+            }
+        }
+        int standaloneToolLineIndex = findFirstStandaloneToolLineIndex(lowered);
+        if (standaloneToolLineIndex >= 0 && standaloneToolLineIndex < firstIndex) {
+            firstIndex = standaloneToolLineIndex;
+        }
+        return firstIndex == Integer.MAX_VALUE ? -1 : firstIndex;
+    }
+
+    private static int findFirstStandaloneToolLineIndex(String loweredText) {
+        int offset = 0;
+        for (String rawLine : loweredText.split("\n", -1)) {
+            String line = rawLine.endsWith("\r") ? rawLine.substring(0, rawLine.length() - 1) : rawLine;
+            if (TOOL_NAMES.contains(line.trim())) {
+                return offset;
+            }
+            offset += rawLine.length() + 1;
+        }
+        return -1;
     }
 
     private static String normalizeForLog(String text) {

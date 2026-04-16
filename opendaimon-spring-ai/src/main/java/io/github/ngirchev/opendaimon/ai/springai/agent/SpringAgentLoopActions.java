@@ -18,6 +18,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
@@ -26,9 +27,13 @@ import org.springframework.ai.tool.ToolCallback;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +50,15 @@ import java.util.stream.Collectors;
 public class SpringAgentLoopActions implements AgentLoopActions {
 
     private static final int MEMORY_RECALL_TOP_K = 5;
+    private static final Set<String> TOOL_NAMES = Set.of("http_get", "http_post", "web_search", "fetch_url");
+    private static final String UNKNOWN_TOOL_NAME = "unknown_tool";
+    private static final Pattern TOOL_NAME_TAG_PATTERN =
+            Pattern.compile("(?is)<tool_name>\\s*([^<\\s][^<]*)\\s*</tool_name>");
+    private static final Pattern ARG_PAIR_PATTERN =
+            Pattern.compile("(?is)<arg_key>\\s*(.*?)\\s*</arg_key>\\s*<arg_value>\\s*(.*?)\\s*</arg_value>");
+    private static final Pattern KEY_VALUE_LINE_PATTERN =
+            Pattern.compile("(?m)^\\s*([a-zA-Z0-9_.-]+)\\s*=\\s*(.+?)\\s*$");
+    private static final Pattern HTTP_URL_PATTERN = Pattern.compile("(?i)https?://\\S+");
 
     private final ChatModel chatModel;
     private final ToolCallingManager toolCallingManager;
@@ -140,20 +154,37 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 ctx.setCurrentToolArguments(firstToolCall.arguments());
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
+                if (output != null) {
+                    messages.add(output);
+                }
             } else {
-                String text = stripThinkTags(rawOutputText);
-                ctx.setCurrentThought("Final answer ready");
-                ctx.setCurrentTextResponse(text);
-                log.info("Agent think: final answer, length={}, content='{}'",
-                        text != null ? text.length() : 0,
-                        normalizeForLog(text));
-                if (looksLikeToolCallPayload(text)) {
-                    log.warn("Agent think: final answer looks like raw tool payload, iteration={}, content='{}'",
-                            ctx.getCurrentIteration(), normalizeForLog(text));
+                String text = sanitizeFinalAnswerText(rawOutputText);
+                RecoveredToolCall recoveredToolCall = recoverToolCallFromText(text);
+                if (recoveredToolCall != null) {
+                    ChatResponse recoveredResponse =
+                            buildRecoveredToolCallResponse(response, text, recoveredToolCall, ctx.getCurrentIteration());
+                    ctx.putExtra(KEY_LAST_RESPONSE, recoveredResponse);
+                    ctx.setCurrentThought("Calling tool: " + recoveredToolCall.toolName());
+                    ctx.setCurrentToolName(recoveredToolCall.toolName());
+                    ctx.setCurrentToolArguments(recoveredToolCall.argumentsJson());
+                    log.warn("Agent think: recovered tool call from mixed output, tool={}, args={}, leadingText='{}'",
+                            recoveredToolCall.toolName(),
+                            recoveredToolCall.argumentsJson(),
+                            normalizeForLog(recoveredToolCall.leadingText()));
+                    if (recoveredResponse.getResult() != null && recoveredResponse.getResult().getOutput() != null) {
+                        messages.add(recoveredResponse.getResult().getOutput());
+                    }
+                } else {
+                    ctx.setCurrentThought("Final answer ready");
+                    ctx.setCurrentTextResponse(text);
+                    log.info("Agent think: final answer, length={}, content='{}'",
+                            text != null ? text.length() : 0,
+                            normalizeForLog(text));
+                    if (output != null) {
+                        messages.add(output);
+                    }
                 }
             }
-
-            messages.add(output);
 
         } catch (Exception e) {
             log.error("Agent think failed: {}", e.getMessage(), e);
@@ -414,6 +445,34 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         return (text.substring(0, start) + text.substring(end + "</think>".length())).trim();
     }
 
+    static String sanitizeFinalAnswerText(String text) {
+        String withoutThinking = stripThinkTags(text);
+        if (withoutThinking == null) {
+            return null;
+        }
+        return withoutThinking.trim();
+    }
+
+    private ChatResponse buildRecoveredToolCallResponse(ChatResponse sourceResponse,
+                                                        String rawOutputText,
+                                                        RecoveredToolCall recoveredToolCall,
+                                                        int iteration) {
+        String toolCallId = "recovered-tool-call-" + iteration;
+        AssistantMessage recoveredAssistantMessage = AssistantMessage.builder()
+                .content(rawOutputText)
+                .toolCalls(List.of(new AssistantMessage.ToolCall(
+                        toolCallId,
+                        "function",
+                        recoveredToolCall.toolName(),
+                        recoveredToolCall.argumentsJson())))
+                .build();
+
+        return ChatResponse.builder()
+                .metadata(sourceResponse.getMetadata())
+                .generations(List.of(new Generation(recoveredAssistantMessage)))
+                .build();
+    }
+
     /**
      * Loads prior conversation turns from {@link ChatMemory} and appends them
      * between the system prompt and the current user message. Skips any
@@ -475,17 +534,168 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         return history;
     }
 
-    private static boolean looksLikeToolCallPayload(String text) {
-        if (text == null || text.isBlank()) {
-            return false;
+    static RecoveredToolCall recoverToolCallFromText(String text) {
+        if (text == null || text.isBlank() || !containsToolPayloadMarkers(text)) {
+            return null;
         }
+        String toolName = extractToolName(text);
+        if (toolName == null || toolName.isBlank()) {
+            toolName = UNKNOWN_TOOL_NAME;
+        }
+        String argumentsJson = extractToolArgumentsJson(text, toolName);
+        String leadingText = extractUserTextBeforeToolPayload(text);
+        return new RecoveredToolCall(toolName, argumentsJson, leadingText);
+    }
+
+    static boolean containsToolPayloadMarkers(String text) {
+        return findFirstToolPayloadIndex(text) >= 0;
+    }
+
+    static String extractUserTextBeforeToolPayload(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        int markerIndex = findFirstToolPayloadIndex(text);
+        String candidate = markerIndex >= 0 ? text.substring(0, markerIndex) : text;
+        return candidate.trim();
+    }
+
+    static int findFirstToolPayloadIndex(String text) {
+        if (text == null || text.isBlank()) {
+            return -1;
+        }
+        int firstIndex = Integer.MAX_VALUE;
         String lowered = text.toLowerCase(Locale.ROOT);
-        return lowered.contains("<tool_call")
-                || lowered.contains("</tool_call>")
-                || lowered.contains("<arg_key>")
-                || lowered.contains("<arg_value>")
-                || lowered.contains("<tool_name>")
-                || lowered.contains("</tool_name>");
+        String[] markers = {
+                "<tool_call",
+                "</tool_call>",
+                "<arg_key>",
+                "</arg_key>",
+                "<arg_value>",
+                "</arg_value>",
+                "<tool_name>",
+                "</tool_name>"
+        };
+        for (String marker : markers) {
+            int markerIndex = lowered.indexOf(marker);
+            if (markerIndex >= 0 && markerIndex < firstIndex) {
+                firstIndex = markerIndex;
+            }
+        }
+
+        int standaloneToolLineIndex = findFirstStandaloneToolLineIndex(lowered);
+        if (standaloneToolLineIndex >= 0 && standaloneToolLineIndex < firstIndex) {
+            firstIndex = standaloneToolLineIndex;
+        }
+
+        return firstIndex == Integer.MAX_VALUE ? -1 : firstIndex;
+    }
+
+    private static int findFirstStandaloneToolLineIndex(String loweredText) {
+        int offset = 0;
+        for (String rawLine : loweredText.split("\n", -1)) {
+            String line = rawLine.endsWith("\r") ? rawLine.substring(0, rawLine.length() - 1) : rawLine;
+            if (TOOL_NAMES.contains(line.trim())) {
+                return offset;
+            }
+            offset += rawLine.length() + 1;
+        }
+        return -1;
+    }
+
+    private static String extractToolName(String text) {
+        Matcher toolNameMatcher = TOOL_NAME_TAG_PATTERN.matcher(text);
+        if (toolNameMatcher.find()) {
+            return toolNameMatcher.group(1).trim().toLowerCase(Locale.ROOT);
+        }
+        for (String line : text.lines().toList()) {
+            String trimmed = line.trim().toLowerCase(Locale.ROOT);
+            if (TOOL_NAMES.contains(trimmed)) {
+                return trimmed;
+            }
+        }
+        return null;
+    }
+
+    private static String extractToolArgumentsJson(String text, String toolName) {
+        Map<String, String> arguments = new LinkedHashMap<>();
+
+        Matcher argPairMatcher = ARG_PAIR_PATTERN.matcher(text);
+        while (argPairMatcher.find()) {
+            String key = argPairMatcher.group(1) != null ? argPairMatcher.group(1).trim() : "";
+            String value = argPairMatcher.group(2) != null ? argPairMatcher.group(2).trim() : "";
+            if (!key.isBlank() && !value.isBlank()) {
+                arguments.put(key, value);
+            }
+        }
+
+        if (arguments.isEmpty()) {
+            Matcher keyValueMatcher = KEY_VALUE_LINE_PATTERN.matcher(text);
+            while (keyValueMatcher.find()) {
+                String key = keyValueMatcher.group(1) != null ? keyValueMatcher.group(1).trim() : "";
+                String value = keyValueMatcher.group(2) != null ? keyValueMatcher.group(2).trim() : "";
+                if (!key.isBlank() && !value.isBlank()) {
+                    arguments.put(key, value);
+                }
+            }
+        }
+
+        if (arguments.isEmpty()) {
+            String extractedUrl = extractFirstHttpUrl(text);
+            if (extractedUrl != null) {
+                arguments.put(defaultArgumentKey(toolName), extractedUrl);
+            }
+        }
+
+        return toJsonObject(arguments);
+    }
+
+    private static String extractFirstHttpUrl(String text) {
+        Matcher matcher = HTTP_URL_PATTERN.matcher(text);
+        if (matcher.find()) {
+            return matcher.group();
+        }
+        return null;
+    }
+
+    private static String defaultArgumentKey(String toolName) {
+        if ("web_search".equals(toolName)) {
+            return "query";
+        }
+        return "url";
+    }
+
+    private static String toJsonObject(Map<String, String> values) {
+        if (values == null || values.isEmpty()) {
+            return "{}";
+        }
+        StringBuilder json = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            if (!first) {
+                json.append(",");
+            }
+            first = false;
+            json.append("\"")
+                    .append(escapeJson(entry.getKey()))
+                    .append("\":\"")
+                    .append(escapeJson(entry.getValue()))
+                    .append("\"");
+        }
+        json.append("}");
+        return json.toString();
+    }
+
+    private static String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     private static String normalizeForLog(String text) {
@@ -493,5 +703,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             return "null";
         }
         return text.replace("\r", "\\r").replace("\n", "\\n");
+    }
+
+    static final record RecoveredToolCall(String toolName, String argumentsJson, String leadingText) {
     }
 }

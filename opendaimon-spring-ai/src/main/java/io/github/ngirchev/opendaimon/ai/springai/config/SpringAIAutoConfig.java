@@ -355,13 +355,11 @@ public class SpringAIAutoConfig {
     }
 
     @Bean
-    @Profile({"dev", "local"})
     public RestClientCustomizer restClientWithAdditionalLogs(ObjectMapper objectMapper) {
         return new RestClientLogCustomizer(objectMapper);
     }
 
     @Bean
-    @Profile({"dev", "local"})
     public WebClientCustomizer webClientWithAdditionalLogs(ObjectProvider<ObjectMapper> objectMapperProvider) {
         return new WebClientLogCustomizer(objectMapperProvider.getIfAvailable(ObjectMapper::new));
     }

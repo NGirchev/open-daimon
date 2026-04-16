@@ -31,7 +31,6 @@ import static org.springframework.web.reactive.function.client.WebClient.Builder
 @Slf4j
 public class WebClientLogCustomizer implements WebClientCustomizer {
 
-    private static final int MAX_ERROR_BODY_CHARS = 4_000;
     private static final int MAX_METADATA_VALUE_LENGTH = 500;
     private static final int BASE64_TRUNCATE_THRESHOLD = 200;
 
@@ -52,12 +51,8 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
 
     private ExchangeFilterFunction logRequestsToKnownAiBackends() {
         return (request, next) -> {
-            if (!log.isDebugEnabled()) {
-                return next.exchange(request);
-            }
-
             long startNs = System.nanoTime();
-            ClientRequest requestWithBodyLogging = decorateRequestBodyLoggingIfDebug(request);
+            ClientRequest requestWithBodyLogging = decorateRequestBodyLogging(request);
             return next.exchange(requestWithBodyLogging)
                     .flatMap(response -> logAndBufferErrorsIfNeeded(requestWithBodyLogging, response, startNs));
         };
@@ -71,24 +66,33 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
             return response.bodyToMono(String.class)
                     .defaultIfEmpty("")
                     .map(body -> {
-                        log.error("HTTP <- {} {} status={} latencyMs={} body={}",
+                        log.error("HTTP <- {} {} status={} latencyMs={} RESPONSE RAW:\n{}",
                                 request.method(),
                                 request.url(),
                                 status,
                                 latencyMs,
-                                truncate(body));
+                                body);
                         return ClientResponse.from(response).body(body).build();
                     });
         }
 
         // OpenRouter SSE: collect reasoning and metadata from raw response.
-        log.debug("OpenRouter SSE response: sniffing reasoning");
+        log.debug("HTTP <- {} {} status={} latencyMs={} RESPONSE RAW: streaming started",
+                request.method(), request.url(), status, latencyMs);
         StringBuilder reasoningBuffer = new StringBuilder();
         Map<String, String> rawMetadata = new LinkedHashMap<>();
         AtomicReference<String> carry = new AtomicReference<>(null);
         return Mono.just(response.mutate()
                 .body(dataBuffers -> dataBuffers
-                        .doOnNext(dataBuffer -> collectReasoningAndMetadata(dataBuffer, reasoningBuffer, carry, rawMetadata))
+                        .doOnNext(dataBuffer -> {
+                            String chunk = asUtf8(dataBuffer);
+                            if (chunk == null || chunk.isEmpty()) {
+                                return;
+                            }
+                            log.debug("HTTP <- {} {} status={} RESPONSE RAW CHUNK:\n{}",
+                                    request.method(), request.url(), status, chunk);
+                            collectReasoningAndMetadata(chunk, reasoningBuffer, carry, rawMetadata);
+                        })
                         .doFinally(signalType -> {
                             String reasoningText = reasoningBuffer.toString();
                             if (!reasoningText.isEmpty()) {
@@ -112,23 +116,8 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
      * 2026-02-19 22:55:56.836 [boundedElastic-1] INFO  r.g.a.a.s.s.SpringAIChatService - Spring AI stream completed
      * 2026-02-19 22:55:56.836 [boundedElastic-1] INFO  r.g.a.a.s.r.m.OpenRouterStreamMetricsTracker - OpenRouter stream completed. model=openrouter/auto, durationMs=4839
      */
-    private void collectReasoningAndMetadata(DataBuffer dataBuffer, StringBuilder reasoningBuffer,
+    private void collectReasoningAndMetadata(String chunk, StringBuilder reasoningBuffer,
                                               AtomicReference<String> carry, Map<String, String> rawMetadata) {
-        if (dataBuffer == null) {
-            return;
-        }
-        String chunk;
-        try {
-            ByteBuffer byteBuffer = dataBuffer.asByteBuffer().asReadOnlyBuffer();
-            if (!byteBuffer.hasRemaining()) {
-                return;
-            }
-            byte[] bytes = new byte[byteBuffer.remaining()];
-            byteBuffer.get(bytes);
-            chunk = new String(bytes, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return;
-        }
         if (chunk.isBlank()) {
             return;
         }
@@ -212,7 +201,7 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
         }
     }
 
-    private ClientRequest decorateRequestBodyLoggingIfDebug(ClientRequest request) {
+    private ClientRequest decorateRequestBodyLogging(ClientRequest request) {
         var originalInserter = request.body();
         var loggingInserter = new BodyInserter<Object, ClientHttpRequest>() {
             @Override
@@ -263,18 +252,18 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
     }
 
     private void logRequestBodyIfAny(ClientRequest request, ByteArrayOutputStream captured) {
-        if (!log.isDebugEnabled()) {
-            return;
-        }
-        if (captured == null || captured.size() == 0) {
-            return;
-        }
-        String body = captured.toString(StandardCharsets.UTF_8);
-        String formattedBody = formatBodyForLogs(body, request.headers().getFirst("Content-Type"));
-        log.debug("HTTP -> {} {} REQUEST BODY:\n{}",
+        String body = captured != null ? captured.toString(StandardCharsets.UTF_8) : "";
+        log.debug("HTTP -> {} {} REQUEST BODY RAW:\n{}",
                 request.method(),
                 request.url(),
-                formattedBody);
+                body);
+        if (log.isDebugEnabled() && body != null && !body.isBlank()) {
+            String formattedBody = formatBodyForLogs(body, request.headers().getFirst("Content-Type"));
+            log.debug("HTTP -> {} {} REQUEST BODY (formatted):\n{}",
+                    request.method(),
+                    request.url(),
+                    formattedBody);
+        }
     }
 
     private String formatBodyForLogs(String body, String contentType) {
@@ -333,14 +322,21 @@ public class WebClientLogCustomizer implements WebClientCustomizer {
         return true;
     }
 
-    private String truncate(String body) {
-        if (body == null) {
+    private String asUtf8(DataBuffer dataBuffer) {
+        if (dataBuffer == null) {
             return null;
         }
-        if (body.length() <= MAX_ERROR_BODY_CHARS) {
-            return body;
+        try {
+            ByteBuffer byteBuffer = dataBuffer.asByteBuffer().asReadOnlyBuffer();
+            if (!byteBuffer.hasRemaining()) {
+                return null;
+            }
+            byte[] bytes = new byte[byteBuffer.remaining()];
+            byteBuffer.get(bytes);
+            return new String(bytes, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return null;
         }
-        return body.substring(0, MAX_ERROR_BODY_CHARS) + "...(truncated)";
     }
 
     /**

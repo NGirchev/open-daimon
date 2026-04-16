@@ -102,6 +102,17 @@ If `springAiProperties.mock = true` → return mock response immediately, no mod
 Web tools (`WebTools` / Serper) are attached to the prompt when:
 - command requests `WEB` in **required** (`modelCapabilities`) or **optional** (`optionalCapabilities`).
 
+### Agent final-answer post-processing
+- ReAct and SIMPLE agent executors normalize final text with shared post-processing:
+  - strip `<think>...</think>` blocks from model output
+  - trim final text before terminal event emission
+- ReAct loop supports mixed payload recovery when provider returns tool intent as plain text (without structured `tool_calls`):
+  - detects tool payload markers (`<tool_call>`, `<arg_key>`, standalone `http_get`/`web_search` lines)
+  - recovers tool name + arguments from text
+  - builds synthetic `ChatResponse` with `AssistantMessage.toolCalls`
+  - continues normal `ToolCallingManager.executeToolCalls(...)` path and next think iteration
+- SIMPLE strategy remains non-agentic; if final text still looks like raw tool payload, it emits `ERROR` (`raw_tool_payload_in_final_answer`) instead of `FINAL_ANSWER`.
+
 ---
 
 ## RAG Branching
@@ -162,6 +173,19 @@ Intercepts `callChat()` and `streamChat()`. Retries across candidates on retryab
 - Ollama does **not** expose a separate reasoning token limit in the API (thinking and answer share one generation budget).
 - `num_predict` is set to **`max_tokens + reasoning_budget`** when a reasoning budget is resolved and thinking is **not** explicitly disabled (`SpringAIModelConfig.think: false`). Otherwise `num_predict = max_tokens` only.
 - This mirrors the intent of `max-reasoning-tokens`: reserve headroom so a thinking trace does not consume the entire `num_predict` before `message.content` is filled.
+
+---
+
+## Raw HTTP Logging (Requests/Responses)
+
+- Raw request and response bodies for AI HTTP clients are logged by:
+  - `RestClientLogCustomizer` (non-stream / RestClient path, e.g. Ollama calls)
+  - `WebClientLogCustomizer` (streaming / WebClient path, e.g. OpenRouter/OpenAI calls)
+- Logging is emitted at `DEBUG` level for raw payloads:
+  - `HTTP -> ... REQUEST BODY RAW`
+  - `HTTP <- ... RESPONSE BODY RAW` (or `RESPONSE RAW CHUNK` for streaming)
+- Streaming responses are logged chunk-by-chunk to preserve provider raw SSE payload.
+- Additional pretty JSON formatting is emitted at `DEBUG` when parsing is possible.
 
 ---
 

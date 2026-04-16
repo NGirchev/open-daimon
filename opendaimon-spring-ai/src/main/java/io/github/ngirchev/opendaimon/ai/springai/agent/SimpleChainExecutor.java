@@ -67,8 +67,14 @@ public class SimpleChainExecutor implements AgentExecutor {
             ChatResponse response = chatModel.call(prompt);
             response.getResult();
             String rawText = response.getResult().getOutput().getText();
-            String answer = SpringAgentLoopActions.stripThinkTags(rawText);
+            String answer = SpringAgentLoopActions.sanitizeFinalAnswerText(rawText);
             String modelName = response.getMetadata().getModel();
+
+            if (SpringAgentLoopActions.containsToolPayloadMarkers(answer)) {
+                log.warn("SimpleChain completed with raw tool payload in final answer, model={}", modelName);
+                return new AgentResult(null, List.of(), AgentState.FAILED, 0,
+                        Duration.between(start, Instant.now()), modelName);
+            }
 
             saveConversationHistory(request, answer);
 
@@ -115,13 +121,16 @@ public class SimpleChainExecutor implements AgentExecutor {
                     sink.tryEmitNext(AgentStreamEvent.thinking(reasoning, 0));
                 }
 
-                String answer = SpringAgentLoopActions.stripThinkTags(rawText);
+                String answer = SpringAgentLoopActions.sanitizeFinalAnswerText(rawText);
                 saveConversationHistory(request, answer);
 
                 if (modelName != null) {
                     sink.tryEmitNext(AgentStreamEvent.metadata(modelName, 0));
                 }
-                if (answer != null && !answer.isBlank()) {
+                if (SpringAgentLoopActions.containsToolPayloadMarkers(answer)) {
+                    sink.tryEmitNext(AgentStreamEvent.error(
+                            "SimpleChain: raw_tool_payload_in_final_answer", 0));
+                } else if (answer != null && !answer.isBlank()) {
                     sink.tryEmitNext(AgentStreamEvent.finalAnswer(answer, 0));
                 } else {
                     sink.tryEmitNext(AgentStreamEvent.error("SimpleChain: empty response", 0));

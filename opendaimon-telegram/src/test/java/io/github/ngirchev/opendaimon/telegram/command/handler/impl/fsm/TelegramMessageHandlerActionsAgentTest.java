@@ -37,6 +37,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -139,6 +140,28 @@ class TelegramMessageHandlerActionsAgentTest {
 
         assertThat(ctx.getResponseText()).isPresent();
         assertThat(ctx.getResponseText().get()).isEqualTo("Partial answer so far...");
+        assertThat(ctx.getErrorType()).isNull();
+    }
+
+    @Test
+    @DisplayName("generateResponse recovers partial answer from mixed MAX_ITERATIONS payload")
+    void generateResponse_maxIterationsContainsMixedPayload_recoversPartialAnswer() {
+        MessageHandlerContext ctx = createContextWithMetadata("Complex task");
+
+        String payload = """
+                Я нашел ключевые различия и могу продолжить.
+                web_search
+                <arg_key>query</arg_key>
+                <arg_value>Spring Boot vs Quarkus benchmark 2026</arg_value>
+                </tool_call>
+                """;
+
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.maxIterations(payload, 10));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        assertThat(ctx.getResponseText()).hasValue("Я нашел ключевые различия и могу продолжить.");
         assertThat(ctx.getErrorType()).isNull();
     }
 
@@ -300,6 +323,58 @@ class TelegramMessageHandlerActionsAgentTest {
         verify(messageSender).deleteMessage(42L, 700);
         assertThat(ctx.getAgentProgressMessageId()).isNull();
         assertThat(ctx.getResponseText()).hasValue("Done.");
+    }
+
+    @Test
+    @DisplayName("generateResponse recovers user text from mixed FINAL_ANSWER payload and keeps success path")
+    void generateResponse_finalAnswerContainsMixedToolPayload_recoversUserText() {
+        MessageHandlerContext ctx = createContextWithMetadata("Compare Quarkus and Spring Boot",
+                Set.of(ModelCapabilities.AUTO), s -> {});
+
+        String payload = """
+                Я получил доступ к двум статьям с полезной информацией.
+                Теперь у меня есть достаточно данных, чтобы дать полноценный ответ.
+                http_get
+                <arg_key>url</arg_key>
+                <arg_value>https://azeynalli1990.medium.com/quarkus-versus-spring-full-comparison-f294803332d0</arg_value>
+                </tool_call>
+                """;
+
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer(payload, 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        assertThat(ctx.getResponseText())
+                .hasValue("Я получил доступ к двум статьям с полезной информацией.\n" +
+                        "Теперь у меня есть достаточно данных, чтобы дать полноценный ответ.");
+        assertThat(ctx.getErrorType()).isNull();
+        assertThat(ctx.getResponseError()).isEmpty();
+        verify(messageSender).sendHtml(eq(42L), any(), isNull());
+    }
+
+    @Test
+    @DisplayName("generateResponse keeps EMPTY_RESPONSE for pure raw tool payload")
+    void generateResponse_finalAnswerContainsPureToolPayload_setsEmptyResponseError() {
+        MessageHandlerContext ctx = createContextWithMetadata("Compare Quarkus and Spring Boot",
+                Set.of(ModelCapabilities.AUTO), s -> {});
+
+        String payload = """
+                http_get
+                <arg_key>url</arg_key>
+                <arg_value>https://azeynalli1990.medium.com/quarkus-versus-spring-full-comparison-f294803332d0</arg_value>
+                </tool_call>
+                """;
+
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer(payload, 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        assertThat(ctx.getResponseText()).isEmpty();
+        assertThat(ctx.getErrorType()).isEqualTo(MessageHandlerErrorType.EMPTY_RESPONSE);
+        assertThat(ctx.getResponseError()).hasValue("raw_tool_payload_in_final_answer");
+        verify(messageSender, never()).sendHtml(eq(42L), any(), isNull());
     }
 
     @Test
