@@ -149,8 +149,10 @@ Evaluated in order — first match wins:
 2. Executes `agentExecutor.executeStream(request)`
 3. Intermediate events (`THINKING`, `TOOL_CALL`, `OBSERVATION`, `ERROR`) are rendered to HTML and delivered as:
    - first event → `sendMessageAndGetId(..., replyTo=<user message>)` with link previews disabled
-   - next events → `editMessageHtml(...)` on the same progress message, appending new progress blocks to existing content and keeping link previews disabled
+   - `THINKING` is transient: it is shown while the agent is reasoning, then replaced/removed before persistent progress is appended
+   - `TOOL_CALL`/`OBSERVATION`/`ERROR` are persistent: they are appended via `editMessageHtml(...)` on the same progress message with link previews disabled
 4. `METADATA` event updates response model in context (not sent as chat text)
+   - if only transient `THINKING` blocks were shown and a terminal event arrives (`FINAL_ANSWER`/`MAX_ITERATIONS`), the temporary progress message is deleted
 5. `FINAL_ANSWER`/`MAX_ITERATIONS` content is sent as a separate Telegram message (not message edit), as a reply to the original user message
 6. Assistant response is persisted in DB; keyboard status is sent afterwards
 

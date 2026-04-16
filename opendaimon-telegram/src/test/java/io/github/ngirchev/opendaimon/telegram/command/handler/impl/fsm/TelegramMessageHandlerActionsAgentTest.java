@@ -258,10 +258,10 @@ class TelegramMessageHandlerActionsAgentTest {
         verify(messageSender, org.mockito.Mockito.times(2))
                 .editHtml(eq(42L), eq(700), editedProgress.capture(), eq(true));
         assertThat(editedProgress.getAllValues().get(0))
-                .contains("Thinking")
+                .doesNotContain("Thinking")
                 .contains("web_search");
         assertThat(editedProgress.getAllValues().get(1))
-                .contains("Thinking")
+                .doesNotContain("Thinking")
                 .contains("web_search")
                 .contains("$50,000");
 
@@ -270,6 +270,36 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
         assertThat(ctx.isAlreadySentInStream()).isTrue();
         assertThat(ctx.getAgentProgressMessageId()).isEqualTo(700);
+    }
+
+    @Test
+    @DisplayName("generateResponse removes transient thinking progress when final answer arrives without tools")
+    void generateResponse_thinkingOnlyProgress_isDeletedOnFinalAnswer() {
+        MessageHandlerContext ctx = createContextWithMetadata("Answer directly",
+                Set.of(ModelCapabilities.CHAT), s -> {}, 101);
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true))).thenReturn(700);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.thinking("Analyzing request", 0),
+                AgentStreamEvent.finalAnswer("Done.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        ArgumentCaptor<String> firstProgress = ArgumentCaptor.forClass(String.class);
+        verify(messageSender).sendHtmlAndGetId(eq(42L), firstProgress.capture(), eq(101), eq(true));
+        assertThat(firstProgress.getValue()).contains("Thinking");
+
+        ArgumentCaptor<String> editedProgress = ArgumentCaptor.forClass(String.class);
+        verify(messageSender).editHtml(eq(42L), eq(700), editedProgress.capture(), eq(true));
+        assertThat(editedProgress.getValue())
+                .contains("Analyzing request")
+                .doesNotContain("Thinking...");
+
+        verify(messageSender).deleteMessage(42L, 700);
+        assertThat(ctx.getAgentProgressMessageId()).isNull();
+        assertThat(ctx.getResponseText()).hasValue("Done.");
     }
 
     @Test

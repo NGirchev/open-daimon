@@ -2,6 +2,7 @@ package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
 
 import io.github.ngirchev.fsm.StateContext;
 import io.github.ngirchev.fsm.Transition;
+import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
@@ -75,7 +76,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private boolean alreadySentInStream;
     private String responseModel;
     private Integer agentProgressMessageId;
-    private final List<String> agentProgressChunks = new ArrayList<>();
+    private final List<AgentProgressChunk> agentProgressChunks = new ArrayList<>();
 
     // --- Error handling ---
     private Exception exception;
@@ -289,26 +290,97 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.agentProgressMessageId = agentProgressMessageId;
     }
 
-    /**
-     * Appends a new HTML chunk to the progress message body and returns
-     * the complete HTML that should be sent via editMessageText.
-     * If the resulting text exceeds maxLength, oldest chunks are dropped.
-     */
-    public String appendAgentProgressChunk(String htmlChunk, int maxLength) {
-        if (htmlChunk == null || htmlChunk.isBlank()) {
-            return buildProgressHtml();
+    public AgentProgressUpdate mergeAgentProgressEvent(AgentStreamEvent event, String htmlChunk, int maxLength) {
+        if (event == null) {
+            return new AgentProgressUpdate(buildProgressHtml(), false);
         }
-        agentProgressChunks.add(htmlChunk);
+
+        boolean changed = switch (event.type()) {
+            case THINKING -> upsertThinkingChunk(event.iteration(), htmlChunk);
+            case TOOL_CALL, OBSERVATION, ERROR -> {
+                boolean removedTransient = removeTransientChunks();
+                boolean appended = appendPersistentChunk(event.type(), event.iteration(), htmlChunk);
+                yield removedTransient || appended;
+            }
+            case FINAL_ANSWER, MAX_ITERATIONS -> removeTransientChunks();
+            case METADATA -> false;
+        };
+
         String merged = buildProgressHtml();
         while (merged.length() > maxLength && agentProgressChunks.size() > 1) {
             agentProgressChunks.remove(0);
+            changed = true;
             merged = buildProgressHtml();
         }
-        return merged;
+        return new AgentProgressUpdate(merged, changed);
     }
 
     private String buildProgressHtml() {
-        return String.join("\n\n", agentProgressChunks);
+        return agentProgressChunks.stream()
+                .map(AgentProgressChunk::html)
+                .filter(text -> text != null && !text.isBlank())
+                .reduce((left, right) -> left + "\n\n" + right)
+                .orElse("");
+    }
+
+    private boolean upsertThinkingChunk(int iteration, String htmlChunk) {
+        if (htmlChunk == null || htmlChunk.isBlank()) {
+            return false;
+        }
+        for (int i = agentProgressChunks.size() - 1; i >= 0; i--) {
+            AgentProgressChunk chunk = agentProgressChunks.get(i);
+            if (chunk.eventType() == AgentStreamEvent.EventType.THINKING
+                    && chunk.iteration() == iteration
+                    && chunk.transientChunk()) {
+                if (chunk.html().equals(htmlChunk)) {
+                    return false;
+                }
+                agentProgressChunks.set(
+                        i,
+                        new AgentProgressChunk(
+                                AgentStreamEvent.EventType.THINKING,
+                                iteration,
+                                true,
+                                htmlChunk
+                        )
+                );
+                return true;
+            }
+        }
+        agentProgressChunks.add(
+                new AgentProgressChunk(
+                        AgentStreamEvent.EventType.THINKING,
+                        iteration,
+                        true,
+                        htmlChunk
+                )
+        );
+        return true;
+    }
+
+    private boolean appendPersistentChunk(AgentStreamEvent.EventType eventType, int iteration, String htmlChunk) {
+        if (htmlChunk == null || htmlChunk.isBlank()) {
+            return false;
+        }
+        agentProgressChunks.add(new AgentProgressChunk(eventType, iteration, false, htmlChunk));
+        return true;
+    }
+
+    private boolean removeTransientChunks() {
+        int before = agentProgressChunks.size();
+        agentProgressChunks.removeIf(AgentProgressChunk::transientChunk);
+        return before != agentProgressChunks.size();
+    }
+
+    private record AgentProgressChunk(AgentStreamEvent.EventType eventType,
+                                      int iteration,
+                                      boolean transientChunk,
+                                      String html) { }
+
+    public record AgentProgressUpdate(String html, boolean changed) {
+        public boolean isEmpty() {
+            return html == null || html.isBlank();
+        }
     }
 
     // --- Error handling ---

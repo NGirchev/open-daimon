@@ -14,6 +14,7 @@ import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
@@ -758,6 +759,14 @@ public class TelegramBot extends TelegramLongPollingBot {
             log.error("Error editing message", e);
             throw e;
         }
+    }
+
+    public void deleteMessage(Long chatId, Integer messageId) throws TelegramApiException {
+        if (messageId == null) {
+            log.warn("Message ID is null, cannot delete message for chat {}", chatId);
+            return;
+        }
+        execute(new DeleteMessage(chatId.toString(), messageId));
     }
 
     public void sendErrorMessage(Long chatId, String errorMessage) throws TelegramApiException {

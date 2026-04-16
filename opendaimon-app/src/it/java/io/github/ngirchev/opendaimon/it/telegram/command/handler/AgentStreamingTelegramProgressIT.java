@@ -119,6 +119,7 @@ class AgentStreamingTelegramProgressIT extends AbstractContainerIT {
                 .editMessageHtml(eq(CHAT_ID), eq(900), progressEdits.capture(), eq(true));
         assertThat(progressEdits.getAllValues()).isNotEmpty();
         assertThat(progressEdits.getAllValues().getLast())
+                .doesNotContain("Thinking")
                 .contains("web_search")
                 .contains("No result");
 
@@ -156,6 +157,47 @@ class AgentStreamingTelegramProgressIT extends AbstractContainerIT {
         assertThat(assistantMessages.getLast().getContent()).isEqualTo("Final answer for user.");
     }
 
+    @Test
+    @DisplayName("Agent streaming deletes progress message when it only contains transient thinking")
+    void streamingProgress_thinkingOnly_isDeletedBeforeFinalAnswer() throws TelegramApiException {
+        when(agentExecutor.executeStream(any())).thenReturn(Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.thinking("Analyzing request", 0),
+                AgentStreamEvent.finalAnswer("Final answer for user.", 0)
+        ));
+
+        TelegramCommand command = createMessageCommand(CHAT_ID, 100, "Скажи кратко");
+
+        messageHandler.handle(command);
+
+        verify(telegramBot, times(1))
+                .sendMessageAndGetId(eq(CHAT_ID), anyString(), eq(100), eq(true));
+        verify(telegramBot, atLeastOnce())
+                .editMessageHtml(eq(CHAT_ID), eq(900), contains("Analyzing request"), eq(true));
+        verify(telegramBot, times(1))
+                .deleteMessage(eq(CHAT_ID), eq(900));
+
+        boolean finalViaSendMessageAndGetId = false;
+        try {
+            verify(telegramBot, atLeastOnce())
+                    .sendMessageAndGetId(eq(CHAT_ID), contains("Final answer for user."), eq(100));
+            finalViaSendMessageAndGetId = true;
+        } catch (AssertionError ignored) {
+            // Final answer may be sent via sendMessage(...) instead.
+        }
+
+        boolean finalViaSendMessage = false;
+        try {
+            verify(telegramBot, atLeastOnce())
+                    .sendMessage(eq(CHAT_ID), contains("Final answer for user."), eq(100), isNull());
+            finalViaSendMessage = true;
+        } catch (AssertionError ignored) {
+            // Alternative path is sendMessageAndGetId(...)
+        }
+
+        assertThat(finalViaSendMessageAndGetId || finalViaSendMessage).isTrue();
+    }
+
     private void doNothingCompat() throws TelegramApiException {
         doNothing().when(telegramBot).showTyping(anyLong());
         doNothing().when(telegramBot).sendMessage(anyLong(), anyString(), any(), any(ReplyKeyboard.class));
@@ -163,6 +205,7 @@ class AgentStreamingTelegramProgressIT extends AbstractContainerIT {
         doNothing().when(telegramBot).sendErrorMessage(anyLong(), anyString(), any());
         doNothing().when(telegramBot).editMessageHtml(anyLong(), any(), anyString(), anyBoolean());
         doNothing().when(telegramBot).editMessageHtml(anyLong(), any(), anyString());
+        doNothing().when(telegramBot).deleteMessage(anyLong(), any());
     }
 
     private TelegramCommand createMessageCommand(Long chatId, int messageId, String text) {

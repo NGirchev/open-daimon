@@ -295,24 +295,39 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return;
         }
         String html = agentStreamRenderer.render(event);
-        if (html != null) {
-            Long chatId = ctx.getCommand().telegramId();
-            String progressHtml = ctx.appendAgentProgressChunk(html, telegramProperties.getMaxMessageLength());
-            Integer progressMessageId = ctx.getAgentProgressMessageId();
-            if (progressMessageId == null) {
-                Integer sentMessageId = messageSender.sendHtmlAndGetId(
-                        chatId, progressHtml, ctx.getNextReplyToMessageId(), true);
-                if (sentMessageId != null) {
-                    ctx.setAgentProgressMessageId(sentMessageId);
-                    ctx.clearNextReplyToMessageId();
-                    log.info("FSM agentStreamEvent: created progress message id={}", sentMessageId);
-                }
-            } else {
-                messageSender.editHtml(chatId, progressMessageId, progressHtml, true);
-                log.info("FSM agentStreamEvent: updated progress message id={}", progressMessageId);
+        MessageHandlerContext.AgentProgressUpdate progressUpdate = ctx.mergeAgentProgressEvent(
+                event,
+                html,
+                telegramProperties.getMaxMessageLength()
+        );
+        if (!progressUpdate.changed()) {
+            return;
+        }
+        Long chatId = ctx.getCommand().telegramId();
+        Integer progressMessageId = ctx.getAgentProgressMessageId();
+        if (progressUpdate.isEmpty()) {
+            if (progressMessageId != null) {
+                messageSender.deleteMessage(chatId, progressMessageId);
+                ctx.setAgentProgressMessageId(null);
+                log.info("FSM agentStreamEvent: deleted progress message id={}", progressMessageId);
             }
             ctx.setAlreadySentInStream(true);
+            return;
         }
+        String progressHtml = progressUpdate.html();
+        if (progressMessageId == null) {
+            Integer sentMessageId = messageSender.sendHtmlAndGetId(
+                    chatId, progressHtml, ctx.getNextReplyToMessageId(), true);
+            if (sentMessageId != null) {
+                ctx.setAgentProgressMessageId(sentMessageId);
+                ctx.clearNextReplyToMessageId();
+                log.info("FSM agentStreamEvent: created progress message id={}", sentMessageId);
+            }
+        } else {
+            messageSender.editHtml(chatId, progressMessageId, progressHtml, true);
+            log.info("FSM agentStreamEvent: updated progress message id={}", progressMessageId);
+        }
+        ctx.setAlreadySentInStream(true);
     }
 
     private void extractAgentResult(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {

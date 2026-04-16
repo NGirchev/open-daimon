@@ -99,6 +99,25 @@ public class TelegramMessageSender {
         }
     }
 
+    /**
+     * Deletes an existing message from Telegram chat.
+     */
+    public void deleteMessage(Long chatId, Integer messageId) {
+        TelegramBot bot = telegramBotProvider.getIfAvailable();
+        if (bot == null) {
+            log.warn("TelegramBot not available, cannot delete message in chatId={}", chatId);
+            return;
+        }
+        if (messageId == null) {
+            return;
+        }
+        try {
+            bot.deleteMessage(chatId, messageId);
+        } catch (TelegramApiException e) {
+            log.error("Failed to delete message {} in chatId={}: {}", messageId, chatId, e.getMessage());
+        }
+    }
+
     private void sendHtml(Long chatId, String htmlText, Integer replyToMessageId,
                           ReplyKeyboardMarkup keyboard) {
         TelegramBot bot = telegramBotProvider.getIfAvailable();
