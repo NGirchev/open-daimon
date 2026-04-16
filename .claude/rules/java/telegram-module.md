@@ -2,4 +2,6 @@
 paths:
   - "opendaimon-telegram/**"
 ---
-@opendaimon-telegram/TELEGRAM_MODULE.md
+# Telegram Module
+
+Before modifying Telegram module behavior, read `opendaimon-telegram/TELEGRAM_MODULE.md`.
