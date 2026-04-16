@@ -27,6 +27,7 @@ import org.springframework.ai.tool.ToolCallback;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -122,6 +123,10 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             response.getResult();
 
             var output = response.getResult().getOutput();
+            String rawOutputText = output != null ? output.getText() : null;
+            log.info("Agent think: raw output text, length={}, content='{}'",
+                    rawOutputText != null ? rawOutputText.length() : 0,
+                    normalizeForLog(rawOutputText));
 
             if (response.hasToolCalls()) {
                 var toolCalls = output.getToolCalls();
@@ -136,11 +141,16 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
             } else {
-                String text = stripThinkTags(output.getText());
+                String text = stripThinkTags(rawOutputText);
                 ctx.setCurrentThought("Final answer ready");
                 ctx.setCurrentTextResponse(text);
-                log.info("Agent think: final answer, length={}",
-                        text != null ? text.length() : 0);
+                log.info("Agent think: final answer, length={}, content='{}'",
+                        text != null ? text.length() : 0,
+                        normalizeForLog(text));
+                if (looksLikeToolCallPayload(text)) {
+                    log.warn("Agent think: final answer looks like raw tool payload, iteration={}, content='{}'",
+                            ctx.getCurrentIteration(), normalizeForLog(text));
+                }
             }
 
             messages.add(output);
@@ -179,8 +189,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 messages.add(lastMsg);
             }
 
-            log.info("Agent executeTool: completed, observation length={}",
-                    observation != null ? observation.length() : 0);
+            log.info("Agent executeTool: completed, observation length={}, observation='{}'",
+                    observation != null ? observation.length() : 0,
+                    normalizeForLog(observation));
 
         } catch (Exception e) {
             log.error("Agent executeTool failed: tool={}, error={}",
@@ -219,8 +230,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         saveConversationHistory(ctx);
         extractFacts(ctx);
         cleanup(ctx);
-        log.info("Agent answer: final answer set, length={}",
-                ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0);
+        log.info("Agent answer: final answer set, length={}, content='{}'",
+                ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0,
+                normalizeForLog(ctx.getFinalAnswer()));
     }
 
     @Override
@@ -461,5 +473,25 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             ctx.putExtra(KEY_CONVERSATION_HISTORY, history);
         }
         return history;
+    }
+
+    private static boolean looksLikeToolCallPayload(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String lowered = text.toLowerCase(Locale.ROOT);
+        return lowered.contains("<tool_call")
+                || lowered.contains("</tool_call>")
+                || lowered.contains("<arg_key>")
+                || lowered.contains("<arg_value>")
+                || lowered.contains("<tool_name>")
+                || lowered.contains("</tool_name>");
+    }
+
+    private static String normalizeForLog(String text) {
+        if (text == null) {
+            return "null";
+        }
+        return text.replace("\r", "\\r").replace("\n", "\\n");
     }
 }

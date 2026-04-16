@@ -43,6 +43,7 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -236,6 +237,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private void generateAgentResponse(MessageHandlerContext ctx) {
         TelegramCommand command = ctx.getCommand();
         Map<String, String> metadata = ctx.getMetadata();
+        Long chatId = command.telegramId();
 
         try {
             Set<ModelCapabilities> capabilities = ctx.getModelCapabilities();
@@ -262,12 +264,14 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
             extractAgentResult(ctx, lastEvent);
 
-            // Send final answer text via streaming sender, split by paragraphs
-            // to respect Telegram's max message length (same as gateway path).
+            // Final answer is sent as a separate Telegram message (not as an edit
+            // of the progress message).
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
-                log.info("FSM generateAgentResponse: sending final answer, textLength={}", answerText.length());
-                sendTextByParagraphs(answerText, ctx.getStreamingParagraphSender());
+                log.info("FSM generateAgentResponse: sending final answer, textLength={}, text='{}'",
+                        answerText.length(), normalizeForLog(answerText));
+                Integer finalReplyToMessageId = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
+                sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, finalReplyToMessageId));
                 ctx.setAlreadySentInStream(true);
             } else {
                 log.warn("FSM generateAgentResponse: no response text after extractAgentResult");
@@ -278,9 +282,10 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     }
 
     private void sendAgentEventToTelegram(MessageHandlerContext ctx, AgentStreamEvent event) {
-        log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}",
+        log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}, content='{}'",
                 event.type(), event.iteration(),
-                event.content() != null ? event.content().length() : 0);
+                event.content() != null ? event.content().length() : 0,
+                normalizeForLog(event.content()));
         // Capture model name from metadata event
         if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
             ctx.setResponseModel(event.content());
@@ -291,8 +296,21 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
         String html = agentStreamRenderer.render(event);
         if (html != null) {
-            log.info("FSM agentStreamEvent: sending rendered HTML, length={}", html.length());
-            ctx.getStreamingParagraphSender().accept(html);
+            Long chatId = ctx.getCommand().telegramId();
+            String progressHtml = ctx.appendAgentProgressChunk(html, telegramProperties.getMaxMessageLength());
+            Integer progressMessageId = ctx.getAgentProgressMessageId();
+            if (progressMessageId == null) {
+                Integer sentMessageId = messageSender.sendHtmlAndGetId(
+                        chatId, progressHtml, ctx.getNextReplyToMessageId(), true);
+                if (sentMessageId != null) {
+                    ctx.setAgentProgressMessageId(sentMessageId);
+                    ctx.clearNextReplyToMessageId();
+                    log.info("FSM agentStreamEvent: created progress message id={}", sentMessageId);
+                }
+            } else {
+                messageSender.editHtml(chatId, progressMessageId, progressHtml, true);
+                log.info("FSM agentStreamEvent: updated progress message id={}", progressMessageId);
+            }
             ctx.setAlreadySentInStream(true);
         }
     }
@@ -303,12 +321,16 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return;
         }
 
-        log.info("FSM generateAgentResponse: terminalEvent={}, iteration={}",
-                lastEvent.type(), lastEvent.iteration());
+        log.info("FSM generateAgentResponse: terminalEvent={}, iteration={}, content='{}'",
+                lastEvent.type(), lastEvent.iteration(), normalizeForLog(lastEvent.content()));
 
         if (lastEvent.type() == AgentStreamEvent.EventType.FINAL_ANSWER
                 && lastEvent.content() != null) {
             ctx.setResponseText(lastEvent.content());
+            if (looksLikeToolCallPayload(lastEvent.content())) {
+                log.warn("FSM generateAgentResponse: FINAL_ANSWER looks like raw tool payload, content='{}'",
+                        normalizeForLog(lastEvent.content()));
+            }
         } else if (lastEvent.type() == AgentStreamEvent.EventType.MAX_ITERATIONS
                 && lastEvent.content() != null) {
             ctx.setResponseText(lastEvent.content());
@@ -479,6 +501,26 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
         String separator = baseRole.endsWith(".") ? " " : ". ";
         return baseRole + separator + identityClause;
+    }
+
+    private static boolean looksLikeToolCallPayload(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String lowered = text.toLowerCase(Locale.ROOT);
+        return lowered.contains("<tool_call")
+                || lowered.contains("</tool_call>")
+                || lowered.contains("<arg_key>")
+                || lowered.contains("<arg_value>")
+                || lowered.contains("<tool_name>")
+                || lowered.contains("</tool_name>");
+    }
+
+    private static String normalizeForLog(String text) {
+        if (text == null) {
+            return "null";
+        }
+        return text.replace("\r", "\\r").replace("\n", "\\n");
     }
 
 }

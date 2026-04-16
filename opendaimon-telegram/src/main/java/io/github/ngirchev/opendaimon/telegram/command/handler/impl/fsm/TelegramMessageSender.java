@@ -48,8 +48,59 @@ public class TelegramMessageSender {
         sendHtml(chatId, htmlText, replyToMessageId, null);
     }
 
+    /**
+     * Sends an HTML-formatted message and returns Telegram message id.
+     */
+    public Integer sendHtmlAndGetId(Long chatId, String htmlText, Integer replyToMessageId) {
+        return sendHtmlAndGetId(chatId, htmlText, replyToMessageId, false);
+    }
+
+    /**
+     * Sends an HTML-formatted message and returns Telegram message id.
+     * Allows controlling Telegram link previews.
+     */
+    public Integer sendHtmlAndGetId(Long chatId, String htmlText, Integer replyToMessageId,
+                                    boolean disableWebPagePreview) {
+        TelegramBot bot = telegramBotProvider.getIfAvailable();
+        if (bot == null) {
+            log.warn("TelegramBot not available, cannot send message to chatId={}", chatId);
+            return null;
+        }
+
+        try {
+            return bot.sendMessageAndGetId(chatId, htmlText, replyToMessageId, disableWebPagePreview);
+        } catch (TelegramApiException e) {
+            log.error("Failed to send message to chatId={}: {}", chatId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Edits an existing message preserving HTML formatting.
+     */
+    public void editHtml(Long chatId, Integer messageId, String htmlText) {
+        editHtml(chatId, messageId, htmlText, false);
+    }
+
+    /**
+     * Edits an existing message preserving HTML formatting.
+     * Allows controlling Telegram link previews.
+     */
+    public void editHtml(Long chatId, Integer messageId, String htmlText, boolean disableWebPagePreview) {
+        TelegramBot bot = telegramBotProvider.getIfAvailable();
+        if (bot == null) {
+            log.warn("TelegramBot not available, cannot edit message in chatId={}", chatId);
+            return;
+        }
+        try {
+            bot.editMessageHtml(chatId, messageId, htmlText, disableWebPagePreview);
+        } catch (TelegramApiException e) {
+            log.error("Failed to edit message {} in chatId={}: {}", messageId, chatId, e.getMessage());
+        }
+    }
+
     private void sendHtml(Long chatId, String htmlText, Integer replyToMessageId,
-                           ReplyKeyboardMarkup keyboard) {
+                          ReplyKeyboardMarkup keyboard) {
         TelegramBot bot = telegramBotProvider.getIfAvailable();
         if (bot == null) {
             log.warn("TelegramBot not available, cannot send message to chatId={}", chatId);

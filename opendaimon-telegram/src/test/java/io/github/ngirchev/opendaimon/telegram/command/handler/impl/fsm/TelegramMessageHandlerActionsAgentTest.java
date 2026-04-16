@@ -2,8 +2,6 @@ package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
-import io.github.ngirchev.opendaimon.common.agent.AgentResult;
-import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -27,16 +25,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import reactor.core.publisher.Flux;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -235,11 +234,11 @@ class TelegramMessageHandlerActionsAgentTest {
     }
 
     @Test
-    @DisplayName("generateResponse sends intermediate events to Telegram via streamingParagraphSender")
+    @DisplayName("generateResponse appends intermediate events into one edited progress message")
     void generateResponse_withToolCalls_sendsIntermediateEvents() {
-        List<String> sentMessages = new ArrayList<>();
         MessageHandlerContext ctx = createContextWithMetadata("Search for Bitcoin price",
-                Set.of(ModelCapabilities.WEB), sentMessages::add);
+                Set.of(ModelCapabilities.WEB), s -> {});
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), isNull(), eq(true))).thenReturn(700);
 
         Flux<AgentStreamEvent> stream = Flux.just(
                 AgentStreamEvent.thinking(0),
@@ -251,15 +250,51 @@ class TelegramMessageHandlerActionsAgentTest {
 
         actions.generateResponse(ctx);
 
-        // 3 intermediate events + 1 final answer sent via streaming sender
-        assertThat(sentMessages).hasSize(4);
-        assertThat(sentMessages.get(0)).contains("Thinking");
-        assertThat(sentMessages.get(1)).contains("web_search");
-        assertThat(sentMessages.get(2)).contains("$50,000");
-        assertThat(sentMessages.get(3)).contains("Bitcoin is currently $50,000.");
+        ArgumentCaptor<String> firstProgress = ArgumentCaptor.forClass(String.class);
+        verify(messageSender).sendHtmlAndGetId(eq(42L), firstProgress.capture(), isNull(), eq(true));
+        assertThat(firstProgress.getValue()).contains("Thinking");
+
+        ArgumentCaptor<String> editedProgress = ArgumentCaptor.forClass(String.class);
+        verify(messageSender, org.mockito.Mockito.times(2))
+                .editHtml(eq(42L), eq(700), editedProgress.capture(), eq(true));
+        assertThat(editedProgress.getAllValues().get(0))
+                .contains("Thinking")
+                .contains("web_search");
+        assertThat(editedProgress.getAllValues().get(1))
+                .contains("Thinking")
+                .contains("web_search")
+                .contains("$50,000");
+
+        verify(messageSender).sendHtml(eq(42L), any(), isNull());
         assertThat(ctx.getResponseText()).hasValue("Bitcoin is currently $50,000.");
         assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
         assertThat(ctx.isAlreadySentInStream()).isTrue();
+        assertThat(ctx.getAgentProgressMessageId()).isEqualTo(700);
+    }
+
+    @Test
+    @DisplayName("generateResponse retries progress send with same replyTo when first send fails")
+    void generateResponse_whenFirstProgressSendFails_retriesWithSameReplyTo() {
+        MessageHandlerContext ctx = createContextWithMetadata("Search for Bitcoin price",
+                Set.of(ModelCapabilities.WEB), s -> {}, 101);
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true)))
+                .thenReturn(null)
+                .thenReturn(700);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
+                AgentStreamEvent.observation("Current price: $50,000", 0),
+                AgentStreamEvent.metadata("gpt-4o", 1),
+                AgentStreamEvent.finalAnswer("Bitcoin is currently $50,000.", 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        verify(messageSender, org.mockito.Mockito.times(2))
+                .sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true));
+        verify(messageSender).editHtml(eq(42L), eq(700), any(), eq(true));
+        assertThat(ctx.getAgentProgressMessageId()).isEqualTo(700);
     }
 
     private MessageHandlerContext createContextWithMetadata(String userText) {
@@ -273,14 +308,28 @@ class TelegramMessageHandlerActionsAgentTest {
     private MessageHandlerContext createContextWithMetadata(String userText,
                                                             Set<ModelCapabilities> capabilities,
                                                             java.util.function.Consumer<String> sender) {
+        return createContextWithMetadata(userText, capabilities, sender, null);
+    }
+
+    private MessageHandlerContext createContextWithMetadata(String userText,
+                                                            Set<ModelCapabilities> capabilities,
+                                                            java.util.function.Consumer<String> sender,
+                                                            Integer messageId) {
         TelegramCommand command = mock(TelegramCommand.class);
         when(command.userText()).thenReturn(userText);
+        when(command.telegramId()).thenReturn(42L);
+
+        Message message = null;
+        if (messageId != null) {
+            message = mock(Message.class);
+            when(message.getMessageId()).thenReturn(messageId);
+        }
 
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
         metadata.put(AICommand.USER_ID_FIELD, "42");
 
-        MessageHandlerContext ctx = new MessageHandlerContext(command, null, sender);
+        MessageHandlerContext ctx = new MessageHandlerContext(command, message, sender);
         ctx.setMetadata(metadata);
         if (capabilities != null) {
             ctx.setModelCapabilities(capabilities);

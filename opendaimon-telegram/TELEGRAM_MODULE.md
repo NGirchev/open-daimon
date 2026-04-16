@@ -141,6 +141,21 @@ Evaluated in order — first match wins:
 
 ---
 
+### UC-1B: Text message in agent mode (REACT/SIMPLE) with progress edits
+**Trigger:** `open-daimon.agent.enabled=true` and user sends plain text
+**Mapping:** `mapToTelegramTextCommand()` → `MESSAGE`, `stream=true`
+**Handler:** `MessageTelegramCommandHandler` via FSM action `generateAgentResponse()`
+1. Builds `AgentRequest` from message text + metadata (`threadKey`, role, language, preferred model)
+2. Executes `agentExecutor.executeStream(request)`
+3. Intermediate events (`THINKING`, `TOOL_CALL`, `OBSERVATION`, `ERROR`) are rendered to HTML and delivered as:
+   - first event → `sendMessageAndGetId(..., replyTo=<user message>)` with link previews disabled
+   - next events → `editMessageHtml(...)` on the same progress message, appending new progress blocks to existing content and keeping link previews disabled
+4. `METADATA` event updates response model in context (not sent as chat text)
+5. `FINAL_ANSWER`/`MAX_ITERATIONS` content is sent as a separate Telegram message (not message edit), as a reply to the original user message
+6. Assistant response is persisted in DB; keyboard status is sent afterwards
+
+---
+
 ### UC-1A: Telegram split input (text + forwarded/media) is coalesced
 **Trigger:** client sends two updates for one user intent:
 1) short text (e.g. "Что тут?")
