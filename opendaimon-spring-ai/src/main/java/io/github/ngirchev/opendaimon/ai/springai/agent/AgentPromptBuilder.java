@@ -18,6 +18,9 @@ public final class AgentPromptBuilder {
     private AgentPromptBuilder() {
     }
 
+    private static final int MAX_STEP_ACTION_INPUT_LENGTH = 600;
+    private static final int MAX_STEP_OBSERVATION_LENGTH = 1200;
+
     private static final String REACT_SYSTEM_PROMPT = """
             You are an AI agent that solves tasks step by step using available tools.
 
@@ -34,11 +37,30 @@ public final class AgentPromptBuilder {
             - If a tool returns an error, try an alternative approach
             """;
 
+    private static final String MAX_ITERATIONS_SYNTHESIS_SYSTEM_PROMPT = """
+            You are preparing the final user answer after an agent loop reached its iteration limit.
+
+            Important rules:
+            - Use only the provided collected steps and observations
+            - Do not call tools and do not output tool-call syntax
+            - Do not output debug logs, JSON dumps, or internal reasoning traces
+            - Be transparent when data is incomplete, but still provide the best possible answer
+            - Keep the answer concise and useful for the end user
+            """;
+
     /**
      * Builds the system prompt including ReAct instructions.
      */
     public static String buildSystemPrompt() {
         return REACT_SYSTEM_PROMPT;
+    }
+
+    /**
+     * Builds a dedicated system prompt for the final synthesis pass when
+     * the agent reached max iterations.
+     */
+    public static String buildMaxIterationsSynthesisSystemPrompt() {
+        return MAX_ITERATIONS_SYNTHESIS_SYSTEM_PROMPT;
     }
 
     /**
@@ -80,5 +102,46 @@ public final class AgentPromptBuilder {
         sb.append("Either call another tool or provide your final answer.");
 
         return sb.toString();
+    }
+
+    /**
+     * Builds the user message for the final synthesis pass after the
+     * iteration budget is exhausted.
+     */
+    public static String buildMaxIterationsSynthesisUserMessage(AgentContext ctx) {
+        List<AgentStepResult> history = ctx.getStepHistory();
+        var sb = new StringBuilder();
+        sb.append("Original task: ").append(ctx.getTask()).append("\n\n");
+        sb.append("Iteration limit reached: ").append(ctx.getMaxIterations()).append("\n\n");
+
+        if (history.isEmpty()) {
+            sb.append("Collected steps: none.\n\n");
+        } else {
+            sb.append("Collected steps:\n");
+            for (AgentStepResult step : history) {
+                sb.append("--- Step ").append(step.iteration() + 1).append(" ---\n");
+                if (step.action() != null) {
+                    sb.append("Action: ").append(step.action()).append('\n');
+                }
+                if (step.actionInput() != null) {
+                    sb.append("Action input: ").append(truncate(step.actionInput(), MAX_STEP_ACTION_INPUT_LENGTH)).append('\n');
+                }
+                if (step.observation() != null) {
+                    sb.append("Observation: ").append(truncate(step.observation(), MAX_STEP_OBSERVATION_LENGTH)).append('\n');
+                }
+                sb.append('\n');
+            }
+        }
+
+        sb.append("Using only the collected information above, write the final answer for the user. ");
+        sb.append("Do not include tool payload markers, raw logs, or JSON dumps.");
+        return sb.toString();
+    }
+
+    private static String truncate(String text, int maxLength) {
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength) + "...";
     }
 }

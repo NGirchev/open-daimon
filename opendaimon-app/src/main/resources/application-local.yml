@@ -38,10 +38,12 @@ open-daimon:
 
 logging:
   level:
-    io.github.ngirchev.opendaimon.telegram.TelegramBot: DEBUG
-    io.github.ngirchev.opendaimon.ai.springai: DEBUG
-    io.github.ngirchev.opendaimon.ai.springai.rest: INFO
-    io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer: DEBUG
-    io.github.ngirchev.opendaimon.ai.springai.config: DEBUG
+    io.github.ngirchev.opendaimon.telegram.TelegramBot: INFO
+    io.github.ngirchev.opendaimon.ai.springai: WARN
+    io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.rest: WARN
+    io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer: WARN
+    io.github.ngirchev.opendaimon.ai.springai.config: WARN
+    io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions: WARN
     org.springframework.ai.chat.model.MessageAggregator: WARN
-    io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService: DEBUG
+    io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService: INFO

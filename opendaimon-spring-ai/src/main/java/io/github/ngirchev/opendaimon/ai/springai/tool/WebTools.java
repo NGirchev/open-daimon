@@ -126,11 +126,16 @@ public class WebTools {
             // avoid token overflow - todo add additional model call to grep and parse the result
             return text.length() > 6000 ? text.substring(0, 6000) : text;
         } catch (WebClientResponseException e) {
-            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning empty string.", url, e.getMessage());
-            return "";
+            int statusCode = e.getStatusCode().value();
+            log.error("WebTools.fetchUrl failed for url=[{}]: HTTP {} {}. Returning error text.",
+                    url, statusCode, e.getStatusText());
+            return "fetch_url failed: HTTP " + statusCode + " for " + url;
         } catch (Exception e) {
-            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning empty string.", url, e.getMessage(), e);
-            return "";
+            String reason = e.getMessage() != null && !e.getMessage().isBlank()
+                    ? e.getMessage()
+                    : e.getClass().getSimpleName();
+            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning error text.", url, reason, e);
+            return "fetch_url failed: " + reason + " for " + url;
         }
     }
 
@@ -189,4 +194,3 @@ public class WebTools {
         }
     }
 }
-

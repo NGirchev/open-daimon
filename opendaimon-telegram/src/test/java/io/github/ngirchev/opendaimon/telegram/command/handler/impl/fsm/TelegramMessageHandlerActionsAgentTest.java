@@ -286,7 +286,8 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(editedProgress.getAllValues().get(1))
                 .doesNotContain("Thinking")
                 .contains("web_search")
-                .contains("$50,000");
+                .contains("Tool result received")
+                .doesNotContain("$50,000");
 
         verify(messageSender).sendHtml(eq(42L), any(), isNull());
         assertThat(ctx.getResponseText()).hasValue("Bitcoin is currently $50,000.");

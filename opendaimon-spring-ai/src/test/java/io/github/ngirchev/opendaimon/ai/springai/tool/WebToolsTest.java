@@ -5,9 +5,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -85,5 +88,25 @@ class WebToolsTest {
         String result = webTools.fetchUrl("https://empty.com");
 
         assertEquals("", result);
+    }
+
+    @Test
+    void fetchUrl_whenHttpError_returnsErrorText() {
+        when(webClient.get()).thenReturn(getSpec);
+        when(getSpec.uri(anyString())).thenReturn(getRequestHeadersSpec);
+        when(getRequestHeadersSpec.retrieve()).thenReturn(responseSpec);
+        WebClientResponseException exception = WebClientResponseException.create(
+                403,
+                "Forbidden",
+                HttpHeaders.EMPTY,
+                "blocked".getBytes(StandardCharsets.UTF_8),
+                StandardCharsets.UTF_8
+        );
+        when(responseSpec.bodyToMono(eq(String.class))).thenReturn(Mono.error(exception));
+
+        String result = webTools.fetchUrl("https://blocked.com");
+
+        assertTrue(result.contains("HTTP 403"));
+        assertTrue(result.contains("https://blocked.com"));
     }
 }

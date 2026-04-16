@@ -151,6 +151,12 @@ Evaluated in order — first match wins:
    - first event → `sendMessageAndGetId(..., replyTo=<user message>)` with link previews disabled
    - `THINKING` is transient: it is shown while the agent is reasoning, then replaced/removed before persistent progress is appended
    - `TOOL_CALL`/`OBSERVATION`/`ERROR` are persistent: they are appended via `editMessageHtml(...)` on the same progress message with link previews disabled
+   - `TOOL_CALL` always shows tool name; for URL tools (`fetch_url`, `http_get`, `http_post`) it also shows the extracted URL
+   - `web_search` shows `Query: <search text>`; if query contains an HTTP(S) link, it also shows `URL: <link>`
+   - `OBSERVATION` is compact and does not include raw payload/query/results dump:
+     - success/non-empty result → `📋 Tool result received`
+     - empty or `(no tool output)`/`No result` → `📋 No result`
+     - tool failure text (`error:`/`failed`) → `⚠️ Tool failed: <short reason>`
 4. `METADATA` event updates response model in context (not sent as chat text)
    - if only transient `THINKING` blocks were shown and a terminal event arrives (`FINAL_ANSWER`/`MAX_ITERATIONS`), the temporary progress message is deleted
 5. `FINAL_ANSWER`/`MAX_ITERATIONS` content is sent as a separate Telegram message (not message edit), as a reply to the original user message

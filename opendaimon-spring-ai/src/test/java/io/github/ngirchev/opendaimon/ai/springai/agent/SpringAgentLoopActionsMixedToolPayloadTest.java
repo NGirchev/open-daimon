@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopFsmFactory;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
+import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
@@ -23,6 +25,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -138,7 +141,79 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
 
         AgentStreamEvent terminalEvent = events.getLast();
         assertThat(terminalEvent.type()).isEqualTo(AgentStreamEvent.EventType.MAX_ITERATIONS);
+        assertThat(terminalEvent.content()).contains("Reached the iteration limit of 3.");
+        assertThat(terminalEvent.content()).doesNotContain("Here is what I found so far");
+        assertThat(terminalEvent.content()).doesNotContain("- http_get:");
         assertThat(terminalEvent.content()).doesNotContain("<arg_key>").doesNotContain("</tool_call>");
+    }
+
+    @Test
+    @DisplayName("executeTool() extracts observation from ToolResponseMessage response data")
+    void executeTool_toolResponseMessage_extractsObservation() {
+        String mixedPayload = """
+                I need the latest benchmark figures.
+                web_search
+                <arg_key>query</arg_key>
+                <arg_value>Quarkus Spring Boot benchmark</arg_value>
+                </tool_call>
+                """;
+        when(chatModel.call(any(Prompt.class))).thenReturn(chatResponse(mixedPayload));
+        when(toolCallingManager.executeToolCalls(any(Prompt.class), any(ChatResponse.class)))
+                .thenReturn(toolResultWithToolResponse("web_search", "{\"hits\":[{\"title\":\"Quarkus\"}]}"));
+
+        AgentContext ctx = new AgentContext("Compare benchmarks", "conv-4", Map.of(), 10, Set.of());
+        actions.think(ctx);
+        actions.executeTool(ctx);
+
+        assertThat(ctx.getToolResult()).isNotNull();
+        assertThat(ctx.getToolResult().success()).isTrue();
+        assertThat(ctx.getToolResult().result()).contains("\"hits\"");
+    }
+
+    @Test
+    @DisplayName("executeTool() uses placeholder when ToolResponseMessage is blank")
+    void executeTool_blankToolResponse_usesNoToolOutputPlaceholder() {
+        String mixedPayload = """
+                I will open the URL.
+                fetch_url
+                <arg_key>url</arg_key>
+                <arg_value>https://example.com</arg_value>
+                </tool_call>
+                """;
+        when(chatModel.call(any(Prompt.class))).thenReturn(chatResponse(mixedPayload));
+        when(toolCallingManager.executeToolCalls(any(Prompt.class), any(ChatResponse.class)))
+                .thenReturn(toolResultWithToolResponse("fetch_url", ""));
+
+        AgentContext ctx = new AgentContext("Open URL", "conv-5", Map.of(), 10, Set.of());
+        actions.think(ctx);
+        actions.executeTool(ctx);
+
+        assertThat(ctx.getToolResult()).isNotNull();
+        assertThat(ctx.getToolResult().success()).isTrue();
+        assertThat(ctx.getToolResult().result()).isEqualTo("(no tool output)");
+    }
+
+    @Test
+    @DisplayName("handleMaxIterations() performs final synthesis instead of debug step dump")
+    void handleMaxIterations_performsFinalSynthesis() {
+        when(chatModel.call(any(Prompt.class))).thenReturn(chatResponse("Final synthesized answer."));
+
+        AgentContext ctx = new AgentContext("Compare benchmarks", "conv-6", Map.of(), 3, Set.of());
+        ctx.recordStep(new AgentStepResult(
+                0,
+                "Need benchmark sources",
+                "web_search",
+                "{\"query\":\"quarkus vs spring benchmark\"}",
+                "{\"hits\":[{\"title\":\"Benchmarks\"}]}",
+                Instant.now()
+        ));
+
+        actions.handleMaxIterations(ctx);
+
+        assertThat(ctx.getFinalAnswer()).contains("Reached the iteration limit of 3.");
+        assertThat(ctx.getFinalAnswer()).contains("Final synthesized answer.");
+        assertThat(ctx.getFinalAnswer()).doesNotContain("Here is what I found so far");
+        verify(chatModel).call(any(Prompt.class));
     }
 
     private ChatResponse chatResponse(String text) {
@@ -151,6 +226,15 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
     private ToolExecutionResult toolResultWithObservation(String observation) {
         return ToolExecutionResult.builder()
                 .conversationHistory(List.of(new AssistantMessage(observation)))
+                .build();
+    }
+
+    private ToolExecutionResult toolResultWithToolResponse(String toolName, String responseData) {
+        ToolResponseMessage toolResponseMessage = ToolResponseMessage.builder()
+                .responses(List.of(new ToolResponseMessage.ToolResponse("tool-call-1", toolName, responseData)))
+                .build();
+        return ToolExecutionResult.builder()
+                .conversationHistory(List.of(toolResponseMessage))
                 .build();
     }
 }

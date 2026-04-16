@@ -15,6 +15,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -49,6 +50,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SpringAgentLoopActions implements AgentLoopActions {
 
+    private static final String NO_TOOL_OUTPUT = "(no tool output)";
     private static final int MEMORY_RECALL_TOP_K = 5;
     private static final Set<String> TOOL_NAMES = Set.of("http_get", "http_post", "web_search", "fetch_url");
     private static final String UNKNOWN_TOOL_NAME = "unknown_tool";
@@ -115,8 +117,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             Prompt prompt = new Prompt(List.copyOf(messages), chatOptions);
             ctx.putExtra(KEY_LAST_PROMPT, prompt);
+            logPromptMessages("think", messages);
 
-            log.info("Agent think: iteration={}, messages={}, tools={}",
+            log.debug("Agent think: iteration={}, messages={}, tools={}",
                     ctx.getCurrentIteration(), messages.size(), toolCallbacks.size());
 
             ChatResponse response = chatModel.call(prompt);
@@ -128,7 +131,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             // Emit reasoning content if available from provider (OpenRouter/Anthropic/Ollama)
             String reasoning = extractReasoning(response);
-            log.info("Agent think: reasoning extracted, length={}",
+            log.debug("Agent think: reasoning extracted, length={}",
                     reasoning != null ? reasoning.length() : 0);
             if (reasoning != null && !reasoning.isBlank()) {
                 ctx.emitEvent(AgentStreamEvent.thinking(reasoning, ctx.getCurrentIteration()));
@@ -138,7 +141,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             var output = response.getResult().getOutput();
             String rawOutputText = output != null ? output.getText() : null;
-            log.info("Agent think: raw output text, length={}, content='{}'",
+            log.debug("Agent think: raw output text, length={}, content='{}'",
                     rawOutputText != null ? rawOutputText.length() : 0,
                     normalizeForLog(rawOutputText));
 
@@ -177,7 +180,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 } else {
                     ctx.setCurrentThought("Final answer ready");
                     ctx.setCurrentTextResponse(text);
-                    log.info("Agent think: final answer, length={}, content='{}'",
+                    log.debug("Agent think: final answer, length={}, content='{}'",
                             text != null ? text.length() : 0,
                             normalizeForLog(text));
                     if (output != null) {
@@ -251,7 +254,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.incrementIteration();
         ctx.resetIterationState();
 
-        log.info("Agent observe: iteration={} recorded, moving to next think cycle",
+        log.debug("Agent observe: iteration={} recorded, moving to next think cycle",
                 ctx.getCurrentIteration());
     }
 
@@ -261,29 +264,16 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         saveConversationHistory(ctx);
         extractFacts(ctx);
         cleanup(ctx);
-        log.info("Agent answer: final answer set, length={}, content='{}'",
+        log.debug("Agent answer: final answer set, length={}, content='{}'",
                 ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0,
                 normalizeForLog(ctx.getFinalAnswer()));
     }
 
     @Override
     public void handleMaxIterations(AgentContext ctx) {
-        List<AgentStepResult> history = ctx.getStepHistory();
-        var sb = new StringBuilder();
-        sb.append("I reached the maximum number of iterations (").append(ctx.getMaxIterations()).append("). ");
-        sb.append("Here is what I found so far:\n\n");
-
-        for (AgentStepResult step : history) {
-            if (step.observation() != null) {
-                sb.append("- ").append(step.action()).append(": ").append(
-                        step.observation().length() > 200
-                                ? step.observation().substring(0, 200) + "..."
-                                : step.observation()
-                ).append('\n');
-            }
-        }
-
-        ctx.setFinalAnswer(sb.toString());
+        String limitNotice = buildMaxIterationsNotice(ctx);
+        String synthesizedAnswer = synthesizeMaxIterationsAnswer(ctx);
+        ctx.setFinalAnswer(composeMaxIterationsAnswer(ctx, limitNotice, synthesizedAnswer));
         cleanup(ctx);
         log.warn("Agent handleMaxIterations: {} iterations exhausted", ctx.getMaxIterations());
     }
@@ -321,7 +311,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             String factsText = facts.stream()
                     .map(AgentFact::content)
                     .collect(Collectors.joining("\n- ", "- ", ""));
-            log.info("Agent memory: recalled {} facts for task", facts.size());
+            log.debug("Agent memory: recalled {} facts for task", facts.size());
             return "Relevant information from memory:\n" + factsText;
         } catch (Exception e) {
             log.warn("Agent memory recall failed: {}", e.getMessage());
@@ -354,16 +344,135 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      */
     private String extractToolObservation(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
-            return "(no tool output)";
+            return NO_TOOL_OUTPUT;
         }
-        String text = messages.getLast().getText();
-        return text != null ? text : "(no tool output)";
+        Message lastMessage = messages.getLast();
+        if (lastMessage instanceof ToolResponseMessage toolResponseMessage) {
+            return extractToolResponseData(toolResponseMessage);
+        }
+
+        String text = lastMessage.getText();
+        if (text != null && !text.isBlank()) {
+            return text;
+        }
+
+        for (int index = messages.size() - 2; index >= 0; index--) {
+            String previousText = messages.get(index).getText();
+            if (previousText != null && !previousText.isBlank()) {
+                return previousText;
+            }
+        }
+        return NO_TOOL_OUTPUT;
+    }
+
+    private String extractToolResponseData(ToolResponseMessage toolResponseMessage) {
+        if (toolResponseMessage.getResponses() == null || toolResponseMessage.getResponses().isEmpty()) {
+            return NO_TOOL_OUTPUT;
+        }
+
+        String mergedResponseData = toolResponseMessage.getResponses().stream()
+                .map(ToolResponseMessage.ToolResponse::responseData)
+                .filter(responseData -> responseData != null && !responseData.isBlank())
+                .collect(Collectors.joining("\n\n"));
+
+        return mergedResponseData.isBlank() ? NO_TOOL_OUTPUT : mergedResponseData;
     }
 
     private void cleanup(AgentContext ctx) {
         ctx.removeExtra(KEY_CONVERSATION_HISTORY);
         ctx.removeExtra(KEY_LAST_PROMPT);
         ctx.removeExtra(KEY_LAST_RESPONSE);
+    }
+
+    private void logPromptMessages(String phase, List<Message> messages) {
+        if (!log.isDebugEnabled() || messages == null || messages.isEmpty()) {
+            return;
+        }
+        for (int index = 0; index < messages.size(); index++) {
+            Message message = messages.get(index);
+            log.debug("Agent {} request: messageIndex={}, type={}, text='{}'",
+                    phase,
+                    index,
+                    message != null ? message.getMessageType() : null,
+                    normalizeForLog(message != null ? message.getText() : null));
+        }
+    }
+
+    private String synthesizeMaxIterationsAnswer(AgentContext ctx) {
+        try {
+            List<Message> messages = List.of(
+                    new SystemMessage(AgentPromptBuilder.buildMaxIterationsSynthesisSystemPrompt()),
+                    new UserMessage(AgentPromptBuilder.buildMaxIterationsSynthesisUserMessage(ctx))
+            );
+
+            String preferredModelId = ctx.getMetadata() != null
+                    ? ctx.getMetadata().get(AICommand.PREFERRED_MODEL_ID_FIELD) : null;
+            ToolCallingChatOptions.Builder optionsBuilder = ToolCallingChatOptions.builder()
+                    .internalToolExecutionEnabled(false);
+            if (preferredModelId != null) {
+                optionsBuilder.model(preferredModelId);
+            }
+            Prompt prompt = new Prompt(messages, optionsBuilder.build());
+            logPromptMessages("max-iterations-synthesis", messages);
+
+            ChatResponse response = chatModel.call(prompt);
+            if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+                return null;
+            }
+            if (response.getMetadata().getModel() != null) {
+                ctx.setModelName(response.getMetadata().getModel());
+            }
+
+            String rawOutputText = response.getResult().getOutput().getText();
+            String sanitized = sanitizeFinalAnswerText(rawOutputText);
+            if (sanitized == null || sanitized.isBlank()) {
+                return null;
+            }
+            if (containsToolPayloadMarkers(sanitized)) {
+                String recoveredPrefix = extractUserTextBeforeToolPayload(sanitized);
+                return recoveredPrefix.isBlank() ? null : recoveredPrefix;
+            }
+            return sanitized;
+        } catch (Exception e) {
+            log.warn("Agent handleMaxIterations: final synthesis failed: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private String composeMaxIterationsAnswer(AgentContext ctx, String limitNotice, String synthesizedAnswer) {
+        if (synthesizedAnswer == null || synthesizedAnswer.isBlank()) {
+            return limitNotice + "\n\n" + maxIterationsFallbackText(ctx);
+        }
+        String normalized = synthesizedAnswer.trim();
+        if (normalized.startsWith(limitNotice)) {
+            return normalized;
+        }
+        return limitNotice + "\n\n" + normalized;
+    }
+
+    private String buildMaxIterationsNotice(AgentContext ctx) {
+        if (isRussianLanguage(ctx)) {
+            return "Достигнут лимит в " + ctx.getMaxIterations()
+                    + " итераций. Ниже — лучший ответ на основе уже собранных данных.";
+        }
+        return "Reached the iteration limit of " + ctx.getMaxIterations()
+                + ". Below is the best answer based on the collected data.";
+    }
+
+    private String maxIterationsFallbackText(AgentContext ctx) {
+        if (isRussianLanguage(ctx)) {
+            return "Не удалось подготовить полный итоговый ответ на последнем шаге. "
+                    + "Попробуйте уточнить запрос или сузить задачу.";
+        }
+        return "Could not prepare a complete final answer on the last step. "
+                + "Try refining or narrowing your request.";
+    }
+
+    private boolean isRussianLanguage(AgentContext ctx) {
+        String languageCode = ctx.getMetadata() != null
+                ? ctx.getMetadata().get(AICommand.LANGUAGE_CODE_FIELD)
+                : null;
+        return languageCode != null && languageCode.toLowerCase(Locale.ROOT).startsWith("ru");
     }
 
     /**
@@ -388,13 +497,13 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             // 1. Check "thinking" metadata key (Spring AI Ollama 1.1+ with think=true)
             Object thinking = metadata.get("thinking");
             if (thinking instanceof String text && !text.isBlank()) {
-                log.info("Agent extractReasoning: found 'thinking' metadata, length={}", text.length());
+                log.debug("Agent extractReasoning: found 'thinking' metadata, length={}", text.length());
                 return text;
             }
             // 2. Check "reasoningContent" metadata key (OpenRouter/Anthropic)
             Object reasoning = metadata.get("reasoningContent");
             if (reasoning instanceof String text && !text.isBlank()) {
-                log.info("Agent extractReasoning: found 'reasoningContent' metadata, length={}", text.length());
+                log.debug("Agent extractReasoning: found 'reasoningContent' metadata, length={}", text.length());
                 return text;
             }
             // 3. Fallback: check <think> tags in text (older Ollama or custom models)
@@ -403,7 +512,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 String rawText = output.getText();
                 boolean hasThinkTags = rawText.contains("<think>");
                 if (hasThinkTags) {
-                    log.info("Agent extractReasoning: found <think> tags, textLength={}", rawText.length());
+                    log.debug("Agent extractReasoning: found <think> tags, textLength={}", rawText.length());
                     return extractThinkTags(rawText);
                 }
             }
@@ -499,7 +608,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     messages.add(msg);
                 }
             }
-            log.info("Agent think: loaded {} history messages from ChatMemory", history.size());
+            log.debug("Agent think: loaded {} history messages from ChatMemory", history.size());
         } catch (Exception e) {
             log.warn("Agent think: failed to load conversation history: {}", e.getMessage());
         }
@@ -519,7 +628,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     new UserMessage(ctx.getTask()),
                     new AssistantMessage(ctx.getCurrentTextResponse())
             ));
-            log.info("Agent answer: saved user+assistant messages to ChatMemory");
+            log.debug("Agent answer: saved user+assistant messages to ChatMemory");
         } catch (Exception e) {
             log.warn("Agent answer: failed to save conversation history: {}", e.getMessage());
         }

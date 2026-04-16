@@ -111,6 +111,13 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
   - recovers tool name + arguments from text
   - builds synthetic `ChatResponse` with `AssistantMessage.toolCalls`
   - continues normal `ToolCallingManager.executeToolCalls(...)` path and next think iteration
+- ReAct observation extraction reads tool output from `ToolResponseMessage.responses[].responseData` (not `Message.getText()` on tool messages).
+  - when tool output is blank, observation is normalized to `(no tool output)`
+  - for `fetch_url`, HTTP/transport failures are returned as short error text (for example `fetch_url failed: HTTP 403 ...`) and are visible in progress events
+- ReAct `MAX_ITERATIONS` handling performs one final synthesis LLM call using the accumulated step history:
+  - no tool execution in this last pass (`internalToolExecutionEnabled=false`)
+  - final user text is prefixed with an iteration-limit notice and stripped from tool payload markers/debug dumps
+  - if synthesis fails or returns blank, a compact limit-reached fallback message is returned
 - SIMPLE strategy remains non-agentic; if final text still looks like raw tool payload, it emits `ERROR` (`raw_tool_payload_in_final_answer`) instead of `FINAL_ANSWER`.
 
 ---
