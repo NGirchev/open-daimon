@@ -47,3 +47,4 @@
 /opendaimon-app/logs/opendaimon.log
 /application.yml
 /.remember/
+/observability-agent.md
