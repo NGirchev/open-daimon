@@ -10,6 +10,7 @@
 
 ## Debugging
 
+- **Always check application logs first** in `logs/` before guessing or speculating about issues. Read the logs, then analyze.
 - Before analyzing logs or errors, review module and use case documentation loaded in context. If not loaded, read the corresponding `*_MODULE.md` from the module root. Understand the expected behavior from documentation before looking at code.
 - When the user provides logs, errors, or output and says they are current — trust them. Do not re-explore or second-guess the recency of provided information.
 - Analyze the root cause BEFORE exploring the codebase. Do not explore aimlessly.

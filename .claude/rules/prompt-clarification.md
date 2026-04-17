@@ -25,13 +25,15 @@ Transform the user's request into a clear, structured prompt:
 > [Concise, unambiguous reformulation of the task with all necessary context]
 ```
 
-### Step 3 — Wait for Confirmation
+### Step 3 — Wait for Confirmation (BLOCKING)
 
 Ask the user to confirm or adjust before proceeding:
 
 ```
 Proceed with this plan? (yes / adjust)
 ```
+
+**This step is BLOCKING.** Do NOT launch agents, explore code, read files, or take any other action until the user responds. This applies even when plan mode is active — the plan exploration phase starts AFTER confirmation, not before it.
 
 ## Exceptions
 
