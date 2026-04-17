@@ -27,6 +27,14 @@ public record AgentStreamEvent(
         TOOL_CALL,
         /** Tool execution completed. Content = observation. */
         OBSERVATION,
+        /**
+         * Incremental delta of the final answer text streamed from the LLM.
+         * Content is the new chunk only (not cumulative); consumers concatenate
+         * to render the answer progressively. Emitted only for "outside"
+         * fragments — content inside {@code <think>} or {@code <tool_call>}
+         * blocks is filtered out at the source.
+         */
+        PARTIAL_ANSWER,
         /** Agent produced final answer. Content = answer text. */
         FINAL_ANSWER,
         /** Agent execution failed. Content = error message. */
@@ -51,6 +59,10 @@ public record AgentStreamEvent(
 
     public static AgentStreamEvent observation(String observation, int iteration) {
         return new AgentStreamEvent(EventType.OBSERVATION, observation, iteration, Instant.now());
+    }
+
+    public static AgentStreamEvent partialAnswer(String delta, int iteration) {
+        return new AgentStreamEvent(EventType.PARTIAL_ANSWER, delta, iteration, Instant.now());
     }
 
     public static AgentStreamEvent finalAnswer(String answer, int iteration) {

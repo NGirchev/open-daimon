@@ -54,7 +54,7 @@ public class TelegramAgentStreamRenderer {
             case TOOL_CALL -> renderToolCall(event.content());
             case OBSERVATION -> renderObservation(event.content());
             case ERROR -> "<b>Error:</b> <i>" + escapeHtml(event.content()) + "</i>";
-            case FINAL_ANSWER, MAX_ITERATIONS, METADATA -> null;
+            case FINAL_ANSWER, MAX_ITERATIONS, METADATA, PARTIAL_ANSWER -> null;
         };
     }
 

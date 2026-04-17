@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentFact;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
+import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -19,16 +20,20 @@ import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.tool.ToolCallback;
+import reactor.core.publisher.Flux;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -149,7 +154,11 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                         .collect(Collectors.joining("\n---\n")));
             }
 
-            ChatResponse response = chatModel.call(prompt);
+            ChatResponse response = streamAndAggregate(ctx, prompt);
+            if (response == null) {
+                ctx.setErrorMessage("LLM returned an empty stream");
+                return;
+            }
             ctx.putExtra(KEY_LAST_RESPONSE, response);
             if (log.isDebugEnabled()) {
                 var debugOutput = response.getResult().getOutput();
@@ -218,6 +227,72 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         } catch (Exception e) {
             log.error("Agent think failed: {}", e.getMessage(), e);
             ctx.setErrorMessage("LLM call failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Streams the LLM response, emits {@code PARTIAL_ANSWER} events for text outside
+     * {@code <think>}/{@code <tool_call>} blocks, and builds an aggregated
+     * {@link ChatResponse} that preserves structured tool calls from all chunks.
+     *
+     * <p>Text chunks are concatenated into a synthetic final {@link AssistantMessage};
+     * structured tool calls from every chunk are merged. The last chunk's response
+     * metadata (model, usage) is preserved so downstream model-name and usage
+     * tracking keeps working.
+     */
+    private ChatResponse streamAndAggregate(AgentContext ctx, Prompt prompt) {
+        Flux<ChatResponse> stream = chatModel.stream(prompt);
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        int iteration = ctx.getCurrentIteration();
+
+        StringBuilder fullText = new StringBuilder();
+        List<AssistantMessage.ToolCall> collectedToolCalls = new ArrayList<>();
+        AtomicReference<ChatResponse> lastChunk = new AtomicReference<>();
+
+        stream.doOnNext(chunk -> {
+            lastChunk.set(chunk);
+            if (chunk.getResult() != null && chunk.getResult().getOutput() != null) {
+                AssistantMessage output = chunk.getResult().getOutput();
+                if (output.getText() != null) {
+                    fullText.append(output.getText());
+                }
+                if (output.getToolCalls() != null && !output.getToolCalls().isEmpty()) {
+                    collectedToolCalls.addAll(output.getToolCalls());
+                }
+            }
+            emitPartialAnswer(ctx, filter, chunk, iteration);
+        }).blockLast();
+
+        String tail = filter.flush();
+        if (!tail.isEmpty()) {
+            ctx.emitEvent(AgentStreamEvent.partialAnswer(tail, iteration));
+        }
+
+        ChatResponse last = lastChunk.get();
+        if (last == null) {
+            return null;
+        }
+        AssistantMessage finalMessage = collectedToolCalls.isEmpty()
+                ? new AssistantMessage(fullText.toString())
+                : AssistantMessage.builder()
+                        .content(fullText.toString())
+                        .toolCalls(collectedToolCalls)
+                        .build();
+        Generation finalGeneration = last.getResult() != null && last.getResult().getMetadata() != null
+                ? new Generation(finalMessage, last.getResult().getMetadata())
+                : new Generation(finalMessage);
+        return new ChatResponse(List.of(finalGeneration), last.getMetadata());
+    }
+
+    private void emitPartialAnswer(AgentContext ctx, StreamingAnswerFilter filter,
+                                   ChatResponse chunk, int iteration) {
+        Optional<String> text = AIUtils.extractText(chunk);
+        if (text.isEmpty()) {
+            return;
+        }
+        String emittable = filter.feed(text.get());
+        if (!emittable.isEmpty()) {
+            ctx.emitEvent(AgentStreamEvent.partialAnswer(emittable, iteration));
         }
     }
 
