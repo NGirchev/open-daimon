@@ -78,6 +78,9 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private Integer agentProgressMessageId;
     private Integer agentFinalAnswerMessageId;
     private String agentFinalAnswerText = "";
+    private int agentFinalAnswerDeliveredLength;
+    private int agentFinalAnswerCurrentMessageStartOffset;
+    private long agentFinalAnswerLastDeliveryAtMillis;
     private final List<AgentProgressChunk> agentProgressChunks = new ArrayList<>();
 
     // --- Error handling ---
@@ -312,6 +315,36 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         return agentFinalAnswerText;
     }
 
+    public int getAgentFinalAnswerPendingChars() {
+        return Math.max(0, agentFinalAnswerText.length() - agentFinalAnswerDeliveredLength);
+    }
+
+    public int getAgentFinalAnswerDeliveredLength() {
+        return agentFinalAnswerDeliveredLength;
+    }
+
+    public int getAgentFinalAnswerCurrentMessageStartOffset() {
+        return Math.max(0, Math.min(agentFinalAnswerCurrentMessageStartOffset, agentFinalAnswerText.length()));
+    }
+
+    public void setAgentFinalAnswerCurrentMessageStartOffset(int offset) {
+        agentFinalAnswerCurrentMessageStartOffset = Math.max(0, Math.min(offset, agentFinalAnswerText.length()));
+    }
+
+    public long getAgentFinalAnswerLastDeliveryAtMillis() {
+        return agentFinalAnswerLastDeliveryAtMillis;
+    }
+
+    public void markAgentFinalAnswerDelivered() {
+        agentFinalAnswerDeliveredLength = agentFinalAnswerText.length();
+        agentFinalAnswerLastDeliveryAtMillis = System.currentTimeMillis();
+    }
+
+    public void markAgentFinalAnswerDeliveredUpTo(int deliveredLength) {
+        agentFinalAnswerDeliveredLength = Math.max(0, Math.min(deliveredLength, agentFinalAnswerText.length()));
+        agentFinalAnswerLastDeliveryAtMillis = System.currentTimeMillis();
+    }
+
     public boolean hasStreamedFinalAnswerChunks() {
         return agentFinalAnswerText != null && !agentFinalAnswerText.isBlank();
     }
@@ -329,7 +362,9 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
                 yield removedTransient || appended;
             }
             case FINAL_ANSWER_CHUNK -> false;
-            case FINAL_ANSWER, MAX_ITERATIONS -> removeTransientChunks();
+            // Keep the last thinking snapshot visible even after terminal event.
+            // Final answer is streamed in a dedicated message and should not depend on progress cleanup.
+            case FINAL_ANSWER, MAX_ITERATIONS -> false;
             case METADATA -> false;
         };
 

@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentFact;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
+import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -25,7 +26,9 @@ import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.tool.ToolCallback;
+import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -33,6 +36,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -72,6 +76,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
     private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
     private static final String KEY_LAST_RESPONSE = "spring.lastResponse";
+    private static final String KEY_STREAMING_EXECUTION = "spring.streamingExecution";
+    private static final String KEY_STREAMED_VISIBLE_FINAL_ANSWER = "spring.streamedVisibleFinalAnswer";
 
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
@@ -89,6 +95,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void think(AgentContext ctx) {
+        ctx.removeExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER);
         ctx.emitEvent(AgentStreamEvent.thinking(ctx.getCurrentIteration()));
         try {
             List<Message> messages = getOrCreateHistory(ctx);
@@ -122,7 +129,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             log.debug("Agent think: iteration={}, messages={}, tools={}",
                     ctx.getCurrentIteration(), messages.size(), toolCallbacks.size());
 
-            ChatResponse response = chatModel.call(prompt);
+            ChatResponse response = invokeThinkModel(prompt, ctx);
             ctx.putExtra(KEY_LAST_RESPONSE, response);
 
             if (response.getMetadata().getModel() != null) {
@@ -155,6 +162,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 ctx.setCurrentThought("Calling tool: " + firstToolCall.name());
                 ctx.setCurrentToolName(firstToolCall.name());
                 ctx.setCurrentToolArguments(firstToolCall.arguments());
+                ctx.removeExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER);
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
                 if (output != null) {
@@ -170,6 +178,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     ctx.setCurrentThought("Calling tool: " + recoveredToolCall.toolName());
                     ctx.setCurrentToolName(recoveredToolCall.toolName());
                     ctx.setCurrentToolArguments(recoveredToolCall.argumentsJson());
+                    ctx.removeExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER);
                     log.warn("Agent think: recovered tool call from mixed output, tool={}, args={}, leadingText='{}'",
                             recoveredToolCall.toolName(),
                             recoveredToolCall.argumentsJson(),
@@ -178,6 +187,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                         messages.add(recoveredResponse.getResult().getOutput());
                     }
                 } else {
+                    ensureFinalAnswerTailStreamed(ctx, text);
                     ctx.setCurrentThought("Final answer ready");
                     ctx.setCurrentTextResponse(text);
                     log.debug("Agent think: final answer, length={}, content='{}'",
@@ -192,6 +202,142 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         } catch (Exception e) {
             log.error("Agent think failed: {}", e.getMessage(), e);
             ctx.setErrorMessage("LLM call failed: " + e.getMessage());
+        }
+    }
+
+    private ChatResponse invokeThinkModel(Prompt prompt, AgentContext ctx) {
+        if (!isStreamingExecution(ctx)) {
+            return chatModel.call(prompt);
+        }
+        return streamThinkResponse(prompt, ctx);
+    }
+
+    private ChatResponse streamThinkResponse(Prompt prompt, AgentContext ctx) {
+        AtomicReference<ChatResponse> lastResponse = new AtomicReference<>();
+        StringBuilder fullText = new StringBuilder();
+        AtomicReference<String> previousChunkText = new AtomicReference<>("");
+        AtomicReference<List<AssistantMessage.ToolCall>> latestStreamToolCalls = new AtomicReference<>(List.of());
+        try {
+            Flux<ChatResponse> responseFlux = chatModel.stream(prompt);
+            if (responseFlux == null) {
+                throw new IllegalStateException("chatModel.stream returned null response flux");
+            }
+            responseFlux
+                    .doOnNext(chunk -> {
+                        lastResponse.set(chunk);
+                        List<AssistantMessage.ToolCall> chunkToolCalls = extractToolCallsFromChunk(chunk);
+                        if (!chunkToolCalls.isEmpty()) {
+                            latestStreamToolCalls.set(List.copyOf(chunkToolCalls));
+                        }
+                        AIUtils.extractText(chunk).ifPresent(text -> {
+                            String delta = resolveStreamDelta(previousChunkText.get(), text);
+                            previousChunkText.set(text);
+                            if (delta.isEmpty()) {
+                                return;
+                            }
+                            fullText.append(delta);
+                        });
+                    })
+                    .blockLast(Duration.ofMinutes(10));
+        } catch (Exception e) {
+            if (lastResponse.get() == null) {
+                log.warn("Agent think: stream path unavailable, falling back to call(): {}", e.getMessage());
+                return chatModel.call(prompt);
+            }
+            throw e;
+        }
+
+        ChatResponse terminalChunk = lastResponse.get();
+        if (terminalChunk == null) {
+            log.warn("Agent think: stream returned no chunks, falling back to call()");
+            return chatModel.call(prompt);
+        }
+        return mergeStreamingText(terminalChunk, fullText.toString(), latestStreamToolCalls.get());
+    }
+
+    static String resolveStreamDelta(String previousChunkText, String currentChunkText) {
+        if (currentChunkText == null || currentChunkText.isEmpty()) {
+            return "";
+        }
+        if (previousChunkText == null || previousChunkText.isEmpty()) {
+            return currentChunkText;
+        }
+        if (currentChunkText.equals(previousChunkText)) {
+            return "";
+        }
+        if (currentChunkText.startsWith(previousChunkText)) {
+            return currentChunkText.substring(previousChunkText.length());
+        }
+        // Provider may temporarily return a shorter snapshot (non-monotonic cumulative stream).
+        if (previousChunkText.startsWith(currentChunkText)) {
+            return "";
+        }
+        // Treat as normal delta chunk when snapshots do not overlap.
+        return currentChunkText;
+    }
+
+    private static ChatResponse mergeStreamingText(ChatResponse terminalChunk,
+                                                   String fullText,
+                                                   List<AssistantMessage.ToolCall> streamedToolCalls) {
+        if (fullText == null || fullText.isBlank()) {
+            return terminalChunk;
+        }
+        AssistantMessage chunkOutput = terminalChunk.getResult() != null
+                ? terminalChunk.getResult().getOutput() : null;
+        List<AssistantMessage.ToolCall> mergedToolCalls = List.of();
+        if (streamedToolCalls != null && !streamedToolCalls.isEmpty()) {
+            mergedToolCalls = streamedToolCalls;
+        } else if (chunkOutput != null && chunkOutput.getToolCalls() != null && !chunkOutput.getToolCalls().isEmpty()) {
+            mergedToolCalls = chunkOutput.getToolCalls();
+        }
+        AssistantMessage mergedOutput;
+        if (!mergedToolCalls.isEmpty()) {
+            mergedOutput = AssistantMessage.builder()
+                    .content(fullText)
+                    .toolCalls(mergedToolCalls)
+                    .build();
+        } else {
+            mergedOutput = new AssistantMessage(fullText);
+        }
+        return ChatResponse.builder()
+                .metadata(terminalChunk.getMetadata())
+                .generations(List.of(new Generation(mergedOutput)))
+                .build();
+    }
+
+    private static List<AssistantMessage.ToolCall> extractToolCallsFromChunk(ChatResponse chunk) {
+        if (chunk == null || chunk.getResult() == null || chunk.getResult().getOutput() == null) {
+            return List.of();
+        }
+        List<AssistantMessage.ToolCall> toolCalls = chunk.getResult().getOutput().getToolCalls();
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            return List.of();
+        }
+        return toolCalls;
+    }
+
+    private void ensureFinalAnswerTailStreamed(AgentContext ctx, String finalAnswer) {
+        if (!isStreamingExecution(ctx)) {
+            return;
+        }
+        String normalizedFinalAnswer = extractUserTextBeforeToolPayload(
+                finalAnswer == null ? "" : finalAnswer).trim();
+        if (normalizedFinalAnswer.isBlank()) {
+            return;
+        }
+        String streamedVisible = getStreamedFinalVisibleAnswer(ctx);
+        if (streamedVisible.isBlank()) {
+            ctx.emitEvent(AgentStreamEvent.finalAnswerChunk(normalizedFinalAnswer, ctx.getCurrentIteration()));
+            ctx.putExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER, normalizedFinalAnswer);
+            return;
+        }
+        if (normalizedFinalAnswer.startsWith(streamedVisible)
+                && normalizedFinalAnswer.length() > streamedVisible.length()) {
+            String delta = normalizedFinalAnswer.substring(streamedVisible.length());
+            if (!delta.isEmpty()) {
+                ctx.emitEvent(AgentStreamEvent.finalAnswerChunk(delta, ctx.getCurrentIteration()));
+            }
+            ctx.putExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER, normalizedFinalAnswer);
         }
     }
 
@@ -382,6 +528,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.removeExtra(KEY_CONVERSATION_HISTORY);
         ctx.removeExtra(KEY_LAST_PROMPT);
         ctx.removeExtra(KEY_LAST_RESPONSE);
+        ctx.removeExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER);
+        ctx.removeExtra(KEY_STREAMING_EXECUTION);
     }
 
     private void logPromptMessages(String phase, List<Message> messages) {
@@ -644,6 +792,19 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             ctx.putExtra(KEY_CONVERSATION_HISTORY, history);
         }
         return history;
+    }
+
+    static void markStreamingExecution(AgentContext ctx) {
+        ctx.putExtra(KEY_STREAMING_EXECUTION, Boolean.TRUE);
+    }
+
+    static boolean isStreamingExecution(AgentContext ctx) {
+        return Boolean.TRUE.equals(ctx.getExtra(KEY_STREAMING_EXECUTION));
+    }
+
+    static String getStreamedFinalVisibleAnswer(AgentContext ctx) {
+        String streamed = ctx.getExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER);
+        return streamed == null ? "" : streamed;
     }
 
     static RecoveredToolCall recoverToolCallFromText(String text) {

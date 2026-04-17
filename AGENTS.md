@@ -103,6 +103,13 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 - Priorities: ADMIN (10 threads), VIP (5 threads), REGULAR (1 thread)
 - Whitelist managed via `WhitelistService`
 
+### Telegram Agent Streaming Invariants
+
+- `THINKING`/progress status and final answer must use different Telegram messages.
+- Never reuse or overwrite the progress message with final answer chunks.
+- Final answer streaming must go through the dedicated final-answer message (`FINAL_ANSWER_CHUNK` flow).
+- Preserve progress visibility: thinking/progress messages must not be silently removed on terminal success.
+
 ### Testing
 
 - Unit tests for services (Mockito), integration tests for repositories (Testcontainers)

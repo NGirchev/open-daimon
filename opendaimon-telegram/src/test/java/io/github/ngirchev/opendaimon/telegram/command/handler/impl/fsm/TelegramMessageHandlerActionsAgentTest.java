@@ -337,8 +337,78 @@ class TelegramMessageHandlerActionsAgentTest {
     }
 
     @Test
-    @DisplayName("generateResponse removes transient thinking progress when final answer arrives without tools")
-    void generateResponse_thinkingOnlyProgress_isDeletedOnFinalAnswer() {
+    @DisplayName("generateResponse batches tiny FINAL_ANSWER_CHUNK updates and flushes once at terminal")
+    void generateResponse_finalAnswerChunks_areBatchedBeforeEdit() {
+        MessageHandlerContext ctx = createContextWithMetadata(
+                "Write a tale",
+                Set.of(ModelCapabilities.WEB),
+                s -> {},
+                101
+        );
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true)))
+                .thenReturn(700) // progress message
+                .thenReturn(800); // final answer message
+
+        String tail = "abcdefghijklmnopqrstuvwxyz".repeat(10);
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "query", 0),
+                AgentStreamEvent.observation("Tool result", 0),
+                AgentStreamEvent.finalAnswerChunk("Start ", 1),
+                AgentStreamEvent.finalAnswerChunk(tail, 1),
+                AgentStreamEvent.finalAnswer("Start " + tail, 1)
+        );
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Only one final edit expected: terminal flush of pending buffered chunks.
+        verify(messageSender, times(1)).editHtml(eq(42L), eq(800), any(), eq(true));
+        verify(messageSender, never()).sendHtml(eq(42L), contains("Start "), eq(101));
+        assertThat(ctx.getResponseText()).hasValue("Start " + tail);
+    }
+
+    @Test
+    @DisplayName("generateResponse continues final stream in a new message when Telegram limit is reached")
+    void generateResponse_finalAnswerChunks_overLimit_rollsOverToNextMessage() {
+        MessageHandlerContext ctx = createContextWithMetadata(
+                "Write a long tale",
+                Set.of(ModelCapabilities.WEB),
+                s -> {},
+                101
+        );
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), any(), eq(true)))
+                .thenReturn(700) // progress message
+                .thenReturn(800) // first final answer message
+                .thenReturn(801); // second final answer message after rollover
+
+        String longTail = "a".repeat(5000);
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "query", 0),
+                AgentStreamEvent.observation("Tool result", 0),
+                AgentStreamEvent.finalAnswerChunk(longTail, 1),
+                AgentStreamEvent.finalAnswer(longTail, 1)
+        );
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        ArgumentCaptor<Integer> replyToCaptor = ArgumentCaptor.forClass(Integer.class);
+        verify(messageSender, times(3))
+                .sendHtmlAndGetId(eq(42L), any(), replyToCaptor.capture(), eq(true));
+        assertThat(replyToCaptor.getAllValues()).containsExactly(101, 101, 101);
+
+        verify(messageSender, times(2)).editHtml(eq(42L), eq(700), any(), eq(true));
+        verify(messageSender, never()).editHtml(eq(42L), eq(800), any(), eq(true));
+        verify(messageSender, never()).editHtml(eq(42L), eq(801), any(), eq(true));
+        assertThat(ctx.getAgentFinalAnswerMessageId()).isEqualTo(801);
+        assertThat(ctx.getResponseText()).hasValue(longTail);
+    }
+
+    @Test
+    @DisplayName("generateResponse keeps thinking progress when final answer arrives without tools")
+    void generateResponse_thinkingOnlyProgress_isKeptOnFinalAnswer() {
         MessageHandlerContext ctx = createContextWithMetadata("Answer directly",
                 Set.of(ModelCapabilities.CHAT), s -> {}, 101);
         when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true))).thenReturn(700);
@@ -361,8 +431,8 @@ class TelegramMessageHandlerActionsAgentTest {
                 .contains("Analyzing request")
                 .doesNotContain("Thinking...");
 
-        verify(messageSender).deleteMessage(42L, 700);
-        assertThat(ctx.getAgentProgressMessageId()).isNull();
+        verify(messageSender, never()).deleteMessage(eq(42L), eq(700));
+        assertThat(ctx.getAgentProgressMessageId()).isEqualTo(700);
         assertThat(ctx.getResponseText()).hasValue("Done.");
     }
 

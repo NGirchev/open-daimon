@@ -61,18 +61,23 @@ class MessageHandlerContextAgentProgressTest {
     }
 
     @Test
-    void shouldClearTransientThinkingOnTerminalEvent() {
+    void shouldKeepTransientThinkingOnTerminalEvent() {
         MessageHandlerContext ctx = new MessageHandlerContext(mock(TelegramCommand.class), null, s -> {});
 
-        ctx.mergeAgentProgressEvent(AgentStreamEvent.thinking(0), "<i>Thinking...</i>", MAX_LENGTH);
+        MessageHandlerContext.AgentProgressUpdate thinkingUpdate = ctx.mergeAgentProgressEvent(
+                AgentStreamEvent.thinking(0),
+                "<i>Thinking...</i>",
+                MAX_LENGTH
+        );
         MessageHandlerContext.AgentProgressUpdate terminalUpdate = ctx.mergeAgentProgressEvent(
                 AgentStreamEvent.finalAnswer("Done", 0),
                 null,
                 MAX_LENGTH
         );
 
-        assertThat(terminalUpdate.changed()).isTrue();
-        assertThat(terminalUpdate.isEmpty()).isTrue();
+        assertThat(thinkingUpdate.html()).contains("Thinking...");
+        assertThat(terminalUpdate.changed()).isFalse();
+        assertThat(terminalUpdate.html()).contains("Thinking...");
     }
 
     @Test

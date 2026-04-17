@@ -82,11 +82,13 @@ public class ReActAgentExecutor implements AgentExecutor {
 
                 // Install an event listener on the context
                 ctx.setStreamSink(sink::tryEmitNext);
+                SpringAgentLoopActions.markStreamingExecution(ctx);
 
                 agentFsm.handle(ctx, AgentEvent.START);
 
                 // Emit metadata (model name) before terminal event
                 AgentResult result = ctx.toResult();
+                String streamedVisibleAnswer = SpringAgentLoopActions.getStreamedFinalVisibleAnswer(ctx);
                 if (result.modelName() != null) {
                     sink.tryEmitNext(AgentStreamEvent.metadata(
                             result.modelName(), result.iterationsUsed()));
@@ -94,11 +96,13 @@ public class ReActAgentExecutor implements AgentExecutor {
 
                 // Emit terminal event based on final state
                 if (result.isSuccess()) {
-                    emitFinalAnswerChunks(sink, result.finalAnswer(), result.iterationsUsed());
+                    emitFinalAnswerChunks(
+                            sink, result.finalAnswer(), streamedVisibleAnswer, result.iterationsUsed());
                     sink.tryEmitNext(AgentStreamEvent.finalAnswer(
                             result.finalAnswer(), result.iterationsUsed()));
                 } else if (result.terminalState() == AgentState.MAX_ITERATIONS) {
-                    emitFinalAnswerChunks(sink, result.finalAnswer(), result.iterationsUsed());
+                    emitFinalAnswerChunks(
+                            sink, result.finalAnswer(), streamedVisibleAnswer, result.iterationsUsed());
                     sink.tryEmitNext(AgentStreamEvent.maxIterations(
                             result.finalAnswer(), result.iterationsUsed()));
                 } else {
@@ -121,17 +125,37 @@ public class ReActAgentExecutor implements AgentExecutor {
     private static void emitFinalAnswerChunks(
             Sinks.Many<AgentStreamEvent> sink,
             String terminalAnswer,
+            String alreadyStreamedVisibleAnswer,
             int iteration
     ) {
         String safeAnswer = sanitizeFinalAnswerForChunkStream(terminalAnswer);
+        String safeAlreadyStreamed = sanitizeFinalAnswerForChunkStream(alreadyStreamedVisibleAnswer);
         if (safeAnswer.isBlank()) {
             return;
         }
-        for (String chunk : splitIntoChunks(safeAnswer, FINAL_ANSWER_CHUNK_MAX_CHARS)) {
+        String tail = determineTailToEmit(safeAnswer, safeAlreadyStreamed);
+        if (tail.isBlank()) {
+            return;
+        }
+        for (String chunk : splitIntoChunks(tail, FINAL_ANSWER_CHUNK_MAX_CHARS)) {
             if (!chunk.isBlank()) {
                 sink.tryEmitNext(AgentStreamEvent.finalAnswerChunk(chunk, iteration));
             }
         }
+    }
+
+    private static String determineTailToEmit(String safeAnswer, String safeAlreadyStreamed) {
+        if (safeAlreadyStreamed == null || safeAlreadyStreamed.isBlank()) {
+            return safeAnswer;
+        }
+        if (safeAnswer.equals(safeAlreadyStreamed)) {
+            return "";
+        }
+        if (safeAnswer.startsWith(safeAlreadyStreamed)) {
+            return safeAnswer.substring(safeAlreadyStreamed.length());
+        }
+        // If prefixes diverged, avoid duplicate burst chunks; terminal FINAL_ANSWER remains authoritative.
+        return "";
     }
 
     private static String sanitizeFinalAnswerForChunkStream(String terminalAnswer) {

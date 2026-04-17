@@ -127,7 +127,10 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
 - Streaming contract for final user-visible answer:
   - executors emit `FINAL_ANSWER_CHUNK` events first (incremental safe text for UI transport)
   - terminal `FINAL_ANSWER`/`MAX_ITERATIONS` event is emitted after chunks and remains authoritative for persistence/state
-  - ReAct chunk stream is produced from sanitized terminal answer
+  - ReAct `executeStream()` runs think step via `ChatModel.stream(...)`, but buffers streamed text until tool-vs-final decision is known
+  - this prevents tool-planning/thinking preface text from leaking into `FINAL_ANSWER_CHUNK` when the same think turn ends with a tool call
+  - after a true final-answer turn is confirmed, chunks are emitted from sanitized user-visible text; executor still emits a safe tail fallback if needed
+  - ReAct stream aggregation keeps latest non-empty `toolCalls` seen across chunks (not only from terminal chunk), so tool execution still happens when providers emit `tool_calls` before stream completion
   - SIMPLE `executeStream()` uses real `ChatModel.stream(...)` flow and emits incremental chunks while streaming
 - SIMPLE strategy remains non-agentic; if final text still looks like raw tool payload and no user-visible prefix can be recovered, it emits `ERROR` (`raw_tool_payload_in_final_answer`) instead of `FINAL_ANSWER`.
 

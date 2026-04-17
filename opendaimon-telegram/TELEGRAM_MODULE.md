@@ -162,9 +162,11 @@ Evaluated in order — first match wins:
 4. `METADATA` event updates response model in context (not sent as chat text)
 5. `FINAL_ANSWER_CHUNK` stream is rendered in a dedicated final-answer message:
    - first chunk → `sendMessageAndGetId(..., replyTo=<original user message>)` with link previews disabled
-   - next chunks → `editMessageHtml(...)` on the same final-answer message
+   - next chunks are throttled by time (edits no more often than configured interval)
+   - when edited content reaches Telegram max length, streaming automatically rolls over to a new final-answer message (tail continues there)
+   - terminal event forces flush of any remaining buffered tail to avoid incomplete final text
 6. Terminal `FINAL_ANSWER`/`MAX_ITERATIONS` still finalizes state/persistence:
-   - if only transient `THINKING` blocks were shown and terminal event arrives, temporary progress message is deleted
+   - `THINKING`/progress message remains visible and separate from final-answer message
    - if executor emitted no chunks, terminal content is sent by fallback as a separate message
    - if terminal content contains mixed payload (`user text + tool markers`), Telegram extracts user-visible prefix
    - if terminal content contains only raw tool payload (no user-visible prefix), flow marks it as `EMPTY_RESPONSE` and routes to standard error handling

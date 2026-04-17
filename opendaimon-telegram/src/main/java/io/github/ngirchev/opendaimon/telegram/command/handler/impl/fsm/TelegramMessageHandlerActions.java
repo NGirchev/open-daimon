@@ -68,6 +68,7 @@ import static io.github.ngirchev.opendaimon.common.service.AIUtils.retrieveMessa
 public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private static final String RAW_TOOL_PAYLOAD_ERROR = "raw_tool_payload_in_final_answer";
     private static final Set<String> TOOL_NAMES = Set.of("http_get", "http_post", "web_search", "fetch_url");
+    private static final long FINAL_ANSWER_STREAM_MIN_EDIT_INTERVAL_MS = 500L;
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -289,10 +290,19 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     }
 
     private void sendAgentEventToTelegram(MessageHandlerContext ctx, AgentStreamEvent event) {
-        log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}, content='{}'",
-                event.type(), event.iteration(),
-                event.content() != null ? event.content().length() : 0,
-                normalizeForLog(event.content()));
+        if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK) {
+            // Chunks can arrive very frequently; keep them at DEBUG to avoid misleading INFO noise
+            // when edit throttling is enabled.
+            log.debug("FSM agentStreamEvent: type={}, iteration={}, contentLength={}, content='{}'",
+                    event.type(), event.iteration(),
+                    event.content() != null ? event.content().length() : 0,
+                    normalizeForLog(event.content()));
+        } else {
+            log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}, content='{}'",
+                    event.type(), event.iteration(),
+                    event.content() != null ? event.content().length() : 0,
+                    normalizeForLog(event.content()));
+        }
         // Capture model name from metadata event
         if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
             ctx.setResponseModel(event.content());
@@ -301,6 +311,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK) {
             sendFinalAnswerChunkToTelegram(ctx, event.content());
             return;
+        }
+        if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER
+                || event.type() == AgentStreamEvent.EventType.MAX_ITERATIONS
+                || event.type() == AgentStreamEvent.EventType.ERROR) {
+            flushPendingFinalAnswerToTelegram(ctx);
         }
         if (agentStreamRenderer == null) {
             return;
@@ -345,25 +360,124 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         if (rawChunk == null || rawChunk.isBlank()) {
             return;
         }
-        Long chatId = ctx.getCommand().telegramId();
-        String accumulated = ctx.appendAgentFinalAnswerChunk(rawChunk);
-        String html = AIUtils.convertMarkdownToHtml(accumulated);
+        ctx.appendAgentFinalAnswerChunk(rawChunk);
+        publishFinalAnswerToTelegram(ctx, false);
+    }
 
-        Integer finalAnswerMessageId = ctx.getAgentFinalAnswerMessageId();
-        if (finalAnswerMessageId == null) {
-            Integer replyToMessageId = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
-            Integer sentMessageId = messageSender.sendHtmlAndGetId(chatId, html, replyToMessageId, true);
-            if (sentMessageId != null) {
-                ctx.setAgentFinalAnswerMessageId(sentMessageId);
-                ctx.setAlreadySentInStream(true);
-                log.info("FSM agentStreamEvent: created final answer message id={}", sentMessageId);
-            }
+    private void flushPendingFinalAnswerToTelegram(MessageHandlerContext ctx) {
+        if (!ctx.hasStreamedFinalAnswerChunks()) {
             return;
         }
+        if (ctx.getAgentFinalAnswerPendingChars() <= 0) {
+            return;
+        }
+        publishFinalAnswerToTelegram(ctx, true);
+    }
 
-        messageSender.editHtml(chatId, finalAnswerMessageId, html, true);
-        ctx.setAlreadySentInStream(true);
-        log.info("FSM agentStreamEvent: updated final answer message id={}", finalAnswerMessageId);
+    private void publishFinalAnswerToTelegram(MessageHandlerContext ctx, boolean force) {
+        if (!force && !shouldEditFinalAnswerMessage(ctx)) {
+            return;
+        }
+        Long chatId = ctx.getCommand().telegramId();
+        Integer replyToMessageId = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
+        int maxLength = telegramProperties.getMaxMessageLength();
+
+        while (ctx.getAgentFinalAnswerCurrentMessageStartOffset() < ctx.getAgentFinalAnswerText().length()) {
+            int segmentStartOffset = ctx.getAgentFinalAnswerCurrentMessageStartOffset();
+            String currentSegment = ctx.getAgentFinalAnswerText().substring(segmentStartOffset);
+            int fitLength = findLargestPrefixThatFitsTelegramLimit(currentSegment, maxLength);
+            if (fitLength <= 0) {
+                log.warn("FSM agentStreamEvent: could not fit final answer segment into Telegram limit, segmentStart={}",
+                        segmentStartOffset);
+                return;
+            }
+
+            String segmentToSend = currentSegment.substring(0, fitLength);
+            String html = AIUtils.convertMarkdownToHtml(segmentToSend);
+            Integer finalAnswerMessageId = ctx.getAgentFinalAnswerMessageId();
+
+            if (finalAnswerMessageId == null) {
+                Integer sentMessageId = messageSender.sendHtmlAndGetId(chatId, html, replyToMessageId, true);
+                if (sentMessageId == null) {
+                    return;
+                }
+                ctx.setAgentFinalAnswerMessageId(sentMessageId);
+                log.info("FSM agentStreamEvent: created final answer message id={}", sentMessageId);
+            } else {
+                messageSender.editHtml(chatId, finalAnswerMessageId, html, true);
+                log.info("FSM agentStreamEvent: updated final answer message id={}", finalAnswerMessageId);
+            }
+
+            int deliveredLength = segmentStartOffset + fitLength;
+            ctx.markAgentFinalAnswerDeliveredUpTo(deliveredLength);
+            ctx.setAlreadySentInStream(true);
+
+            if (deliveredLength >= ctx.getAgentFinalAnswerText().length()) {
+                return;
+            }
+
+            // Current message reached Telegram length limit — continue the remaining tail in a new message.
+            ctx.setAgentFinalAnswerCurrentMessageStartOffset(deliveredLength);
+            ctx.setAgentFinalAnswerMessageId(null);
+            replyToMessageId = null;
+            if (!force) {
+                return;
+            }
+        }
+    }
+
+    private int findLargestPrefixThatFitsTelegramLimit(String text, int maxLength) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        int low = 1;
+        int high = text.length();
+        int best = 0;
+
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            String candidateHtml = AIUtils.convertMarkdownToHtml(text.substring(0, mid));
+            if (candidateHtml.length() <= maxLength) {
+                best = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        if (best <= 0) {
+            return 0;
+        }
+        return adjustChunkBoundaryForReadability(text, best);
+    }
+
+    private int adjustChunkBoundaryForReadability(String text, int bestFitLength) {
+        if (bestFitLength >= text.length()) {
+            return bestFitLength;
+        }
+        int threshold = Math.max(1, bestFitLength - 200);
+        int paragraphBoundary = text.lastIndexOf("\n\n", bestFitLength - 1);
+        int newlineBoundary = text.lastIndexOf('\n', bestFitLength - 1);
+        int spaceBoundary = text.lastIndexOf(' ', bestFitLength - 1);
+
+        int candidate = Math.max(
+                Math.max(paragraphBoundary >= 0 ? paragraphBoundary + 2 : 0,
+                        newlineBoundary >= 0 ? newlineBoundary + 1 : 0),
+                spaceBoundary >= 0 ? spaceBoundary + 1 : 0
+        );
+
+        if (candidate >= threshold) {
+            return candidate;
+        }
+        return bestFitLength;
+    }
+
+    private static boolean shouldEditFinalAnswerMessage(MessageHandlerContext ctx) {
+        if (ctx.getAgentFinalAnswerPendingChars() <= 0) {
+            return false;
+        }
+        long elapsedSinceLastEditMs = System.currentTimeMillis() - ctx.getAgentFinalAnswerLastDeliveryAtMillis();
+        return elapsedSinceLastEditMs >= FINAL_ANSWER_STREAM_MIN_EDIT_INTERVAL_MS;
     }
 
     private void extractAgentResult(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {

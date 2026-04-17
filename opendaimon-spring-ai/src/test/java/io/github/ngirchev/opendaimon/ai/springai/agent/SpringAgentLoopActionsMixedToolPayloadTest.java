@@ -24,11 +24,14 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
+import reactor.core.publisher.Flux;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,6 +55,87 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
         actions = new SpringAgentLoopActions(chatModel, toolCallingManager, List.of(), null, null, null);
         ExDomainFsm<AgentContext, AgentState, AgentEvent> fsm = AgentLoopFsmFactory.create(actions);
         executor = new ReActAgentExecutor(fsm);
+    }
+
+    @Test
+    @DisplayName("think() in streaming mode emits FINAL_ANSWER_CHUNK events progressively")
+    void think_streamingMode_emitsFinalAnswerChunks() {
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                chatResponse("Part 1 "),
+                chatResponse("Part 2")
+        ));
+
+        AgentContext ctx = new AgentContext("Explain", "conv-stream-1", Map.of(), 10, Set.of());
+        List<AgentStreamEvent> emittedEvents = new ArrayList<>();
+        ctx.setStreamSink(emittedEvents::add);
+        SpringAgentLoopActions.markStreamingExecution(ctx);
+
+        actions.think(ctx);
+
+        assertThat(ctx.getCurrentTextResponse()).isEqualTo("Part 1 Part 2");
+        List<AgentStreamEvent> finalChunks = emittedEvents.stream()
+                .filter(event -> event.type() == AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK)
+                .toList();
+        assertThat(finalChunks).isNotEmpty();
+        String chunkedText = finalChunks.stream()
+                .map(AgentStreamEvent::content)
+                .collect(Collectors.joining());
+        assertThat(chunkedText).isEqualTo("Part 1 Part 2");
+    }
+
+    @Test
+    @DisplayName("think() in streaming mode deduplicates cumulative chunks")
+    void think_streamingMode_deduplicatesCumulativeChunks() {
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                chatResponse("Отлично, "),
+                chatResponse("Отлично, давай создадим"),
+                chatResponse("Отлично, давай создадим"),
+                chatResponse("Отлично, давай создадим новую историю.")
+        ));
+
+        AgentContext ctx = new AgentContext("Write a short tale", "conv-stream-2", Map.of(), 10, Set.of());
+        List<AgentStreamEvent> emittedEvents = new ArrayList<>();
+        ctx.setStreamSink(emittedEvents::add);
+        SpringAgentLoopActions.markStreamingExecution(ctx);
+
+        actions.think(ctx);
+
+        assertThat(ctx.getCurrentTextResponse()).isEqualTo("Отлично, давай создадим новую историю.");
+        List<AgentStreamEvent> finalChunks = emittedEvents.stream()
+                .filter(event -> event.type() == AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK)
+                .toList();
+        String chunkedText = finalChunks.stream()
+                .map(AgentStreamEvent::content)
+                .collect(Collectors.joining());
+        assertThat(chunkedText).isEqualTo("Отлично, давай создадим новую историю.");
+    }
+
+    @Test
+    @DisplayName("think() in streaming mode preserves tool calls emitted before terminal chunk")
+    void think_streamingMode_preservesEarlyToolCalls() {
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                chatResponseWithToolCall(
+                        ".",
+                        "web_search",
+                        "{\"query\":\"Quarkus vs Spring Boot benchmarks 2026\"}"
+                ),
+                chatResponse(".")
+        ));
+
+        AgentContext ctx = new AgentContext("Compare Quarkus and Spring Boot", "conv-stream-3", Map.of(), 10, Set.of());
+        List<AgentStreamEvent> emittedEvents = new ArrayList<>();
+        ctx.setStreamSink(emittedEvents::add);
+        SpringAgentLoopActions.markStreamingExecution(ctx);
+
+        actions.think(ctx);
+
+        assertThat(ctx.getCurrentToolName()).isEqualTo("web_search");
+        assertThat(ctx.getCurrentToolArguments()).contains("Quarkus vs Spring Boot benchmarks 2026");
+        assertThat(ctx.getCurrentTextResponse()).isNull();
+        assertThat(emittedEvents.stream()
+                .map(AgentStreamEvent::type)
+                .toList())
+                .doesNotContain(AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK);
     }
 
     @Test
@@ -220,6 +304,22 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
         return ChatResponse.builder()
                 .metadata(ChatResponseMetadata.builder().model("test-model").build())
                 .generations(List.of(new Generation(new AssistantMessage(text))))
+                .build();
+    }
+
+    private ChatResponse chatResponseWithToolCall(String text, String toolName, String arguments) {
+        AssistantMessage output = AssistantMessage.builder()
+                .content(text)
+                .toolCalls(List.of(new AssistantMessage.ToolCall(
+                        "call-1",
+                        "function",
+                        toolName,
+                        arguments
+                )))
+                .build();
+        return ChatResponse.builder()
+                .metadata(ChatResponseMetadata.builder().model("test-model").build())
+                .generations(List.of(new Generation(output)))
                 .build();
     }
 
