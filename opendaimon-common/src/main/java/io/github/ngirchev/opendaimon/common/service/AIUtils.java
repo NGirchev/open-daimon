@@ -532,6 +532,54 @@ public class AIUtils {
         }
     }
 
+    /**
+     * Operator that transforms a stream of raw text chunks into a stream of paragraph-sized blocks.
+     *
+     * <p>Uses the same algorithm as {@link #processStreamingResponseByParagraphs}:
+     * accumulate chunks into paragraphs by {@code \n\n}, group short paragraphs up to
+     * {@code minParagraphLength}, and split oversized blocks at paragraph boundaries to
+     * respect {@code maxMessageLength}. Stateful via per-subscription {@link AtomicReference}s
+     * so the returned {@link Flux} is safe to subscribe to once.
+     *
+     * @param textChunks       upstream of raw text deltas (filter/decode upstream)
+     * @param maxMessageLength target block size (characters); {@code 0} passes chunks through unchanged
+     * @return flux of ready-to-send blocks, one per paragraph group
+     */
+    public static Flux<String> paragraphize(Flux<String> textChunks, int maxMessageLength) {
+        if (maxMessageLength == 0) {
+            return textChunks;
+        }
+        AtomicReference<String> tail = new AtomicReference<>("");
+        AtomicReference<String> accumulatedShortParagraphs = new AtomicReference<>("");
+        AtomicReference<String> overflowBuffer = new AtomicReference<>("");
+        final int minParagraphLength = Math.min(300, maxMessageLength);
+
+        Flux<String> mainStream = textChunks
+                .flatMap(chunk -> splitChunkIntoParagraphs(chunk, tail, maxMessageLength), 1, 1)
+                .filter(paragraph -> !paragraph.trim().isEmpty())
+                .flatMap(paragraph -> processParagraphByMinLength(paragraph.trim(), accumulatedShortParagraphs, minParagraphLength), 1, 1)
+                .flatMap(block -> splitBlockByMaxLength(block, overflowBuffer, maxMessageLength), 1, 1);
+
+        Flux<String> finalFlush = Flux.defer(() -> {
+            List<String> collected = new ArrayList<>();
+            AtomicReference<String> fullResponse = new AtomicReference<>("");
+            String remainingTail = tail.get().trim();
+            String overflow = overflowBuffer.get();
+            String finalTail = overflow.isEmpty()
+                    ? remainingTail
+                    : (remainingTail.isEmpty() ? overflow : remainingTail + "\n\n" + overflow);
+            processFinalTailAndAccumulated(finalTail, accumulatedShortParagraphs, fullResponse, collected::add, maxMessageLength, minParagraphLength);
+            String accumulated = accumulatedShortParagraphs.get().trim();
+            if (!accumulated.isEmpty()) {
+                collected.add(accumulated);
+                accumulatedShortParagraphs.set("");
+            }
+            return Flux.fromIterable(collected);
+        });
+
+        return mainStream.concatWith(finalFlush);
+    }
+
     private static ChatResponse buildStreamingResponseResult(String finalText, ChatResponse finalResponse,
                                                             AtomicInteger totalChunks, AtomicInteger chunksWithNonEmptyText,
                                                             AtomicReference<String> fullResponse,

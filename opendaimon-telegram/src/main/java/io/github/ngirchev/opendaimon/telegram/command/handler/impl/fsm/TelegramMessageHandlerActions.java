@@ -24,6 +24,7 @@ import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
+import io.github.ngirchev.opendaimon.common.service.ParagraphBatcher;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
@@ -261,15 +262,23 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     .doOnNext(event -> handleAgentStreamEvent(ctx, event))
                     .blockLast();
 
+            flushAgentAnswerBatcher(ctx);
+
             extractAgentResult(ctx, lastEvent);
 
-            // Final answer is sent as a separate Telegram message (not as an edit
-            // of the progress message).
+            // Final answer: when PARTIAL_ANSWER already streamed into an answer message
+            // (see handleAgentPartialAnswer), skip the extra send — content is already on screen.
+            // Otherwise (MAX_ITERATIONS / non-streamed path) send as a separate paragraph batch.
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
-                log.info("FSM generateAgentResponse: sending final answer, textLength={}", answerText.length());
-                ctx.clearNextReplyToMessageId();
-                sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, null));
+                if (ctx.getAgentAnswerMessageId() != null) {
+                    log.info("FSM generateAgentResponse: final answer already streamed via edits, skipping duplicate send, textLength={}",
+                            answerText.length());
+                } else {
+                    log.info("FSM generateAgentResponse: sending final answer, textLength={}", answerText.length());
+                    ctx.clearNextReplyToMessageId();
+                    sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, null));
+                }
                 ctx.setAlreadySentInStream(true);
             } else {
                 log.warn("FSM generateAgentResponse: no response text after extractAgentResult");
@@ -294,6 +303,14 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             ctx.setResponseModel(event.content());
             return;
         }
+
+        // PARTIAL_ANSWER events stream the final answer progressively into a dedicated
+        // message (not the progress/status message). Renderer returns null for this type.
+        if (event.type() == AgentStreamEvent.EventType.PARTIAL_ANSWER) {
+            handleAgentPartialAnswer(ctx, event);
+            return;
+        }
+
         if (agentStreamRenderer == null) {
             return;
         }
@@ -318,6 +335,66 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         } else {
             messageSender.editHtml(chatId, progressMessageId, progressHtml, true);
             log.info("FSM agentStreamEvent: updated progress message id={}", progressMessageId);
+        }
+        ctx.setAlreadySentInStream(true);
+    }
+
+    /**
+     * Handles a PARTIAL_ANSWER event by feeding the raw text chunk through a per-session
+     * {@link ParagraphBatcher} (batches by {@code \n\n}, respects Telegram's message length).
+     * For each ready paragraph block the answer message is either sent (first block) or
+     * {@code editMessageText}-ed until overflow starts a new message.
+     *
+     * <p>The batcher is flushed in {@link #flushAgentAnswerBatcher(MessageHandlerContext)}
+     * once the agent stream terminates, so any remaining buffered text reaches the user.
+     */
+    private void handleAgentPartialAnswer(MessageHandlerContext ctx, AgentStreamEvent event) {
+        String content = event.content();
+        if (content == null || content.isEmpty()) {
+            return;
+        }
+        int maxMessageLength = telegramProperties.getMaxMessageLength();
+        ParagraphBatcher batcher = ctx.getOrCreateAnswerBatcher(maxMessageLength);
+        for (String block : batcher.feed(content)) {
+            emitAgentAnswerBlock(ctx, block, maxMessageLength);
+        }
+    }
+
+    /**
+     * Drains any text still buffered in the per-session {@link ParagraphBatcher}
+     * (called once the agent stream completes) and emits remaining blocks.
+     */
+    private void flushAgentAnswerBatcher(MessageHandlerContext ctx) {
+        ParagraphBatcher batcher = ctx.getAgentAnswerBatcher();
+        if (batcher == null) {
+            return;
+        }
+        int maxMessageLength = telegramProperties.getMaxMessageLength();
+        for (String block : batcher.flush()) {
+            emitAgentAnswerBlock(ctx, block, maxMessageLength);
+        }
+    }
+
+    private void emitAgentAnswerBlock(MessageHandlerContext ctx, String block, int maxMessageLength) {
+        if (block == null || block.isBlank()) {
+            return;
+        }
+        Long chatId = ctx.getCommand().telegramId();
+        String blockHtml = AIUtils.convertMarkdownToHtml(block);
+        MessageHandlerContext.AgentAnswerAppendResult result =
+                ctx.appendAgentAnswerBlock(blockHtml, maxMessageLength);
+
+        if (result.startsNewMessage()) {
+            Integer sentMessageId = messageSender.sendHtmlAndGetId(chatId, result.html(), null, true);
+            if (sentMessageId != null) {
+                ctx.setAgentAnswerMessageId(sentMessageId);
+                log.info("FSM agentPartialAnswer: created answer message id={}, blockLength={}",
+                        sentMessageId, result.html().length());
+            }
+        } else {
+            messageSender.editHtml(chatId, ctx.getAgentAnswerMessageId(), result.html(), true);
+            log.info("FSM agentPartialAnswer: updated answer message id={}, totalLength={}",
+                    ctx.getAgentAnswerMessageId(), result.html().length());
         }
         ctx.setAlreadySentInStream(true);
     }

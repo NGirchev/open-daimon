@@ -147,13 +147,23 @@ Evaluated in order — first match wins:
 **Handler:** `MessageTelegramCommandHandler` via FSM action `generateAgentResponse()`
 1. Builds `AgentRequest` from message text + metadata (`threadKey`, role, language, preferred model)
 2. Executes `agentExecutor.executeStream(request)`
-3. Intermediate events (`THINKING`, `TOOL_CALL`, `OBSERVATION`, `ERROR`) are rendered to HTML and delivered as:
+3. Intermediate events (`THINKING`, `TOOL_CALL`, `OBSERVATION`, `ERROR`) are rendered to HTML and delivered to the **progress message**:
    - first event → `sendMessageAndGetId(..., replyTo=<user message>)` with link previews disabled
    - next events → `editMessageHtml(...)` on the same progress message, appending new progress blocks to existing content and keeping link previews disabled
    - `TOOL_CALL` renders as `🔧 <b>{label}:</b> {arg}` where the argument is extracted from the tool call JSON — `query` for `web_search` and `url` for `fetch_url`/`http_get`/`http_post`. The argument is HTML-escaped and truncated to 200 chars. When the argument is missing/blank/malformed JSON or the tool is unknown, the line degrades to the bare label with trailing `...` (e.g. `🔧 <b>Searching the web...</b>`, fallback label `Using a tool`).
-4. `METADATA` event updates response model in context (not sent as chat text)
-5. `FINAL_ANSWER`/`MAX_ITERATIONS` content is sent as a separate Telegram message (not message edit, not reply)
-6. Assistant response is persisted in DB; keyboard status is sent afterwards
+4. `PARTIAL_ANSWER` events stream the final answer progressively to a **separate answer message** (independent from the progress message):
+   - each event carries a **raw text chunk** from the LLM stream, filtered by `StreamingAnswerFilter` in `SpringAgentLoopActions.streamAndAggregate` (strips `<think>` reasoning and `<tool_call>` XML from models that emit them inline — LLM-output hygiene, not Telegram-specific). **No paragraph batching happens in Spring AI.**
+   - the Telegram handler owns paragraph batching: a per-session `ParagraphBatcher` (in `MessageHandlerContext`, max = `telegramProperties.maxMessageLength`, default 4096) feeds each raw chunk and returns ready paragraph-sized blocks
+   - each ready block is converted to HTML via `AIUtils.convertMarkdownToHtml` and accumulated in `MessageHandlerContext.appendAgentAnswerBlock`
+   - first block → `sendMessageAndGetId(chatId, html, null, true)` (no `replyTo`, link previews disabled)
+   - next blocks → `editMessageHtml(chatId, agentAnswerMessageId, accumulatedHtml, true)`
+   - when the next block would push the accumulated HTML past `telegramProperties.maxMessageLength`, the current message is left as-is and a new answer message is started with the block as its first content
+   - after the agent stream terminates, the batcher is flushed (`flushAgentAnswerBatcher`) so any tail text still buffered reaches the user
+5. `METADATA` event updates response model in context (not sent as chat text)
+6. Final send at the end of `generateAgentResponse`:
+   - if `agentAnswerMessageId` is non-null (streaming happened via `PARTIAL_ANSWER`) → the final answer is already visible on screen and no extra message is sent
+   - otherwise (e.g. `MAX_ITERATIONS` or non-streamed path) → content is sent via `sendTextByParagraphs`
+7. Assistant response is persisted in DB; keyboard status is sent afterwards
 
 ---
 

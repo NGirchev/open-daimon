@@ -231,14 +231,20 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     }
 
     /**
-     * Streams the LLM response, emits {@code PARTIAL_ANSWER} events for text outside
-     * {@code <think>}/{@code <tool_call>} blocks, and builds an aggregated
-     * {@link ChatResponse} that preserves structured tool calls from all chunks.
+     * Streams the LLM response, emits {@code PARTIAL_ANSWER} events for each filtered text
+     * chunk, and builds an aggregated {@link ChatResponse} that preserves structured tool calls.
      *
-     * <p>Text chunks are concatenated into a synthetic final {@link AssistantMessage};
-     * structured tool calls from every chunk are merged. The last chunk's response
-     * metadata (model, usage) is preserved so downstream model-name and usage
-     * tracking keeps working.
+     * <p>{@link StreamingAnswerFilter} strips LLM-output artifacts ({@code <think>} reasoning
+     * and {@code <tool_call>} XML fallback) from the user-visible stream — these are
+     * LLM implementation details, not user content, and must never leak through PARTIAL_ANSWER.
+     * The full raw text is still accumulated for the final {@link ChatResponse} so tool-call
+     * parsing and reasoning extraction downstream keep working.
+     *
+     * <p>Paragraph batching and message-length limits are a rendering concern (Telegram/REST/CLI)
+     * owned by the respective consumers — this module streams as-is (filtered).
+     *
+     * <p>The last chunk's response metadata (model, usage) is preserved so downstream
+     * model-name and usage tracking keeps working.
      */
     private ChatResponse streamAndAggregate(AgentContext ctx, Prompt prompt) {
         Flux<ChatResponse> stream = chatModel.stream(prompt);
@@ -249,24 +255,30 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         List<AssistantMessage.ToolCall> collectedToolCalls = new ArrayList<>();
         AtomicReference<ChatResponse> lastChunk = new AtomicReference<>();
 
-        stream.doOnNext(chunk -> {
-            lastChunk.set(chunk);
-            if (chunk.getResult() != null && chunk.getResult().getOutput() != null) {
-                AssistantMessage output = chunk.getResult().getOutput();
-                if (output.getText() != null) {
-                    fullText.append(output.getText());
-                }
-                if (output.getToolCalls() != null && !output.getToolCalls().isEmpty()) {
-                    collectedToolCalls.addAll(output.getToolCalls());
-                }
-            }
-            emitPartialAnswer(ctx, filter, chunk, iteration);
-        }).blockLast();
-
-        String tail = filter.flush();
-        if (!tail.isEmpty()) {
-            ctx.emitEvent(AgentStreamEvent.partialAnswer(tail, iteration));
-        }
+        stream
+                .doOnNext(chunk -> {
+                    lastChunk.set(chunk);
+                    if (chunk.getResult() != null && chunk.getResult().getOutput() != null) {
+                        AssistantMessage output = chunk.getResult().getOutput();
+                        if (output.getText() != null) {
+                            fullText.append(output.getText());
+                        }
+                        if (output.getToolCalls() != null && !output.getToolCalls().isEmpty()) {
+                            collectedToolCalls.addAll(output.getToolCalls());
+                        }
+                    }
+                })
+                .map(AIUtils::extractText)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .map(filter::feed)
+                .filter(s -> !s.isEmpty())
+                .concatWith(Flux.defer(() -> {
+                    String tail = filter.flush();
+                    return tail.isEmpty() ? Flux.empty() : Flux.just(tail);
+                }))
+                .doOnNext(text -> ctx.emitEvent(AgentStreamEvent.partialAnswer(text, iteration)))
+                .blockLast();
 
         ChatResponse last = lastChunk.get();
         if (last == null) {
@@ -282,18 +294,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 ? new Generation(finalMessage, last.getResult().getMetadata())
                 : new Generation(finalMessage);
         return new ChatResponse(List.of(finalGeneration), last.getMetadata());
-    }
-
-    private void emitPartialAnswer(AgentContext ctx, StreamingAnswerFilter filter,
-                                   ChatResponse chunk, int iteration) {
-        Optional<String> text = AIUtils.extractText(chunk);
-        if (text.isEmpty()) {
-            return;
-        }
-        String emittable = filter.feed(text.get());
-        if (!emittable.isEmpty()) {
-            ctx.emitEvent(AgentStreamEvent.partialAnswer(emittable, iteration));
-        }
     }
 
     @Override

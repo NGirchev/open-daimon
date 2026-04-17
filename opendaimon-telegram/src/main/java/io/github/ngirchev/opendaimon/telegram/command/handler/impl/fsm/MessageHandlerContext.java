@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.common.model.AssistantRole;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
+import io.github.ngirchev.opendaimon.common.service.ParagraphBatcher;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
@@ -77,6 +78,19 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private Integer agentProgressMessageId;
     private final List<String> agentProgressChunks = new ArrayList<>();
     private boolean lastChunkIsThinking;
+
+    /**
+     * Telegram message ID of the currently-growing FINAL answer message — the
+     * message we {@code editMessageText} on each PARTIAL_ANSWER block until it
+     * overflows the Telegram message length limit and a new message starts.
+     *
+     * <p>Independent of {@link #agentProgressMessageId} which tracks thinking/tool progress.
+     */
+    private Integer agentAnswerMessageId;
+    /** Accumulated HTML of the current answer message (reset when overflow starts a new one). */
+    private final StringBuilder agentAnswerBuffer = new StringBuilder();
+    /** Stateful paragraph batcher for raw PARTIAL_ANSWER chunks — lazy-init per session. */
+    private ParagraphBatcher agentAnswerBatcher;
 
     // --- Error handling ---
     private Exception exception;
@@ -315,6 +329,78 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
 
     private String buildProgressHtml() {
         return String.join("\n\n", agentProgressChunks);
+    }
+
+    public Integer getAgentAnswerMessageId() {
+        return agentAnswerMessageId;
+    }
+
+    public void setAgentAnswerMessageId(Integer agentAnswerMessageId) {
+        this.agentAnswerMessageId = agentAnswerMessageId;
+    }
+
+    /**
+     * Result of appending a paragraph block to the current answer message.
+     *
+     * @param html             accumulated HTML to render (send or edit)
+     * @param startsNewMessage {@code true} if caller must send a new message (no previous message or overflow);
+     *                         {@code false} if caller should edit the existing {@link #getAgentAnswerMessageId()}
+     */
+    public record AgentAnswerAppendResult(String html, boolean startsNewMessage) {}
+
+    /**
+     * Appends an HTML block to the current answer message buffer, joining with {@code \n\n}.
+     * When adding the block would exceed {@code maxLength}, the buffer is reset to contain
+     * only the new block and {@link AgentAnswerAppendResult#startsNewMessage()} is {@code true}
+     * so the caller starts a new Telegram message. Caller is responsible for calling
+     * {@link #setAgentAnswerMessageId(Integer)} with the new message ID.
+     *
+     * <p>If no answer message has been sent yet ({@link #getAgentAnswerMessageId()} is {@code null}),
+     * {@link AgentAnswerAppendResult#startsNewMessage()} is also {@code true}.
+     *
+     * @param blockHtml the paragraph block already converted to Telegram HTML
+     * @param maxLength maximum length for a single message (typically 4096)
+     * @return accumulated HTML to render and whether a new message must be started
+     */
+    public AgentAnswerAppendResult appendAgentAnswerBlock(String blockHtml, int maxLength) {
+        String safeBlock = blockHtml == null ? "" : blockHtml;
+        int joinedLength = agentAnswerBuffer.length() == 0
+                ? safeBlock.length()
+                : agentAnswerBuffer.length() + 2 + safeBlock.length();
+
+        if (joinedLength <= maxLength) {
+            boolean startsNewMessage = agentAnswerMessageId == null;
+            if (agentAnswerBuffer.length() > 0) {
+                agentAnswerBuffer.append("\n\n");
+            }
+            agentAnswerBuffer.append(safeBlock);
+            return new AgentAnswerAppendResult(agentAnswerBuffer.toString(), startsNewMessage);
+        }
+
+        agentAnswerBuffer.setLength(0);
+        agentAnswerBuffer.append(safeBlock);
+        agentAnswerMessageId = null;
+        return new AgentAnswerAppendResult(safeBlock, true);
+    }
+
+    public void resetAgentAnswerBuffer() {
+        agentAnswerBuffer.setLength(0);
+        agentAnswerMessageId = null;
+    }
+
+    /**
+     * Returns the per-session paragraph batcher for agent PARTIAL_ANSWER chunks,
+     * creating it lazily on first use with the given maximum block length.
+     */
+    public ParagraphBatcher getOrCreateAnswerBatcher(int maxMessageLength) {
+        if (agentAnswerBatcher == null) {
+            agentAnswerBatcher = new ParagraphBatcher(maxMessageLength);
+        }
+        return agentAnswerBatcher;
+    }
+
+    public ParagraphBatcher getAgentAnswerBatcher() {
+        return agentAnswerBatcher;
     }
 
     // --- Error handling ---
