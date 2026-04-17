@@ -9,18 +9,20 @@ import lombok.RequiredArgsConstructor;
 import java.util.Map;
 
 /**
- * Converts {@link AgentStreamEvent} into Telegram-compatible HTML strings.
+ * Converts {@link AgentStreamEvent} into <em>raw markdown</em> text fragments
+ * that are appended to a single, growing agent transcript. The transcript
+ * buffer is later rendered to Telegram HTML once per edit call — doing the
+ * markdown-to-HTML conversion over the whole buffer lets spanning tokens
+ * (e.g. {@code **bold**}) survive chunk boundaries that would otherwise break
+ * if each chunk was rendered independently.
  *
- * <p>Returns {@code null} for terminal events (FINAL_ANSWER, MAX_ITERATIONS)
- * that are handled separately by the caller.
- *
- * <p>Uses only Telegram-supported HTML tags: {@code <b>}, {@code <i>},
- * {@code <code>}, {@code <blockquote>}.
+ * <p>Returns {@code null} for events that do not contribute visible text to
+ * the transcript (model metadata, placeholder THINKING frames with no
+ * content, and terminal events that carry a full-final-answer payload which
+ * has already been streamed in chunks).
  */
 @RequiredArgsConstructor
 public class TelegramAgentStreamRenderer {
-
-    private static final int THINKING_MAX_LENGTH = 500;
 
     private static final int TOOL_ARG_MAX_LENGTH = 200;
 
@@ -43,31 +45,33 @@ public class TelegramAgentStreamRenderer {
     private final ObjectMapper objectMapper;
 
     /**
-     * Renders an agent stream event as Telegram HTML.
-     *
-     * @param event the agent stream event
-     * @return HTML string to send, or {@code null} if the event should not be sent as a status message
+     * Renders an event as raw markdown text ready to be appended to the
+     * transcript buffer. Returns {@code null} when the event contributes no
+     * transcript text (the caller decides how to handle it — e.g. METADATA
+     * updates the model name, FINAL_ANSWER/MAX_ITERATIONS set responseText).
      */
     public String render(AgentStreamEvent event) {
         return switch (event.type()) {
-            case THINKING -> renderThinking(event.content());
+            case PARTIAL_ANSWER -> event.content();
             case TOOL_CALL -> renderToolCall(event.content());
-            case OBSERVATION -> renderObservation(event.content());
-            case ERROR -> "<b>Error:</b> <i>" + escapeHtml(event.content()) + "</i>";
-            case FINAL_ANSWER, MAX_ITERATIONS, METADATA, PARTIAL_ANSWER -> null;
+            case OBSERVATION -> "\n\n*✅ done*\n\n";
+            case ERROR -> "\n\n**❌ Error:** " + nullToEmpty(event.content()) + "\n\n";
+            // Surfaced as a trailing marker so the user sees WHY the stream stopped
+            // instead of an abrupt cut in reasoning text. The event's content field
+            // duplicates what was already streamed via PARTIAL_ANSWER chunks, so only
+            // the marker itself goes into the transcript.
+            case MAX_ITERATIONS -> "\n\n*⚠️ reached iteration limit*\n\n";
+            // Structured reasoning from the provider arrives separately from the visible
+            // assistant text stream (which already flows in via PARTIAL_ANSWER). We skip
+            // it to avoid duplicating reasoning in the transcript.
+            case THINKING -> null;
+            case FINAL_ANSWER, METADATA -> null;
         };
-    }
-
-    private String renderThinking(String content) {
-        if (content == null || content.isBlank()) {
-            return "<i>\uD83E\uDD14 Thinking...</i>";
-        }
-        return "<i>\uD83E\uDD14 " + escapeHtml(truncate(content, THINKING_MAX_LENGTH)) + "</i>";
     }
 
     private String renderToolCall(String content) {
         if (content == null) {
-            return "<b>\uD83D\uDD27 " + escapeHtml(DEFAULT_TOOL_LABEL) + "...</b>";
+            return "\n\n**🔧 " + DEFAULT_TOOL_LABEL + "…**\n\n";
         }
         int colonIndex = content.indexOf(": ");
         String toolName = colonIndex >= 0 ? content.substring(0, colonIndex) : content;
@@ -75,10 +79,9 @@ public class TelegramAgentStreamRenderer {
         String label = TOOL_LABELS.getOrDefault(toolName, DEFAULT_TOOL_LABEL);
         String arg = extractArg(toolName, argsJson);
         if (arg == null || arg.isBlank()) {
-            return "<b>\uD83D\uDD27 " + escapeHtml(label) + "...</b>";
+            return "\n\n**🔧 " + label + "…**\n\n";
         }
-        return "<b>\uD83D\uDD27 " + escapeHtml(label) + ":</b> "
-                + escapeHtml(truncate(arg, TOOL_ARG_MAX_LENGTH));
+        return "\n\n**🔧 " + label + ":** " + truncate(arg, TOOL_ARG_MAX_LENGTH) + "\n\n";
     }
 
     private String extractArg(String toolName, String argsJson) {
@@ -95,23 +98,14 @@ public class TelegramAgentStreamRenderer {
         }
     }
 
-    private String renderObservation(String content) {
-        return "<i>\u2705 Done</i>";
-    }
-
-    private static String escapeHtml(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
+    private static String nullToEmpty(String text) {
+        return text == null ? "" : text;
     }
 
     private static String truncate(String text, int maxLength) {
         if (text == null || text.length() <= maxLength) {
             return text;
         }
-        return text.substring(0, maxLength) + "...";
+        return text.substring(0, maxLength) + "…";
     }
 }

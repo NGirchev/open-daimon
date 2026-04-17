@@ -9,7 +9,6 @@ import io.github.ngirchev.opendaimon.common.model.AssistantRole;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
-import io.github.ngirchev.opendaimon.common.service.ParagraphBatcher;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
@@ -21,7 +20,6 @@ import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedExcepti
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -75,22 +73,24 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private String responseError;
     private boolean alreadySentInStream;
     private String responseModel;
-    private Integer agentProgressMessageId;
-    private final List<String> agentProgressChunks = new ArrayList<>();
-    private boolean lastChunkIsThinking;
 
     /**
-     * Telegram message ID of the currently-growing FINAL answer message — the
-     * message we {@code editMessageText} on each PARTIAL_ANSWER block until it
-     * overflows the Telegram message length limit and a new message starts.
+     * Telegram message ID of the currently-growing agent transcript message —
+     * a single unified stream of THINKING / TOOL_CALL / OBSERVATION / answer
+     * text that we {@code editMessageText} as more content arrives. When the
+     * accumulated text would exceed Telegram's per-message length limit, this
+     * ID is reset to {@code null} and the next chunk starts a fresh message.
      *
-     * <p>Independent of {@link #agentProgressMessageId} which tracks thinking/tool progress.
+     * <p>Previous design split the output into a "progress" message and a
+     * separate "answer" message; the unified transcript avoids classifying
+     * streamed text post-hoc (reasoning vs final answer — a decision only
+     * knowable after the LLM stops calling tools).
      */
-    private Integer agentAnswerMessageId;
-    /** Accumulated HTML of the current answer message (reset when overflow starts a new one). */
-    private final StringBuilder agentAnswerBuffer = new StringBuilder();
-    /** Stateful paragraph batcher for raw PARTIAL_ANSWER chunks — lazy-init per session. */
-    private ParagraphBatcher agentAnswerBatcher;
+    private Integer agentStreamMessageId;
+    /** Accumulated raw markdown text of the current transcript message (pre-HTML). */
+    private final StringBuilder agentStreamRawBuffer = new StringBuilder();
+    /** Timestamp of the last {@code editMessageText} call for throttling against Telegram 429. */
+    private long lastAgentStreamEditAtMs;
 
     // --- Error handling ---
     private Exception exception;
@@ -292,115 +292,78 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.responseModel = responseModel;
     }
 
-    public Integer getAgentProgressMessageId() {
-        return agentProgressMessageId;
+    public Integer getAgentStreamMessageId() {
+        return agentStreamMessageId;
     }
 
-    public void setAgentProgressMessageId(Integer agentProgressMessageId) {
-        this.agentProgressMessageId = agentProgressMessageId;
+    public void setAgentStreamMessageId(Integer agentStreamMessageId) {
+        this.agentStreamMessageId = agentStreamMessageId;
     }
 
-    /**
-     * Appends a new HTML chunk to the progress message body and returns
-     * the complete HTML that should be sent via editMessageText.
-     * If the resulting text exceeds maxLength, oldest chunks are dropped.
-     *
-     * <p>When {@code isThinking} is false and the previous chunk was a thinking
-     * placeholder, the placeholder is replaced instead of accumulated —
-     * so "🤔 Thinking..." only stays visible while the agent is actively thinking.
-     */
-    public String appendAgentProgressChunk(String htmlChunk, int maxLength, boolean isThinking) {
-        if (htmlChunk == null || htmlChunk.isBlank()) {
-            return buildProgressHtml();
-        }
-        if (lastChunkIsThinking && !agentProgressChunks.isEmpty()) {
-            agentProgressChunks.remove(agentProgressChunks.size() - 1);
-        }
-        agentProgressChunks.add(htmlChunk);
-        lastChunkIsThinking = isThinking;
-
-        String merged = buildProgressHtml();
-        while (merged.length() > maxLength && agentProgressChunks.size() > 1) {
-            agentProgressChunks.remove(0);
-            merged = buildProgressHtml();
-        }
-        return merged;
+    public boolean isAgentStreamBufferEmpty() {
+        return agentStreamRawBuffer.length() == 0;
     }
 
-    private String buildProgressHtml() {
-        return String.join("\n\n", agentProgressChunks);
+    public String getAgentStreamRawBuffer() {
+        return agentStreamRawBuffer.toString();
     }
 
-    public Integer getAgentAnswerMessageId() {
-        return agentAnswerMessageId;
+    public long getLastAgentStreamEditAtMs() {
+        return lastAgentStreamEditAtMs;
     }
 
-    public void setAgentAnswerMessageId(Integer agentAnswerMessageId) {
-        this.agentAnswerMessageId = agentAnswerMessageId;
+    public void markAgentStreamEdited() {
+        this.lastAgentStreamEditAtMs = System.currentTimeMillis();
     }
 
     /**
-     * Result of appending a paragraph block to the current answer message.
+     * Result of appending raw markdown text to the unified transcript buffer.
      *
-     * @param html             accumulated HTML to render (send or edit)
-     * @param startsNewMessage {@code true} if caller must send a new message (no previous message or overflow);
-     *                         {@code false} if caller should edit the existing {@link #getAgentAnswerMessageId()}
+     * @param rawBuffer        the full raw markdown text the caller should render (via markdown→HTML) and push to Telegram
+     * @param startsNewMessage {@code true} if the caller must call {@code sendMessage} and capture a fresh message id;
+     *                         {@code false} if the caller should {@code editMessageText} on {@link #getAgentStreamMessageId()}.
+     *                         {@code true} means either the transcript had no message yet, or the new chunk overflowed
+     *                         {@code maxLength} and a fresh message starts with just the new chunk.
      */
-    public record AgentAnswerAppendResult(String html, boolean startsNewMessage) {}
+    public record AgentStreamAppendResult(String rawBuffer, boolean startsNewMessage) {}
 
     /**
-     * Appends an HTML block to the current answer message buffer, joining with {@code \n\n}.
-     * When adding the block would exceed {@code maxLength}, the buffer is reset to contain
-     * only the new block and {@link AgentAnswerAppendResult#startsNewMessage()} is {@code true}
-     * so the caller starts a new Telegram message. Caller is responsible for calling
-     * {@link #setAgentAnswerMessageId(Integer)} with the new message ID.
+     * Appends a raw markdown chunk to the unified transcript buffer. When adding the chunk
+     * would push the buffer past {@code maxLength}, the buffer is reset to contain only the
+     * new chunk and {@link AgentStreamAppendResult#startsNewMessage()} is {@code true} so
+     * the caller sends a fresh message and captures its ID via
+     * {@link #setAgentStreamMessageId(Integer)}.
      *
-     * <p>If no answer message has been sent yet ({@link #getAgentAnswerMessageId()} is {@code null}),
-     * {@link AgentAnswerAppendResult#startsNewMessage()} is also {@code true}.
+     * <p>No paragraph detection or batching — the buffer grows chunk by chunk and is split
+     * only on size. This is intentional: the per-chunk paragraph batching we used to do
+     * was an "early-render" UX hack; with live edits of a growing message it adds nothing
+     * but bugs around classification of streamed text.
      *
-     * @param blockHtml the paragraph block already converted to Telegram HTML
-     * @param maxLength maximum length for a single message (typically 4096)
-     * @return accumulated HTML to render and whether a new message must be started
+     * <p>Note on {@code maxLength}: the raw markdown is always shorter than or equal to the
+     * rendered HTML (markdown→HTML may add tags like {@code <b>}). Callers that need a hard
+     * HTML-length guarantee should keep a margin in {@code maxLength}.
+     *
+     * @param rawChunk  raw markdown text to append; {@code null}/empty is a no-op
+     * @param maxLength maximum length for a single message (raw-markdown budget; typically
+     *                  the Telegram 4096 char limit minus a small margin for HTML expansion)
      */
-    public AgentAnswerAppendResult appendAgentAnswerBlock(String blockHtml, int maxLength) {
-        String safeBlock = blockHtml == null ? "" : blockHtml;
-        int joinedLength = agentAnswerBuffer.length() == 0
-                ? safeBlock.length()
-                : agentAnswerBuffer.length() + 2 + safeBlock.length();
-
-        if (joinedLength <= maxLength) {
-            boolean startsNewMessage = agentAnswerMessageId == null;
-            if (agentAnswerBuffer.length() > 0) {
-                agentAnswerBuffer.append("\n\n");
-            }
-            agentAnswerBuffer.append(safeBlock);
-            return new AgentAnswerAppendResult(agentAnswerBuffer.toString(), startsNewMessage);
+    public AgentStreamAppendResult appendToAgentStream(String rawChunk, int maxLength) {
+        String safeChunk = rawChunk == null ? "" : rawChunk;
+        if (safeChunk.isEmpty()) {
+            return new AgentStreamAppendResult(agentStreamRawBuffer.toString(), agentStreamMessageId == null);
         }
 
-        agentAnswerBuffer.setLength(0);
-        agentAnswerBuffer.append(safeBlock);
-        agentAnswerMessageId = null;
-        return new AgentAnswerAppendResult(safeBlock, true);
-    }
-
-    public void resetAgentAnswerBuffer() {
-        agentAnswerBuffer.setLength(0);
-        agentAnswerMessageId = null;
-    }
-
-    /**
-     * Returns the per-session paragraph batcher for agent PARTIAL_ANSWER chunks,
-     * creating it lazily on first use with the given maximum block length.
-     */
-    public ParagraphBatcher getOrCreateAnswerBatcher(int maxMessageLength) {
-        if (agentAnswerBatcher == null) {
-            agentAnswerBatcher = new ParagraphBatcher(maxMessageLength);
+        int projected = agentStreamRawBuffer.length() + safeChunk.length();
+        if (projected <= maxLength) {
+            boolean startsNewMessage = agentStreamMessageId == null;
+            agentStreamRawBuffer.append(safeChunk);
+            return new AgentStreamAppendResult(agentStreamRawBuffer.toString(), startsNewMessage);
         }
-        return agentAnswerBatcher;
-    }
 
-    public ParagraphBatcher getAgentAnswerBatcher() {
-        return agentAnswerBatcher;
+        agentStreamRawBuffer.setLength(0);
+        agentStreamRawBuffer.append(safeChunk);
+        agentStreamMessageId = null;
+        return new AgentStreamAppendResult(agentStreamRawBuffer.toString(), true);
     }
 
     // --- Error handling ---

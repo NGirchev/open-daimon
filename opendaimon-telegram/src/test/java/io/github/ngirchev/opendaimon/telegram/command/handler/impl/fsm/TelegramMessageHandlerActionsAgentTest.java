@@ -67,10 +67,15 @@ class TelegramMessageHandlerActionsAgentTest {
     private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
 
+    private TelegramProperties telegramProperties;
+
     @BeforeEach
     void setUp() {
-        TelegramProperties telegramProperties = new TelegramProperties();
+        telegramProperties = new TelegramProperties();
         telegramProperties.setMaxMessageLength(4096);
+        // Unit tests run the stream synchronously — disable throttling so every
+        // event produces a Telegram call and the tests can assert on it directly.
+        telegramProperties.setAgentStreamEditMinIntervalMs(0);
         agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
 
         actions = new TelegramMessageHandlerActions(
@@ -240,257 +245,453 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(ctx.getResponseText()).hasValue("Reply");
     }
 
-    // ── Edit-in-place agent status message tests ──────────────────────
+    // ── Unified transcript streaming tests ───────────────────────────
+    //
+    // The agent stream feeds a single, growing Telegram message: the first
+    // rendered chunk is sent with sendHtmlAndGetId(), captured message id is
+    // then re-used for editHtml() on every subsequent chunk. When the markdown
+    // buffer would exceed maxMessageLength it resets and a new message starts.
+    // THINKING / METADATA / terminal events contribute no transcript text —
+    // terminal events only populate responseText for persistence.
 
     @Nested
-    @DisplayName("Agent stream edit-in-place")
-    class AgentStreamEditInPlace {
+    @DisplayName("Unified transcript streaming")
+    class UnifiedTranscriptStreaming {
 
         private static final Long CHAT_ID = 12345L;
         private static final int USER_MSG_ID = 100;
-        private static final int STATUS_MSG_ID = 555;
+        private static final int TRANSCRIPT_MSG_ID = 555;
 
         @Test
-        @DisplayName("should send first agent event as new message with link preview disabled")
-        void shouldSendFirstAgentEventAsNewMessage() {
+        @DisplayName("should send first rendered chunk as new reply-message and capture its id")
+        void shouldSendFirstRenderedChunkAsNewMessage() {
             MessageHandlerContext ctx = createContextWithMessage("Search web",
                     Set.of(ModelCapabilities.WEB));
 
             when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
-                    .thenReturn(STATUS_MSG_ID);
+                    .thenReturn(TRANSCRIPT_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
-                    AgentStreamEvent.finalAnswer("Result", 1));
+                    AgentStreamEvent.partialAnswer("Hello", 1),
+                    AgentStreamEvent.finalAnswer("Hello", 1));
             when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
             actions.generateResponse(ctx);
 
             verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true));
+            assertThat(ctx.getAgentStreamMessageId()).isEqualTo(TRANSCRIPT_MSG_ID);
             assertThat(ctx.isAlreadySentInStream()).isTrue();
-            assertThat(ctx.getAgentProgressMessageId()).isEqualTo(STATUS_MSG_ID);
         }
 
         @Test
-        @DisplayName("should edit status message on subsequent events with link preview disabled")
-        void shouldEditStatusMessageOnSubsequentEvents() {
+        @DisplayName("should edit same captured message on subsequent chunks")
+        void shouldEditSameMessageOnSubsequentChunks() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.partialAnswer("Hello", 1),
+                    AgentStreamEvent.partialAnswer(", world", 1),
+                    AgentStreamEvent.finalAnswer("Hello, world", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true));
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), anyString(), eq(true));
+        }
+
+        @Test
+        @DisplayName("should skip THINKING events so they never appear in transcript")
+        void shouldSkipThinkingEventsInTranscript() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.thinking("I should search", 0),
+                    AgentStreamEvent.partialAnswer("Hi", 1),
+                    AgentStreamEvent.finalAnswer("Hi", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // PARTIAL_ANSWER "Hi" is written via editHtml on the placeholder, not via a new send.
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
+            assertThat(editCaptor.getValue()).contains("Hi");
+            // THINKING payloads must never leak into the transcript.
+            for (String html : editCaptor.getAllValues()) {
+                assertThat(html).doesNotContain("I should search");
+            }
+        }
+
+        @Test
+        @DisplayName("should capture METADATA model without adding it to transcript")
+        void shouldCaptureMetadataModelWithoutTranscriptAppend() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.metadata("gpt-4o", 0),
+                    AgentStreamEvent.partialAnswer("Reply", 1),
+                    AgentStreamEvent.finalAnswer("Reply", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
+
+            ArgumentCaptor<String> sentCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), sentCaptor.capture(), eq(USER_MSG_ID), eq(true));
+            assertThat(sentCaptor.getValue()).doesNotContain("gpt-4o");
+        }
+
+        @Test
+        @DisplayName("should render tool call and observation markers into transcript")
+        void shouldRenderToolCallAndObservationMarkers() {
             MessageHandlerContext ctx = createContextWithMessage("Search Bitcoin",
                     Set.of(ModelCapabilities.WEB));
 
             when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
-                    .thenReturn(STATUS_MSG_ID);
+                    .thenReturn(TRANSCRIPT_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
-                    AgentStreamEvent.observation("Current price: $50,000", 0),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.toolCall("web_search", "{\"query\":\"bitcoin price\"}", 0),
+                    AgentStreamEvent.observation("Price: $50,000", 0),
+                    AgentStreamEvent.partialAnswer("Bitcoin is $50,000.", 1),
                     AgentStreamEvent.finalAnswer("Bitcoin is $50,000.", 1));
             when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
             actions.generateResponse(ctx);
 
-            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true));
-            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), anyString(), eq(true));
-        }
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
 
-        @Test
-        @DisplayName("should accumulate all events in one edited message")
-        void shouldAccumulateAllEventsInOneMessage() {
-            MessageHandlerContext ctx = createContextWithMessage("Search",
-                    Set.of(ModelCapabilities.WEB));
-
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
-                    .thenReturn(STATUS_MSG_ID);
-
-            Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.toolCall("web_search", "query", 0),
-                    AgentStreamEvent.observation("Result found", 0),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
-                    AgentStreamEvent.finalAnswer("Answer", 1));
-            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
-
-            actions.generateResponse(ctx);
-
-            ArgumentCaptor<String> htmlCaptor = ArgumentCaptor.forClass(String.class);
-            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), htmlCaptor.capture(), eq(true));
-
-            String lastEditHtml = htmlCaptor.getValue();
-            // Thinking chunk replaced by tool_call — only tool call and observation remain
-            assertThat(lastEditHtml).doesNotContain("Thinking");
+            String lastEditHtml = editCaptor.getValue();
             assertThat(lastEditHtml).contains("Searching the web");
-            assertThat(lastEditHtml).contains("Done");
+            assertThat(lastEditHtml).contains("done");
+            assertThat(lastEditHtml).contains("Bitcoin is $50,000.");
+            // Observation payload is intentionally hidden behind the ✅ marker.
+            assertThat(lastEditHtml).doesNotContain("Price: $50,000");
         }
 
         @Test
-        @DisplayName("should send final answer as separate message via messageSender.sendHtml")
-        void shouldSendFinalAnswerAsSeparateMessage() {
+        @DisplayName("should populate responseText from FINAL_ANSWER without calling sendHtml when transcript exists")
+        void shouldPopulateResponseTextFromFinalAnswerWithoutExtraSend() {
             MessageHandlerContext ctx = createContextWithMessage("Search",
                     Set.of(ModelCapabilities.WEB));
 
             when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
-                    .thenReturn(STATUS_MSG_ID);
+                    .thenReturn(TRANSCRIPT_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.toolCall("web_search", "query", 0),
-                    AgentStreamEvent.observation("Found", 0),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
+                    AgentStreamEvent.partialAnswer("The answer is ", 1),
+                    AgentStreamEvent.partialAnswer("42.", 1),
                     AgentStreamEvent.finalAnswer("The answer is 42.", 1));
             when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
             actions.generateResponse(ctx);
 
-            // Final answer sent via messageSender.sendHtml (separate message, no reply)
-            ArgumentCaptor<String> finalCaptor = ArgumentCaptor.forClass(String.class);
-            verify(messageSender).sendHtml(eq(CHAT_ID), finalCaptor.capture(), isNull());
-            assertThat(finalCaptor.getValue()).contains("The answer is 42.");
-
-            // Final answer must NOT appear in edit calls
-            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
-            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
-            for (String editHtml : editCaptor.getAllValues()) {
-                assertThat(editHtml).doesNotContain("The answer is 42.");
-            }
+            assertThat(ctx.getResponseText()).hasValue("The answer is 42.");
+            assertThat(ctx.getAgentStreamMessageId()).isEqualTo(TRANSCRIPT_MSG_ID);
+            // The terminal event content already flowed through PARTIAL_ANSWER edits —
+            // we must NOT additionally send a separate final message.
+            verify(messageSender, never()).sendHtml(eq(CHAT_ID), anyString(), isNull());
         }
 
         @Test
-        @DisplayName("should retry send when first sendHtmlAndGetId returns null")
-        void shouldRetrySendWhenFirstSendReturnsNull() {
-            MessageHandlerContext ctx = createContextWithMessage("Search",
-                    Set.of(ModelCapabilities.WEB));
+        @DisplayName("should fall back to sendHtml when placeholder send fails and stream emits only the terminal answer")
+        void shouldFallBackToSendHtmlWhenNoTranscriptCreated() {
+            MessageHandlerContext ctx = createContextWithMessage("Just say hi",
+                    Set.of(ModelCapabilities.CHAT));
 
-            // First call returns null (bot unavailable), second returns ID.
-            // After first consumeNextReplyToMessageId() returns USER_MSG_ID,
-            // subsequent calls return null (consumed).
+            // Placeholder send fails (bot unavailable) → agentStreamMessageId never set.
+            // Stream emits no PARTIAL_ANSWER chunks either → paragraph-batch fallback is used.
             when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
                     .thenReturn(null);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
-                    .thenReturn(STATUS_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.toolCall("web_search", "query", 0),
-                    AgentStreamEvent.observation("Found", 0),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
-                    AgentStreamEvent.finalAnswer("Answer", 1));
+                    AgentStreamEvent.finalAnswer("Hi there!", 1));
             when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
             actions.generateResponse(ctx);
 
-            // After second send succeeded, OBSERVATION should be an edit
-            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), anyString(), eq(true));
+            assertThat(ctx.getAgentStreamMessageId()).isNull();
+            ArgumentCaptor<String> finalCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender).sendHtml(eq(CHAT_ID), finalCaptor.capture(), isNull());
+            assertThat(finalCaptor.getValue()).contains("Hi there!");
+            assertThat(ctx.isAlreadySentInStream()).isTrue();
         }
 
         @Test
-        @DisplayName("should not call editHtml when no status message ID captured")
-        void shouldNotEditWhenNoMessageId() {
+        @DisplayName("should render ERROR event into transcript and set GENERAL error")
+        void shouldRenderErrorEventInTranscriptAndSetGeneralError() {
+            MessageHandlerContext ctx = createContextWithMessage("Do something",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.partialAnswer("Starting...", 1),
+                    AgentStreamEvent.error("Connection timeout", 2));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            assertThat(ctx.getErrorType()).isEqualTo(MessageHandlerErrorType.GENERAL);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
+            assertThat(editCaptor.getValue()).contains("Error:");
+            assertThat(editCaptor.getValue()).contains("Connection timeout");
+        }
+
+        @Test
+        @DisplayName("should never call editHtml when every sendHtmlAndGetId returns null")
+        void shouldNotCallEditHtmlWhenSendNeverSucceeds() {
             MessageHandlerContext ctx = createContextWithMessage("Search",
                     Set.of(ModelCapabilities.WEB));
 
-            // Bot always unavailable
             when(messageSender.sendHtmlAndGetId(anyLong(), anyString(), any(), eq(true)))
                     .thenReturn(null);
 
             Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.toolCall("web_search", "query", 0),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
-                    AgentStreamEvent.finalAnswer("Answer", 1));
+                    AgentStreamEvent.partialAnswer("A", 1),
+                    AgentStreamEvent.partialAnswer("B", 1),
+                    AgentStreamEvent.finalAnswer("AB", 1));
             when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
             actions.generateResponse(ctx);
 
+            assertThat(ctx.getAgentStreamMessageId()).isNull();
             verify(messageSender, never()).editHtml(anyLong(), anyInt(), anyString(), eq(true));
         }
 
         @Test
-        @DisplayName("should replace thinking chunk with next non-thinking event, keep last thinking")
-        void shouldReplaceThinkingWithNextEvent() {
+        @DisplayName("should skip mid-stream edits inside throttle window and flush once at termination")
+        void shouldSkipMidStreamEditsInsideThrottleWindow() {
+            // Large throttle window: all mid-stream chunks after the first must be dropped
+            // from the network; the forced flush at stream termination sends a single edit.
+            telegramProperties.setAgentStreamEditMinIntervalMs(60_000);
+
             MessageHandlerContext ctx = createContextWithMessage("Search",
                     Set.of(ModelCapabilities.WEB));
 
             when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
-                    .thenReturn(STATUS_MSG_ID);
+                    .thenReturn(TRANSCRIPT_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.toolCall("web_search", "query", 0),
-                    AgentStreamEvent.observation("Result found", 0),
-                    AgentStreamEvent.thinking(1),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
-                    AgentStreamEvent.finalAnswer("Answer", 1));
+                    AgentStreamEvent.partialAnswer("one ", 1),
+                    AgentStreamEvent.partialAnswer("two ", 1),
+                    AgentStreamEvent.partialAnswer("three", 1),
+                    AgentStreamEvent.finalAnswer("one two three", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // Placeholder sent as new message; first real chunk replaces it (first edit
+            // bypasses the throttle window because lastEdit was left at 0); subsequent
+            // chunks are throttled away; flushAgentStream() fires the final edit with
+            // the full buffer. Total edits: first-chunk replace + final flush.
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
+            String lastEdit = editCaptor.getValue();
+            assertThat(lastEdit).contains("one");
+            assertThat(lastEdit).contains("two");
+            assertThat(lastEdit).contains("three");
+        }
+
+        @Test
+        @DisplayName("should collapse consecutive newlines so stacked markers don't produce blank line runs")
+        void shouldCollapseConsecutiveNewlinesInRenderedHtml() {
+            MessageHandlerContext ctx = createContextWithMessage("Search",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            // TOOL_CALL emits "\n\n**🔧 …**\n\n", OBSERVATION emits "\n\n*✅ done*\n\n" —
+            // naive concatenation yields "...\n\n\n\n..." which renders as multiple blank
+            // lines in Telegram HTML. The normalizer must collapse those to a single "\n\n".
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.toolCall("web_search", "{\"query\":\"x\"}", 0),
+                    AgentStreamEvent.observation("anything", 0),
+                    AgentStreamEvent.partialAnswer("text", 1),
+                    AgentStreamEvent.finalAnswer("text", 1));
             when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
             actions.generateResponse(ctx);
 
             ArgumentCaptor<String> htmlCaptor = ArgumentCaptor.forClass(String.class);
-            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), htmlCaptor.capture(), eq(true));
+            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), htmlCaptor.capture(), eq(USER_MSG_ID), eq(true));
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), htmlCaptor.capture(), eq(true));
 
-            String lastEditHtml = htmlCaptor.getValue();
-            // Iteration 0: thinking replaced by tool_call
-            assertThat(lastEditHtml).contains("Searching the web");
-            assertThat(lastEditHtml).contains("Done");
-            // Iteration 1: last thinking stays visible (nothing replaced it)
-            assertThat(lastEditHtml).contains("Thinking");
+            for (String html : htmlCaptor.getAllValues()) {
+                // Telegram HTML parse mode forwards \n verbatim; 3+ consecutive newlines
+                // create visible blank-line runs. Normalization caps them at \n\n.
+                assertThat(html).doesNotContain("\n\n\n");
+                // And no leading blank line at the top of the message.
+                assertThat(html).doesNotStartWith("\n");
+            }
         }
 
         @Test
-        @DisplayName("should replace consecutive thinking events (reasoning replaces placeholder)")
-        void shouldReplaceConsecutiveThinkingEvents() {
-            MessageHandlerContext ctx = createContextWithMessage("Search",
+        @DisplayName("should force-flush current buffer to existing message before overflow-reset")
+        void shouldForceFlushBeforeOverflowToAvoidLosingThrottledTail() {
+            // Tight message limit + very long throttle: mid-stream edits are skipped,
+            // the buffer grows, and eventually a chunk triggers overflow. Without the
+            // pre-overflow flush, the old message would stay at its last-actually-edited
+            // state (usually many chars behind) and the buffered tail would be dropped.
+            telegramProperties.setMaxMessageLength(100);
+            telegramProperties.setAgentStreamEditMinIntervalMs(60_000);
+
+            int firstMessageId = 555;
+            int secondMessageId = 777;
+
+            MessageHandlerContext ctx = createContextWithMessage("task",
                     Set.of(ModelCapabilities.WEB));
 
             when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
-                    .thenReturn(STATUS_MSG_ID);
+                    .thenReturn(firstMessageId);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+                    .thenReturn(secondMessageId);
 
+            // After first send (30 chars), next two chunks are throttled and only grow
+            // the buffer (to 80). The fourth chunk (50 chars) would push projected to
+            // 130 > 100 → overflow. Pre-flush must land the 80-char buffer on the OLD
+            // message before the buffer resets to just the 4th chunk.
             Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.thinking("I should search for this", 0),
-                    AgentStreamEvent.toolCall("web_search", "query", 0),
-                    AgentStreamEvent.observation("Found", 0),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
-                    AgentStreamEvent.finalAnswer("Answer", 1));
+                    AgentStreamEvent.partialAnswer("a".repeat(30), 1),
+                    AgentStreamEvent.partialAnswer("b".repeat(30), 1),
+                    AgentStreamEvent.partialAnswer("c".repeat(20), 1),
+                    AgentStreamEvent.partialAnswer("d".repeat(50), 1),
+                    AgentStreamEvent.finalAnswer("done", 1));
             when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
             actions.generateResponse(ctx);
 
-            ArgumentCaptor<String> htmlCaptor = ArgumentCaptor.forClass(String.class);
-            verify(messageSender, atLeastOnce()).editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), htmlCaptor.capture(), eq(true));
+            // Pre-overflow flush must edit the OLD message with the full pre-reset buffer.
+            ArgumentCaptor<String> preFlushCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(firstMessageId), preFlushCaptor.capture(), eq(true));
+            String lastFlushHtml = preFlushCaptor.getValue();
+            assertThat(lastFlushHtml).contains("a".repeat(30));
+            assertThat(lastFlushHtml).contains("b".repeat(30));
+            assertThat(lastFlushHtml).contains("c".repeat(20));
+            // The overflowing chunk must NOT leak into the old message.
+            assertThat(lastFlushHtml).doesNotContain("d".repeat(10));
 
-            String lastEditHtml = htmlCaptor.getValue();
-            // Both thinking events replaced: placeholder by reasoning, reasoning by tool_call
-            assertThat(lastEditHtml).doesNotContain("Thinking");
-            assertThat(lastEditHtml).doesNotContain("I should search");
-            assertThat(lastEditHtml).contains("Searching the web");
-            assertThat(lastEditHtml).contains("Done");
+            // New message is started for the overflowing chunk.
+            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true));
+            assertThat(ctx.getAgentStreamMessageId()).isEqualTo(secondMessageId);
         }
 
         @Test
-        @DisplayName("intermediate events should NOT go through streamingParagraphSender")
-        void shouldNotSendIntermediateEventsThroughParagraphSender() {
-            MessageHandlerContext ctx = createContextWithMessage("Search Bitcoin",
+        @DisplayName("should render MAX_ITERATIONS marker at end of stream so user sees why it stopped")
+        void shouldRenderMaxIterationsMarkerAtEndOfStream() {
+            MessageHandlerContext ctx = createContextWithMessage("Complex task",
                     Set.of(ModelCapabilities.WEB));
 
             when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
-                    .thenReturn(STATUS_MSG_ID);
+                    .thenReturn(TRANSCRIPT_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(
-                    AgentStreamEvent.thinking(0),
-                    AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
-                    AgentStreamEvent.observation("Price: $50,000", 0),
-                    AgentStreamEvent.metadata("gpt-4o", 1),
-                    AgentStreamEvent.finalAnswer("Bitcoin is $50,000.", 1));
+                    AgentStreamEvent.partialAnswer("planning next step", 10),
+                    AgentStreamEvent.maxIterations("partial answer so far", 10));
             when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
 
             actions.generateResponse(ctx);
 
-            // Final answer goes through messageSender.sendHtml, not paragraph sender
-            verify(messageSender).sendHtml(eq(CHAT_ID), anyString(), isNull());
-            assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
-            assertThat(ctx.isAlreadySentInStream()).isTrue();
+            // Final edit must contain the ⚠️ marker so the abrupt end is explained.
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
+            String lastHtml = editCaptor.getValue();
+            assertThat(lastHtml).contains("⚠️");
+            assertThat(lastHtml).contains("reached iteration limit");
+
+            // responseText is set from the event content for persistence.
+            assertThat(ctx.getResponseText()).hasValue("partial answer so far");
+            assertThat(ctx.getErrorType()).isNull();
+        }
+
+        @Test
+        @DisplayName("should send 🤔 Thinking placeholder before the first stream event and replace it with the first chunk")
+        void shouldSendThinkingPlaceholderBeforeStreamStarts() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask something",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.partialAnswer("Real answer", 1),
+                    AgentStreamEvent.finalAnswer("Real answer", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // Exactly one sendHtmlAndGetId call — for the placeholder — before the first real chunk.
+            ArgumentCaptor<String> sentCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), sentCaptor.capture(), eq(USER_MSG_ID), eq(true));
+            assertThat(sentCaptor.getValue()).contains("Thinking");
+            // Placeholder id is seeded so PARTIAL_ANSWER edits (not re-sends) the message.
+            assertThat(ctx.getAgentStreamMessageId()).isEqualTo(TRANSCRIPT_MSG_ID);
+
+            // Real content arrives as an editHtml that fully replaces the placeholder text —
+            // raw buffer stays empty across the placeholder send, so "Thinking" isn't accumulated.
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
+            String lastEdit = editCaptor.getValue();
+            assertThat(lastEdit).contains("Real answer");
+            assertThat(lastEdit).doesNotContain("Thinking");
+        }
+
+        @Test
+        @DisplayName("should render terminal answer into the placeholder when stream emits only FINAL_ANSWER")
+        void shouldRenderTerminalAnswerIntoPlaceholderWhenOnlyFinalAnswerEmitted() {
+            MessageHandlerContext ctx = createContextWithMessage("Quick question",
+                    Set.of(ModelCapabilities.CHAT));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            // No PARTIAL_ANSWER — the terminal event carries the only text. The placeholder
+            // would otherwise hang in chat forever; the fallback branch must edit it with
+            // the final answer so the user sees a real reply.
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.finalAnswer("Terminal-only answer", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
+            String lastEdit = editCaptor.getValue();
+            assertThat(lastEdit).contains("Terminal-only answer");
+            assertThat(lastEdit).doesNotContain("Thinking");
+            // No separate paragraph-batch fallback send when the placeholder exists.
+            verify(messageSender, never()).sendHtml(eq(CHAT_ID), anyString(), isNull());
+            assertThat(ctx.getResponseText()).hasValue("Terminal-only answer");
         }
 
         private MessageHandlerContext createContextWithMessage(String userText,

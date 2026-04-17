@@ -141,29 +141,28 @@ Evaluated in order — first match wins:
 
 ---
 
-### UC-1B: Text message in agent mode (REACT/SIMPLE) with progress edits
+### UC-1B: Text message in agent mode (REACT/SIMPLE) with unified transcript
 **Trigger:** `open-daimon.agent.enabled=true` and user sends plain text
 **Mapping:** `mapToTelegramTextCommand()` → `MESSAGE`, `stream=true`
 **Handler:** `MessageTelegramCommandHandler` via FSM action `generateAgentResponse()`
 1. Builds `AgentRequest` from message text + metadata (`threadKey`, role, language, preferred model)
 2. Executes `agentExecutor.executeStream(request)`
-3. Intermediate events (`THINKING`, `TOOL_CALL`, `OBSERVATION`, `ERROR`) are rendered to HTML and delivered to the **progress message**:
-   - first event → `sendMessageAndGetId(..., replyTo=<user message>)` with link previews disabled
-   - next events → `editMessageHtml(...)` on the same progress message, appending new progress blocks to existing content and keeping link previews disabled
-   - `TOOL_CALL` renders as `🔧 <b>{label}:</b> {arg}` where the argument is extracted from the tool call JSON — `query` for `web_search` and `url` for `fetch_url`/`http_get`/`http_post`. The argument is HTML-escaped and truncated to 200 chars. When the argument is missing/blank/malformed JSON or the tool is unknown, the line degrades to the bare label with trailing `...` (e.g. `🔧 <b>Searching the web...</b>`, fallback label `Using a tool`).
-4. `PARTIAL_ANSWER` events stream the final answer progressively to a **separate answer message** (independent from the progress message):
-   - each event carries a **raw text chunk** from the LLM stream, filtered by `StreamingAnswerFilter` in `SpringAgentLoopActions.streamAndAggregate` (strips `<think>` reasoning and `<tool_call>` XML from models that emit them inline — LLM-output hygiene, not Telegram-specific). **No paragraph batching happens in Spring AI.**
-   - the Telegram handler owns paragraph batching: a per-session `ParagraphBatcher` (in `MessageHandlerContext`, max = `telegramProperties.maxMessageLength`, default 4096) feeds each raw chunk and returns ready paragraph-sized blocks
-   - each ready block is converted to HTML via `AIUtils.convertMarkdownToHtml` and accumulated in `MessageHandlerContext.appendAgentAnswerBlock`
-   - first block → `sendMessageAndGetId(chatId, html, null, true)` (no `replyTo`, link previews disabled)
-   - next blocks → `editMessageHtml(chatId, agentAnswerMessageId, accumulatedHtml, true)`
-   - when the next block would push the accumulated HTML past `telegramProperties.maxMessageLength`, the current message is left as-is and a new answer message is started with the block as its first content
-   - after the agent stream terminates, the batcher is flushed (`flushAgentAnswerBatcher`) so any tail text still buffered reaches the user
-5. `METADATA` event updates response model in context (not sent as chat text)
-6. Final send at the end of `generateAgentResponse`:
-   - if `agentAnswerMessageId` is non-null (streaming happened via `PARTIAL_ANSWER`) → the final answer is already visible on screen and no extra message is sent
-   - otherwise (e.g. `MAX_ITERATIONS` or non-streamed path) → content is sent via `sendTextByParagraphs`
-7. Assistant response is persisted in DB; keyboard status is sent afterwards
+3. All text-bearing events feed a **single growing transcript message** — no separate progress / answer messages any more. `TelegramAgentStreamRenderer.render(event)` returns **raw markdown** (not HTML); the caller `appendToTranscript` appends it to `MessageHandlerContext.agentStreamRawBuffer` and renders the whole buffer to HTML via `AIUtils.convertMarkdownToHtml` each time, so cross-chunk markdown tokens (e.g. `**bold**` split over two PARTIAL_ANSWER frames) survive the chunk boundary.
+   - first rendered chunk → `sendMessageAndGetId(chatId, html, replyTo=<user message>, true)` with link previews disabled; the returned message id is stored in `agentStreamMessageId`
+   - subsequent chunks → `editMessageHtml(chatId, agentStreamMessageId, html, true)` with the full re-rendered HTML
+   - when the accumulated raw buffer would exceed `telegramProperties.maxMessageLength` (default 4096), the buffer resets to the new chunk and `agentStreamMessageId` is cleared → the next send starts a fresh transcript message (no `replyTo`)
+4. Per-event rendering rules in `TelegramAgentStreamRenderer`:
+   - `PARTIAL_ANSWER` → raw delta text appended verbatim (markdown-aware, no escaping at this stage)
+   - `TOOL_CALL` → `\n\n**🔧 {label}:** {arg}\n\n` where the argument comes from the tool JSON — `query` for `web_search`, `url` for `fetch_url`/`http_get`/`http_post`. Argument is truncated to 200 chars. Missing/blank arg or unknown tool degrades to `\n\n**🔧 {label}…**\n\n` (fallback label `Using a tool`).
+   - `OBSERVATION` → compact `\n\n*✅ done*\n\n` marker (payload never leaks to the user transcript)
+   - `ERROR` → `\n\n**❌ Error:** {content}\n\n` inline in the transcript
+   - `THINKING`, `FINAL_ANSWER`, `MAX_ITERATIONS`, `METADATA` → `null` (no transcript text). `THINKING` is dropped because structured reasoning from the provider duplicates what already streamed via `PARTIAL_ANSWER`. `FINAL_ANSWER` / `MAX_ITERATIONS` carry the full answer only for persistence; the text was already streamed as `PARTIAL_ANSWER` chunks.
+5. `METADATA` event updates `responseModel` on the context (not written to transcript).
+6. Edit throttling: `telegramProperties.agentStreamEditMinIntervalMs` (default 1500 ms) — chunks arriving inside the window only update the raw buffer, skipping the network call. The next chunk after the window flushes the accumulated text in one edit. Prevents Telegram `429 Too Many Requests` under fast token streams. Stream termination always calls `flushAgentStream()` which forces a final edit regardless of the window so nothing is lost.
+7. Final send at the end of `generateAgentResponse`:
+   - if `agentStreamMessageId` is non-null → the answer text already flowed through the transcript (possibly across several edits and/or overflowed into new messages). No extra message is sent.
+   - otherwise (no `PARTIAL_ANSWER` / `TOOL_CALL` / `OBSERVATION` ever arrived — e.g. non-streaming gateway fallback, or only a terminal event) → the answer text is sent as paragraphs via `sendTextByParagraphs` (no `replyTo`).
+8. Assistant response is persisted in DB; keyboard status is sent afterwards.
 
 ---
 

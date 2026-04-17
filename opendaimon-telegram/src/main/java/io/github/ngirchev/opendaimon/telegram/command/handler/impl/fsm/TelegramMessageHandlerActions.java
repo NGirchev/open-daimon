@@ -24,7 +24,6 @@ import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
-import io.github.ngirchev.opendaimon.common.service.ParagraphBatcher;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
@@ -66,6 +65,13 @@ import static io.github.ngirchev.opendaimon.common.service.AIUtils.retrieveMessa
 @Slf4j
 @RequiredArgsConstructor
 public class TelegramMessageHandlerActions implements MessageHandlerActions {
+
+    /**
+     * Seeded into the agent transcript message before any stream events arrive, so the
+     * user gets an immediate visual cue that the bot is working. Replaced (not appended)
+     * by the first real content chunk because the raw buffer stays empty across this send.
+     */
+    private static final String AGENT_STREAM_PLACEHOLDER_HTML = "🤔 <i>Thinking...</i>";
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -247,6 +253,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             AgentStrategy strategy = hasToolAccess ? AgentStrategy.AUTO : AgentStrategy.SIMPLE;
             log.info("FSM generateAgentResponse: capabilities={}, strategy={}", capabilities, strategy);
 
+            sendAgentStreamPlaceholder(ctx);
+
             AgentRequest request = new AgentRequest(
                     command.userText(),
                     metadata.get(THREAD_KEY_FIELD),
@@ -256,26 +264,35 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     strategy
             );
 
-            // Stream agent events — edits a single status message in Telegram
-            // and captures the terminal event for final answer extraction.
+            // Stream agent events — renders each text-bearing event into a single
+            // unified Telegram transcript message (edit-driven streaming). Terminal
+            // events (FINAL_ANSWER / MAX_ITERATIONS) carry the full answer text used
+            // to populate responseText for persistence.
             AgentStreamEvent lastEvent = agentExecutor.executeStream(request)
                     .doOnNext(event -> handleAgentStreamEvent(ctx, event))
                     .blockLast();
 
-            flushAgentAnswerBatcher(ctx);
+            // Drain any pending throttled edit so the user sees the full transcript.
+            flushAgentStream(ctx);
 
             extractAgentResult(ctx, lastEvent);
 
-            // Final answer: when PARTIAL_ANSWER already streamed into an answer message
-            // (see handleAgentPartialAnswer), skip the extra send — content is already on screen.
-            // Otherwise (MAX_ITERATIONS / non-streamed path) send as a separate paragraph batch.
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
-                if (ctx.getAgentAnswerMessageId() != null) {
-                    log.info("FSM generateAgentResponse: final answer already streamed via edits, skipping duplicate send, textLength={}",
+                if (ctx.getAgentStreamMessageId() != null && !ctx.isAgentStreamBufferEmpty()) {
+                    // Normal ReAct path: answer text already flowed into the transcript via PARTIAL_ANSWER chunks.
+                    log.info("FSM generateAgentResponse: final answer already streamed via transcript edits, textLength={}",
                             answerText.length());
+                } else if (ctx.getAgentStreamMessageId() != null && !answerText.isEmpty()) {
+                    // Fallback with placeholder still visible: stream emitted no PARTIAL_ANSWER chunks
+                    // (terminal event carries the only text). Render the answer into the placeholder
+                    // via a forced transcript append so the user doesn't see "🤔 Thinking..." stuck forever.
+                    log.info("FSM generateAgentResponse: rendering terminal answer into placeholder, textLength={}",
+                            answerText.length());
+                    appendToTranscript(ctx, answerText, /*forceFlush=*/ true);
                 } else {
-                    log.info("FSM generateAgentResponse: sending final answer, textLength={}", answerText.length());
+                    // Fallback without placeholder (e.g. placeholder send failed): send as paragraph batch.
+                    log.info("FSM generateAgentResponse: no transcript emitted, sending final answer, textLength={}", answerText.length());
                     ctx.clearNextReplyToMessageId();
                     sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, null));
                 }
@@ -289,25 +306,17 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     }
 
     /**
-     * Handles a single agent stream event by accumulating rendered HTML into one
-     * Telegram status message. The first renderable event sends a new message;
-     * subsequent events edit it. Link previews are disabled for status messages.
+     * Renders a single agent stream event into raw markdown and feeds it to the unified
+     * transcript. Non-text events (METADATA) update side-state instead.
      */
     private void handleAgentStreamEvent(MessageHandlerContext ctx, AgentStreamEvent event) {
         log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}",
                 event.type(), event.iteration(),
                 event.content() != null ? event.content().length() : 0);
 
-        // Capture model name from metadata event
+        // Capture model name — does not belong to the transcript.
         if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
             ctx.setResponseModel(event.content());
-            return;
-        }
-
-        // PARTIAL_ANSWER events stream the final answer progressively into a dedicated
-        // message (not the progress/status message). Renderer returns null for this type.
-        if (event.type() == AgentStreamEvent.EventType.PARTIAL_ANSWER) {
-            handleAgentPartialAnswer(ctx, event);
             return;
         }
 
@@ -315,88 +324,135 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return;
         }
 
-        String html = agentStreamRenderer.render(event);
-        if (html == null) {
+        String rawChunk = agentStreamRenderer.render(event);
+        if (rawChunk == null || rawChunk.isEmpty()) {
             return;
         }
 
-        Long chatId = ctx.getCommand().telegramId();
-        boolean isThinking = event.type() == AgentStreamEvent.EventType.THINKING;
-        String progressHtml = ctx.appendAgentProgressChunk(html, telegramProperties.getMaxMessageLength(), isThinking);
-        Integer progressMessageId = ctx.getAgentProgressMessageId();
+        appendToTranscript(ctx, rawChunk, /*forceFlush=*/ false);
+    }
 
-        if (progressMessageId == null) {
-            Integer sentMessageId = messageSender.sendHtmlAndGetId(
-                    chatId, progressHtml, ctx.consumeNextReplyToMessageId(), true);
-            if (sentMessageId != null) {
-                ctx.setAgentProgressMessageId(sentMessageId);
-                log.info("FSM agentStreamEvent: created progress message id={}", sentMessageId);
-            }
-        } else {
-            messageSender.editHtml(chatId, progressMessageId, progressHtml, true);
-            log.info("FSM agentStreamEvent: updated progress message id={}", progressMessageId);
+    /**
+     * Sends an immediate "🤔 Thinking..." placeholder message so the user sees activity
+     * before the first stream event arrives (which can take seconds on slow models or
+     * when agent pre-processing happens). The returned message id is seeded into
+     * {@code agentStreamMessageId} so the first real content chunk edits this message
+     * instead of sending a new one — and because the raw buffer stays empty, the first
+     * edit fully replaces the placeholder text. {@code lastAgentStreamEditAtMs} is left
+     * at 0 so the first real edit bypasses the throttle window and appears instantly.
+     */
+    private void sendAgentStreamPlaceholder(MessageHandlerContext ctx) {
+        Long chatId = ctx.getCommand().telegramId();
+        Integer placeholderId = messageSender.sendHtmlAndGetId(
+                chatId, AGENT_STREAM_PLACEHOLDER_HTML, ctx.consumeNextReplyToMessageId(), true);
+        if (placeholderId == null) {
+            return;
         }
+        ctx.setAgentStreamMessageId(placeholderId);
         ctx.setAlreadySentInStream(true);
+        log.info("FSM agentStreamPlaceholder: sent id={}", placeholderId);
     }
 
     /**
-     * Handles a PARTIAL_ANSWER event by feeding the raw text chunk through a per-session
-     * {@link ParagraphBatcher} (batches by {@code \n\n}, respects Telegram's message length).
-     * For each ready paragraph block the answer message is either sent (first block) or
-     * {@code editMessageText}-ed until overflow starts a new message.
-     *
-     * <p>The batcher is flushed in {@link #flushAgentAnswerBatcher(MessageHandlerContext)}
-     * once the agent stream terminates, so any remaining buffered text reaches the user.
+     * Forces an edit of the transcript message with whatever is currently in the buffer,
+     * bypassing throttle. Called once the agent stream terminates to flush any edit that
+     * was skipped by the rate-limit window, and also right before an overflow-reset so
+     * the mid-flight tail isn't lost on the message about to be abandoned.
      */
-    private void handleAgentPartialAnswer(MessageHandlerContext ctx, AgentStreamEvent event) {
-        String content = event.content();
-        if (content == null || content.isEmpty()) {
+    private void flushAgentStream(MessageHandlerContext ctx) {
+        if (ctx.isAgentStreamBufferEmpty() || ctx.getAgentStreamMessageId() == null) {
             return;
         }
-        int maxMessageLength = telegramProperties.getMaxMessageLength();
-        ParagraphBatcher batcher = ctx.getOrCreateAnswerBatcher(maxMessageLength);
-        for (String block : batcher.feed(content)) {
-            emitAgentAnswerBlock(ctx, block, maxMessageLength);
-        }
-    }
-
-    /**
-     * Drains any text still buffered in the per-session {@link ParagraphBatcher}
-     * (called once the agent stream completes) and emits remaining blocks.
-     */
-    private void flushAgentAnswerBatcher(MessageHandlerContext ctx) {
-        ParagraphBatcher batcher = ctx.getAgentAnswerBatcher();
-        if (batcher == null) {
-            return;
-        }
-        int maxMessageLength = telegramProperties.getMaxMessageLength();
-        for (String block : batcher.flush()) {
-            emitAgentAnswerBlock(ctx, block, maxMessageLength);
-        }
-    }
-
-    private void emitAgentAnswerBlock(MessageHandlerContext ctx, String block, int maxMessageLength) {
-        if (block == null || block.isBlank()) {
-            return;
-        }
+        String rawBuffer = ctx.getAgentStreamRawBuffer();
+        String html = AIUtils.convertMarkdownToHtml(normalizeTranscript(rawBuffer));
         Long chatId = ctx.getCommand().telegramId();
-        String blockHtml = AIUtils.convertMarkdownToHtml(block);
-        MessageHandlerContext.AgentAnswerAppendResult result =
-                ctx.appendAgentAnswerBlock(blockHtml, maxMessageLength);
+        messageSender.editHtml(chatId, ctx.getAgentStreamMessageId(), html, true);
+        ctx.markAgentStreamEdited();
+        log.info("FSM agentStreamFlush: forced final edit id={}, totalRawLength={}",
+                ctx.getAgentStreamMessageId(), rawBuffer.length());
+    }
+
+    /**
+     * Appends raw markdown to the unified transcript buffer and performs the corresponding
+     * Telegram call: first chunk sends a new message and captures its ID; subsequent chunks
+     * {@code editMessageText} the captured ID. When the accumulated raw buffer would push
+     * past {@code maxLength}, the buffer resets to the new chunk and a fresh message starts.
+     *
+     * <p>Throttling: edits within {@link TelegramProperties#getAgentStreamEditMinIntervalMs()}
+     * of the previous edit are skipped (data stays in the buffer). The next chunk after the
+     * window flushes the accumulated text in one edit. {@link #flushAgentStream} forces a
+     * final edit at stream termination so nothing is lost.
+     */
+    private void appendToTranscript(MessageHandlerContext ctx, String rawChunk, boolean forceFlush) {
+        Long chatId = ctx.getCommand().telegramId();
+        int maxLength = telegramProperties.getMaxMessageLength();
+
+        // Before the buffer-reset branch of appendToAgentStream clears the tail, push
+        // the current buffer to Telegram so the old message shows its final state.
+        // Without this, any throttled mid-flight edits are dropped at overflow and
+        // the old message stays stuck at whatever was last actually flushed.
+        if (ctx.getAgentStreamMessageId() != null
+                && !ctx.isAgentStreamBufferEmpty()
+                && ctx.getAgentStreamRawBuffer().length() + rawChunk.length() > maxLength) {
+            flushAgentStream(ctx);
+        }
+
+        MessageHandlerContext.AgentStreamAppendResult result =
+                ctx.appendToAgentStream(rawChunk, maxLength);
+        String html = AIUtils.convertMarkdownToHtml(normalizeTranscript(result.rawBuffer()));
 
         if (result.startsNewMessage()) {
-            Integer sentMessageId = messageSender.sendHtmlAndGetId(chatId, result.html(), null, true);
+            Integer sentMessageId = messageSender.sendHtmlAndGetId(
+                    chatId, html, ctx.consumeNextReplyToMessageId(), true);
             if (sentMessageId != null) {
-                ctx.setAgentAnswerMessageId(sentMessageId);
-                log.info("FSM agentPartialAnswer: created answer message id={}, blockLength={}",
-                        sentMessageId, result.html().length());
+                ctx.setAgentStreamMessageId(sentMessageId);
+                ctx.markAgentStreamEdited();
+                log.info("FSM agentStreamEvent: created transcript message id={}, rawLength={}",
+                        sentMessageId, result.rawBuffer().length());
             }
-        } else {
-            messageSender.editHtml(chatId, ctx.getAgentAnswerMessageId(), result.html(), true);
-            log.info("FSM agentPartialAnswer: updated answer message id={}, totalLength={}",
-                    ctx.getAgentAnswerMessageId(), result.html().length());
+            ctx.setAlreadySentInStream(true);
+            return;
         }
+
+        Integer messageId = ctx.getAgentStreamMessageId();
+        if (messageId == null) {
+            return;
+        }
+
+        long throttleMs = telegramProperties.getAgentStreamEditMinIntervalMs();
+        long sinceLastEdit = System.currentTimeMillis() - ctx.getLastAgentStreamEditAtMs();
+        if (!forceFlush && sinceLastEdit < throttleMs) {
+            log.debug("FSM agentStreamEvent: throttled edit id={}, sinceLastMs={}, windowMs={}",
+                    messageId, sinceLastEdit, throttleMs);
+            return;
+        }
+
+        messageSender.editHtml(chatId, messageId, html, true);
+        ctx.markAgentStreamEdited();
         ctx.setAlreadySentInStream(true);
+        log.info("FSM agentStreamEvent: updated transcript message id={}, rawLength={}",
+                messageId, result.rawBuffer().length());
+    }
+
+    /**
+     * Collapses runs of 3+ consecutive newlines to exactly two (one blank line) and
+     * strips leading newlines at the start of the message. Fenced markers in the
+     * renderer (🔧 …, ✅ done, ❌ Error) each carry {@code \n\n} on both sides so they
+     * appear as standalone paragraphs; when two markers arrive back-to-back their
+     * boundaries stack to {@code \n\n\n\n} which Telegram renders as multiple blank
+     * lines. Since {@link AIUtils#convertMarkdownToHtml(String)} forwards newlines
+     * verbatim, normalization belongs here at the HTML-render boundary.
+     */
+    private static String normalizeTranscript(String rawMarkdown) {
+        if (rawMarkdown == null || rawMarkdown.isEmpty()) {
+            return rawMarkdown;
+        }
+        String collapsed = rawMarkdown.replaceAll("\\n{3,}", "\n\n");
+        int start = 0;
+        while (start < collapsed.length() && collapsed.charAt(start) == '\n') {
+            start++;
+        }
+        return start == 0 ? collapsed : collapsed.substring(start);
     }
 
     private void extractAgentResult(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {
