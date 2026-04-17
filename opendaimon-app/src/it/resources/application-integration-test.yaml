@@ -83,6 +83,10 @@ open-daimon:
       timeouts:
         response-timeout-seconds: 120
         stream-timeout-seconds: 120
+      web-tools:
+        max-in-memory-bytes: 2097152
+        max-fetch-bytes: 1048576
+        user-agent: "OpenDaimonBot/1.0 (integration-test)"
       serper:
         api:
           key: test-key

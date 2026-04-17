@@ -34,6 +34,8 @@ public class SpringAIProperties {
     
     private Models models = new Models();
 
+    private WebToolsClient webTools = new WebToolsClient();
+
     @Getter
     @Setter
     public static class OpenRouterApp {
@@ -108,4 +110,28 @@ public class SpringAIProperties {
         @Min(value = 1, message = "streamTimeoutSeconds must be >= 1")
         private Integer streamTimeoutSeconds;
     }
-} 
+
+    @Getter
+    @Setter
+    public static class WebToolsClient {
+        /**
+         * Maximum response bytes buffered by WebClient codecs for tool HTTP requests.
+         */
+        @NotNull(message = "webTools.maxInMemoryBytes is required")
+        @Min(value = 1, message = "webTools.maxInMemoryBytes must be >= 1")
+        private Integer maxInMemoryBytes;
+
+        /**
+         * Maximum bytes read for fetch_url page body before aborting with TOO_LARGE.
+         */
+        @NotNull(message = "webTools.maxFetchBytes is required")
+        @Min(value = 1, message = "webTools.maxFetchBytes must be >= 1")
+        private Integer maxFetchBytes;
+
+        /**
+         * User-Agent sent for web tool requests to reduce anti-bot denials.
+         */
+        @NotBlank(message = "webTools.userAgent is required")
+        private String userAgent;
+    }
+}

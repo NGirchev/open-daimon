@@ -1,28 +1,54 @@
 package io.github.ngirchev.opendaimon.ai.springai.tool;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @Slf4j
-@RequiredArgsConstructor
 public class WebTools {
+
+    private static final int FETCH_TIMEOUT_SECONDS = 6;
+    private static final int MAX_TOOL_TEXT_LENGTH = 6000;
+    private static final int DEFAULT_MAX_FETCH_BYTES = 1_048_576;
+    private static final String REASON_TOO_LARGE = "TOO_LARGE";
+    private static final String REASON_UNREADABLE_2XX = "UNREADABLE_2XX";
 
     private final WebClient webClient;
     private final String apiKey;
     private final String apiUrl;
+    private final int maxFetchBytes;
+
+    public WebTools(WebClient webClient, String apiKey, String apiUrl) {
+        this(webClient, apiKey, apiUrl, DEFAULT_MAX_FETCH_BYTES);
+    }
+
+    public WebTools(WebClient webClient, String apiKey, String apiUrl, Integer maxFetchBytes) {
+        this.webClient = webClient;
+        this.apiKey = apiKey;
+        this.apiUrl = apiUrl;
+        this.maxFetchBytes = maxFetchBytes != null && maxFetchBytes > 0
+                ? maxFetchBytes
+                : DEFAULT_MAX_FETCH_BYTES;
+    }
 
     @Tool(
         name = "web_search",
@@ -106,26 +132,29 @@ public class WebTools {
         try {
             log.info("WebTools fetchUrl: {}", url);
             String html = webClient.get()
-                .uri(url)
-                .retrieve()
-                .bodyToMono(String.class)
-                .timeout(Duration.ofSeconds(6))
-                .block();
+                    .uri(url)
+                    .exchangeToMono(this::readBodyWithStatusHandling)
+                    .timeout(Duration.ofSeconds(FETCH_TIMEOUT_SECONDS))
+                    .block();
 
             if (html == null || html.isBlank()) {
                 log.warn("WebTools.fetchUrl: empty response for url=[{}]. Returning empty string.", url);
                 return "";
             }
 
-            // HTML to plain text (minimal)
-            Document doc = Jsoup.parse(html);
-            doc.select("script, style, nav, footer, header").remove();
-
-            doc.body();
-            String text = doc.body().text();
+            String text = extractPlainText(html);
             // avoid token overflow - todo add additional model call to grep and parse the result
-            return text.length() > 6000 ? text.substring(0, 6000) : text;
+            return text.length() > MAX_TOOL_TEXT_LENGTH ? text.substring(0, MAX_TOOL_TEXT_LENGTH) : text;
+        } catch (ResponseBodyTooLargeException | DataBufferLimitException e) {
+            log.warn("WebTools.fetchUrl failed for url=[{}]: body too large (maxFetchBytes={}). Returning error text.",
+                    url, maxFetchBytes);
+            return "fetch_url failed: " + REASON_TOO_LARGE + " for " + url;
         } catch (WebClientResponseException e) {
+            if (e.getStatusCode().is2xxSuccessful()) {
+                log.error("WebTools.fetchUrl failed for url=[{}]: HTTP {} {} with unreadable body. Returning error text.",
+                        url, e.getStatusCode().value(), e.getStatusText(), e);
+                return "fetch_url failed: " + REASON_UNREADABLE_2XX + " for " + url;
+            }
             int statusCode = e.getStatusCode().value();
             log.error("WebTools.fetchUrl failed for url=[{}]: HTTP {} {}. Returning error text.",
                     url, statusCode, e.getStatusText());
@@ -136,6 +165,45 @@ public class WebTools {
                     : e.getClass().getSimpleName();
             log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning error text.", url, reason, e);
             return "fetch_url failed: " + reason + " for " + url;
+        }
+    }
+
+    private Mono<String> readBodyWithStatusHandling(ClientResponse response) {
+        if (!response.statusCode().is2xxSuccessful()) {
+            return response.createException().flatMap(Mono::error);
+        }
+
+        AtomicInteger totalBytes = new AtomicInteger();
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        return response.bodyToFlux(DataBuffer.class)
+                .doOnNext(dataBuffer -> appendChunk(output, totalBytes, dataBuffer))
+                .then(Mono.fromSupplier(() -> output.toString(StandardCharsets.UTF_8)));
+    }
+
+    private void appendChunk(ByteArrayOutputStream output, AtomicInteger totalBytes, DataBuffer dataBuffer) {
+        int chunkSize = dataBuffer.readableByteCount();
+        int nextTotal = totalBytes.addAndGet(chunkSize);
+        if (nextTotal > maxFetchBytes) {
+            DataBufferUtils.release(dataBuffer);
+            throw new ResponseBodyTooLargeException(maxFetchBytes);
+        }
+
+        byte[] bytes = new byte[chunkSize];
+        dataBuffer.read(bytes);
+        DataBufferUtils.release(dataBuffer);
+        output.writeBytes(bytes);
+    }
+
+    private String extractPlainText(String html) {
+        Document doc = Jsoup.parse(html);
+        doc.select("script, style, nav, footer, header").remove();
+        doc.body();
+        return doc.body().text();
+    }
+
+    private static final class ResponseBodyTooLargeException extends RuntimeException {
+        private ResponseBodyTooLargeException(int maxFetchBytes) {
+            super("Response body too large. maxFetchBytes=" + maxFetchBytes);
         }
     }
 

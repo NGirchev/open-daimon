@@ -31,6 +31,7 @@ public class HttpApiTool {
 
     private static final int MAX_RESPONSE_LENGTH = 8000;
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
+    private static final String UNREADABLE_2XX_RESPONSE = "UNREADABLE_2XX_RESPONSE";
 
     /**
      * Patterns matching hostnames that resolve to private/internal IP ranges.
@@ -80,8 +81,7 @@ public class HttpApiTool {
 
             return truncate(response);
         } catch (WebClientResponseException e) {
-            log.error("HttpApiTool GET failed: url={}, status={}", url, e.getStatusCode());
-            return "HTTP error " + e.getStatusCode() + ": " + truncate(e.getResponseBodyAsString());
+            return handleWebClientResponseException("GET", url, e);
         } catch (Exception e) {
             log.error("HttpApiTool GET failed: url={}, error={}", url, e.getMessage());
             return "Error: " + e.getMessage();
@@ -113,8 +113,7 @@ public class HttpApiTool {
 
             return truncate(response);
         } catch (WebClientResponseException e) {
-            log.error("HttpApiTool POST failed: url={}, status={}", url, e.getStatusCode());
-            return "HTTP error " + e.getStatusCode() + ": " + truncate(e.getResponseBodyAsString());
+            return handleWebClientResponseException("POST", url, e);
         } catch (Exception e) {
             log.error("HttpApiTool POST failed: url={}, error={}", url, e.getMessage());
             return "Error: " + e.getMessage();
@@ -173,5 +172,14 @@ public class HttpApiTool {
         return text.length() > MAX_RESPONSE_LENGTH
                 ? text.substring(0, MAX_RESPONSE_LENGTH) + "...(truncated)"
                 : text;
+    }
+
+    private String handleWebClientResponseException(String method, String url, WebClientResponseException e) {
+        if (e.getStatusCode().is2xxSuccessful()) {
+            log.error("HttpApiTool {} failed: url={}, status={} with unreadable body", method, url, e.getStatusCode(), e);
+            return "Error: " + UNREADABLE_2XX_RESPONSE;
+        }
+        log.error("HttpApiTool {} failed: url={}, status={}", method, url, e.getStatusCode());
+        return "HTTP error " + e.getStatusCode() + ": " + truncate(e.getResponseBodyAsString());
     }
 }

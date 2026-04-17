@@ -1,112 +1,135 @@
 package io.github.ngirchev.opendaimon.ai.springai.tool;
 
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
-@ExtendWith(MockitoExtension.class)
 class WebToolsTest {
 
-    @Mock
-    private WebClient webClient;
-
-    @Mock
-    private WebClient.RequestHeadersUriSpec getSpec;
-
-    @Mock
-    private WebClient.RequestBodySpec postSpec;
-
-    @Mock
-    private WebClient.RequestHeadersSpec getRequestHeadersSpec;
-
-    @Mock
-    private WebClient.RequestHeadersSpec postRequestHeadersSpec;
-
-    @Mock
-    private WebClient.ResponseSpec responseSpec;
-
+    private MockWebServer mockWebServer;
     private WebTools webTools;
 
     @BeforeEach
-    void setUp() {
-        webTools = new WebTools(webClient, "test-key", "https://serper.dev/search");
+    void setUp() throws IOException {
+        mockWebServer = new MockWebServer();
+        mockWebServer.start();
+        webTools = new WebTools(
+                WebClient.builder().build(),
+                "test-key",
+                mockWebServer.url("/search").toString(),
+                1_048_576
+        );
+    }
+
+    @AfterEach
+    void tearDown() throws IOException {
+        mockWebServer.shutdown();
     }
 
     @Test
     void webSearch_whenApiKeyBlank_returnsEmptyResult() {
-        WebTools noKeyTools = new WebTools(webClient, "   ", "https://example.com");
-        var result = noKeyTools.webSearch("query");
-        assertNotNull(result);
-        assertEquals("query", result.query());
-        assertTrue(result.hits().isEmpty());
-        verify(webClient, never()).post();
+        WebTools noKeyTools = new WebTools(WebClient.builder().build(), "   ", "https://example.com");
+
+        WebTools.SearchResult result = noKeyTools.webSearch("query");
+
+        assertThat(result).isNotNull();
+        assertThat(result.query()).isEqualTo("query");
+        assertThat(result.hits()).isEmpty();
     }
 
     @Test
     void webSearch_whenApiKeyNull_returnsEmptyResult() {
-        WebTools noKeyTools = new WebTools(webClient, null, "https://example.com");
-        var result = noKeyTools.webSearch("query");
-        assertNotNull(result);
-        assertTrue(result.hits().isEmpty());
+        WebTools noKeyTools = new WebTools(WebClient.builder().build(), null, "https://example.com");
+
+        WebTools.SearchResult result = noKeyTools.webSearch("query");
+
+        assertThat(result).isNotNull();
+        assertThat(result.hits()).isEmpty();
     }
 
     @Test
     void fetchUrl_returnsCleanedText() {
-        when(webClient.get()).thenReturn(getSpec);
-        when(getSpec.uri(anyString())).thenReturn(getRequestHeadersSpec);
-        when(getRequestHeadersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(eq(String.class)))
-                .thenReturn(Mono.just("<html><head></head><body><p>Hello world</p></body></html>").timeout(Duration.ofSeconds(6)));
+        mockWebServer.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setBody("<html><body><script>ignore me</script><p>Hello world</p></body></html>")
+                .addHeader("Content-Type", "text/html"));
 
-        String result = webTools.fetchUrl("https://example.com");
+        String result = webTools.fetchUrl(mockWebServer.url("/article").toString());
 
-        assertNotNull(result);
-        assertTrue(result.contains("Hello world"));
+        assertThat(result).contains("Hello world");
+        assertThat(result).doesNotContain("ignore me");
     }
 
     @Test
     void fetchUrl_whenResponseEmpty_returnsEmptyString() {
-        when(webClient.get()).thenReturn(getSpec);
-        when(getSpec.uri(anyString())).thenReturn(getRequestHeadersSpec);
-        when(getRequestHeadersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(eq(String.class))).thenReturn(Mono.just("").timeout(Duration.ofSeconds(6)));
+        mockWebServer.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setBody("")
+                .addHeader("Content-Type", "text/html"));
 
-        String result = webTools.fetchUrl("https://empty.com");
+        String result = webTools.fetchUrl(mockWebServer.url("/empty").toString());
 
-        assertEquals("", result);
+        assertThat(result).isEmpty();
     }
 
     @Test
     void fetchUrl_whenHttpError_returnsErrorText() {
-        when(webClient.get()).thenReturn(getSpec);
-        when(getSpec.uri(anyString())).thenReturn(getRequestHeadersSpec);
-        when(getRequestHeadersSpec.retrieve()).thenReturn(responseSpec);
-        WebClientResponseException exception = WebClientResponseException.create(
-                403,
-                "Forbidden",
-                HttpHeaders.EMPTY,
-                "blocked".getBytes(StandardCharsets.UTF_8),
-                StandardCharsets.UTF_8
+        mockWebServer.enqueue(new MockResponse()
+                .setResponseCode(403)
+                .setBody("blocked")
+                .addHeader("Content-Type", "text/plain"));
+        String url = mockWebServer.url("/blocked").toString();
+
+        String result = webTools.fetchUrl(url);
+
+        assertThat(result).contains("HTTP 403");
+        assertThat(result).contains(url);
+    }
+
+    @Test
+    void fetchUrl_whenResponseExceedsMaxFetchBytes_returnsTooLargeReason() {
+        WebTools limitedWebTools = new WebTools(
+                WebClient.builder().build(),
+                "test-key",
+                mockWebServer.url("/search").toString(),
+                128
         );
-        when(responseSpec.bodyToMono(eq(String.class))).thenReturn(Mono.error(exception));
+        mockWebServer.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setBody("<html><body>" + "A".repeat(600) + "</body></html>")
+                .addHeader("Content-Type", "text/html"));
 
-        String result = webTools.fetchUrl("https://blocked.com");
+        String result = limitedWebTools.fetchUrl(mockWebServer.url("/large").toString());
 
-        assertTrue(result.contains("HTTP 403"));
-        assertTrue(result.contains("https://blocked.com"));
+        assertThat(result).contains("TOO_LARGE");
+    }
+
+    @Test
+    void fetchUrl_whenHttp200BodyUnreadable_returnsUnreadable2xxReason() {
+        WebClient failingWebClient = WebClient.builder()
+                .filter((request, next) -> Mono.error(WebClientResponseException.create(
+                        200,
+                        "OK",
+                        HttpHeaders.EMPTY,
+                        new byte[0],
+                        StandardCharsets.UTF_8
+                )))
+                .build();
+        WebTools failingWebTools = new WebTools(failingWebClient, "test-key", "https://example.com", 1024);
+
+        String result = failingWebTools.fetchUrl("https://example.com/page");
+
+        assertThat(result).contains("UNREADABLE_2XX");
     }
 }

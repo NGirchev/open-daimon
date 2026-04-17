@@ -186,7 +186,7 @@ class ReActAgentExecutorTest {
     // --- executeStream() ---
 
     @Test
-    @DisplayName("executeStream() emits FINAL_ANSWER event and completes on success")
+    @DisplayName("executeStream() emits FINAL_ANSWER_CHUNK before FINAL_ANSWER on success")
     void shouldEmitFinalAnswerEventWhenFsmCompletesSuccessfully() {
         // Arrange
         AgentRequest request = new AgentRequest("Stream me", "conv-5", Map.of(), 5, Set.of());
@@ -201,9 +201,11 @@ class ReActAgentExecutorTest {
                 .block();
 
         // Assert
-        assertThat(events).hasSize(1);
-        assertThat(events.get(0).type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER);
+        assertThat(events).hasSize(2);
+        assertThat(events.get(0).type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK);
         assertThat(events.get(0).content()).isEqualTo("Streamed answer");
+        assertThat(events.get(1).type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER);
+        assertThat(events.get(1).content()).isEqualTo("Streamed answer");
     }
 
     @Test
@@ -261,11 +263,12 @@ class ReActAgentExecutorTest {
                 .collectList()
                 .block();
 
-        // Assert — intermediate events followed by terminal FINAL_ANSWER
-        assertThat(events).hasSize(3);
+        // Assert — intermediate events followed by final chunk and terminal FINAL_ANSWER
+        assertThat(events).hasSize(4);
         assertThat(events.get(0).type()).isEqualTo(AgentStreamEvent.EventType.THINKING);
         assertThat(events.get(1).type()).isEqualTo(AgentStreamEvent.EventType.OBSERVATION);
-        assertThat(events.get(2).type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER);
+        assertThat(events.get(2).type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK);
+        assertThat(events.get(3).type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER);
     }
 
     @Test

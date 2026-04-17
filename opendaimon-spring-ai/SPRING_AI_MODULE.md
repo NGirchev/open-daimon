@@ -105,6 +105,7 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
 ### Agent final-answer post-processing
 - ReAct and SIMPLE agent executors normalize final text with shared post-processing:
   - strip `<think>...</think>` blocks from model output
+  - if `<think>` block is opened but not closed yet, hide everything from `<think>` onward
   - trim final text before terminal event emission
 - ReAct loop supports mixed payload recovery when provider returns tool intent as plain text (without structured `tool_calls`):
   - detects tool payload markers (`<tool_call>`, `<arg_key>`, standalone `http_get`/`web_search` lines)
@@ -113,12 +114,22 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
   - continues normal `ToolCallingManager.executeToolCalls(...)` path and next think iteration
 - ReAct observation extraction reads tool output from `ToolResponseMessage.responses[].responseData` (not `Message.getText()` on tool messages).
   - when tool output is blank, observation is normalized to `(no tool output)`
-  - for `fetch_url`, HTTP/transport failures are returned as short error text (for example `fetch_url failed: HTTP 403 ...`) and are visible in progress events
+  - for `fetch_url`, failures are classified and returned as short text visible in progress events:
+    - HTTP status failures: `fetch_url failed: HTTP <status> for <url>`
+    - body-size guard: `fetch_url failed: TOO_LARGE for <url>`
+    - 2xx with unreadable body: `fetch_url failed: UNREADABLE_2XX for <url>`
+- Web tools use a dedicated HTTP client configured via `open-daimon.ai.spring-ai.web-tools.*`:
+  - `max-in-memory-bytes` (codec buffer), `max-fetch-bytes` (`fetch_url` stream cap), `user-agent`
 - ReAct `MAX_ITERATIONS` handling performs one final synthesis LLM call using the accumulated step history:
   - no tool execution in this last pass (`internalToolExecutionEnabled=false`)
   - final user text is prefixed with an iteration-limit notice and stripped from tool payload markers/debug dumps
   - if synthesis fails or returns blank, a compact limit-reached fallback message is returned
-- SIMPLE strategy remains non-agentic; if final text still looks like raw tool payload, it emits `ERROR` (`raw_tool_payload_in_final_answer`) instead of `FINAL_ANSWER`.
+- Streaming contract for final user-visible answer:
+  - executors emit `FINAL_ANSWER_CHUNK` events first (incremental safe text for UI transport)
+  - terminal `FINAL_ANSWER`/`MAX_ITERATIONS` event is emitted after chunks and remains authoritative for persistence/state
+  - ReAct chunk stream is produced from sanitized terminal answer
+  - SIMPLE `executeStream()` uses real `ChatModel.stream(...)` flow and emits incremental chunks while streaming
+- SIMPLE strategy remains non-agentic; if final text still looks like raw tool payload and no user-visible prefix can be recovered, it emits `ERROR` (`raw_tool_payload_in_final_answer`) instead of `FINAL_ANSWER`.
 
 ---
 

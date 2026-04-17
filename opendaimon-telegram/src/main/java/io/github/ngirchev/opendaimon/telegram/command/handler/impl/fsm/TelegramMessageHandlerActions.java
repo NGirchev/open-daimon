@@ -266,14 +266,19 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
             extractAgentResult(ctx, lastEvent);
 
-            // Final answer is sent as a separate Telegram message (not as an edit
-            // of the progress message).
+            // Final answer fallback for executors that emit only terminal FINAL_ANSWER/MAX_ITERATIONS.
+            // If FINAL_ANSWER_CHUNK stream already created a dedicated final message, do not duplicate.
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
-                log.info("FSM generateAgentResponse: sending final answer, textLength={}, text='{}'",
-                        answerText.length(), normalizeForLog(answerText));
-                Integer finalReplyToMessageId = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
-                sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, finalReplyToMessageId));
+                if (ctx.getAgentFinalAnswerMessageId() == null) {
+                    log.info("FSM generateAgentResponse: sending fallback final answer, textLength={}, text='{}'",
+                            answerText.length(), normalizeForLog(answerText));
+                    Integer finalReplyToMessageId = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
+                    sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, finalReplyToMessageId));
+                } else {
+                    log.info("FSM generateAgentResponse: final answer already streamed via message id={}",
+                            ctx.getAgentFinalAnswerMessageId());
+                }
                 ctx.setAlreadySentInStream(true);
             } else {
                 log.warn("FSM generateAgentResponse: no response text after extractAgentResult");
@@ -291,6 +296,10 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         // Capture model name from metadata event
         if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
             ctx.setResponseModel(event.content());
+            return;
+        }
+        if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK) {
+            sendFinalAnswerChunkToTelegram(ctx, event.content());
             return;
         }
         if (agentStreamRenderer == null) {
@@ -332,6 +341,31 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         ctx.setAlreadySentInStream(true);
     }
 
+    private void sendFinalAnswerChunkToTelegram(MessageHandlerContext ctx, String rawChunk) {
+        if (rawChunk == null || rawChunk.isBlank()) {
+            return;
+        }
+        Long chatId = ctx.getCommand().telegramId();
+        String accumulated = ctx.appendAgentFinalAnswerChunk(rawChunk);
+        String html = AIUtils.convertMarkdownToHtml(accumulated);
+
+        Integer finalAnswerMessageId = ctx.getAgentFinalAnswerMessageId();
+        if (finalAnswerMessageId == null) {
+            Integer replyToMessageId = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
+            Integer sentMessageId = messageSender.sendHtmlAndGetId(chatId, html, replyToMessageId, true);
+            if (sentMessageId != null) {
+                ctx.setAgentFinalAnswerMessageId(sentMessageId);
+                ctx.setAlreadySentInStream(true);
+                log.info("FSM agentStreamEvent: created final answer message id={}", sentMessageId);
+            }
+            return;
+        }
+
+        messageSender.editHtml(chatId, finalAnswerMessageId, html, true);
+        ctx.setAlreadySentInStream(true);
+        log.info("FSM agentStreamEvent: updated final answer message id={}", finalAnswerMessageId);
+    }
+
     private void extractAgentResult(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {
         if (lastEvent == null) {
             ctx.setErrorType(MessageHandlerErrorType.EMPTY_RESPONSE);
@@ -352,6 +386,10 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     ctx.setResponseText(recoveredUserText);
                     return;
                 }
+                if (ctx.hasStreamedFinalAnswerChunks()) {
+                    ctx.setResponseText(ctx.getAgentFinalAnswerText().trim());
+                    return;
+                }
                 log.warn("FSM generateAgentResponse: {} contains raw tool payload without recoverable text, content='{}'",
                         lastEvent.type(), normalizeForLog(lastEvent.content()));
                 ctx.setResponseError(RAW_TOOL_PAYLOAD_ERROR);
@@ -362,6 +400,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         } else if (lastEvent.type() == AgentStreamEvent.EventType.ERROR) {
             ctx.setErrorType(MessageHandlerErrorType.GENERAL);
             ctx.setException(new RuntimeException(lastEvent.content()));
+        } else if (ctx.hasStreamedFinalAnswerChunks()) {
+            ctx.setResponseText(ctx.getAgentFinalAnswerText().trim());
         } else if (!ctx.hasResponse()) {
             ctx.setErrorType(MessageHandlerErrorType.EMPTY_RESPONSE);
         }

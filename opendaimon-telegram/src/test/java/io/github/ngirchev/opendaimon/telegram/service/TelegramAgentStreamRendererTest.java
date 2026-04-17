@@ -142,6 +142,32 @@ class TelegramAgentStreamRendererTest {
     }
 
     @Test
+    void shouldRenderFriendlyFailureForTooLargeFetchUrlResponse() {
+        AgentStreamEvent event = AgentStreamEvent.observation(
+                "fetch_url failed: TOO_LARGE for https://example.com/huge",
+                1
+        );
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Tool failed:");
+        assertThat(html).contains("Page is too large to parse");
+    }
+
+    @Test
+    void shouldRenderFriendlyFailureForUnreadable2xxResponse() {
+        AgentStreamEvent event = AgentStreamEvent.observation(
+                "Error: UNREADABLE_2XX_RESPONSE",
+                1
+        );
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Tool failed:");
+        assertThat(html).contains("Site returned HTTP 200, but content could not be extracted");
+    }
+
+    @Test
     void shouldRenderError() {
         AgentStreamEvent event = AgentStreamEvent.error("Connection timeout", 2);
 
@@ -154,6 +180,13 @@ class TelegramAgentStreamRendererTest {
     @Test
     void shouldReturnNullForFinalAnswer() {
         AgentStreamEvent event = AgentStreamEvent.finalAnswer("The answer is 42", 3);
+
+        assertThat(renderer.render(event)).isNull();
+    }
+
+    @Test
+    void shouldReturnNullForFinalAnswerChunk() {
+        AgentStreamEvent event = AgentStreamEvent.finalAnswerChunk("The answer is", 3);
 
         assertThat(renderer.render(event)).isNull();
     }

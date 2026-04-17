@@ -27,6 +27,7 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -202,7 +203,7 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(HttpApiTool.class)
     @ConditionalOnProperty(name = FeatureToggle.Feature.AGENT_HTTP_API_TOOL_ENABLED, havingValue = "true")
-    public HttpApiTool httpApiTool(WebClient webClient) {
+    public HttpApiTool httpApiTool(@Qualifier("webToolsWebClient") WebClient webClient) {
         return new HttpApiTool(webClient);
     }
 }

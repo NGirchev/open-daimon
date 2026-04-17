@@ -157,12 +157,18 @@ Evaluated in order — first match wins:
      - success/non-empty result → `📋 Tool result received`
      - empty or `(no tool output)`/`No result` → `📋 No result`
      - tool failure text (`error:`/`failed`) → `⚠️ Tool failed: <short reason>`
+       - `TOO_LARGE` / DataBuffer limit errors → `Page is too large to parse`
+       - `UNREADABLE_2XX` / `UNREADABLE_2XX_RESPONSE` / `HTTP 200 ...` → `Site returned HTTP 200, but content could not be extracted`
 4. `METADATA` event updates response model in context (not sent as chat text)
-   - if only transient `THINKING` blocks were shown and a terminal event arrives (`FINAL_ANSWER`/`MAX_ITERATIONS`), the temporary progress message is deleted
-5. `FINAL_ANSWER`/`MAX_ITERATIONS` content is sent as a separate Telegram message (not message edit), as a reply to the original user message
-   - if terminal content contains mixed payload (`user text + tool markers`), Telegram extracts user-visible prefix and sends it
+5. `FINAL_ANSWER_CHUNK` stream is rendered in a dedicated final-answer message:
+   - first chunk → `sendMessageAndGetId(..., replyTo=<original user message>)` with link previews disabled
+   - next chunks → `editMessageHtml(...)` on the same final-answer message
+6. Terminal `FINAL_ANSWER`/`MAX_ITERATIONS` still finalizes state/persistence:
+   - if only transient `THINKING` blocks were shown and terminal event arrives, temporary progress message is deleted
+   - if executor emitted no chunks, terminal content is sent by fallback as a separate message
+   - if terminal content contains mixed payload (`user text + tool markers`), Telegram extracts user-visible prefix
    - if terminal content contains only raw tool payload (no user-visible prefix), flow marks it as `EMPTY_RESPONSE` and routes to standard error handling
-6. Assistant response is persisted in DB; keyboard status is sent afterwards
+7. Assistant response is persisted in DB; keyboard status is sent afterwards
 
 ---
 

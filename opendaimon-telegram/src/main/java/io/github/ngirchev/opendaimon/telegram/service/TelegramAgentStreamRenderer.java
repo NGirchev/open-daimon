@@ -9,8 +9,8 @@ import java.util.regex.Pattern;
 /**
  * Converts {@link AgentStreamEvent} into Telegram-compatible HTML strings.
  *
- * <p>Returns {@code null} for terminal events (FINAL_ANSWER, MAX_ITERATIONS)
- * that are handled separately by the caller.
+ * <p>Returns {@code null} for final-answer events (FINAL_ANSWER_CHUNK, FINAL_ANSWER,
+ * MAX_ITERATIONS) and metadata that are handled separately by the caller.
  *
  * <p>Uses only Telegram-supported HTML tags: {@code <b>}, {@code <i>},
  * {@code <code>}, {@code <blockquote>}, {@code <a>}.
@@ -22,6 +22,8 @@ public class TelegramAgentStreamRenderer {
     private static final int TOOL_ERROR_MAX_LENGTH = 220;
     private static final String NO_TOOL_OUTPUT = "(no tool output)";
     private static final String NO_RESULT = "no result";
+    private static final String FRIENDLY_TOO_LARGE = "Page is too large to parse";
+    private static final String FRIENDLY_UNREADABLE_2XX = "Site returned HTTP 200, but content could not be extracted";
     private static final Pattern JSON_QUERY_PATTERN =
             Pattern.compile("\"query\"\\s*:\\s*\"([^\"]+)\"", Pattern.CASE_INSENSITIVE);
     private static final Pattern JSON_URL_PATTERN =
@@ -40,7 +42,7 @@ public class TelegramAgentStreamRenderer {
             case TOOL_CALL -> renderToolCall(event.content());
             case OBSERVATION -> renderObservation(event.content());
             case ERROR -> "<b>Error:</b> <i>" + escapeHtml(event.content()) + "</i>";
-            case FINAL_ANSWER, MAX_ITERATIONS, METADATA -> null;
+            case FINAL_ANSWER_CHUNK, FINAL_ANSWER, MAX_ITERATIONS, METADATA -> null;
         };
     }
 
@@ -100,8 +102,10 @@ public class TelegramAgentStreamRenderer {
             return "<blockquote>\uD83D\uDCCB No result</blockquote>";
         }
         if (isToolError(content)) {
+            String rawReason = extractErrorReason(content);
+            String friendlyReason = toUserFriendlyReason(rawReason);
             return "<blockquote>\u26A0\uFE0F Tool failed: "
-                    + escapeHtml(truncate(extractErrorReason(content), TOOL_ERROR_MAX_LENGTH))
+                    + escapeHtml(truncate(friendlyReason, TOOL_ERROR_MAX_LENGTH))
                     + "</blockquote>";
         }
         return "<blockquote>\uD83D\uDCCB Tool result received</blockquote>";
@@ -176,7 +180,30 @@ public class TelegramAgentStreamRenderer {
         if (normalized.regionMatches(true, 0, "failed:", 0, "failed:".length())) {
             return normalized.substring("failed:".length()).trim();
         }
+        String lowered = normalized.toLowerCase(Locale.ROOT);
+        int failedMarkerIndex = lowered.indexOf(" failed:");
+        if (failedMarkerIndex >= 0) {
+            return normalized.substring(failedMarkerIndex + " failed:".length()).trim();
+        }
         return normalized;
+    }
+
+    private static String toUserFriendlyReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "Unknown tool failure";
+        }
+        String normalized = reason.toLowerCase(Locale.ROOT);
+        if (normalized.contains("too_large")
+                || normalized.contains("response body too large")
+                || normalized.contains("databufferlimitexception")) {
+            return FRIENDLY_TOO_LARGE;
+        }
+        if (normalized.contains("unreadable_2xx")
+                || normalized.startsWith("http 200")
+                || normalized.contains("status=200")) {
+            return FRIENDLY_UNREADABLE_2XX;
+        }
+        return reason;
     }
 
     private static String escapeHtmlAttribute(String text) {

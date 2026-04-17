@@ -56,6 +56,10 @@ open-daimon:
       timeouts:
         response-timeout-seconds: 600
         stream-timeout-seconds: 600
+      web-tools:
+        max-in-memory-bytes: 2097152
+        max-fetch-bytes: 1048576
+        user-agent: "OpenDaimonBot/1.0 (manual-ollama)"
       openrouter-auto-rotation:
         models:
           enabled: false

@@ -66,6 +66,10 @@ open-daimon:
     spring-ai:
       enabled: true
       mock: false
+      web-tools:
+        max-in-memory-bytes: 2097152
+        max-fetch-bytes: 1048576
+        user-agent: "OpenDaimonBot/1.0 (manual-openrouter)"
       openrouter-auto-rotation:
         models:
           enabled: false

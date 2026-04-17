@@ -27,6 +27,8 @@ public record AgentStreamEvent(
         TOOL_CALL,
         /** Tool execution completed. Content = observation. */
         OBSERVATION,
+        /** Agent emitted a partial final-answer chunk. Content = answer chunk text. */
+        FINAL_ANSWER_CHUNK,
         /** Agent produced final answer. Content = answer text. */
         FINAL_ANSWER,
         /** Agent execution failed. Content = error message. */
@@ -51,6 +53,10 @@ public record AgentStreamEvent(
 
     public static AgentStreamEvent observation(String observation, int iteration) {
         return new AgentStreamEvent(EventType.OBSERVATION, observation, iteration, Instant.now());
+    }
+
+    public static AgentStreamEvent finalAnswerChunk(String answerChunk, int iteration) {
+        return new AgentStreamEvent(EventType.FINAL_ANSWER_CHUNK, answerChunk, iteration, Instant.now());
     }
 
     public static AgentStreamEvent finalAnswer(String answer, int iteration) {

@@ -6,6 +6,10 @@ import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
+import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
+import io.github.ngirchev.opendaimon.common.ai.response.SpringAIResponse;
+import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
+import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -18,7 +22,6 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
-
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
@@ -41,6 +44,7 @@ public class SimpleChainExecutor implements AgentExecutor {
 
     private static final String SYSTEM_PROMPT =
             "You are a helpful AI assistant. Answer the user's question directly and concisely.";
+    private static final int FINAL_ANSWER_STREAM_MAX_CHARS = 512;
 
     private final ChatModel chatModel;
     private final ChatMemory chatMemory;
@@ -64,7 +68,8 @@ public class SimpleChainExecutor implements AgentExecutor {
             ChatOptions options = buildOptions(request);
             Prompt prompt = new Prompt(messages, options);
 
-            ChatResponse response = chatModel.call(prompt);
+            AIResponse aiResponse = callPrompt(prompt);
+            ChatResponse response = ((SpringAIResponse) aiResponse).chatResponse();
             response.getResult();
             String rawText = response.getResult().getOutput().getText();
             String answer = SpringAgentLoopActions.sanitizeFinalAnswerText(rawText);
@@ -104,9 +109,16 @@ public class SimpleChainExecutor implements AgentExecutor {
                 messages.add(new UserMessage(request.task()));
 
                 ChatOptions options = buildOptions(request);
-                ChatResponse response = chatModel.call(new Prompt(messages, options));
+                Prompt prompt = new Prompt(messages, options);
+                StreamingFinalAnswerEmitter chunkEmitter = new StreamingFinalAnswerEmitter(sink, 0);
+                AIResponse streamResponse = streamPrompt(prompt);
+                ChatResponse response = AIUtils.processStreamingResponseByParagraphs(
+                        ((SpringAIStreamResponse) streamResponse).chatResponse(),
+                        FINAL_ANSWER_STREAM_MAX_CHARS,
+                        chunkEmitter::acceptChunk
+                );
                 response.getResult();
-                String rawText = response.getResult().getOutput().getText();
+                String rawText = AIUtils.extractText(response).orElse(null);
                 String modelName = response.getMetadata() != null
                         ? response.getMetadata().getModel() : null;
 
@@ -121,17 +133,24 @@ public class SimpleChainExecutor implements AgentExecutor {
                     sink.tryEmitNext(AgentStreamEvent.thinking(reasoning, 0));
                 }
 
-                String answer = SpringAgentLoopActions.sanitizeFinalAnswerText(rawText);
-                saveConversationHistory(request, answer);
+                String sanitized = SpringAgentLoopActions.sanitizeFinalAnswerText(rawText);
+                String recoveredUserText = SpringAgentLoopActions.extractUserTextBeforeToolPayload(
+                        sanitized != null ? sanitized : "");
+                boolean mixedToolPayload = SpringAgentLoopActions.containsToolPayloadMarkers(sanitized);
+                String answer = mixedToolPayload ? recoveredUserText : sanitized;
+                if (answer != null && !answer.isBlank()) {
+                    chunkEmitter.emitMissingTail(answer);
+                    saveConversationHistory(request, answer);
+                }
 
                 if (modelName != null) {
                     sink.tryEmitNext(AgentStreamEvent.metadata(modelName, 0));
                 }
-                if (SpringAgentLoopActions.containsToolPayloadMarkers(answer)) {
+                if (answer != null && !answer.isBlank()) {
+                    sink.tryEmitNext(AgentStreamEvent.finalAnswer(answer, 0));
+                } else if (mixedToolPayload) {
                     sink.tryEmitNext(AgentStreamEvent.error(
                             "SimpleChain: raw_tool_payload_in_final_answer", 0));
-                } else if (answer != null && !answer.isBlank()) {
-                    sink.tryEmitNext(AgentStreamEvent.finalAnswer(answer, 0));
                 } else {
                     sink.tryEmitNext(AgentStreamEvent.error("SimpleChain: empty response", 0));
                 }
@@ -192,6 +211,64 @@ public class SimpleChainExecutor implements AgentExecutor {
             log.info("SimpleChain: saved user+assistant messages to ChatMemory");
         } catch (Exception e) {
             log.warn("SimpleChain: failed to save conversation history: {}", e.getMessage());
+        }
+    }
+
+    private AIResponse callPrompt(Prompt prompt) {
+        return new SpringAIResponse(chatModel.call(prompt));
+    }
+
+    private AIResponse streamPrompt(Prompt prompt) {
+        return new SpringAIStreamResponse(chatModel.stream(prompt));
+    }
+
+    private static final class StreamingFinalAnswerEmitter {
+        private final Sinks.Many<AgentStreamEvent> sink;
+        private final int iteration;
+        private final StringBuilder rawAccumulated = new StringBuilder();
+        private final StringBuilder emittedVisible = new StringBuilder();
+
+        private StreamingFinalAnswerEmitter(Sinks.Many<AgentStreamEvent> sink, int iteration) {
+            this.sink = sink;
+            this.iteration = iteration;
+        }
+
+        private void acceptChunk(String chunk) {
+            if (chunk == null || chunk.isEmpty()) {
+                return;
+            }
+            rawAccumulated.append(chunk);
+            emitDeltaFromVisibleContent();
+        }
+
+        private void emitMissingTail(String finalAnswer) {
+            if (finalAnswer == null || finalAnswer.isBlank()) {
+                return;
+            }
+            if (finalAnswer.length() <= emittedVisible.length()) {
+                return;
+            }
+            String delta = finalAnswer.substring(emittedVisible.length());
+            if (!delta.isBlank()) {
+                sink.tryEmitNext(AgentStreamEvent.finalAnswerChunk(delta, iteration));
+                emittedVisible.append(delta);
+            }
+        }
+
+        private void emitDeltaFromVisibleContent() {
+            String sanitized = SpringAgentLoopActions.sanitizeFinalAnswerText(rawAccumulated.toString());
+            if (sanitized == null) {
+                return;
+            }
+            String visible = SpringAgentLoopActions.extractUserTextBeforeToolPayload(sanitized);
+            if (visible.length() <= emittedVisible.length()) {
+                return;
+            }
+            String delta = visible.substring(emittedVisible.length());
+            if (!delta.isBlank()) {
+                sink.tryEmitNext(AgentStreamEvent.finalAnswerChunk(delta, iteration));
+                emittedVisible.append(delta);
+            }
         }
     }
 }

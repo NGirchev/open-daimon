@@ -74,4 +74,18 @@ class MessageHandlerContextAgentProgressTest {
         assertThat(terminalUpdate.changed()).isTrue();
         assertThat(terminalUpdate.isEmpty()).isTrue();
     }
+
+    @Test
+    void shouldIgnoreFinalAnswerChunkInProgressMessage() {
+        MessageHandlerContext ctx = new MessageHandlerContext(mock(TelegramCommand.class), null, s -> {});
+
+        MessageHandlerContext.AgentProgressUpdate update = ctx.mergeAgentProgressEvent(
+                AgentStreamEvent.finalAnswerChunk("partial final text", 1),
+                null,
+                MAX_LENGTH
+        );
+
+        assertThat(update.changed()).isFalse();
+        assertThat(update.isEmpty()).isTrue();
+    }
 }

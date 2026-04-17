@@ -76,6 +76,8 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private boolean alreadySentInStream;
     private String responseModel;
     private Integer agentProgressMessageId;
+    private Integer agentFinalAnswerMessageId;
+    private String agentFinalAnswerText = "";
     private final List<AgentProgressChunk> agentProgressChunks = new ArrayList<>();
 
     // --- Error handling ---
@@ -290,6 +292,30 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.agentProgressMessageId = agentProgressMessageId;
     }
 
+    public Integer getAgentFinalAnswerMessageId() {
+        return agentFinalAnswerMessageId;
+    }
+
+    public void setAgentFinalAnswerMessageId(Integer agentFinalAnswerMessageId) {
+        this.agentFinalAnswerMessageId = agentFinalAnswerMessageId;
+    }
+
+    public String getAgentFinalAnswerText() {
+        return agentFinalAnswerText;
+    }
+
+    public String appendAgentFinalAnswerChunk(String chunk) {
+        if (chunk == null || chunk.isEmpty()) {
+            return agentFinalAnswerText;
+        }
+        agentFinalAnswerText = agentFinalAnswerText + chunk;
+        return agentFinalAnswerText;
+    }
+
+    public boolean hasStreamedFinalAnswerChunks() {
+        return agentFinalAnswerText != null && !agentFinalAnswerText.isBlank();
+    }
+
     public AgentProgressUpdate mergeAgentProgressEvent(AgentStreamEvent event, String htmlChunk, int maxLength) {
         if (event == null) {
             return new AgentProgressUpdate(buildProgressHtml(), false);
@@ -302,6 +328,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
                 boolean appended = appendPersistentChunk(event.type(), event.iteration(), htmlChunk);
                 yield removedTransient || appended;
             }
+            case FINAL_ANSWER_CHUNK -> false;
             case FINAL_ANSWER, MAX_ITERATIONS -> removeTransientChunks();
             case METADATA -> false;
         };

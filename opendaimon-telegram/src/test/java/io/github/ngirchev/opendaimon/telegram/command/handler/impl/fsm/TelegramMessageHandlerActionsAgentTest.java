@@ -34,10 +34,12 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -294,6 +296,44 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
         assertThat(ctx.isAlreadySentInStream()).isTrue();
         assertThat(ctx.getAgentProgressMessageId()).isEqualTo(700);
+    }
+
+    @Test
+    @DisplayName("generateResponse streams FINAL_ANSWER_CHUNK via one editable final message")
+    void generateResponse_finalAnswerChunks_editOneFinalMessageWithoutFallbackSend() {
+        MessageHandlerContext ctx = createContextWithMetadata(
+                "Search for Bitcoin price",
+                Set.of(ModelCapabilities.WEB),
+                s -> {},
+                101
+        );
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true)))
+                .thenReturn(700) // progress message
+                .thenReturn(800); // final answer message
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
+                AgentStreamEvent.observation("Current price: $50,000", 0),
+                AgentStreamEvent.finalAnswerChunk("Bitcoin is currently ", 1),
+                AgentStreamEvent.finalAnswerChunk("$50,000.", 1),
+                AgentStreamEvent.finalAnswer("Bitcoin is currently $50,000.", 1)
+        );
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        verify(messageSender, times(2))
+                .sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true));
+        verify(messageSender, times(2)).editHtml(eq(42L), eq(700), any(), eq(true));
+
+        ArgumentCaptor<String> finalEdits = ArgumentCaptor.forClass(String.class);
+        verify(messageSender).editHtml(eq(42L), eq(800), finalEdits.capture(), eq(true));
+        assertThat(finalEdits.getValue()).contains("Bitcoin is currently").contains("$50,000.");
+
+        verify(messageSender, never()).sendHtml(eq(42L), contains("Bitcoin is currently"), eq(101));
+        assertThat(ctx.getAgentFinalAnswerMessageId()).isEqualTo(800);
+        assertThat(ctx.getResponseText()).hasValue("Bitcoin is currently $50,000.");
     }
 
     @Test

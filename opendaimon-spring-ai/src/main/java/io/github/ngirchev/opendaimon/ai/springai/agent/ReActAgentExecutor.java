@@ -13,6 +13,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * ReAct agent executor that uses an FSM to drive the think-act-observe loop.
  *
@@ -29,6 +32,8 @@ import reactor.core.scheduler.Schedulers;
  */
 @Slf4j
 public class ReActAgentExecutor implements AgentExecutor {
+
+    private static final int FINAL_ANSWER_CHUNK_MAX_CHARS = 320;
 
     private final ExDomainFsm<AgentContext, AgentState, AgentEvent> agentFsm;
 
@@ -89,9 +94,11 @@ public class ReActAgentExecutor implements AgentExecutor {
 
                 // Emit terminal event based on final state
                 if (result.isSuccess()) {
+                    emitFinalAnswerChunks(sink, result.finalAnswer(), result.iterationsUsed());
                     sink.tryEmitNext(AgentStreamEvent.finalAnswer(
                             result.finalAnswer(), result.iterationsUsed()));
                 } else if (result.terminalState() == AgentState.MAX_ITERATIONS) {
+                    emitFinalAnswerChunks(sink, result.finalAnswer(), result.iterationsUsed());
                     sink.tryEmitNext(AgentStreamEvent.maxIterations(
                             result.finalAnswer(), result.iterationsUsed()));
                 } else {
@@ -109,5 +116,64 @@ public class ReActAgentExecutor implements AgentExecutor {
         }).subscribeOn(Schedulers.boundedElastic()).subscribe();
 
         return eventFlux;
+    }
+
+    private static void emitFinalAnswerChunks(
+            Sinks.Many<AgentStreamEvent> sink,
+            String terminalAnswer,
+            int iteration
+    ) {
+        String safeAnswer = sanitizeFinalAnswerForChunkStream(terminalAnswer);
+        if (safeAnswer.isBlank()) {
+            return;
+        }
+        for (String chunk : splitIntoChunks(safeAnswer, FINAL_ANSWER_CHUNK_MAX_CHARS)) {
+            if (!chunk.isBlank()) {
+                sink.tryEmitNext(AgentStreamEvent.finalAnswerChunk(chunk, iteration));
+            }
+        }
+    }
+
+    private static String sanitizeFinalAnswerForChunkStream(String terminalAnswer) {
+        String sanitized = SpringAgentLoopActions.sanitizeFinalAnswerText(terminalAnswer);
+        if (sanitized == null || sanitized.isBlank()) {
+            return "";
+        }
+        return SpringAgentLoopActions.extractUserTextBeforeToolPayload(sanitized).trim();
+    }
+
+    private static List<String> splitIntoChunks(String text, int maxChunkChars) {
+        List<String> chunks = new ArrayList<>();
+        String normalized = text == null ? "" : text.trim();
+        if (normalized.isBlank()) {
+            return chunks;
+        }
+        String[] tokens = normalized.split("(?<=\\s)");
+        StringBuilder current = new StringBuilder();
+
+        for (String token : tokens) {
+            if (token == null || token.isEmpty()) {
+                continue;
+            }
+            if (current.length() + token.length() > maxChunkChars && !current.isEmpty()) {
+                chunks.add(current.toString().trim());
+                current.setLength(0);
+            }
+            if (token.length() > maxChunkChars && current.isEmpty()) {
+                int start = 0;
+                while (start < token.length()) {
+                    int end = Math.min(start + maxChunkChars, token.length());
+                    chunks.add(token.substring(start, end).trim());
+                    start = end;
+                }
+                continue;
+            }
+            current.append(token);
+        }
+
+        if (!current.isEmpty()) {
+            chunks.add(current.toString().trim());
+        }
+        return chunks;
     }
 }

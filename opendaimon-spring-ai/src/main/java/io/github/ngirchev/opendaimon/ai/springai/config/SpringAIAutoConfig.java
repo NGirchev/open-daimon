@@ -8,6 +8,7 @@ import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
@@ -22,10 +23,12 @@ import org.springframework.util.StringUtils;
 import org.springframework.boot.web.reactive.function.client.WebClientCustomizer;
 import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.context.annotation.*;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import io.netty.resolver.DefaultAddressResolverGroup;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.netty.http.client.HttpClient;
@@ -206,9 +209,28 @@ public class SpringAIAutoConfig {
         );
     }
 
-    @Bean
-    public WebClient webClient(WebClient.Builder builder) {
-        return builder.build();
+    @Bean("webToolsWebClient")
+    @ConditionalOnMissingBean(name = "webToolsWebClient")
+    public WebClient webToolsWebClient(SpringAIProperties properties) {
+        int timeoutSeconds = properties.getTimeouts() != null && properties.getTimeouts().getResponseTimeoutSeconds() != null
+                ? properties.getTimeouts().getResponseTimeoutSeconds()
+                : 600;
+        int maxInMemoryBytes = properties.getWebTools().getMaxInMemoryBytes();
+        String userAgent = properties.getWebTools().getUserAgent();
+
+        HttpClient httpClient = HttpClient.create()
+                .responseTimeout(java.time.Duration.ofSeconds(timeoutSeconds));
+
+        ExchangeStrategies strategies = ExchangeStrategies.builder()
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(maxInMemoryBytes))
+                .build();
+
+        log.info("Configuring Web tools WebClient. timeoutSeconds={}, maxInMemoryBytes={}", timeoutSeconds, maxInMemoryBytes);
+        return WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .exchangeStrategies(strategies)
+                .defaultHeader(HttpHeaders.USER_AGENT, userAgent)
+                .build();
     }
 
     /**
@@ -324,11 +346,12 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public WebTools webTools(WebClient webClient, SpringAIProperties properties) {
+    public WebTools webTools(@Qualifier("webToolsWebClient") WebClient webClient, SpringAIProperties properties) {
         return new WebTools(
             webClient,
             properties.getSerper().getApi().getKey(),
-            properties.getSerper().getApi().getUrl()
+            properties.getSerper().getApi().getUrl(),
+            properties.getWebTools().getMaxFetchBytes()
         );
     }
 

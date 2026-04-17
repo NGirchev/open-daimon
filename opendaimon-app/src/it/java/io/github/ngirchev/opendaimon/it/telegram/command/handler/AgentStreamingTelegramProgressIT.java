@@ -98,13 +98,17 @@ class AgentStreamingTelegramProgressIT extends AbstractContainerIT {
     }
 
     @Test
-    @DisplayName("Agent streaming updates one progress message and sends final answer separately")
-    void streamingProgress_isEditedAndFinalAnswerIsSeparate() throws TelegramApiException {
+    @DisplayName("Agent streaming updates one progress message and edits a dedicated final-answer message")
+    void streamingProgress_isEditedAndFinalAnswerIsStreamedByEdits() throws TelegramApiException {
+        when(telegramBot.sendMessageAndGetId(anyLong(), anyString(), any(), eq(true)))
+                .thenReturn(900, 901);
         when(agentExecutor.executeStream(any())).thenReturn(Flux.just(
                 AgentStreamEvent.thinking(0),
                 AgentStreamEvent.toolCall("web_search", "spring boot latest", 0),
                 AgentStreamEvent.observation("No result", 0),
                 AgentStreamEvent.metadata("test-model", 1),
+                AgentStreamEvent.finalAnswerChunk("Final answer ", 1),
+                AgentStreamEvent.finalAnswerChunk("for user.", 1),
                 AgentStreamEvent.finalAnswer("Final answer for user.", 1)
         ));
 
@@ -112,7 +116,7 @@ class AgentStreamingTelegramProgressIT extends AbstractContainerIT {
 
         messageHandler.handle(command);
 
-        verify(telegramBot, times(1))
+        verify(telegramBot, times(2))
                 .sendMessageAndGetId(eq(CHAT_ID), anyString(), eq(100), eq(true));
         ArgumentCaptor<String> progressEdits = ArgumentCaptor.forClass(String.class);
         verify(telegramBot, atLeastOnce())
@@ -123,28 +127,15 @@ class AgentStreamingTelegramProgressIT extends AbstractContainerIT {
                 .contains("web_search")
                 .contains("No result");
 
-        boolean finalViaSendMessageAndGetId = false;
-        try {
-            verify(telegramBot, atLeastOnce())
-                    .sendMessageAndGetId(eq(CHAT_ID), contains("Final answer for user."), eq(100));
-            finalViaSendMessageAndGetId = true;
-        } catch (AssertionError ignored) {
-            // Final answer may be sent via sendMessage(...) instead.
-        }
-
-        boolean finalViaSendMessage = false;
-        try {
-            verify(telegramBot, atLeastOnce())
-                    .sendMessage(eq(CHAT_ID), contains("Final answer for user."), eq(100), isNull());
-            finalViaSendMessage = true;
-        } catch (AssertionError ignored) {
-            // Alternative path is sendMessageAndGetId(...)
-        }
-
-        assertThat(finalViaSendMessageAndGetId || finalViaSendMessage).isTrue();
+        ArgumentCaptor<String> finalEdits = ArgumentCaptor.forClass(String.class);
+        verify(telegramBot, atLeastOnce())
+                .editMessageHtml(eq(CHAT_ID), eq(901), finalEdits.capture(), eq(true));
+        assertThat(finalEdits.getAllValues().getLast()).contains("Final answer for user.");
 
         verify(telegramBot, never())
                 .sendMessage(eq(CHAT_ID), anyString(), eq(100), any(ReplyKeyboard.class));
+        verify(telegramBot, never())
+                .sendMessage(eq(CHAT_ID), contains("Final answer for user."), eq(100), isNull());
 
         TelegramUser user = telegramUserRepository.findByTelegramId(CHAT_ID)
                 .orElseThrow(() -> new IllegalStateException("User should exist"));

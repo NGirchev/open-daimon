@@ -66,9 +66,15 @@ process.stdin.on('end', () => {
 
     const skillCount = countLearnedSkills();
 
-    console.error(`[Learning] Session: ${messageCount} messages — consider /learn or /learn-eval to extract patterns`);
-    if (skillCount > 0) {
-      console.error(`[Learning] ${skillCount} learned skill(s) in ${LEARNED_SKILLS_DIR}`);
+    const summary = `Session: ${messageCount} messages — consider /learn or /learn-eval`;
+    const detail = skillCount > 0 ? `${summary} (${skillCount} learned skill(s))` : summary;
+
+    if (process.platform === 'darwin') {
+      const { spawnSync } = require('child_process');
+      const safeDetail = detail.replace(/["\\]/g, c => '\\' + c);
+      spawnSync('osascript', ['-e', `display notification "${safeDetail}" with title "Continuous Learning"`], { stdio: 'ignore' });
+    } else {
+      console.error(`[Learning] ${detail}`);
     }
   } catch {
     // Non-blocking.

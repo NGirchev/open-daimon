@@ -548,8 +548,11 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         }
         int start = text.indexOf("<think>");
         int end = text.indexOf("</think>");
-        if (start < 0 || end < 0 || end <= start) {
+        if (start < 0) {
             return text;
+        }
+        if (end < 0 || end <= start) {
+            return text.substring(0, start).trim();
         }
         return (text.substring(0, start) + text.substring(end + "</think>".length())).trim();
     }
