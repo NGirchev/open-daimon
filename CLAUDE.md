@@ -10,6 +10,7 @@
 
 ## Debugging
 
+- **Always check application logs first** in `logs/` before guessing or speculating about issues. Read the logs, then analyze.
 - Before analyzing logs or errors, review module and use case documentation loaded in context. If not loaded, read the corresponding `*_MODULE.md` from the module root. Understand the expected behavior from documentation before looking at code.
 - When the user provides logs, errors, or output and says they are current — trust them. Do not re-explore or second-guess the recency of provided information.
 - Analyze the root cause BEFORE exploring the codebase. Do not explore aimlessly.
@@ -18,11 +19,9 @@
 
 ## Java / Testing
 
-- After modifying Java files, always run `./mvnw clean compile -pl <module>` before running tests.
 - Run only the specific failing test, not the full suite, unless the user asks otherwise.
-- After each edit, verify compilation passes before proceeding to the next change.
 - When fixing a bug in a specific service (e.g. `TelegramUserPriorityService`), do NOT touch other services with similar names (e.g. `DefaultUserPriorityService`).
-- Always use proper `import` statements for all types. Never use fully-qualified class names inline (e.g. `java.io.ByteArrayOutputStream`) — add an import and use the short name.
+- Build/compile rules and style conventions live in `AGENTS.md` (sections `Build & Verification` and `Project Style Guide`).
 
 ## Fixture Smoke Tests
 
