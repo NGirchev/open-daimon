@@ -10,7 +10,8 @@ import jakarta.persistence.EntityManagerFactory;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
@@ -43,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * from Spring context (as in the real application).
  */
 @Slf4j
+@Disabled("Manual test: run locally to verify streaming by paragraphs to console")
 @SpringBootTest(classes = SpringAIOllamaDnsIT.TestConfig.class)
 @ComponentScan(
     basePackages = "org.springframework.ai",
@@ -53,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @TestPropertySource(properties = {
     "spring.ai.ollama.base-url=http://localhost:11434",
-    "spring.ai.ollama.chat.options.model=qwen3.5:4b",
+    "spring.ai.ollama.chat.options.model=deepseek-r1:1.5b",
     "open-daimon.ai.spring-ai.openrouter-auto-rotation.models.enabled=false",
     // Exclude autoconfigurations not needed for this test
     "spring.autoconfigure.exclude=" +
@@ -80,17 +82,16 @@ class SpringAIOllamaDnsIT {
     private OllamaChatModel ollamaChatModel;
 
     /**
-     * .\mvnw.cmd test -pl opendaimon-spring-ai -Dtest=SpringAIOllamaDnsIT#testStreamToConsole (not in idea console!!!)
+     * mvn test -pl opendaimon-spring-ai -Dtest=SpringAIOllamaDnsIT#testStreamToConsole (not in idea console!!!)
      * Manual test: run locally with Ollama to see streaming output in console.
      * Disabled in CI; remove @Disabled for a local run.
      */
     @Test
-    @Disabled("Manual test: run locally to verify streaming to console")
     void testStreamToConsole() {
         // Note: chunk size in streaming is not configurable via Ollama params;
         // num_batch does not affect stream chunk size; num_predict limits tokens (we skip it to avoid cutting generation)
         var responseFlux = ChatClient.builder(ollamaChatModel).build().prompt()
-                .user("Write a short tale")
+                .user("What is bigger: 9.11 or 9.9? Explain briefly.")
                 .stream()
                 .chatResponse();
         ChatResponse response = AIUtils.processStreamingResponse(responseFlux, text -> {
@@ -110,16 +111,15 @@ class SpringAIOllamaDnsIT {
     }
 
     /**
-     *.\mvnw.cmd test -pl opendaimon-spring-ai -Dtest=SpringAIOllamaDnsIT#testStreamParagraphToConsole (not in idea console!!!)
+     * mvn test -pl opendaimon-spring-ai -Dtest=SpringAIOllamaDnsIT#testStreamParagraphToConsole (not in idea console!!!)
      * Manual test: run locally with Ollama to see paragraph-by-paragraph streaming in console.
      * Disabled in CI; remove @Disabled for a local run.
      */
     @Test
-//    @Disabled("Manual test: run locally to verify streaming by paragraphs to console")
     void testStreamParagraphToConsole() {
         // Note: chunk size in streaming is not configurable via Ollama params
         var responseFlux = ChatClient.builder(ollamaChatModel).build().prompt()
-                .user("Write a short tale")
+                .user("What is bigger: 9.11 or 9.9? Explain briefly.")
                 .stream()
                 .chatResponse();
         ChatResponse chatResponse = AIUtils.processStreamingResponseByParagraphs(responseFlux, 4096, text -> {
@@ -282,7 +282,8 @@ class SpringAIOllamaDnsIT {
      * Creates only WebClient.Builder with proper DNS resolver.
      * Spring AI autoconfiguration will create OllamaChatModel using this bean.
      */
-    @SpringBootApplication
+    @SpringBootConfiguration
+    @EnableAutoConfiguration
     static class TestConfig {
         /**
          * Creates WebClient.Builder for Ollama with proper DNS resolver.
