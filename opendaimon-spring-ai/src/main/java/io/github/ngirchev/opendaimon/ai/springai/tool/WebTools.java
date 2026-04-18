@@ -126,11 +126,13 @@ public class WebTools {
             // avoid token overflow - todo add additional model call to grep and parse the result
             return text.length() > 6000 ? text.substring(0, 6000) : text;
         } catch (WebClientResponseException e) {
-            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning empty string.", url, e.getMessage());
-            return "";
+            String reason = e.getStatusCode().value() + " " + e.getStatusText();
+            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, e.getMessage());
+            return "HTTP error " + reason;
         } catch (Exception e) {
-            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning empty string.", url, e.getMessage(), e);
-            return "";
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, msg, e);
+            return "Error: " + msg;
         }
     }
 

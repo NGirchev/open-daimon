@@ -458,26 +458,44 @@ pointing to the original user message.
 | Role | Purpose | Lifecycle |
 |------|---------|-----------|
 | **Status message** | Carries `💭 Thinking...`, tool-call lines, tool-result lines, reasoning text | Edited in place across iterations; rotated to a new message when Telegram length limit is hit |
-| **Answer message** | Final user-visible answer | Sent fresh when the model output is tentatively treated as final; edited ~once per second until complete. **Rolled back** — deleted and its prose folded back into the status message — when either a `<tool_call>` / `<arg_key>` / `<arg_value>` / `<tool>` marker is detected in a `PARTIAL_ANSWER` chunk, or an `AgentStreamEvent.TOOL_CALL` event arrives from the agent loop. See "Final answer transition" for both triggers. |
+| **Answer message** | Final user-visible answer | Sent fresh on the **first** `PARTIAL_ANSWER` chunk of an iteration where no tool call has been seen yet; edited ~once per second until complete. **Rolled back** — deleted and its prose folded back into the status message — when either a `<tool_call>` / `<arg_key>` / `<arg_value>` / `<tool>` marker is detected in a `PARTIAL_ANSWER` chunk, or an `AgentStreamEvent.TOOL_CALL` event arrives from the agent loop. See "Final answer transition" for both triggers. |
 
 Edit rate for both roles is throttled to **at most one edit per second** to stay below Telegram rate limits.
 
 ### Iteration flow
 
 1. **Start.** Send the initial status message: `💭 Thinking...`
-2. **Tool call.** On `AgentStreamEvent.toolCall`, edit the status message, replacing the trailing
-   `💭 Thinking...` (or current reasoning line) with:
+2. **Tool call.** On `AgentStreamEvent.toolCall`, edit the status message and **replace the
+   trailing line** (whether it is the `💭 Thinking...` placeholder or the current reasoning
+   overlay) with the tool-call block:
    ```
-   🔧 Tool: <toolName>
-   Query: <toolArguments>
+   🔧 <b>Tool:</b> <friendlyToolLabel>
+   <b>Query:</b> <toolArguments>
    ```
+   The `<b>Tool:</b>` / `<b>Query:</b>` labels are HTML-bold so they stand out on Telegram.
+
+   Visual chronology *thinking → tool call → result* is created in **time**, not space: the
+   tool-call force-flush is **paced** — the orchestrator waits until at least one throttle
+   interval (`open-daimon.telegram.agent-stream-edit-min-interval-ms`, default 1000 ms) has
+   elapsed since the last status edit before pushing the tool-call block. Without pacing, a
+   model that emits a structured tool call without preceding text (e.g. OpenAI / Anthropic
+   function calling without `reasoning` content) would overwrite `💭 Thinking...` in the same
+   tick and the user would never see the thinking state at all. Pacing guarantees each phase
+   (placeholder / reasoning overlay → tool call → observation marker) is on screen for at
+   least one window before the next replaces it.
 3. **Tool result.** On the matching `toolResult`, append one line to the same status message:
 
    | Outcome | Appended line |
    |---------|---------------|
    | Result present | `📋 Tool result received` |
    | Empty result | `📋 No result` |
-   | Tool threw | `⚠️ Tool failed: <error summary>` |
+   | Tool threw OR returned a textual failure (e.g. `"HTTP error 403 …"`, `"Error: …"`) | `⚠️ Tool failed: <first line of error>` |
+
+   The textual-failure detection is implemented in
+   `SpringAgentLoopActions#observe` (see `opendaimon-spring-ai/SPRING_AI_MODULE.md` — "Tool
+   failure detection"): several built-in `@Tool` implementations (`HttpApiTool`,
+   `WebTools`) return HTTP failures as a non-exceptional `String`, so the Telegram layer
+   cannot rely on `toolResult.success()` alone to distinguish a 403 from a real page.
 
 4. **Next iteration.** A fresh `💭 Thinking...` line is appended below the previous tool block.
    Completed tool blocks stay in the status message as a running iteration log.
@@ -486,9 +504,12 @@ Edit rate for both roles is throttled to **at most one edit per second** to stay
 
 If the model emits `AgentStreamEvent.thinking` with non-empty reasoning:
 
-- Replace the trailing `💭 Thinking...` line with the reasoning text (edit throttled to once per second).
-- If the iteration ends with a `toolCall`, the reasoning line is replaced by the `🔧 Tool: …`
-  block from step 2 — reasoning is not preserved across the tool action.
+- Replace the trailing `💭 Thinking...` line (or prior reasoning overlay) with the new
+  reasoning text wrapped in `<i>…</i>` — edit throttled to once per second.
+- When the iteration ends with a `toolCall`, the reasoning overlay is replaced by the
+  tool-call block (step 2). Visibility of the reasoning state is guaranteed by the paced
+  flush of the tool-call edit — the user sees the reasoning for at least one throttle
+  window before the tool-call block overwrites it.
 - If the iteration turns into a final answer, see "Final answer transition" below.
 
 ### Final answer transition (tentative + rollback)
@@ -533,6 +554,16 @@ layer never sees the marker in text, but the downstream agent loop will still em
 `RollbackAndAppendToolCall` whenever `ctx.isTentativeAnswerActive()` is true — same rollback
 path, different entry point.
 
+Additionally, **every** `TOOL_CALL` event clears `tentativeAnswerBuffer` regardless of whether
+the tentative bubble was opened. Rationale: some models (observed with `z-ai/glm-4.5v`) emit
+pre-tool reasoning as ordinary `PARTIAL_ANSWER` chunks **interleaved with** a structured tool
+call in the same stream. When the chunks never cross the `\n\n` paragraph boundary the bubble
+stays closed, so the trigger-B rollback path (which calls `resetTentativeAnswer()`) never
+runs — but the stale prose is still accumulated in the buffer and would prepend itself to the
+eventual real answer. Clearing the buffer on every `TOOL_CALL` is idempotent with the
+rollback path (which also clears it) and keeps pre-tool reasoning from leaking across
+iterations.
+
 #### Rollback semantics (both triggers)
 
 When a rollback fires on an **active** tentative-answer bubble:
@@ -559,13 +590,40 @@ If the stream ends without any rollback firing, the tentative answer bubble beco
 user-visible response: a final forced edit flushes the complete buffer, throttling is bypassed,
 and editing stops.
 
+**Link previews** are disabled (`disable_web_page_preview=true`) on every streaming edit of
+the answer bubble — an in-progress URL that's still being typed character-by-character would
+either fail to resolve or make Telegram flicker the preview card on every edit. The terminal
+forced edit inverts the flag: when `forceFlush=true` the orchestrator sends
+`disable_web_page_preview=false`, so Telegram fetches the preview for the first link in the
+now-complete message and renders the card below the bubble. The distinction is derived from
+the `forceFlush` parameter alone in `editTentativeAnswer` — no extra plumbing.
+
 #### Commit-to-answer rule
 
-A tentative answer bubble is opened the first time **both** of these hold in a single
-iteration:
-1. The accumulated `PARTIAL_ANSWER` buffer contains a paragraph boundary (`\n\n`).
-2. `toolCallSeenThisIteration == false` — no `TOOL_CALL` event has arrived **and** no tool
-   marker has been detected by trigger A so far this iteration.
+A tentative answer bubble is opened on the **first** PARTIAL_ANSWER chunk of an
+iteration where `toolCallSeenThisIteration == false`. If the content later turns
+out to be pre-tool reasoning, one of two rollback triggers fires and the bubble
+is deleted and its prose is folded back into the status transcript as a
+reasoning overlay:
+
+1. **Trigger A** — a tool-call marker (`<tool_call>`, `<arg_key>`, `<arg_value>`,
+   `<tool>`, or their closing forms) is detected in the accumulated buffer by
+   the Telegram-layer text scan.
+2. **Trigger B** — an `AgentStreamEvent.TOOL_CALL` event arrives from the agent
+   loop.
+
+#### Markdown rendering in the answer bubble
+
+The tentative-answer buffer stores **pre-escaped HTML fragments** (see the marker list
+above) but the model output still carries raw Markdown tokens like `**bold**`, `*italic*`,
+`` `code` ``, `~~strike~~`. Before any `sendMessage` / `editMessage` that targets the
+answer bubble, the buffer content is passed through
+`AIUtils#convertEscapedMarkdownToHtml` — this applies Markdown-to-HTML replacements
+**without** re-escaping the already-escaped content (calling the standard
+`AIUtils#convertMarkdownToHtml` on an already-escaped buffer would double-escape
+`&amp;` → `&amp;amp;` and turn bot-authored literal tags like `<i>` into `&lt;i&gt;`).
+Status-message content is left as-is — it is authored by the Telegram layer itself and
+never contains raw Markdown.
 
 ### Max iterations exhausted
 

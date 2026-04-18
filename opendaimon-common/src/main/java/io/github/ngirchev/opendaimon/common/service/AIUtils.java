@@ -807,6 +807,20 @@ public class AIUtils {
         return applyMarkdownReplacements(escaped);
     }
 
+    /**
+     * Applies Markdown-to-HTML replacements on text that is already HTML-escaped.
+     * Use this when a buffer holds a mix of bot-authored HTML literals (e.g. {@code <i>…</i>}
+     * overlays, {@code <b>Tool:</b>} labels) and escaped model output that still carries raw
+     * Markdown like {@code **bold**}. Running {@link #convertMarkdownToHtml(String)} on such
+     * a buffer would double-escape the literals ({@code &amp;lt;}).
+     */
+    public static String convertEscapedMarkdownToHtml(String escapedHtml) {
+        if (escapedHtml == null || escapedHtml.isEmpty()) {
+            return escapedHtml;
+        }
+        return applyMarkdownReplacements(escapedHtml);
+    }
+
     private static String applyMarkdownReplacements(String escaped) {
         String html = escaped.replaceAll("\\*\\*\\*(.+?)\\*\\*\\*", "<b><i>$1</i></b>");
         html = html.replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>");

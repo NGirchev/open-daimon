@@ -342,6 +342,33 @@ tentative-answer bubble is rolled back when leaked tool markup appears. Do not t
 `StreamingAnswerFilter` as the sole defense against tool-call leakage into the user
 answer — downstream consumers that render model text to users must scan too.
 
+### Tool failure detection
+
+Spring AI's `@Tool` contract is **string-typed**: tool methods return a plain `String`
+either way, and the framework has no built-in way to mark a call as failed beyond having
+the method throw an exception. Several built-in tool implementations in this project
+(`HttpApiTool.httpGet` / `httpPost`, `WebTools.fetchUrl`) catch HTTP failures internally
+and return an error-describing string rather than propagating the exception, because
+Spring AI prefers that the tool surface error details to the model as text. The cost is
+that `ToolExecutionResult` comes back successful (`toolResult.success() == true`) even
+for HTTP 403 Cloudflare pages or timeouts. A naive Telegram renderer would then show
+"📋 Tool result received" for a failed fetch, contradicting the product spec that
+mandates "⚠️ Tool failed: …" for failures.
+
+`SpringAgentLoopActions#observe` therefore applies a **textual-failure heuristic** before
+emitting the `OBSERVATION` event:
+
+1. If `toolResult.success() == false` — error, no heuristic needed (exception path).
+2. Otherwise, inspect the trimmed result string. If it starts with `"HTTP error "` or
+   `"Error: "`, treat the observation as failed:
+   - Set `toolError = true` on the emitted `AgentStreamEvent.observation`.
+   - Replace the streamed content with a short summary (`summarizeToolError`) — first
+     line, capped at 200 characters — so UI surfaces (`⚠️ Tool failed: …`) don't have to
+     wrap a 7 kB CloudFlare challenge page.
+
+The recorded `AgentStepResult` keeps the full observation text (model context is
+unchanged), only the stream event and its UI-facing content are shortened.
+
 ### `handleMaxIterations` — tool-less summary call
 
 When the iteration counter hits `open-daimon.agent.max-iterations`, the loop terminates
@@ -349,7 +376,11 @@ in state `MAX_ITERATIONS`. The action now issues **one extra tool-less LLM call*
 summarize the collected step history and produce a direct answer for the user:
 
 1. Build a `SystemMessage` instructing the model that it has reached the iteration limit
-   and must answer directly without calling any tools.
+   and must answer directly without calling any tools. The prompt also:
+   - Forbids meta-prose and introductory phrases such as "Based on", "Answer:",
+     "According to", "The searches showed", or similar.
+   - Appends a language instruction derived from the `languageCode` field in
+     `ctx.getMetadata()` (e.g. `"Respond in Russian (ru)."`) when the field is present.
 2. Build a `UserMessage` carrying the original user question plus a flat text digest of
    `AgentStepResult`s accumulated so far.
 3. Call `chatModel.call(Prompt(messages, ToolCallingChatOptions.builder()

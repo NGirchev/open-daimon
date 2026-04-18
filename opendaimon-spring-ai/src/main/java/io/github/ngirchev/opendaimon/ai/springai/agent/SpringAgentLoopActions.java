@@ -31,6 +31,7 @@ import reactor.core.publisher.Flux;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -352,6 +353,19 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         } else if (toolResult.success()) {
             streamContent = toolResult.result();
             observation = toolResult.result();
+            // Several built-in @Tool implementations (HttpApiTool, WebTools) return a
+            // non-exceptional String on HTTP failure — e.g. "HTTP error 403 FORBIDDEN: …" or
+            // "Error: …". Spring AI treats that as a successful tool execution, so
+            // toolResult.success() stays true and the Telegram layer would mis-render it as
+            // "📋 Tool result received". Detect those textual failure markers here and
+            // promote the observation to an error so the UI shows "⚠️ Tool failed: …".
+            if (streamContent != null) {
+                String trimmed = streamContent.trim();
+                if (trimmed.startsWith("HTTP error ") || trimmed.startsWith("Error: ")) {
+                    toolError = true;
+                    streamContent = summarizeToolError(trimmed);
+                }
+            }
         } else {
             streamContent = toolResult.error();
             observation = "Error: " + toolResult.error();
@@ -400,17 +414,44 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     }
 
     /**
+     * Extracts a short, UI-friendly error line from a textual tool failure like
+     * {@code "HTTP error 403 FORBIDDEN: <html …>"} or {@code "Error: connection refused"}.
+     * Keeps only the head of the first line so the Telegram {@code ⚠️ Tool failed: …}
+     * marker stays compact (large CloudFlare challenge pages are ~7 kB otherwise).
+     */
+    private static String summarizeToolError(String raw) {
+        int maxLen = 200;
+        int newline = raw.indexOf('\n');
+        String firstLine = newline >= 0 ? raw.substring(0, newline) : raw;
+        if (firstLine.length() > maxLen) {
+            return firstLine.substring(0, maxLen) + "…";
+        }
+        return firstLine;
+    }
+
+    /**
      * Asks the chat model to summarize the step history and answer the user's original
      * question, with tool execution explicitly disabled and no tool callbacks registered.
      * The model is forced to produce a direct answer from whatever observations already
      * exist — no further tool calls are possible.
+     *
+     * <p>The system prompt includes a language instruction derived from the
+     * {@code languageCode} field in {@code ctx.getMetadata()} (see {@link AICommand#LANGUAGE_CODE_FIELD}).
+     * The prompt also explicitly forbids meta-prose and introductory phrases such as
+     * "Based on", "Answer:", "According to", or "The searches showed".
      */
     private String callSummaryModelWithoutTools(AgentContext ctx) {
         List<Message> messages = new ArrayList<>();
-        messages.add(new SystemMessage(
-                "You have reached the iteration limit. Summarize what you found in the step history and "
-                        + "answer the user's original question directly. Do not call any tools. "
-                        + "If the information is insufficient, state that clearly."));
+        String langInstruction = resolveLanguageInstruction(ctx.getMetadata());
+        String systemPrompt = "You have reached the iteration limit. "
+                + "Based on the step history, give a direct answer to the user's original question. "
+                + "Do not call any tools. "
+                + "Do not explain the research process. "
+                + "Do not use introductory phrases like 'Based on', 'Answer:', 'According to', "
+                + "'The searches showed', or similar. "
+                + "If the available information is insufficient, say so in one sentence."
+                + (langInstruction.isEmpty() ? "" : "\n" + langInstruction);
+        messages.add(new SystemMessage(systemPrompt));
         messages.add(new UserMessage(ctx.getTask() + "\n\nContext so far:\n" + flattenStepHistory(ctx)));
 
         ToolCallingChatOptions options = ToolCallingChatOptions.builder()
@@ -441,6 +482,26 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Resolves a language instruction string from agent metadata.
+     * Returns an empty string if no {@code languageCode} is set in metadata.
+     */
+    private static String resolveLanguageInstruction(Map<String, String> metadata) {
+        if (metadata == null) return "";
+        String code = metadata.get(AICommand.LANGUAGE_CODE_FIELD);
+        if (code == null || code.isBlank()) return "";
+        String name = switch (code.toLowerCase()) {
+            case "ru" -> "Russian";
+            case "en" -> "English";
+            case "de" -> "German";
+            case "fr" -> "French";
+            case "es" -> "Spanish";
+            case "zh" -> "Chinese";
+            default -> code;
+        };
+        return "Respond in " + name + " (" + code + ").";
     }
 
     /**

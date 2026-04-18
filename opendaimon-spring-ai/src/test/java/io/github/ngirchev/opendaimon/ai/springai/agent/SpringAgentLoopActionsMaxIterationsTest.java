@@ -2,9 +2,12 @@ package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -86,5 +89,33 @@ class SpringAgentLoopActionsMaxIterationsTest {
         actions.handleMaxIterations(ctx);
 
         assertThat(ctx.getFinalAnswer()).contains("maximum number of iterations");
+    }
+
+    @Test
+    void shouldIncludeLanguageInstructionInSummaryPromptWhenLanguageCodeInMetadata() {
+        AgentContext ruCtx = new AgentContext(
+                "What's the BTC price?", "conv-ru",
+                Map.of(AICommand.LANGUAGE_CODE_FIELD, "ru"), 5, Set.of());
+        ruCtx.recordStep(new AgentStepResult(
+                0, "I should search", "web_search",
+                "{\"q\":\"btc\"}", "BTC is $50,000", Instant.now()));
+
+        ChatResponse response = new ChatResponse(List.of(
+                new Generation(new AssistantMessage("BTC стоит $50,000."))
+        ));
+        when(chatModel.call(any(Prompt.class))).thenReturn(response);
+
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        actions.handleMaxIterations(ruCtx);
+        verify(chatModel).call(promptCaptor.capture());
+
+        Prompt capturedPrompt = promptCaptor.getValue();
+        boolean hasRussianInstruction = capturedPrompt.getInstructions().stream()
+                .filter(m -> m instanceof SystemMessage)
+                .map(m -> ((SystemMessage) m).getText())
+                .anyMatch(text -> text.contains("Russian"));
+        assertThat(hasRussianInstruction)
+                .as("SystemMessage must contain 'Russian' language instruction when languageCode=ru")
+                .isTrue();
     }
 }
