@@ -368,6 +368,36 @@ class TelegramMessageHandlerActionsAgentTest {
     }
 
     @Test
+    @DisplayName("generateResponse flushes reserved final answer tail when stream completes without terminal event")
+    void generateResponse_finalAnswerChunkWithoutTerminal_flushesPendingTail() {
+        MessageHandlerContext ctx = createContextWithMetadata(
+                "Give one link",
+                Set.of(ModelCapabilities.WEB),
+                s -> {},
+                101
+        );
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true)))
+                .thenReturn(800);
+
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswerChunk("ABC", 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        ArgumentCaptor<String> sentFinal = ArgumentCaptor.forClass(String.class);
+        verify(messageSender).sendHtmlAndGetId(eq(42L), sentFinal.capture(), eq(101), eq(true));
+        assertThat(sentFinal.getValue()).contains("AB");
+        assertThat(sentFinal.getValue()).doesNotContain("ABC");
+
+        ArgumentCaptor<String> finalEdit = ArgumentCaptor.forClass(String.class);
+        verify(messageSender).editHtml(eq(42L), eq(800), finalEdit.capture(), eq(false));
+        assertThat(finalEdit.getValue()).contains("ABC");
+
+        verify(messageSender, never()).sendHtml(eq(42L), contains("ABC"), eq(101));
+        assertThat(ctx.getResponseText()).hasValue("ABC");
+    }
+
+    @Test
     @DisplayName("generateResponse batches tiny FINAL_ANSWER_CHUNK updates and flushes once at terminal")
     void generateResponse_finalAnswerChunks_areBatchedBeforeEdit() {
         MessageHandlerContext ctx = createContextWithMetadata(

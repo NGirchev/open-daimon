@@ -1,6 +1,7 @@
 # Claude Code Rules for open-daimon
 
 @AGENTS.md
+@.claude/rules/webfetch-workarounds.md
 
 ## Critical Rules
 

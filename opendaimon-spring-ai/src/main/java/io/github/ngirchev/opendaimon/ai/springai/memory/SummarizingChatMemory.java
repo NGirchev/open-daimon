@@ -10,6 +10,8 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.lang.NonNull;
+import io.github.ngirchev.opendaimon.common.agent.memory.AgentFact;
+import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.event.SummarizationStartedEvent;
 import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
@@ -18,10 +20,15 @@ import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageReposito
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.SummarizationService;
 
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Custom ChatMemory implementation that integrates SummarizationService.
@@ -43,6 +50,7 @@ public class SummarizingChatMemory implements ChatMemory {
     private final ApplicationEventPublisher eventPublisher;
     private final Integer maxMessages; // Max messages from MessageWindowChatMemory
     private final Integer maxWindowTokens; // Max tokens trigger for summarization
+    private final Supplier<AgentMemory> agentMemorySupplier;
 
     public SummarizingChatMemory(
             ChatMemoryRepository chatMemoryRepository,
@@ -52,12 +60,32 @@ public class SummarizingChatMemory implements ChatMemory {
             ApplicationEventPublisher eventPublisher,
             Integer maxMessages,
             Integer maxWindowTokens) {
+        this(chatMemoryRepository,
+                conversationThreadRepository,
+                messageRepository,
+                summarizationService,
+                eventPublisher,
+                maxMessages,
+                maxWindowTokens,
+                null);
+    }
+
+    public SummarizingChatMemory(
+            ChatMemoryRepository chatMemoryRepository,
+            ConversationThreadRepository conversationThreadRepository,
+            OpenDaimonMessageRepository messageRepository,
+            SummarizationService summarizationService,
+            ApplicationEventPublisher eventPublisher,
+            Integer maxMessages,
+            Integer maxWindowTokens,
+            Supplier<AgentMemory> agentMemorySupplier) {
         this.conversationThreadRepository = conversationThreadRepository;
         this.messageRepository = messageRepository;
         this.summarizationService = summarizationService;
         this.eventPublisher = eventPublisher;
         this.maxMessages = maxMessages;
         this.maxWindowTokens = maxWindowTokens;
+        this.agentMemorySupplier = agentMemorySupplier != null ? agentMemorySupplier : () -> null;
         this.delegate = MessageWindowChatMemory.builder()
                 .chatMemoryRepository(chatMemoryRepository)
                 .maxMessages(maxMessages)
@@ -139,6 +167,7 @@ public class SummarizingChatMemory implements ChatMemory {
 
             log.info("Triggering partial summarization for conversationId {} (thread {})",
                 conversationId, thread.getThreadKey());
+            Set<String> previousMemoryBullets = normalizeMemoryBullets(thread.getMemoryBullets());
 
             // Load messages from main DB (after last summarization point)
             Integer messagesAtLastSummarization = thread.getMessagesAtLastSummarization();
@@ -166,6 +195,8 @@ public class SummarizingChatMemory implements ChatMemory {
             // Refresh thread from DB after summarization
             thread = conversationThreadRepository.findByThreadKey(conversationId)
                 .orElseThrow(() -> new RuntimeException("Thread not found after summarization"));
+
+            storeNewMemoryBullets(conversationId, previousMemoryBullets, thread.getMemoryBullets());
 
             // Rebuild ChatMemory: summary + recent messages
             delegate.clear(conversationId);
@@ -252,5 +283,48 @@ public class SummarizingChatMemory implements ChatMemory {
         }
         
         return content.toString();
+    }
+
+    private void storeNewMemoryBullets(String conversationId,
+                                       Set<String> previousMemoryBullets,
+                                       List<String> currentMemoryBullets) {
+        try {
+            AgentMemory agentMemory = agentMemorySupplier.get();
+            if (agentMemory == null) {
+                return;
+            }
+            Set<String> currentFacts = normalizeMemoryBullets(currentMemoryBullets);
+            currentFacts.removeAll(previousMemoryBullets);
+            if (currentFacts.isEmpty()) {
+                return;
+            }
+            for (String factText : currentFacts) {
+                AgentFact fact = new AgentFact(
+                        UUID.randomUUID().toString(),
+                        factText,
+                        Map.of("source", "conversation_summary"),
+                        Instant.now()
+                );
+                agentMemory.store(conversationId, fact);
+            }
+            log.info("Stored {} summarized facts in AgentMemory for conversationId {}",
+                    currentFacts.size(), conversationId);
+        } catch (Exception e) {
+            log.warn("Failed to store summarized facts in AgentMemory for conversationId {}: {}",
+                    conversationId, e.getMessage());
+        }
+    }
+
+    private static Set<String> normalizeMemoryBullets(List<String> memoryBullets) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (memoryBullets == null || memoryBullets.isEmpty()) {
+            return normalized;
+        }
+        for (String bullet : memoryBullets) {
+            if (bullet != null && !bullet.isBlank()) {
+                normalized.add(bullet.strip());
+            }
+        }
+        return normalized;
     }
 }

@@ -185,7 +185,6 @@ class SpringAIOllamaDnsIT {
                 toolCallingManager,
                 List.of(),
                 null,
-                null,
                 null
         );
         ReActAgentExecutor reActAgentExecutor = new ReActAgentExecutor(AgentLoopFsmFactory.create(loopActions));

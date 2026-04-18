@@ -267,6 +267,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     .doOnNext(event -> sendAgentEventToTelegram(ctx, event))
                     .blockLast();
 
+            finalizeCompletedAgentStream(ctx, lastEvent);
             extractAgentResult(ctx, lastEvent);
 
             // Final answer fallback for executors that emit only terminal FINAL_ANSWER/MAX_ITERATIONS.
@@ -289,6 +290,23 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         } catch (Exception e) {
             handleGeneralException(ctx, e);
         }
+    }
+
+    private void finalizeCompletedAgentStream(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {
+        if (isTerminalAgentStreamEvent(lastEvent)) {
+            return;
+        }
+        flushPendingProgressToTelegram(ctx, true);
+        flushPendingFinalAnswerToTelegram(ctx, true);
+    }
+
+    private static boolean isTerminalAgentStreamEvent(AgentStreamEvent event) {
+        if (event == null) {
+            return false;
+        }
+        return event.type() == AgentStreamEvent.EventType.FINAL_ANSWER
+                || event.type() == AgentStreamEvent.EventType.MAX_ITERATIONS
+                || event.type() == AgentStreamEvent.EventType.ERROR;
     }
 
     private void sendAgentEventToTelegram(MessageHandlerContext ctx, AgentStreamEvent event) {

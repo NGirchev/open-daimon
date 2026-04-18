@@ -101,7 +101,7 @@ public class SimpleChainExecutor implements AgentExecutor {
 
         Flux.defer(() -> {
             try {
-                sink.tryEmitNext(AgentStreamEvent.thinking(0));
+                ReActAgentExecutor.emitNextOrThrow(sink, AgentStreamEvent.thinking(0));
 
                 List<Message> messages = new ArrayList<>();
                 messages.add(new SystemMessage(SYSTEM_PROMPT));
@@ -130,7 +130,7 @@ public class SimpleChainExecutor implements AgentExecutor {
                         reasoning != null ? reasoning.length() : 0,
                         rawText != null ? rawText.substring(0, Math.min(100, rawText.length())) : "null");
                 if (reasoning != null && !reasoning.isBlank()) {
-                    sink.tryEmitNext(AgentStreamEvent.thinking(reasoning, 0));
+                    ReActAgentExecutor.emitNextOrThrow(sink, AgentStreamEvent.thinking(reasoning, 0));
                 }
 
                 String sanitized = SpringAgentLoopActions.sanitizeFinalAnswerText(rawText);
@@ -144,21 +144,20 @@ public class SimpleChainExecutor implements AgentExecutor {
                 }
 
                 if (modelName != null) {
-                    sink.tryEmitNext(AgentStreamEvent.metadata(modelName, 0));
+                    ReActAgentExecutor.emitNextOrThrow(sink, AgentStreamEvent.metadata(modelName, 0));
                 }
                 if (answer != null && !answer.isBlank()) {
-                    sink.tryEmitNext(AgentStreamEvent.finalAnswer(answer, 0));
+                    ReActAgentExecutor.emitNextOrThrow(sink, AgentStreamEvent.finalAnswer(answer, 0));
                 } else if (mixedToolPayload) {
-                    sink.tryEmitNext(AgentStreamEvent.error(
+                    ReActAgentExecutor.emitNextOrThrow(sink, AgentStreamEvent.error(
                             "SimpleChain: raw_tool_payload_in_final_answer", 0));
                 } else {
-                    sink.tryEmitNext(AgentStreamEvent.error("SimpleChain: empty response", 0));
+                    ReActAgentExecutor.emitNextOrThrow(sink, AgentStreamEvent.error("SimpleChain: empty response", 0));
                 }
-                sink.tryEmitComplete();
+                ReActAgentExecutor.emitCompleteOrThrow(sink);
             } catch (Exception e) {
                 log.error("SimpleChain stream failed: {}", e.getMessage(), e);
-                sink.tryEmitNext(AgentStreamEvent.error(e.getMessage(), 0));
-                sink.tryEmitError(e);
+                ReActAgentExecutor.emitErrorBestEffort(sink, e);
             }
             return Flux.empty();
         }).subscribeOn(Schedulers.boundedElastic()).subscribe();
@@ -250,7 +249,7 @@ public class SimpleChainExecutor implements AgentExecutor {
             }
             String delta = finalAnswer.substring(emittedVisible.length());
             if (!delta.isBlank()) {
-                sink.tryEmitNext(AgentStreamEvent.finalAnswerChunk(delta, iteration));
+                ReActAgentExecutor.emitNextOrThrow(sink, AgentStreamEvent.finalAnswerChunk(delta, iteration));
                 emittedVisible.append(delta);
             }
         }
@@ -266,7 +265,7 @@ public class SimpleChainExecutor implements AgentExecutor {
             }
             String delta = visible.substring(emittedVisible.length());
             if (!delta.isBlank()) {
-                sink.tryEmitNext(AgentStreamEvent.finalAnswerChunk(delta, iteration));
+                ReActAgentExecutor.emitNextOrThrow(sink, AgentStreamEvent.finalAnswerChunk(delta, iteration));
                 emittedVisible.append(delta);
             }
         }

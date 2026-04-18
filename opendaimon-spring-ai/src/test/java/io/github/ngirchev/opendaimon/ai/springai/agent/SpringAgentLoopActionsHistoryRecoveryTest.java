@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
+import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
@@ -22,8 +23,12 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,6 +38,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -62,7 +69,6 @@ class SpringAgentLoopActionsHistoryRecoveryTest {
                 chatModel,
                 toolCallingManager,
                 List.of(),
-                null,
                 null,
                 chatMemory,
                 conversationThreadRepository,
@@ -142,10 +148,77 @@ class SpringAgentLoopActionsHistoryRecoveryTest {
         assertThat(savedMessages.get(1).getText()).contains("Synthesized final answer");
     }
 
+    @Test
+    @DisplayName("answer() saves history without synchronous fact-extraction model calls")
+    void answer_withToolHistory_doesNotCallModelForFactExtraction() {
+        AgentContext ctx = new AgentContext(
+                "Find current Java LTS",
+                "thread-answer-1",
+                Map.of(),
+                3,
+                Set.of("web_search")
+        );
+        ctx.recordStep(new AgentStepResult(
+                0,
+                "Calling tool: web_search",
+                "web_search",
+                "{\"query\":\"current Java LTS\"}",
+                "Java 21 is the current LTS",
+                Instant.now()
+        ));
+        ctx.setCurrentTextResponse("Java 21 is the current LTS.");
+
+        actions.answer(ctx);
+
+        verify(chatMemory).add(eq("thread-answer-1"), anyList());
+        verify(chatModel, never()).call(any(Prompt.class));
+    }
+
+    @Test
+    @DisplayName("think() uses effective filtered tools in prompt options")
+    void think_whenToolsFiltered_usesEffectiveToolsInPromptOptions() {
+        when(chatModel.call(any(Prompt.class))).thenReturn(chatResponse("Filtered tools answer"));
+        SpringAgentLoopActions filteredActions = new SpringAgentLoopActions(
+                chatModel,
+                toolCallingManager,
+                List.of(toolCallback("web_search"), toolCallback("fetch_url")),
+                null,
+                null
+        );
+
+        AgentContext ctx = new AgentContext(
+                "Search the web",
+                null,
+                Map.of(),
+                3,
+                Set.of("web_search")
+        );
+
+        filteredActions.think(ctx);
+
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        verify(chatModel).call(promptCaptor.capture());
+        ToolCallingChatOptions options = (ToolCallingChatOptions) promptCaptor.getValue().getOptions();
+        assertThat(options.getToolCallbacks())
+                .hasSize(1)
+                .extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("web_search");
+    }
+
     private ChatResponse chatResponse(String text) {
         return ChatResponse.builder()
                 .metadata(ChatResponseMetadata.builder().model("test-model").build())
                 .generations(List.of(new Generation(new AssistantMessage(text))))
                 .build();
+    }
+
+    private ToolCallback toolCallback(String name) {
+        ToolCallback callback = mock(ToolCallback.class);
+        when(callback.getToolDefinition()).thenReturn(ToolDefinition.builder()
+                .name(name)
+                .description(name)
+                .inputSchema("{\"type\":\"object\"}")
+                .build());
+        return callback;
     }
 }

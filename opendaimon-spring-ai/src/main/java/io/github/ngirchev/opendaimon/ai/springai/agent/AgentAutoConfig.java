@@ -2,7 +2,6 @@ package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.CompositeAgentMemory;
-import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.memory.SemanticAgentMemory;
 import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
@@ -87,7 +86,7 @@ public class AgentAutoConfig {
 
     /**
      * When multiple {@link AgentMemory} beans exist, combines them via {@link CompositeAgentMemory}.
-     * Marked {@code @Primary} so other beans (FactExtractor, AgentLoopActions) get the composite.
+     * Marked {@code @Primary} so other beans get the composite.
      */
     @Bean
     @Primary
@@ -104,35 +103,21 @@ public class AgentAutoConfig {
     // --- Agent Loop ---
 
     @Bean
-    @ConditionalOnMissingBean(FactExtractor.class)
-    @ConditionalOnBean(AgentMemory.class)
-    public FactExtractor factExtractor(
-            DelegatingAgentChatModel agentChatModel,
-            AgentMemory agentMemory) {
-        return new FactExtractor(agentChatModel, agentMemory);
-    }
-
-    // --- Agent Loop ---
-
-    @Bean
     @ConditionalOnMissingBean(AgentLoopActions.class)
     public SpringAgentLoopActions agentLoopActions(
             DelegatingAgentChatModel agentChatModel,
             ToolCallingManager toolCallingManager,
             List<ToolCallback> agentToolCallbacks,
             ObjectProvider<AgentMemory> agentMemoryProvider,
-            ObjectProvider<FactExtractor> factExtractorProvider,
             ObjectProvider<ChatMemory> chatMemoryProvider,
             ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider,
             ObjectProvider<OpenDaimonMessageRepository> openDaimonMessageRepositoryProvider) {
         AgentMemory memory = agentMemoryProvider.getIfAvailable();
-        FactExtractor extractor = factExtractorProvider.getIfAvailable();
         return new SpringAgentLoopActions(
                 agentChatModel,
                 toolCallingManager,
                 agentToolCallbacks,
                 memory,
-                extractor,
                 chatMemoryProvider.getIfAvailable(),
                 conversationThreadRepositoryProvider.getIfAvailable(),
                 openDaimonMessageRepositoryProvider.getIfAvailable()

@@ -81,7 +81,7 @@ public class ReActAgentExecutor implements AgentExecutor {
                 );
 
                 // Install an event listener on the context
-                ctx.setStreamSink(sink::tryEmitNext);
+                ctx.setStreamSink(event -> emitNextOrThrow(sink, event));
                 SpringAgentLoopActions.markStreamingExecution(ctx);
 
                 agentFsm.handle(ctx, AgentEvent.START);
@@ -90,7 +90,7 @@ public class ReActAgentExecutor implements AgentExecutor {
                 AgentResult result = ctx.toResult();
                 String streamedVisibleAnswer = SpringAgentLoopActions.getStreamedFinalVisibleAnswer(ctx);
                 if (result.modelName() != null && !SpringAgentLoopActions.wasModelMetadataEmitted(ctx)) {
-                    sink.tryEmitNext(AgentStreamEvent.metadata(
+                    emitNextOrThrow(sink, AgentStreamEvent.metadata(
                             result.modelName(), result.iterationsUsed()));
                 }
 
@@ -98,23 +98,22 @@ public class ReActAgentExecutor implements AgentExecutor {
                 if (result.isSuccess()) {
                     emitFinalAnswerChunks(
                             sink, result.finalAnswer(), streamedVisibleAnswer, result.iterationsUsed());
-                    sink.tryEmitNext(AgentStreamEvent.finalAnswer(
+                    emitNextOrThrow(sink, AgentStreamEvent.finalAnswer(
                             result.finalAnswer(), result.iterationsUsed()));
                 } else if (result.terminalState() == AgentState.MAX_ITERATIONS) {
                     emitFinalAnswerChunks(
                             sink, result.finalAnswer(), streamedVisibleAnswer, result.iterationsUsed());
-                    sink.tryEmitNext(AgentStreamEvent.maxIterations(
+                    emitNextOrThrow(sink, AgentStreamEvent.maxIterations(
                             result.finalAnswer(), result.iterationsUsed()));
                 } else {
-                    sink.tryEmitNext(AgentStreamEvent.error(
+                    emitNextOrThrow(sink, AgentStreamEvent.error(
                             ctx.getErrorMessage(), result.iterationsUsed()));
                 }
 
-                sink.tryEmitComplete();
+                emitCompleteOrThrow(sink);
             } catch (Exception e) {
                 log.error("Agent stream execution failed: {}", e.getMessage(), e);
-                sink.tryEmitNext(AgentStreamEvent.error(e.getMessage(), 0));
-                sink.tryEmitError(e);
+                emitErrorBestEffort(sink, e);
             }
             return Flux.empty();
         }).subscribeOn(Schedulers.boundedElastic()).subscribe();
@@ -139,8 +138,37 @@ public class ReActAgentExecutor implements AgentExecutor {
         }
         for (String chunk : splitIntoChunks(tail, FINAL_ANSWER_CHUNK_MAX_CHARS)) {
             if (!chunk.isBlank()) {
-                sink.tryEmitNext(AgentStreamEvent.finalAnswerChunk(chunk, iteration));
+                emitNextOrThrow(sink, AgentStreamEvent.finalAnswerChunk(chunk, iteration));
             }
+        }
+    }
+
+    static void emitNextOrThrow(Sinks.Many<AgentStreamEvent> sink, AgentStreamEvent event) {
+        Sinks.EmitResult result = sink.tryEmitNext(event);
+        if (result.isSuccess()) {
+            return;
+        }
+        String eventType = event != null && event.type() != null ? event.type().name() : "UNKNOWN";
+        throw new IllegalStateException(
+                "Failed to emit agent stream event " + eventType + ": " + result);
+    }
+
+    static void emitCompleteOrThrow(Sinks.Many<AgentStreamEvent> sink) {
+        Sinks.EmitResult result = sink.tryEmitComplete();
+        if (result.isSuccess()) {
+            return;
+        }
+        throw new IllegalStateException("Failed to complete agent stream: " + result);
+    }
+
+    static void emitErrorBestEffort(Sinks.Many<AgentStreamEvent> sink, Exception error) {
+        Sinks.EmitResult nextResult = sink.tryEmitNext(AgentStreamEvent.error(error.getMessage(), 0));
+        if (!nextResult.isSuccess()) {
+            log.warn("Failed to emit agent stream error event: {}", nextResult);
+        }
+        Sinks.EmitResult errorResult = sink.tryEmitError(error);
+        if (!errorResult.isSuccess()) {
+            log.warn("Failed to terminate agent stream with error: {}", errorResult);
         }
     }
 

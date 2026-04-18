@@ -1,6 +1,5 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
-import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
@@ -76,7 +75,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final ToolCallingManager toolCallingManager;
     private final List<ToolCallback> toolCallbacks;
     private final AgentMemory agentMemory;
-    private final FactExtractor factExtractor;
     private final ChatMemory chatMemory;
     private final ConversationThreadRepository conversationThreadRepository;
     private final OpenDaimonMessageRepository openDaimonMessageRepository;
@@ -92,16 +90,14 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                                   ToolCallingManager toolCallingManager,
                                   List<ToolCallback> toolCallbacks,
                                   AgentMemory agentMemory,
-                                  FactExtractor factExtractor,
                                   ChatMemory chatMemory) {
-        this(chatModel, toolCallingManager, toolCallbacks, agentMemory, factExtractor, chatMemory, null, null);
+        this(chatModel, toolCallingManager, toolCallbacks, agentMemory, chatMemory, null, null);
     }
 
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
                                   List<ToolCallback> toolCallbacks,
                                   AgentMemory agentMemory,
-                                  FactExtractor factExtractor,
                                   ChatMemory chatMemory,
                                   ConversationThreadRepository conversationThreadRepository,
                                   OpenDaimonMessageRepository openDaimonMessageRepository) {
@@ -109,7 +105,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         this.toolCallingManager = toolCallingManager;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : List.of();
         this.agentMemory = agentMemory;
-        this.factExtractor = factExtractor;
         this.chatMemory = chatMemory;
         this.conversationThreadRepository = conversationThreadRepository;
         this.openDaimonMessageRepository = openDaimonMessageRepository;
@@ -149,7 +144,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             logPromptMessages("think", messages);
 
             log.debug("Agent think: iteration={}, messages={}, tools={}",
-                    ctx.getCurrentIteration(), messages.size(), toolCallbacks.size());
+                    ctx.getCurrentIteration(), messages.size(), effectiveCallbacks.size());
 
             ChatResponse response = invokeThinkModel(prompt, ctx);
             ctx.putExtra(KEY_LAST_RESPONSE, response);
@@ -482,7 +477,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     public void answer(AgentContext ctx) {
         ctx.setFinalAnswer(ctx.getCurrentTextResponse());
         saveConversationHistory(ctx);
-        extractFacts(ctx);
         cleanup(ctx);
         log.debug("Agent answer: final answer set, length={}, content='{}'",
                 ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0,
@@ -496,7 +490,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.setFinalAnswer(composeMaxIterationsAnswer(ctx, limitNotice, synthesizedAnswer));
         ctx.setCurrentTextResponse(ctx.getFinalAnswer());
         saveConversationHistory(ctx);
-        extractFacts(ctx);
         cleanup(ctx);
         log.warn("Agent handleMaxIterations: {} iterations exhausted", ctx.getMaxIterations());
     }
@@ -508,17 +501,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         }
         cleanup(ctx);
         log.error("Agent handleError: {}", ctx.getErrorMessage());
-    }
-
-    /**
-     * Extracts key facts from the completed conversation and stores them in memory.
-     * Best-effort — failures don't affect the agent response.
-     */
-    private void extractFacts(AgentContext ctx) {
-        if (factExtractor != null && !ctx.getStepHistory().isEmpty()) {
-            // Only extract when there were tool interactions (non-trivial conversations)
-            factExtractor.extractAndStore(ctx);
-        }
     }
 
     private String recallMemoryContext(AgentContext ctx) {

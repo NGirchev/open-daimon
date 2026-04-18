@@ -72,15 +72,24 @@ class WebToolsTest {
     }
 
     @Test
-    void fetchUrl_whenResponseEmpty_returnsEmptyString() {
+    void fetchUrl_whenResponseEmpty_returnsErrorText() {
         mockWebServer.enqueue(new MockResponse()
                 .setResponseCode(200)
                 .setBody("")
                 .addHeader("Content-Type", "text/html"));
+        String url = mockWebServer.url("/empty").toString();
 
-        String result = webTools.fetchUrl(mockWebServer.url("/empty").toString());
+        String result = webTools.fetchUrl(url);
 
-        assertThat(result).isEmpty();
+        assertThat(result).contains("EMPTY_RESPONSE");
+        assertThat(result).contains(url);
+    }
+
+    @Test
+    void fetchUrl_whenUrlInvalid_returnsErrorText() {
+        String result = webTools.fetchUrl("ftp://example.com/file");
+
+        assertThat(result).isEqualTo("fetch_url failed: INVALID_URL for ftp://example.com/file");
     }
 
     @Test

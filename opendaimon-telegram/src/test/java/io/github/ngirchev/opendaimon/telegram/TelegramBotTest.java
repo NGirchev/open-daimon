@@ -33,6 +33,7 @@ import org.telegram.telegrambots.meta.api.objects.messageorigin.MessageOriginCha
 import org.telegram.telegrambots.meta.api.objects.messageorigin.MessageOriginHiddenUser;
 import org.telegram.telegrambots.meta.api.objects.messageorigin.MessageOriginUser;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -389,6 +390,27 @@ class TelegramBotTest {
         spyBot.setMyCommands(commands, (String) null);
 
         verify(spyBot).execute(any(SetMyCommands.class));
+    }
+
+    @Test
+    void sendMessageAndGetId_whenMarkdownLinkHasTrailingPunctuation_usesNormalizedPreviewUrl() throws Exception {
+        String previewUrl = capturePreviewUrl("Read [Docs](https://example.com/docs).");
+
+        assertEquals("https://example.com/docs", previewUrl);
+    }
+
+    @Test
+    void sendMessageAndGetId_whenPlainUrlHasTrailingPunctuation_usesNormalizedPreviewUrl() throws Exception {
+        String previewUrl = capturePreviewUrl("Read (https://example.com/docs).");
+
+        assertEquals("https://example.com/docs", previewUrl);
+    }
+
+    @Test
+    void sendMessageAndGetId_whenPlainUrlHasBalancedParentheses_keepsBalancedClosingParen() throws Exception {
+        String previewUrl = capturePreviewUrl("Read https://example.com/a_(b).");
+
+        assertEquals("https://example.com/a_(b)", previewUrl);
     }
 
     @Test
@@ -995,6 +1017,19 @@ class TelegramBotTest {
 
         assertNotNull(command);
         assertEquals("Analyze this document and provide a brief summary.", command.userText());
+    }
+
+    private String capturePreviewUrl(String text) throws Exception {
+        TelegramBot spyBot = spy(bot);
+        Message sentMessage = new Message();
+        sentMessage.setMessageId(123);
+        doReturn(sentMessage).when(spyBot).execute(any(SendMessage.class));
+
+        spyBot.sendMessageAndGetId(100L, text, null, false);
+
+        ArgumentCaptor<SendMessage> captor = ArgumentCaptor.forClass(SendMessage.class);
+        verify(spyBot).execute(captor.capture());
+        return captor.getValue().getLinkPreviewOptions().getUrlField();
     }
 
 }

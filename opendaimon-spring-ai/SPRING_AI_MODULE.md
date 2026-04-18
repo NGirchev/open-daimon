@@ -115,6 +115,8 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
 - ReAct observation extraction reads tool output from `ToolResponseMessage.responses[].responseData` (not `Message.getText()` on tool messages).
   - when tool output is blank, observation is normalized to `(no tool output)`
   - for `fetch_url`, failures are classified and returned as short text visible in progress events:
+    - invalid URL: `fetch_url failed: INVALID_URL for <url>`
+    - empty 2xx body: `fetch_url failed: EMPTY_RESPONSE for <url>`
     - HTTP status failures: `fetch_url failed: HTTP <status> for <url>`
     - body-size guard: `fetch_url failed: TOO_LARGE for <url>`
     - 2xx with unreadable body: `fetch_url failed: UNREADABLE_2XX for <url>`
@@ -134,6 +136,18 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
   - ReAct emits `METADATA` as soon as model name appears in stream metadata; terminal-phase metadata emission is kept only as fallback
   - SIMPLE `executeStream()` uses real `ChatModel.stream(...)` flow and emits incremental chunks while streaming
 - SIMPLE strategy remains non-agentic; if final text still looks like raw tool payload and no user-visible prefix can be recovered, it emits `ERROR` (`raw_tool_payload_in_final_answer`) instead of `FINAL_ANSWER`.
+
+---
+
+## Conversation Summary And Agent Memory
+
+`SummarizingChatMemory` owns long-context compression. It triggers partial summarization only when
+the configured message-window or token threshold is reached, then summarizes the older half of the
+thread and keeps the recent half in `ChatMemory`.
+
+The summary LLM call already returns `memory_bullets`. After a successful partial summarization,
+new bullets are written to `AgentMemory` for semantic recall. Agent completion paths (`answer()` and
+`handleMaxIterations()`) do not run fact extraction and do not add an extra post-answer LLM call.
 
 ---
 

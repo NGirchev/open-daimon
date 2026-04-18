@@ -3,6 +3,8 @@ package io.github.ngirchev.opendaimon.ai.springai.memory;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.agent.memory.AgentFact;
+import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.SummarizationService;
@@ -35,6 +37,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -228,6 +231,52 @@ class SummarizingChatMemoryTest {
         ArgumentCaptor<List<OpenDaimonMessage>> listCaptor = ArgumentCaptor.forClass(List.class);
         verify(summarizationService).summarizeThread(any(), listCaptor.capture());
         assertEquals(2, listCaptor.getValue().size(), "Expected only half of messages to be summarized");
+    }
+
+    @Test
+    void whenSummarizationSucceeds_thenNewMemoryBulletsStoredInAgentMemory() {
+        AgentMemory agentMemory = mock(AgentMemory.class);
+        ChatMemoryRepository chatMemoryRepository = new InMemoryChatMemoryRepository();
+        SummarizingChatMemory memoryWithAgentMemory = new SummarizingChatMemory(
+                chatMemoryRepository,
+                conversationThreadRepository,
+                messageRepository,
+                summarizationService,
+                eventPublisher,
+                MAX_MESSAGES,
+                MAX_WINDOW_TOKENS,
+                () -> agentMemory
+        );
+        for (int i = 0; i < MAX_MESSAGES; i++) {
+            memoryWithAgentMemory.add(CONVERSATION_ID, new UserMessage("u" + i));
+            memoryWithAgentMemory.add(CONVERSATION_ID, new AssistantMessage("a" + i));
+        }
+
+        ConversationThread thread = new ConversationThread();
+        thread.setThreadKey(CONVERSATION_ID);
+        thread.setMemoryBullets(List.of("Existing fact"));
+        ConversationThread threadWithSummary = new ConversationThread();
+        threadWithSummary.setThreadKey(CONVERSATION_ID);
+        threadWithSummary.setSummary("Previous talk summary");
+        threadWithSummary.setMemoryBullets(List.of("Existing fact", "New fact", " ", "New fact"));
+
+        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID))
+                .thenReturn(Optional.of(thread))
+                .thenReturn(Optional.of(threadWithSummary));
+        when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
+                .thenReturn(new ArrayList<>(List.of(
+                        createMockMessage(MessageRole.USER),
+                        createMockMessage(MessageRole.ASSISTANT),
+                        createMockMessage(MessageRole.USER),
+                        createMockMessage(MessageRole.ASSISTANT))));
+
+        memoryWithAgentMemory.get(CONVERSATION_ID);
+
+        ArgumentCaptor<AgentFact> factCaptor = ArgumentCaptor.forClass(AgentFact.class);
+        verify(agentMemory, times(1)).store(eq(CONVERSATION_ID), factCaptor.capture());
+        AgentFact storedFact = factCaptor.getValue();
+        assertEquals("New fact", storedFact.content());
+        assertEquals("conversation_summary", storedFact.metadata().get("source"));
     }
 
     @Test

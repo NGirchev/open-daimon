@@ -116,18 +116,19 @@ User                 TelegramBot     MessageHandler(FSM)    TelegramMessageHandl
     │ merges & deduplicates│
     └─────────────────────┘
               │
-              ▼ (after execution)
+              ▼ (after summary threshold)
     ┌─────────────────────┐
-    │   FactExtractor     │  LLM extracts 2-5 facts
-    │   stores in memory  │  from completed conversation
+    │ SummarizingChatMemory│ stores new memory_bullets
+    │ partial summarization│ from the summary result
     └─────────────────────┘
 ```
 
 **Recall**: before the first LLM call, `SpringAgentLoopActions.think()` queries memory
 for relevant facts and appends them to the system prompt.
 
-**Store**: after agent completes, `FactExtractor` summarizes the conversation,
-asks the LLM to extract reusable facts, and stores them in memory.
+**Store**: when `SummarizingChatMemory` reaches its message-window or token threshold,
+the existing summarization call returns `memory_bullets`; newly added bullets are stored
+in `AgentMemory`. Agent `answer()` does not run post-answer fact extraction.
 
 ## Orchestration (Multi-Agent Plans)
 
@@ -155,8 +156,7 @@ ChatModel (OpenAI or Ollama)
   └──> SpringAgentLoopActions
          ├──> ToolCallingManager (Spring AI auto-discovered)
          ├──> List<ToolCallback> (auto-discovered @Tool beans)
-         ├──> AgentMemory (optional: SemanticAgentMemory / CompositeAgentMemory)
-         └──> FactExtractor (optional: if AgentMemory exists)
+         └──> AgentMemory (optional: SemanticAgentMemory / CompositeAgentMemory)
 
 AgentLoopFsmFactory.create(actions)
   └──> ExDomainFsm<AgentContext, AgentState, AgentEvent> (singleton)

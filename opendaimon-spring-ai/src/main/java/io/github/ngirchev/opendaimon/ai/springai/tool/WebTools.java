@@ -1,5 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.tool;
 
+import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -31,6 +33,8 @@ public class WebTools {
     private static final int DEFAULT_MAX_FETCH_BYTES = 1_048_576;
     private static final String REASON_TOO_LARGE = "TOO_LARGE";
     private static final String REASON_UNREADABLE_2XX = "UNREADABLE_2XX";
+    private static final String REASON_INVALID_URL = "INVALID_URL";
+    private static final String REASON_EMPTY_RESPONSE = "EMPTY_RESPONSE";
 
     private final WebClient webClient;
     private final String apiKey;
@@ -126,8 +130,8 @@ public class WebTools {
     )
     public String fetchUrl(String url) {
         if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
-            log.warn("WebTools.fetchUrl: url=[{}] is not a valid HTTP(S) URL. Skipping.", url);
-            return "";
+            log.warn("WebTools.fetchUrl: url=[{}] is not a valid HTTP(S) URL. Returning error text.", url);
+            return "fetch_url failed: " + REASON_INVALID_URL + " for " + url;
         }
         try {
             log.info("WebTools fetchUrl: {}", url);
@@ -138,12 +142,11 @@ public class WebTools {
                     .block();
 
             if (html == null || html.isBlank()) {
-                log.warn("WebTools.fetchUrl: empty response for url=[{}]. Returning empty string.", url);
-                return "";
+                log.warn("WebTools.fetchUrl: empty response for url=[{}]. Returning error text.", url);
+                return "fetch_url failed: " + REASON_EMPTY_RESPONSE + " for " + url;
             }
 
             String text = extractPlainText(html);
-            // avoid token overflow - todo add additional model call to grep and parse the result
             return text.length() > MAX_TOOL_TEXT_LENGTH ? text.substring(0, MAX_TOOL_TEXT_LENGTH) : text;
         } catch (ResponseBodyTooLargeException | DataBufferLimitException e) {
             log.warn("WebTools.fetchUrl failed for url=[{}]: body too large (maxFetchBytes={}). Returning error text.",
@@ -220,42 +223,17 @@ public class WebTools {
     ) {}
 
     // Private data classes for Serper API response
+    @Getter
+    @Setter
     private static class SerperOrganic {
         private String title;
         private String link;
         private String snippet;
-
-        public String getTitle() {
-            return title;
-        }
-
-        public void setTitle(String title) {
-            this.title = title;
-        }
-
-        public String getLink() {
-            return link;
-        }
-
-        public void setLink(String link) {
-            this.link = link;
-        }
-
-        public String getSnippet() {
-            return snippet;
-        }
-
-        public void setSnippet(String snippet) {
-            this.snippet = snippet;
-        }
     }
 
+    @Getter
     private static class SerperResponse {
         private List<SerperOrganic> organic = new ArrayList<>();
-
-        public List<SerperOrganic> getOrganic() {
-            return organic;
-        }
 
         public void setOrganic(List<SerperOrganic> organic) {
             this.organic = organic != null ? organic : new ArrayList<>();

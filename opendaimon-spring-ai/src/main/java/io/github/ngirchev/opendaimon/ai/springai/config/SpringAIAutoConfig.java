@@ -33,6 +33,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.netty.http.client.HttpClient;
 import io.github.ngirchev.opendaimon.ai.springai.memory.SummarizingChatMemory;
+import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.ai.springai.rest.OpenRouterSseNormalizingCustomizer;
 import io.github.ngirchev.opendaimon.ai.springai.rest.RestClientLogCustomizer;
 import io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer;
@@ -364,7 +365,8 @@ public class SpringAIAutoConfig {
             OpenDaimonMessageRepository messageRepository,
             SummarizationService summarizationService,
             org.springframework.context.ApplicationEventPublisher eventPublisher,
-            CoreCommonProperties coreCommonProperties) {
+            CoreCommonProperties coreCommonProperties,
+            ObjectProvider<AgentMemory> agentMemoryProvider) {
 
         return new SummarizingChatMemory(
                 chatMemoryRepository,
@@ -373,7 +375,8 @@ public class SpringAIAutoConfig {
                 summarizationService,
                 eventPublisher,
                 coreCommonProperties.getSummarization().getMessageWindowSize(),
-                coreCommonProperties.getSummarization().getMaxWindowTokens()
+                coreCommonProperties.getSummarization().getMaxWindowTokens(),
+                agentMemoryProvider::getIfAvailable
         );
     }
 

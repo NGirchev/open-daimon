@@ -165,6 +165,7 @@ Evaluated in order — first match wins:
    - next chunks are throttled by time (edits no more often than configured interval)
    - when edited content reaches Telegram max length, streaming automatically rolls over to a new final-answer message (tail continues there)
    - terminal event forces flush of any remaining buffered tail to avoid incomplete final text
+   - if the stream completes after chunks without a terminal event, Telegram also force-flushes the remaining final-answer tail
    - during stream updates link previews stay disabled; on terminal `FINAL_ANSWER`/`MAX_ITERATIONS` the last final-answer message is finalized with link preview enabled (so URL card can appear at the end)
 6. Terminal `FINAL_ANSWER`/`MAX_ITERATIONS` still finalizes state/persistence:
    - progress message remains visible and separate from final-answer message

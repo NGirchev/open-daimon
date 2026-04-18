@@ -52,7 +52,7 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
 
     @BeforeEach
     void setUp() {
-        actions = new SpringAgentLoopActions(chatModel, toolCallingManager, List.of(), null, null, null);
+        actions = new SpringAgentLoopActions(chatModel, toolCallingManager, List.of(), null, null);
         ExDomainFsm<AgentContext, AgentState, AgentEvent> fsm = AgentLoopFsmFactory.create(actions);
         executor = new ReActAgentExecutor(fsm);
     }

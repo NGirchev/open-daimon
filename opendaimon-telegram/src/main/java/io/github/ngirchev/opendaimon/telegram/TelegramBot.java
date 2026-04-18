@@ -64,6 +64,8 @@ public class TelegramBot extends TelegramLongPollingBot {
     private static final String INLINE_GUIDANCE_RESULT_ID = "inline-disabled-guidance";
     private static final Pattern HTML_HREF_URL_PATTERN = Pattern.compile("href\\s*=\\s*\"([^\"]+)\"",
             Pattern.CASE_INSENSITIVE);
+    private static final Pattern MARKDOWN_LINK_URL_PATTERN = Pattern.compile("\\[[^\\]]*]\\((https?://[^\\s<>]+)\\)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern PLAIN_URL_PATTERN = Pattern.compile("https?://[^\\s\"'<>]+");
 
     private final TelegramProperties config;
@@ -788,13 +790,62 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
         Matcher hrefMatcher = HTML_HREF_URL_PATTERN.matcher(text);
         if (hrefMatcher.find()) {
-            return hrefMatcher.group(1);
+            return normalizePreviewUrl(hrefMatcher.group(1));
+        }
+        Matcher markdownMatcher = MARKDOWN_LINK_URL_PATTERN.matcher(text);
+        if (markdownMatcher.find()) {
+            return normalizePreviewUrl(markdownMatcher.group(1));
         }
         Matcher plainMatcher = PLAIN_URL_PATTERN.matcher(text);
         if (plainMatcher.find()) {
-            return plainMatcher.group();
+            return normalizePreviewUrl(plainMatcher.group());
         }
         return null;
+    }
+
+    private static String normalizePreviewUrl(String url) {
+        if (url == null) {
+            return null;
+        }
+        String normalized = url.trim();
+        boolean changed;
+        do {
+            int before = normalized.length();
+            normalized = trimTrailingSentencePunctuation(normalized);
+            normalized = trimUnmatchedClosingDelimiter(normalized);
+            changed = normalized.length() != before;
+        } while (changed && !normalized.isBlank());
+        return normalized;
+    }
+
+    private static String trimTrailingSentencePunctuation(String url) {
+        while (!url.isEmpty() && isTrailingSentencePunctuation(url.charAt(url.length() - 1))) {
+            url = url.substring(0, url.length() - 1);
+        }
+        return url;
+    }
+
+    private static boolean isTrailingSentencePunctuation(char c) {
+        return c == '.' || c == ',' || c == ';' || c == ':' || c == '!' || c == '?';
+    }
+
+    private static String trimUnmatchedClosingDelimiter(String url) {
+        if (url.isEmpty()) {
+            return url;
+        }
+        char last = url.charAt(url.length() - 1);
+        return switch (last) {
+            case ')' -> hasMoreClosingThanOpening(url, '(', ')') ? url.substring(0, url.length() - 1) : url;
+            case ']' -> hasMoreClosingThanOpening(url, '[', ']') ? url.substring(0, url.length() - 1) : url;
+            case '}' -> hasMoreClosingThanOpening(url, '{', '}') ? url.substring(0, url.length() - 1) : url;
+            default -> url;
+        };
+    }
+
+    private static boolean hasMoreClosingThanOpening(String text, char opening, char closing) {
+        long openingCount = text.chars().filter(c -> c == opening).count();
+        long closingCount = text.chars().filter(c -> c == closing).count();
+        return closingCount > openingCount;
     }
 
     public void deleteMessage(Long chatId, Integer messageId) throws TelegramApiException {

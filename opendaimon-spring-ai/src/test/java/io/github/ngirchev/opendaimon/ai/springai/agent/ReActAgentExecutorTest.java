@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -290,5 +291,21 @@ class ReActAgentExecutorTest {
         assertThat(events).isNotNull().hasSize(1);
         assertThat(events.get(0).type()).isEqualTo(AgentStreamEvent.EventType.ERROR);
         assertThat(events.get(0).content()).contains("Unexpected FSM failure");
+    }
+
+    @Test
+    @DisplayName("emit helpers surface sink emission failures")
+    void shouldSurfaceSinkEmissionFailures() {
+        reactor.core.publisher.Sinks.Many<AgentStreamEvent> sink =
+                reactor.core.publisher.Sinks.many().unicast().onBackpressureBuffer();
+        ReActAgentExecutor.emitCompleteOrThrow(sink);
+
+        assertThatThrownBy(() -> ReActAgentExecutor.emitNextOrThrow(
+                sink,
+                AgentStreamEvent.finalAnswer("late answer", 1)
+        ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to emit agent stream event")
+                .hasMessageContaining("FAIL_TERMINATED");
     }
 }
