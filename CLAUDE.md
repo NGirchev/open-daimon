@@ -29,3 +29,7 @@
 - Fixture tests are tagged with `@Tag("fixture")` and located in `opendaimon-app/src/it/java/.../it/fixture/`
 - Full use case -> test mapping and run instructions load automatically when working on fixture files.
 - If a fixture test fails after your change, investigate and fix before proceeding.
+
+## Team Mode
+
+Multi-agent feature delivery via `/team <description>` (or `/team --quick` for trivial features). Subagents: `team-secretary`, `team-explorer`, `team-developer`, `team-qa-tester`. Shared state lives in `docs/team/<slug>.md`. Pipeline and rules: see `.claude/skills/team/SKILL.md` (progressive disclosure to `phases/*.md`, `grammar.md`, `invariants.md`). Orchestrator never auto-commits — run `/commit` when the pipeline reports `status: done`.
