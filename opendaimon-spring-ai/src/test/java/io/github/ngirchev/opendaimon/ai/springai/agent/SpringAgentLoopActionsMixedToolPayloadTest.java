@@ -139,6 +139,33 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
     }
 
     @Test
+    @DisplayName("executeStream() does not duplicate FINAL_ANSWER_CHUNK when final text was already streamed in think")
+    void executeStream_streamingFinalAnswer_notDuplicated() {
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                chatResponse("Hello "),
+                chatResponse("Hello world")
+        ));
+
+        AgentRequest request = new AgentRequest("Say hello", "conv-stream-dup", Map.of(), 10, Set.of());
+        List<AgentStreamEvent> events = executor.executeStream(request).collectList().block();
+
+        assertThat(events).isNotNull();
+        List<AgentStreamEvent> finalChunks = events.stream()
+                .filter(event -> event.type() == AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK)
+                .toList();
+        assertThat(finalChunks).isNotEmpty();
+
+        String chunkedText = finalChunks.stream()
+                .map(AgentStreamEvent::content)
+                .collect(Collectors.joining());
+        assertThat(chunkedText).isEqualTo("Hello world");
+
+        AgentStreamEvent terminal = events.getLast();
+        assertThat(terminal.type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER);
+        assertThat(terminal.content()).isEqualTo("Hello world");
+    }
+
+    @Test
     @DisplayName("think() recovers mixed payload as synthetic tool call for ToolCallingManager")
     void think_mixedPayload_recoveredAsSyntheticToolCall() {
         String mixedPayload = """

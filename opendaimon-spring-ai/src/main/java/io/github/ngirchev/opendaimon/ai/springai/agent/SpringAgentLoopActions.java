@@ -528,7 +528,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         ctx.removeExtra(KEY_CONVERSATION_HISTORY);
         ctx.removeExtra(KEY_LAST_PROMPT);
         ctx.removeExtra(KEY_LAST_RESPONSE);
-        ctx.removeExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER);
+        // Keep streamed visible final answer until executor emits terminal events.
+        // ReActAgentExecutor reads it after FSM completion to avoid duplicate
+        // FINAL_ANSWER_CHUNK fallback emission.
         ctx.removeExtra(KEY_STREAMING_EXECUTION);
     }
 

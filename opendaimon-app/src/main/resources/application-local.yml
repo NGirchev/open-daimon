@@ -41,8 +41,9 @@ logging:
     io.github.ngirchev.opendaimon.telegram.TelegramBot: INFO
     io.github.ngirchev.opendaimon.ai.springai: WARN
     io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions: DEBUG
-    io.github.ngirchev.opendaimon.ai.springai.rest: WARN
-    io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer: WARN
+    io.github.ngirchev.opendaimon.ai.springai.rest: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.rest.WebClientLogCustomizer: DEBUG
+    io.github.ngirchev.opendaimon.ai.springai.rest.RestClientLogCustomizer: DEBUG
     io.github.ngirchev.opendaimon.ai.springai.config: WARN
     io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions: WARN
     org.springframework.ai.chat.model.MessageAggregator: WARN
