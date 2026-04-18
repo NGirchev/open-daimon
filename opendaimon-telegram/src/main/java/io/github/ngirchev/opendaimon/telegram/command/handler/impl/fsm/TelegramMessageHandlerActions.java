@@ -70,6 +70,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private static final Set<String> TOOL_NAMES = Set.of("http_get", "http_post", "web_search", "fetch_url");
     private static final long STREAM_MIN_EDIT_INTERVAL_MS = 500L;
     private static final int FINAL_ANSWER_LOG_PREVIEW_LIMIT = 160;
+    private static final int FINAL_ANSWER_PREVIEW_RESERVE_CHARS = 1;
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -477,6 +478,18 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                         segmentStartOffset);
                 return;
             }
+            int initialFitLength = fitLength;
+            boolean reservedTailForFinalPreview = false;
+            if (!force && fitLength > FINAL_ANSWER_PREVIEW_RESERVE_CHARS) {
+                int candidateDeliveredLength = segmentStartOffset + fitLength;
+                if (candidateDeliveredLength >= ctx.getAgentFinalAnswerText().length()) {
+                    fitLength -= FINAL_ANSWER_PREVIEW_RESERVE_CHARS;
+                    reservedTailForFinalPreview = fitLength < initialFitLength;
+                }
+            }
+            if (fitLength <= 0) {
+                return;
+            }
 
             String segmentToSend = currentSegment.substring(0, fitLength);
             String html = AIUtils.convertMarkdownToHtml(segmentToSend);
@@ -509,6 +522,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             ctx.setAlreadySentInStream(true);
 
             if (deliveredLength >= ctx.getAgentFinalAnswerText().length()) {
+                return;
+            }
+            if (reservedTailForFinalPreview) {
+                // We intentionally keep a tiny tail for terminal FINAL_ANSWER/MAX_ITERATIONS update
+                // so preview can be enabled on a real text change (no duplicate/no-op edit).
                 return;
             }
 

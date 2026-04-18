@@ -18,6 +18,7 @@ import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
+import org.telegram.telegrambots.meta.api.objects.LinkPreviewOptions;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.MessageEntity;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -53,6 +54,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 @Slf4j
 @Getter
@@ -60,6 +62,9 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private static final int DEBUG_TEXT_PREVIEW_LIMIT = 400;
     private static final String INLINE_GUIDANCE_RESULT_ID = "inline-disabled-guidance";
+    private static final Pattern HTML_HREF_URL_PATTERN = Pattern.compile("href\\s*=\\s*\"([^\"]+)\"",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern PLAIN_URL_PATTERN = Pattern.compile("https?://[^\\s\"'<>]+");
 
     private final TelegramProperties config;
     private final CommandSyncService commandSyncService;
@@ -678,6 +683,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             message.setText(text);
             message.setParseMode("HTML");
             message.setDisableWebPagePreview(disableWebPagePreview);
+            message.setLinkPreviewOptions(buildLinkPreviewOptions(text, disableWebPagePreview));
             if (replyToMessageId != null) {
                 message.setReplyToMessageId(replyToMessageId);
             }
@@ -694,6 +700,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                     fallbackMessage.setChatId(chatId.toString());
                     fallbackMessage.setText(text);
                     fallbackMessage.setDisableWebPagePreview(disableWebPagePreview);
+                    fallbackMessage.setLinkPreviewOptions(buildLinkPreviewOptions(text, disableWebPagePreview));
                     if (replyToMessageId != null) {
                         fallbackMessage.setReplyToMessageId(replyToMessageId);
                     }
@@ -729,6 +736,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             edit.setText(htmlText);
             edit.setParseMode("HTML");
             edit.setDisableWebPagePreview(disableWebPagePreview);
+            edit.setLinkPreviewOptions(buildLinkPreviewOptions(htmlText, disableWebPagePreview));
             execute(edit);
         } catch (TelegramApiException e) {
             String errorMessage = e.getMessage();
@@ -744,6 +752,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                     fallback.setMessageId(messageId);
                     fallback.setText(htmlText);
                     fallback.setDisableWebPagePreview(disableWebPagePreview);
+                    fallback.setLinkPreviewOptions(buildLinkPreviewOptions(htmlText, disableWebPagePreview));
                     execute(fallback);
                     return;
                 } catch (TelegramApiException fallbackException) {
@@ -759,6 +768,33 @@ public class TelegramBot extends TelegramLongPollingBot {
             log.error("Error editing message", e);
             throw e;
         }
+    }
+
+    private LinkPreviewOptions buildLinkPreviewOptions(String text, boolean disableWebPagePreview) {
+        LinkPreviewOptions options = new LinkPreviewOptions();
+        options.setIsDisabled(disableWebPagePreview);
+        if (!disableWebPagePreview) {
+            String firstUrl = extractFirstUrl(text);
+            if (firstUrl != null && !firstUrl.isBlank()) {
+                options.setUrlField(firstUrl);
+            }
+        }
+        return options;
+    }
+
+    private String extractFirstUrl(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher hrefMatcher = HTML_HREF_URL_PATTERN.matcher(text);
+        if (hrefMatcher.find()) {
+            return hrefMatcher.group(1);
+        }
+        Matcher plainMatcher = PLAIN_URL_PATTERN.matcher(text);
+        if (plainMatcher.find()) {
+            return plainMatcher.group();
+        }
+        return null;
     }
 
     public void deleteMessage(Long chatId, Integer messageId) throws TelegramApiException {

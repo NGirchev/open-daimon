@@ -47,6 +47,12 @@
 - [ ] Different models in the flow
 - [ ] Add balance loader
 - [ ] WebTools need to parse result
+- [ ] Improve web-search answer quality (agent mode)
+  - Enforce "verified sources only": cite only URLs that were actually fetched successfully (`fetch_url`)
+  - Keep an allowlist of URLs seen in tool results and strip non-allowlisted links from final answers
+  - If no verified URL is available, return a transparent fallback ("could not verify source URL") instead of invented links
+  - Strengthen ReAct system prompt for search tasks: do not fabricate URLs, prefer official sources, include publication date when available
+  - Add regression tests for: hallucinated URL, 404 URL from model output, and "one-link requested" behavior
 
 ## Agent Framework Pivot
 
@@ -183,3 +189,8 @@
   - Fix 1: Set `maxInMemorySize` in `SpringAIAutoConfig.webClient()` (e.g. 2MB)
   - Fix 2: Investigate why language instruction (`"Prefer responding in Russian"`) is lost after tool call failure — check if system message is preserved in the retry/fallback path
   - Log: `WebTools.fetchUrl failed for url=[https://github.com/anthropics/claude-code/issues/42796]: DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144`
+- [ ] Bug: Telegram agent stream stalls at the end (last final-answer tail is delivered too slowly)
+  - Symptom: final part of the answer appears with a noticeable delay despite no 429 errors
+  - Investigate interaction between edit throttling (`STREAM_MIN_EDIT_INTERVAL_MS`) and terminal flush/finalize path
+  - Ensure terminal `FINAL_ANSWER`/`MAX_ITERATIONS` forces immediate final edit when buffered tail exists
+  - Add integration test with timing assertions for "last chunk emitted" → "final Telegram edit completed"
