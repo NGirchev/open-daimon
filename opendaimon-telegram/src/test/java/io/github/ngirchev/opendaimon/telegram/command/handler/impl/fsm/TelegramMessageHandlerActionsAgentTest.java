@@ -564,6 +564,9 @@ class TelegramMessageHandlerActionsAgentTest {
             assertThat(lastHtml).contains("📋 Tool result received");
             assertThat(lastHtml).contains("📋 No result");
             assertThat(lastHtml).contains("⚠️ Tool failed: Network timeout");
+            assertThat(lastHtml).contains("<blockquote>📋 Tool result received</blockquote>");
+            assertThat(lastHtml).contains("<blockquote>📋 No result</blockquote>");
+            assertThat(lastHtml).contains("<blockquote>⚠️ Tool failed: Network timeout</blockquote>");
         }
 
         @Test
@@ -628,6 +631,7 @@ class TelegramMessageHandlerActionsAgentTest {
             String finalHtml = editCaptor.getValue();
             assertThat(finalHtml).contains("🔧 <b>Tool:</b>");
             assertThat(finalHtml).contains("📋 Tool result received");
+            assertThat(finalHtml).contains("<blockquote>📋 Tool result received</blockquote>");
             int thinkingLines = finalHtml.split("💭 Thinking").length - 1;
             assertThat(thinkingLines).isEqualTo(1);
         }
@@ -877,6 +881,7 @@ class TelegramMessageHandlerActionsAgentTest {
             // reasoning overlay has been overwritten by the tool-call edit (as per spec).
             assertThat(finalHtml).contains("🔧 <b>Tool:</b>");
             assertThat(finalHtml).contains("📋 Tool result received");
+            assertThat(finalHtml).contains("<blockquote>📋 Tool result received</blockquote>");
             assertThat(finalHtml).doesNotContain("check the benchmarks first.");
         }
 

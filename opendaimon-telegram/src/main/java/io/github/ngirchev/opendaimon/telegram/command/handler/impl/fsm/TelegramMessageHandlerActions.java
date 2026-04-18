@@ -646,12 +646,12 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private void appendObservationMarker(MessageHandlerContext ctx,
                                          RenderedUpdate.ObservationKind kind,
                                          String escapedErrorSummary) {
-        String marker = switch (kind) {
-            case RESULT -> "\n📋 Tool result received";
-            case EMPTY -> "\n📋 No result";
-            case FAILED -> "\n⚠️ Tool failed: " + TelegramHtmlEscaper.escape(escapedErrorSummary);
+        String body = switch (kind) {
+            case RESULT -> "📋 Tool result received";
+            case EMPTY -> "📋 No result";
+            case FAILED -> "⚠️ Tool failed: " + TelegramHtmlEscaper.escape(escapedErrorSummary);
         };
-        ctx.getStatusBuffer().append(marker);
+        ctx.getStatusBuffer().append("\n<blockquote>").append(body).append("</blockquote>");
         rotateStatusIfNeeded(ctx);
         pacedForceFlushStatus(ctx);
     }

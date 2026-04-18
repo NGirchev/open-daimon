@@ -263,7 +263,8 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         assertThat(ctx.getStatusBuffer().toString())
                 .contains("⚠️ Tool failed:")
-                .contains("HTTP error 403 Forbidden");
+                .contains("HTTP error 403 Forbidden")
+                .contains("<blockquote>⚠️ Tool failed: HTTP error 403 Forbidden</blockquote>");
     }
 
     @Test
@@ -282,7 +283,9 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        assertThat(ctx.getStatusBuffer().toString()).contains("📋 No result");
+        assertThat(ctx.getStatusBuffer().toString())
+                .contains("📋 No result")
+                .contains("<blockquote>📋 No result</blockquote>");
     }
 
     @Test
@@ -301,7 +304,9 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        assertThat(ctx.getStatusBuffer().toString()).contains("📋 Tool result received");
+        assertThat(ctx.getStatusBuffer().toString())
+                .contains("📋 Tool result received")
+                .contains("<blockquote>📋 Tool result received</blockquote>");
     }
 
     /**

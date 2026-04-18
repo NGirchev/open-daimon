@@ -487,9 +487,11 @@ Edit rate for both roles is throttled to **at most one edit per second** to stay
 
    | Outcome | Appended line |
    |---------|---------------|
-   | Result present | `📋 Tool result received` |
-   | Empty result | `📋 No result` |
-   | Tool threw OR returned a textual failure (e.g. `"HTTP error 403 …"`, `"Error: …"`) | `⚠️ Tool failed: <first line of error>` |
+   | Result present | `<blockquote>📋 Tool result received</blockquote>` |
+   | Empty result | `<blockquote>📋 No result</blockquote>` |
+   | Tool threw OR returned a textual failure (e.g. `"HTTP error 403 …"`, `"Error: …"`) | `<blockquote>⚠️ Tool failed: <first line of error></blockquote>` |
+
+   Blockquote визуально отделяет фазу observation от предшествующего tool-call блока; используется нативный Telegram `<blockquote>` в `parseMode=HTML`.
 
    The textual-failure detection is implemented in
    `SpringAgentLoopActions#observe` (see `opendaimon-spring-ai/SPRING_AI_MODULE.md` — "Tool
