@@ -95,6 +95,29 @@ public class TelegramMessageSender {
     }
 
     /**
+     * Delete a message in a chat. Returns {@code true} on success, {@code false} when the
+     * bot is unavailable or Telegram refused the request (message too old, no rights, etc).
+     * Failure is logged at debug level — deletion is a best-effort UX nicety.
+     */
+    public boolean deleteMessage(Long chatId, Integer messageId) {
+        if (messageId == null) {
+            return false;
+        }
+        TelegramBot bot = telegramBotProvider.getIfAvailable();
+        if (bot == null) {
+            log.warn("TelegramBot not available, cannot delete message in chatId={}", chatId);
+            return false;
+        }
+        try {
+            bot.deleteMessage(chatId, messageId);
+            return true;
+        } catch (TelegramApiException e) {
+            log.debug("Failed to delete message {} in chatId={}: {}", messageId, chatId, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Send an HTML-formatted message.
      */
     public void sendHtml(Long chatId, String htmlText, Integer replyToMessageId) {

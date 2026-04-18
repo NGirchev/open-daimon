@@ -343,10 +343,20 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     @Override
     public void observe(AgentContext ctx) {
         AgentToolResult toolResult = ctx.getToolResult();
-        String observation = toolResult != null && toolResult.success()
-                ? toolResult.result()
-                : (toolResult != null ? "Error: " + toolResult.error() : "No result");
-        ctx.emitEvent(AgentStreamEvent.observation(observation, ctx.getCurrentIteration()));
+        boolean toolError = toolResult != null && !toolResult.success();
+        String streamContent;
+        String observation;
+        if (toolResult == null) {
+            streamContent = null;
+            observation = "No result";
+        } else if (toolResult.success()) {
+            streamContent = toolResult.result();
+            observation = toolResult.result();
+        } else {
+            streamContent = toolResult.error();
+            observation = "Error: " + toolResult.error();
+        }
+        ctx.emitEvent(AgentStreamEvent.observation(streamContent, toolError, ctx.getCurrentIteration()));
 
         ctx.recordStep(new AgentStepResult(
                 ctx.getCurrentIteration(),
@@ -377,25 +387,79 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void handleMaxIterations(AgentContext ctx) {
-        List<AgentStepResult> history = ctx.getStepHistory();
-        var sb = new StringBuilder();
-        sb.append("I reached the maximum number of iterations (").append(ctx.getMaxIterations()).append("). ");
-        sb.append("Here is what I found so far:\n\n");
+        String summary;
+        try {
+            summary = callSummaryModelWithoutTools(ctx);
+        } catch (Exception e) {
+            log.warn("Agent handleMaxIterations: summary LLM call failed, falling back to step-history digest", e);
+            summary = buildFallbackSummary(ctx);
+        }
+        ctx.setFinalAnswer(summary);
+        cleanup(ctx);
+        log.warn("Agent handleMaxIterations: {} iterations exhausted", ctx.getMaxIterations());
+    }
 
-        for (AgentStepResult step : history) {
+    /**
+     * Asks the chat model to summarize the step history and answer the user's original
+     * question, with tool execution explicitly disabled and no tool callbacks registered.
+     * The model is forced to produce a direct answer from whatever observations already
+     * exist — no further tool calls are possible.
+     */
+    private String callSummaryModelWithoutTools(AgentContext ctx) {
+        List<Message> messages = new ArrayList<>();
+        messages.add(new SystemMessage(
+                "You have reached the iteration limit. Summarize what you found in the step history and "
+                        + "answer the user's original question directly. Do not call any tools. "
+                        + "If the information is insufficient, state that clearly."));
+        messages.add(new UserMessage(ctx.getTask() + "\n\nContext so far:\n" + flattenStepHistory(ctx)));
+
+        ToolCallingChatOptions options = ToolCallingChatOptions.builder()
+                .internalToolExecutionEnabled(false)
+                .toolCallbacks(List.of())
+                .build();
+
+        ChatResponse response = chatModel.call(new Prompt(messages, options));
+        String raw = response.getResult() != null && response.getResult().getOutput() != null
+                ? response.getResult().getOutput().getText()
+                : null;
+        String clean = stripToolCallTags(raw);
+        if (clean == null || clean.isBlank()) {
+            throw new IllegalStateException("Summary LLM returned empty content");
+        }
+        return clean;
+    }
+
+    /** Flattens step history into a plain-text block for the summary prompt. */
+    private String flattenStepHistory(AgentContext ctx) {
+        var sb = new StringBuilder();
+        for (AgentStepResult step : ctx.getStepHistory()) {
             if (step.observation() != null) {
                 String obs = stripToolCallTags(step.observation());
                 sb.append("- ").append(step.action()).append(": ").append(
-                        obs != null && obs.length() > 200
-                                ? obs.substring(0, 200) + "..."
-                                : (obs != null ? obs : "")
+                        obs != null && obs.length() > 500 ? obs.substring(0, 500) + "..." : (obs != null ? obs : "")
                 ).append('\n');
             }
         }
+        return sb.toString();
+    }
 
-        ctx.setFinalAnswer(sb.toString());
-        cleanup(ctx);
-        log.warn("Agent handleMaxIterations: {} iterations exhausted", ctx.getMaxIterations());
+    /**
+     * Old StringBuilder digest — used only when the summary LLM call throws. Keeps the
+     * user from receiving an empty final answer on MAX_ITERATIONS.
+     */
+    private String buildFallbackSummary(AgentContext ctx) {
+        var sb = new StringBuilder();
+        sb.append("I reached the maximum number of iterations (").append(ctx.getMaxIterations()).append("). ");
+        sb.append("Here is what I found so far:\n\n");
+        for (AgentStepResult step : ctx.getStepHistory()) {
+            if (step.observation() != null) {
+                String obs = stripToolCallTags(step.observation());
+                sb.append("- ").append(step.action()).append(": ").append(
+                        obs != null && obs.length() > 200 ? obs.substring(0, 200) + "..." : (obs != null ? obs : "")
+                ).append('\n');
+            }
+        }
+        return sb.toString();
     }
 
     @Override

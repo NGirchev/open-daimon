@@ -314,6 +314,60 @@ Telegram-specific bot identity is already part of `role` metadata from Telegram 
 
 ---
 
+## REACT Agent Loop — Iteration Handling
+
+The REACT loop lives in `SpringAgentLoopActions` (FSM actions) and is driven by `ReActAgentExecutor`.
+Spring AI's built-in tool-execution loop is disabled via
+`ToolCallingChatOptions.internalToolExecutionEnabled = false`; we drive tool invocations
+ourselves so that each `THINKING → TOOL_CALL → OBSERVATION` step can be streamed as
+discrete `AgentStreamEvent`s and observed by the Telegram layer (see
+`opendaimon-telegram/TELEGRAM_MODULE.md#agent-mode--react-loop-telegram-ux`).
+
+### `StreamingAnswerFilter` — scope and limits
+
+`io.github.ngirchev.opendaimon.ai.springai.agent.StreamingAnswerFilter` strips two
+**exact** tag forms from the streamed model output before the text is emitted as
+`AgentStreamEvent.PARTIAL_ANSWER`:
+
+- `<think>…</think>`
+- `<tool_call>…</tool_call>`
+
+Any other pseudo-XML tool-call variant (`<arg_key>`, `<arg_value>`, `<tool>`, bare
+tool-name tokens like `fetch_url\n<arg_key>url</arg_key>…`) passes through the filter
+and reaches downstream consumers as plain text. Some providers (Qwen / Ollama
+variants) use these alternative formats. Because of that, the Telegram UX layer
+implements a **redundant** marker scan on every `PARTIAL_ANSWER` chunk
+(`TelegramMessageHandlerActions#containsToolMarker`), which is what guarantees the
+tentative-answer bubble is rolled back when leaked tool markup appears. Do not treat
+`StreamingAnswerFilter` as the sole defense against tool-call leakage into the user
+answer — downstream consumers that render model text to users must scan too.
+
+### `handleMaxIterations` — tool-less summary call
+
+When the iteration counter hits `open-daimon.agent.max-iterations`, the loop terminates
+in state `MAX_ITERATIONS`. The action now issues **one extra tool-less LLM call** to
+summarize the collected step history and produce a direct answer for the user:
+
+1. Build a `SystemMessage` instructing the model that it has reached the iteration limit
+   and must answer directly without calling any tools.
+2. Build a `UserMessage` carrying the original user question plus a flat text digest of
+   `AgentStepResult`s accumulated so far.
+3. Call `chatModel.call(Prompt(messages, ToolCallingChatOptions.builder()
+   .internalToolExecutionEnabled(false).toolCallbacks(List.of()).build()))`.
+4. Run the response through `stripToolCallTags` and set it as `ctx.finalAnswer`.
+
+If the summary call throws, or the model returns blank content, the action falls back
+to a `StringBuilder`-based digest that references the iteration limit and the step
+history. The fallback keeps the invariant that the user always receives a non-empty
+final answer.
+
+`ReActAgentExecutor` emits two events on MAX_ITERATIONS termination:
+1. `MAX_ITERATIONS` — informational marker (the Telegram layer treats this as a UI cue).
+2. `FINAL_ANSWER` carrying `ctx.finalAnswer` — the canonical answer signal consumed by
+   both the Telegram orchestrator and the persistence layer.
+
+---
+
 ## Responses
 
 | Type | Class | When |

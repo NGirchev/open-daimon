@@ -2,237 +2,191 @@ package io.github.ngirchev.opendaimon.telegram.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
+import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.telegram.telegrambots.meta.api.objects.Message;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+/**
+ * The renderer is side-effect-free: it returns a pure {@link RenderedUpdate} describing
+ * what the orchestrator should do. These tests cover each branch of the switch, plus
+ * context-dependent behavior (tentative-answer active → rollback; iteration change → fresh thinking).
+ */
 class TelegramAgentStreamRendererTest {
 
     private TelegramAgentStreamRenderer renderer;
+    private MessageHandlerContext ctx;
 
     @BeforeEach
     void setUp() {
         renderer = new TelegramAgentStreamRenderer(new ObjectMapper());
+        TelegramCommand command = mock(TelegramCommand.class);
+        Message message = mock(Message.class);
+        when(message.getMessageId()).thenReturn(10);
+        ctx = new MessageHandlerContext(command, message, html -> {});
     }
 
     @Test
-    void shouldReturnNullForThinkingWithoutContent() {
-        AgentStreamEvent event = AgentStreamEvent.thinking(0);
+    void shouldReturnNoOpForPartialAnswer() {
+        // PARTIAL_ANSWER is orchestrated directly (tentative-answer bubble lifecycle) —
+        // the renderer stays side-effect-free.
+        AgentStreamEvent event = AgentStreamEvent.partialAnswer("Hello", 1);
 
-        // Placeholder thinking frames are intentionally dropped — the unified transcript
-        // already shows streaming reasoning text via PARTIAL_ANSWER.
-        assertThat(renderer.render(event)).isNull();
+        assertThat(renderer.render(event, ctx)).isInstanceOf(RenderedUpdate.NoOp.class);
     }
 
     @Test
-    void shouldReturnNullForThinkingWithContent() {
-        // Structured reasoning (from provider metadata) duplicates what already
-        // streamed via PARTIAL_ANSWER in the visible assistant text — skipped.
-        AgentStreamEvent event = AgentStreamEvent.thinking("I need to search for Bitcoin price", 0);
-
-        assertThat(renderer.render(event)).isNull();
-    }
-
-    @Test
-    void shouldRenderPartialAnswerAsRawContent() {
-        AgentStreamEvent event = AgentStreamEvent.partialAnswer("Hello, world!", 1);
-
-        assertThat(renderer.render(event)).isEqualTo("Hello, world!");
-    }
-
-    @Test
-    void shouldRenderToolCallWithFriendlyLabelAndQuery() {
-        AgentStreamEvent event = AgentStreamEvent.toolCall("web_search", "{\"query\":\"bitcoin price\"}", 1);
-
-        String markdown = renderer.render(event);
-
-        assertThat(markdown).contains("🔧");
-        assertThat(markdown).contains("Searching the web:");
-        assertThat(markdown).contains("bitcoin price");
-        // Markers are fenced by blank lines so the transcript has clean paragraph breaks.
-        assertThat(markdown).startsWith("\n\n");
-        assertThat(markdown).endsWith("\n\n");
-    }
-
-    @Test
-    void shouldRenderToolCallWithoutArgs() {
-        AgentStreamEvent event = new AgentStreamEvent(
-                AgentStreamEvent.EventType.TOOL_CALL, "web_search", 1, java.time.Instant.now());
-
-        String markdown = renderer.render(event);
-
-        assertThat(markdown).contains("Searching the web");
-        assertThat(markdown).contains("…");
-    }
-
-    @Test
-    void shouldRenderObservationAsCompactDoneMarker() {
-        AgentStreamEvent event = AgentStreamEvent.observation("The current price is $50,000", 1);
-
-        String markdown = renderer.render(event);
-
-        assertThat(markdown).contains("✅");
-        assertThat(markdown).contains("done");
-        // Tool observation payload never leaks into the user transcript.
-        assertThat(markdown).doesNotContain("The current price");
-    }
-
-    @Test
-    void shouldRenderObservationMarkerIgnoringLongContent() {
-        String longContent = "A".repeat(600);
-        AgentStreamEvent event = AgentStreamEvent.observation(longContent, 1);
-
-        String markdown = renderer.render(event);
-
-        assertThat(markdown).contains("done");
-        assertThat(markdown).doesNotContain("AAA");
-    }
-
-    @Test
-    void shouldRenderErrorInline() {
-        AgentStreamEvent event = AgentStreamEvent.error("Connection timeout", 2);
-
-        String markdown = renderer.render(event);
-
-        assertThat(markdown).contains("❌");
-        assertThat(markdown).contains("Error:");
-        assertThat(markdown).contains("Connection timeout");
-    }
-
-    @Test
-    void shouldReturnNullForFinalAnswer() {
-        // FINAL_ANSWER content has already flowed through the transcript via PARTIAL_ANSWER
-        // chunks — the terminal event is used only to populate responseText for persistence.
+    void shouldReturnNoOpForFinalAnswer() {
         AgentStreamEvent event = AgentStreamEvent.finalAnswer("The answer is 42", 3);
 
-        assertThat(renderer.render(event)).isNull();
+        assertThat(renderer.render(event, ctx)).isInstanceOf(RenderedUpdate.NoOp.class);
     }
 
     @Test
-    void shouldRenderMaxIterationsAsWarningMarker() {
-        AgentStreamEvent event = AgentStreamEvent.maxIterations("Partial answer so far", 10);
+    void shouldReturnNoOpForMaxIterations() {
+        AgentStreamEvent event = AgentStreamEvent.maxIterations(null, 10);
 
-        String markdown = renderer.render(event);
-
-        assertThat(markdown).contains("⚠️");
-        assertThat(markdown).contains("reached iteration limit");
-        // The event's content duplicates what already streamed via PARTIAL_ANSWER —
-        // don't leak the full answer text into the trailing marker.
-        assertThat(markdown).doesNotContain("Partial answer so far");
-        // Marker is fenced by blank lines so it stands as its own paragraph.
-        assertThat(markdown).startsWith("\n\n");
-        assertThat(markdown).endsWith("\n\n");
+        assertThat(renderer.render(event, ctx)).isInstanceOf(RenderedUpdate.NoOp.class);
     }
 
     @Test
-    void shouldReturnNullForMetadata() {
+    void shouldReturnNoOpForMetadata() {
         AgentStreamEvent event = AgentStreamEvent.metadata("gpt-4o", 1);
 
-        assertThat(renderer.render(event)).isNull();
+        assertThat(renderer.render(event, ctx)).isInstanceOf(RenderedUpdate.NoOp.class);
     }
 
     @Test
-    void shouldHandleNullObservationContent() {
-        AgentStreamEvent event = AgentStreamEvent.observation(null, 1);
+    void shouldReturnAppendFreshThinkingWhenNullContentAndNewIteration() {
+        // ctx.currentIteration starts at -1; a THINKING at iteration 0 is a rollover.
+        AgentStreamEvent event = AgentStreamEvent.thinking(0);
 
-        String markdown = renderer.render(event);
+        RenderedUpdate result = renderer.render(event, ctx);
 
-        assertThat(markdown).contains("done");
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendFreshThinking.class);
     }
 
     @Test
-    void shouldHandleNullToolCallContent() {
-        AgentStreamEvent event = new AgentStreamEvent(
-                AgentStreamEvent.EventType.TOOL_CALL, null, 1, java.time.Instant.now());
+    void shouldReturnNoOpWhenNullContentAndSameIteration() {
+        ctx.setCurrentIteration(0);
+        AgentStreamEvent event = AgentStreamEvent.thinking(0);
 
-        String markdown = renderer.render(event);
+        RenderedUpdate result = renderer.render(event, ctx);
 
-        assertThat(markdown).contains("Using a tool");
+        assertThat(result).isInstanceOf(RenderedUpdate.NoOp.class);
     }
 
     @Test
-    void shouldRenderDefaultLabelForUnknownTool() {
-        AgentStreamEvent event = AgentStreamEvent.toolCall("run", "{}", 1);
+    void shouldReturnReplaceTrailingThinkingLineWhenReasoningContent() {
+        AgentStreamEvent event = AgentStreamEvent.thinking("Checking prices", 1);
 
-        String markdown = renderer.render(event);
+        RenderedUpdate result = renderer.render(event, ctx);
 
-        assertThat(markdown).contains("Using a tool");
-        assertThat(markdown).doesNotContain(": run");
+        assertThat(result).isInstanceOf(RenderedUpdate.ReplaceTrailingThinkingLine.class);
+        assertThat(((RenderedUpdate.ReplaceTrailingThinkingLine) result).reasoning())
+                .isEqualTo("Checking prices");
     }
 
     @Test
-    void shouldRenderFriendlyLabelAndUrlForFetchUrl() {
-        AgentStreamEvent event = AgentStreamEvent.toolCall("fetch_url", "{\"url\":\"https://example.com\"}", 1);
+    void shouldParseToolCallWithFriendlyArgWhenTentativeNotActive() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall("web_search", "{\"query\":\"btc price\"}", 1);
 
-        String markdown = renderer.render(event);
+        RenderedUpdate result = renderer.render(event, ctx);
 
-        assertThat(markdown).contains("Reading a web page:");
-        assertThat(markdown).contains("https://example.com");
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendToolCall.class);
+        RenderedUpdate.AppendToolCall call = (RenderedUpdate.AppendToolCall) result;
+        assertThat(call.toolName()).isEqualTo("web_search");
+        assertThat(call.args()).isEqualTo("btc price");
     }
 
     @Test
-    void shouldRenderFriendlyLabelAndUrlForHttpGet() {
-        AgentStreamEvent event = AgentStreamEvent.toolCall("http_get", "{\"url\":\"https://api.example.com\"}", 1);
+    void shouldReturnRollbackWhenTentativeAnswerIsActive() {
+        // Tentative answer bubble is open with buffered prose that the agent has since
+        // decided was reasoning — renderer must emit a rollback update, not a plain
+        // tool-call append.
+        ctx.setTentativeAnswerActive(true);
+        ctx.getTentativeAnswerBuffer().append("Here is what I found so far…");
+        AgentStreamEvent event = AgentStreamEvent.toolCall("fetch_url", "{\"url\":\"https://ex.com\"}", 2);
 
-        String markdown = renderer.render(event);
+        RenderedUpdate result = renderer.render(event, ctx);
 
-        assertThat(markdown).contains("Making an HTTP request:");
-        assertThat(markdown).contains("https://api.example.com");
+        assertThat(result).isInstanceOf(RenderedUpdate.RollbackAndAppendToolCall.class);
+        RenderedUpdate.RollbackAndAppendToolCall rb = (RenderedUpdate.RollbackAndAppendToolCall) result;
+        assertThat(rb.toolName()).isEqualTo("fetch_url");
+        assertThat(rb.args()).isEqualTo("https://ex.com");
+        assertThat(rb.foldedProse()).isEqualTo("Here is what I found so far…");
     }
 
     @Test
-    void shouldRenderFriendlyLabelAndUrlForHttpPost() {
-        AgentStreamEvent event = AgentStreamEvent.toolCall(
-                "http_post", "{\"url\":\"https://api.x\",\"body\":\"payload\"}", 1);
+    void shouldReturnObservationResultForSuccessfulToolResult() {
+        AgentStreamEvent event = AgentStreamEvent.observation("The price is $50,000", 1);
 
-        String markdown = renderer.render(event);
+        RenderedUpdate result = renderer.render(event, ctx);
 
-        assertThat(markdown).contains("Sending an HTTP request:");
-        assertThat(markdown).contains("https://api.x");
-        // Only the pre-configured key for each tool is surfaced — body is dropped.
-        assertThat(markdown).doesNotContain("payload");
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendObservation.class);
+        assertThat(((RenderedUpdate.AppendObservation) result).kind())
+                .isEqualTo(RenderedUpdate.ObservationKind.RESULT);
     }
 
     @Test
-    void shouldFallBackToLabelOnlyWhenArgsJsonMalformed() {
+    void shouldReturnObservationEmptyWhenContentBlank() {
+        AgentStreamEvent event = AgentStreamEvent.observation("", 1);
+
+        RenderedUpdate result = renderer.render(event, ctx);
+
+        assertThat(((RenderedUpdate.AppendObservation) result).kind())
+                .isEqualTo(RenderedUpdate.ObservationKind.EMPTY);
+    }
+
+    @Test
+    void shouldReturnObservationFailedWhenErrorFlagSet() {
+        AgentStreamEvent event = AgentStreamEvent.observation("Network timeout", true, 1);
+
+        RenderedUpdate result = renderer.render(event, ctx);
+
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendObservation.class);
+        RenderedUpdate.AppendObservation obs = (RenderedUpdate.AppendObservation) result;
+        assertThat(obs.kind()).isEqualTo(RenderedUpdate.ObservationKind.FAILED);
+        assertThat(obs.errorSummary()).isEqualTo("Network timeout");
+    }
+
+    @Test
+    void shouldReturnAppendErrorToStatusForError() {
+        AgentStreamEvent event = AgentStreamEvent.error("Connection timeout", 2);
+
+        RenderedUpdate result = renderer.render(event, ctx);
+
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendErrorToStatus.class);
+        assertThat(((RenderedUpdate.AppendErrorToStatus) result).message()).isEqualTo("Connection timeout");
+    }
+
+    @Test
+    void shouldFallBackToEmptyArgsWhenToolCallJsonMalformed() {
         AgentStreamEvent event = AgentStreamEvent.toolCall("web_search", "{not json", 1);
 
-        String markdown = renderer.render(event);
+        RenderedUpdate result = renderer.render(event, ctx);
 
-        assertThat(markdown).contains("Searching the web");
-        assertThat(markdown).doesNotContain("not json");
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendToolCall.class);
+        RenderedUpdate.AppendToolCall call = (RenderedUpdate.AppendToolCall) result;
+        assertThat(call.toolName()).isEqualTo("web_search");
+        assertThat(call.args()).isEmpty();
     }
 
     @Test
-    void shouldFallBackToLabelOnlyWhenArgKeyMissing() {
-        AgentStreamEvent event = AgentStreamEvent.toolCall("web_search", "{\"foo\":\"bar\"}", 1);
+    void shouldParseToolCallWithNullContent() {
+        AgentStreamEvent event = new AgentStreamEvent(
+                AgentStreamEvent.EventType.TOOL_CALL, null, 1, java.time.Instant.now(), false);
 
-        String markdown = renderer.render(event);
+        RenderedUpdate result = renderer.render(event, ctx);
 
-        assertThat(markdown).contains("Searching the web");
-        assertThat(markdown).doesNotContain("bar");
-    }
-
-    @Test
-    void shouldFallBackToLabelOnlyWhenUrlBlank() {
-        AgentStreamEvent event = AgentStreamEvent.toolCall("fetch_url", "{\"url\":\"\"}", 1);
-
-        String markdown = renderer.render(event);
-
-        assertThat(markdown).contains("Reading a web page");
-    }
-
-    @Test
-    void shouldTruncateVeryLongToolCallArgument() {
-        String longUrl = "https://example.com/" + "a".repeat(300);
-        AgentStreamEvent event = AgentStreamEvent.toolCall(
-                "fetch_url", "{\"url\":\"" + longUrl + "\"}", 1);
-
-        String markdown = renderer.render(event);
-
-        assertThat(markdown).contains("Reading a web page:");
-        assertThat(markdown).doesNotContain(longUrl);
-        assertThat(markdown).contains("…");
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendToolCall.class);
+        RenderedUpdate.AppendToolCall call = (RenderedUpdate.AppendToolCall) result;
+        assertThat(call.toolName()).isEmpty();
+        assertThat(call.args()).isEmpty();
     }
 }

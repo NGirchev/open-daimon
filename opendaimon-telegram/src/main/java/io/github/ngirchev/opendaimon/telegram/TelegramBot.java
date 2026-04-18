@@ -12,6 +12,7 @@ import org.telegram.telegrambots.meta.api.methods.polls.SendPoll;
 import org.telegram.telegrambots.meta.api.methods.send.SendChatAction;
 import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
@@ -764,6 +765,21 @@ public class TelegramBot extends TelegramLongPollingBot {
                 throw e;
             }
         }
+    }
+
+    /**
+     * Delete a message in a chat. Fails silently for messages older than 48 h or when
+     * the bot lacks the right to delete — caller should treat any exception as "couldn't
+     * delete, fall back to edit".
+     */
+    public void deleteMessage(Long chatId, Integer messageId) throws TelegramApiException {
+        if (messageId == null) {
+            return;
+        }
+        DeleteMessage delete = new DeleteMessage();
+        delete.setChatId(chatId.toString());
+        delete.setMessageId(messageId);
+        execute(delete);
     }
 
     public void sendErrorMessage(Long chatId, String errorMessage) throws TelegramApiException {

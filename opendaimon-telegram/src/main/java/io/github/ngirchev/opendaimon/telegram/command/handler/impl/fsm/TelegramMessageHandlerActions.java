@@ -29,11 +29,15 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
+import io.github.ngirchev.opendaimon.telegram.service.RenderedUpdate;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramBufferRotator;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramHtmlEscaper;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
+import io.github.ngirchev.opendaimon.telegram.service.ToolLabels;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -67,11 +71,45 @@ import static io.github.ngirchev.opendaimon.common.service.AIUtils.retrieveMessa
 public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
     /**
-     * Seeded into the agent transcript message before any stream events arrive, so the
-     * user gets an immediate visual cue that the bot is working. Replaced (not appended)
-     * by the first real content chunk because the raw buffer stays empty across this send.
+     * Opening line of the status message — seeded as soon as the agent run starts so the
+     * user sees immediate feedback. Later replaced in place by the reasoning overlay or
+     * by tool-call / observation markers that get appended as iterations progress.
      */
-    private static final String AGENT_STREAM_PLACEHOLDER_HTML = "🤔 <i>Thinking...</i>";
+    private static final String STATUS_THINKING_LINE = "💭 Thinking...";
+
+    /** Marker appended to the status message when the tentative answer bubble opens. */
+    private static final String STATUS_ANSWERING_LINE = "ℹ️ Answering…";
+
+    /** Marker appended to the status message when MAX_ITERATIONS terminates the loop. */
+    private static final String STATUS_MAX_ITER_LINE = "⚠️ reached iteration limit";
+
+    /**
+     * Escaped HTML placed into the tentative answer bubble on delete failure, instead of
+     * deleting it. Standalone {@code <i>…</i>} is safe in parse_mode=HTML.
+     */
+    private static final String ROLLBACK_FALLBACK_HTML = "<i>(folded into reasoning)</i>";
+
+    /**
+     * Tool-call markers that may leak through the upstream
+     * {@code io.github.ngirchev.opendaimon.ai.springai.agent.StreamingAnswerFilter} when
+     * the provider emits a pseudo-XML tool-call variant the filter doesn't recognize
+     * (e.g. {@code <arg_key>}/{@code <arg_value>} from some Qwen/Ollama flavors).
+     *
+     * <p>Stored in the escaped form because the tentative-answer buffer always holds
+     * HTML-escaped content (see {@link TelegramHtmlEscaper}), and so does the raw
+     * PARTIAL_ANSWER chunk after we escape it.
+     *
+     * <p>Per spec (§"Final answer transition", step 3 and the Russian draft point 9):
+     * if any of these markers appears in what we tentatively treated as the answer,
+     * the output was actually reasoning with an embedded tool call; the tentative
+     * bubble must be deleted and its prose folded back into the status transcript.
+     */
+    private static final String[] ESCAPED_TOOL_MARKERS = {
+            "&lt;tool_call&gt;", "&lt;/tool_call&gt;",
+            "&lt;tool&gt;", "&lt;/tool&gt;",
+            "&lt;arg_key&gt;", "&lt;/arg_key&gt;",
+            "&lt;arg_value&gt;", "&lt;/arg_value&gt;"
+    };
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -253,7 +291,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             AgentStrategy strategy = hasToolAccess ? AgentStrategy.AUTO : AgentStrategy.SIMPLE;
             log.info("FSM generateAgentResponse: capabilities={}, strategy={}", capabilities, strategy);
 
-            sendAgentStreamPlaceholder(ctx);
+            ensureStatusMessage(ctx);
 
             AgentRequest request = new AgentRequest(
                     command.userText(),
@@ -264,44 +302,40 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     strategy
             );
 
-            // Stream agent events — renders each text-bearing event into a single
-            // unified Telegram transcript message (edit-driven streaming). Terminal
-            // events (FINAL_ANSWER / MAX_ITERATIONS) carry the full answer text used
-            // to populate responseText for persistence.
+            // Stream agent events — two-message UX:
+            //   status  ← iteration log (thinking / tool-call / observation / error)
+            //   answer  ← tentative final answer bubble (may be rolled back on TOOL_CALL)
             AgentStreamEvent lastEvent = agentExecutor.executeStream(request)
                     .doOnNext(event -> handleAgentStreamEvent(ctx, event))
+                    .onErrorResume(err -> {
+                        log.warn("FSM agentStreamEvent: stream errored — finalizing buffers", err);
+                        handleStreamError(ctx, err);
+                        return reactor.core.publisher.Flux.empty();
+                    })
                     .blockLast();
 
-            // Final iteration without a tool call leaves prose tokens in the pending buffer —
-            // that prose IS the user-facing answer, so commit it to the transcript. Otherwise,
-            // any leftover in pending was reasoning that the loop discarded on TOOL_CALL;
-            // just drain the throttled committed tail.
-            if (ctx.hasPendingIterationText()) {
-                String pending = ctx.consumePendingIterationText();
-                appendToTranscript(ctx, pending, /*forceFlush=*/ true);
-            } else {
-                flushAgentStream(ctx);
-            }
+            finalizeAfterStream(ctx, lastEvent);
 
             extractAgentResult(ctx, lastEvent);
 
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
-                if (ctx.getAgentStreamMessageId() != null && !ctx.isAgentStreamBufferEmpty()) {
-                    // Normal ReAct path: answer text already flowed into the transcript via PARTIAL_ANSWER chunks.
-                    log.info("FSM generateAgentResponse: final answer already streamed via transcript edits, textLength={}",
+                if (ctx.isTentativeAnswerActive()) {
+                    // Force one final edit to the answer bubble — throttle may have skipped the tail chunk.
+                    forceFinalAnswerEdit(ctx);
+                    ctx.setTentativeAnswerActive(false);
+                    log.info("FSM generateAgentResponse: final answer streamed via tentative bubble, textLength={}",
                             answerText.length());
-                } else if (ctx.getAgentStreamMessageId() != null && !answerText.isEmpty()) {
-                    // Fallback with placeholder still visible: stream emitted no PARTIAL_ANSWER chunks
-                    // (terminal event carries the only text). Render the answer into the placeholder
-                    // via a forced transcript append so the user doesn't see "🤔 Thinking..." stuck forever.
-                    log.info("FSM generateAgentResponse: rendering terminal answer into placeholder, textLength={}",
+                } else if (ctx.getTentativeAnswerMessageId() != null
+                        && ctx.getTentativeAnswerBuffer().length() > 0) {
+                    // Tentative bubble exists but was never promoted to active (shouldn't happen)
+                    // — still force a final edit so nothing is lost.
+                    forceFinalAnswerEdit(ctx);
+                } else if (!answerText.isEmpty()) {
+                    // No PARTIAL_ANSWER chunks ever opened a tentative bubble — send the
+                    // final answer now as a fresh, paragraph-split message.
+                    log.info("FSM generateAgentResponse: sending final answer as fresh message, textLength={}",
                             answerText.length());
-                    appendToTranscript(ctx, answerText, /*forceFlush=*/ true);
-                } else {
-                    // Fallback without placeholder (e.g. placeholder send failed): send as paragraph batch.
-                    log.info("FSM generateAgentResponse: no transcript emitted, sending final answer, textLength={}", answerText.length());
-                    ctx.clearNextReplyToMessageId();
                     sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, null));
                 }
                 ctx.setAlreadySentInStream(true);
@@ -314,31 +348,17 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     }
 
     /**
-     * Renders a single agent stream event into the unified transcript.
-     *
-     * <p>Routing rules:
-     * <ul>
-     *   <li>{@code PARTIAL_ANSWER} — accumulated in the per-iteration pending buffer and
-     *       rendered as an italic "🤔 …" overlay on top of the committed transcript. The
-     *       LLM cannot distinguish reasoning from answer within a single ReAct iteration,
-     *       so we delay commitment until we know whether a {@code TOOL_CALL} follows.</li>
-     *   <li>{@code TOOL_CALL} — discards the pending buffer (the prose was reasoning before
-     *       the tool call, not a user-facing answer) and commits the tool marker to the
-     *       transcript with a forced flush (important state transition).</li>
-     *   <li>{@code OBSERVATION}/{@code ERROR}/{@code MAX_ITERATIONS} — commit their markers
-     *       and force-flush for the same reason.</li>
-     *   <li>{@code METADATA} — side-state (model name), not transcript.</li>
-     *   <li>{@code THINKING}/{@code FINAL_ANSWER} — no transcript contribution; the renderer
-     *       returns {@code null}. {@code FINAL_ANSWER}'s payload is already represented by
-     *       the pending buffer (which the caller commits at stream termination).</li>
-     * </ul>
+     * Dispatches a single agent stream event: updates iteration bookkeeping, rebuilds state
+     * from the renderer's {@link RenderedUpdate} description, and orchestrates the
+     * tentative-answer bubble lifecycle directly for {@code PARTIAL_ANSWER} /
+     * {@code FINAL_ANSWER} / {@code MAX_ITERATIONS} (which touch message IDs and throttle).
      */
     private void handleAgentStreamEvent(MessageHandlerContext ctx, AgentStreamEvent event) {
         log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}",
                 event.type(), event.iteration(),
                 event.content() != null ? event.content().length() : 0);
 
-        // Capture model name — does not belong to the transcript.
+        // Capture model name — side state, not transcript.
         if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
             ctx.setResponseModel(event.content());
             return;
@@ -348,261 +368,438 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return;
         }
 
-        switch (event.type()) {
-            case PARTIAL_ANSWER -> {
-                String content = event.content();
-                if (content == null || content.isEmpty()) {
-                    return;
-                }
-                // Overflow guard: if the pending overlay plus the new chunk would push the
-                // current message past the length budget, commit whatever pending has (as
-                // plain text, losing the italic UX on the tail) and feed the new chunk
-                // through appendToTranscript — which handles overflow-split and new-message
-                // creation. Without this the overlay HTML would exceed Telegram's per-message
-                // limit and the edit would be silently rejected.
-                int maxLength = telegramProperties.getMaxMessageLength();
-                int projected = ctx.getAgentStreamRawBuffer().length()
-                        + ctx.getPendingIterationText().length()
-                        + content.length();
-                if (projected > maxLength) {
-                    if (ctx.hasPendingIterationText()) {
-                        String toCommit = ctx.consumePendingIterationText();
-                        appendToTranscript(ctx, toCommit, /*forceFlush=*/ true);
-                    }
-                    appendToTranscript(ctx, content, /*forceFlush=*/ true);
-                    return;
-                }
-                ctx.appendPendingIterationText(event.iteration(), content);
-                renderTranscriptWithPending(ctx, /*forceFlush=*/ false);
-            }
-            case TOOL_CALL, OBSERVATION, ERROR, MAX_ITERATIONS -> {
-                if (ctx.hasPendingIterationText()) {
-                    String discarded = ctx.consumePendingIterationText();
-                    log.info("FSM agentStreamEvent: discarded {} chars of reasoning prose on {} (iteration={})",
-                            discarded.length(), event.type(), event.iteration());
-                }
-                String rawChunk = agentStreamRenderer.render(event);
-                if (rawChunk == null || rawChunk.isEmpty()) {
-                    return;
-                }
-                appendToTranscript(ctx, rawChunk, /*forceFlush=*/ true);
-            }
-            default -> {
-                // THINKING / FINAL_ANSWER — renderer returns null, nothing to do here.
-            }
-        }
-    }
-
-    /**
-     * Sends an immediate "🤔 Thinking..." placeholder message so the user sees activity
-     * before the first stream event arrives (which can take seconds on slow models or
-     * when agent pre-processing happens). The returned message id is seeded into
-     * {@code agentStreamMessageId} so the first real content chunk edits this message
-     * instead of sending a new one — and because the raw buffer stays empty, the first
-     * edit fully replaces the placeholder text. {@code lastAgentStreamEditAtMs} is left
-     * at 0 so the first real edit bypasses the throttle window and appears instantly.
-     */
-    private void sendAgentStreamPlaceholder(MessageHandlerContext ctx) {
-        Long chatId = ctx.getCommand().telegramId();
-        Integer placeholderId = messageSender.sendHtmlAndGetId(
-                chatId, AGENT_STREAM_PLACEHOLDER_HTML, ctx.consumeNextReplyToMessageId(), true);
-        if (placeholderId == null) {
+        if (event.type() == AgentStreamEvent.EventType.PARTIAL_ANSWER) {
+            handlePartialAnswer(ctx, event);
             return;
         }
-        ctx.setAgentStreamMessageId(placeholderId);
-        ctx.setAlreadySentInStream(true);
-        log.info("FSM agentStreamPlaceholder: sent id={}", placeholderId);
+        if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER) {
+            // Final answer payload becomes responseText in extractAgentResult; nothing to render.
+            return;
+        }
+        if (event.type() == AgentStreamEvent.EventType.MAX_ITERATIONS) {
+            appendToStatusBuffer(ctx, "\n\n" + STATUS_MAX_ITER_LINE, /*forceFlush=*/ true);
+            return;
+        }
+
+        // Update iteration bookkeeping BEFORE asking the renderer — it reads
+        // ctx.getCurrentIteration() to decide whether a null-content THINKING is an
+        // iteration-rollover marker.
+        RenderedUpdate update = agentStreamRenderer.render(event, ctx);
+        applyUpdate(ctx, update);
+
+        if (event.type() == AgentStreamEvent.EventType.THINKING
+                && event.iteration() != ctx.getCurrentIteration()) {
+            ctx.setCurrentIteration(event.iteration());
+            ctx.setToolCallSeenThisIteration(false);
+        }
+        if (event.type() == AgentStreamEvent.EventType.TOOL_CALL) {
+            ctx.setToolCallSeenThisIteration(true);
+        }
     }
 
     /**
-     * Renders the committed transcript plus a pending-iteration overlay and pushes it to
-     * Telegram. The overlay format is {@code \n\n🤔 <i>pending text</i>} — italic to signal
-     * "unresolved / thinking", separated by a blank line from committed content. The pending
-     * text goes through HTML escaping (not markdown→HTML) because it is still possibly going
-     * to be discarded; running markdown conversion would be wasted work and could produce odd
-     * mid-render artifacts while tokens are still streaming in.
-     *
-     * <p>When {@code agentStreamMessageId} is {@code null} (placeholder send failed, or this
-     * is the very first render without a placeholder) this creates a new message and captures
-     * the id. Otherwise it edits with the same throttle window as {@link #appendToTranscript}.
+     * PARTIAL_ANSWER chunks flow into the tentative-answer buffer. While in
+     * {@code STATUS_ONLY} mode the tail of the buffer is shown inline as the reasoning
+     * overlay on the status message; once the buffer contains a paragraph boundary
+     * ({@code \n\n}) and no tool call has been seen in this iteration, the orchestrator
+     * promotes the answer into a separate Telegram bubble.
      */
-    private void renderTranscriptWithPending(MessageHandlerContext ctx, boolean forceFlush) {
-        Long chatId = ctx.getCommand().telegramId();
-        String committedRaw = ctx.getAgentStreamRawBuffer();
-        String pendingRaw = ctx.getPendingIterationText();
-
-        String committedHtml = committedRaw.isEmpty()
-                ? ""
-                : AIUtils.convertMarkdownToHtml(normalizeTranscript(committedRaw));
-        // Strip trailing newlines from committedHtml before concatenation — renderer chunks
-        // (TOOL_CALL / OBSERVATION markers) carry "\n\n" tails that would stack with the
-        // overlay's leading "\n\n" into 3+ consecutive newlines in the final HTML.
-        committedHtml = stripTrailingNewlines(committedHtml);
-        String pendingHtml = "";
-        if (!pendingRaw.isEmpty()) {
-            String separator = committedHtml.isEmpty() ? "" : "\n\n";
-            pendingHtml = separator + "🤔 <i>" + escapeHtml(pendingRaw) + "</i>";
+    private void handlePartialAnswer(MessageHandlerContext ctx, AgentStreamEvent event) {
+        String chunk = event.content();
+        if (chunk == null || chunk.isEmpty()) {
+            return;
         }
-        String html = committedHtml + pendingHtml;
+        String escaped = TelegramHtmlEscaper.escape(chunk);
+        StringBuilder buf = ctx.getTentativeAnswerBuffer();
+        buf.append(escaped);
+
+        // Spec "Final answer transition" step 3 and Russian draft point 9: if the
+        // streamed content contains a tool-call marker the upstream filter missed
+        // (e.g. <arg_key>/<arg_value> from Qwen-style provider output), the text is
+        // reasoning with an embedded tool call, NOT a final answer. Rollback any
+        // open tentative bubble and suppress promotion for the rest of the iteration.
+        // Once the flag is set, the iteration already suppresses promotion — skip the
+        // scan so we don't re-enter rollback on every subsequent chunk.
+        if (!ctx.isToolCallSeenThisIteration() && containsToolMarker(buf)) {
+            handleEmbeddedToolMarker(ctx, buf);
+            return;
+        }
+
+        if (ctx.getAgentRenderMode() == MessageHandlerContext.AgentRenderMode.STATUS_ONLY) {
+            // Show the streaming tail inline on the status message as reasoning overlay.
+            replaceTrailingThinkingLineWithEscaped(ctx, tailAsPlainOverlay(buf), /*forceFlush=*/ false);
+            boolean paragraphBoundary = buf.indexOf("\n\n") >= 0;
+            if (paragraphBoundary && !ctx.isToolCallSeenThisIteration()) {
+                promoteTentativeAnswer(ctx);
+            }
+            return;
+        }
+
+        // TENTATIVE_ANSWER mode — edit the dedicated bubble with the full (rotated) buffer.
+        editTentativeAnswer(ctx, /*forceFlush=*/ false);
+    }
+
+    /**
+     * Scans the tentative-answer buffer for escaped tool-call markers. Returns true the
+     * first time a marker is found; callers should rollback and set
+     * {@link MessageHandlerContext#setToolCallSeenThisIteration(boolean)} so this scan
+     * short-circuits (via the {@code toolCallSeen} flag) for the rest of the iteration.
+     */
+    private static boolean containsToolMarker(CharSequence buf) {
+        for (String marker : ESCAPED_TOOL_MARKERS) {
+            for (int i = 0; i <= buf.length() - marker.length(); i++) {
+                int k = 0;
+                while (k < marker.length() && buf.charAt(i + k) == marker.charAt(k)) {
+                    k++;
+                }
+                if (k == marker.length()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Tool marker detected inside what we were streaming as the final answer.
+     * Per spec: if the tentative bubble is already open, delete it and fold its prose
+     * back into status as reasoning; otherwise, just suppress promotion for this
+     * iteration and keep rendering the overlay tail. The subsequent TOOL_CALL event
+     * from the agent loop will render the canonical tool block on the status message.
+     */
+    private void handleEmbeddedToolMarker(MessageHandlerContext ctx, StringBuilder buf) {
+        ctx.setToolCallSeenThisIteration(true);
+        if (ctx.isTentativeAnswerActive()) {
+            Long chatId = ctx.getCommand().telegramId();
+            Integer id = ctx.getTentativeAnswerMessageId();
+            String foldedProse = buf.toString();
+            if (id != null) {
+                boolean deleted = messageSender.deleteMessage(chatId, id);
+                if (!deleted) {
+                    try {
+                        messageSender.editHtml(chatId, id, ROLLBACK_FALLBACK_HTML, true);
+                    } catch (RuntimeException ex) {
+                        log.warn("FSM agentStream: marker-rollback fallback edit failed for id={}", id, ex);
+                    }
+                }
+            }
+            String foldedOverlay = "<i>" + collapseToSingleLine(foldedProse) + "</i>";
+            replaceTrailingThinkingLineWithEscaped(ctx, foldedOverlay, /*forceFlush=*/ true);
+            ctx.resetTentativeAnswer();
+            log.info("FSM agentStream: tool marker detected in tentative answer, bubble id={} rolled back", id);
+        } else {
+            // Still in STATUS_ONLY — show the collapsed reasoning tail, don't promote.
+            replaceTrailingThinkingLineWithEscaped(ctx, tailAsPlainOverlay(buf), /*forceFlush=*/ false);
+            log.debug("FSM agentStream: tool marker detected in STATUS_ONLY tail, promotion suppressed");
+        }
+    }
+
+    /**
+     * Reads the last few hundred chars of the tentative buffer and wraps them in
+     * {@code <i>…</i>} for display as the reasoning overlay line on the status message.
+     * Capped so the status message doesn't balloon; the full text lives in the buffer.
+     */
+    private String tailAsPlainOverlay(StringBuilder buf) {
+        int tailLimit = 400;
+        int start = Math.max(0, buf.length() - tailLimit);
+        String tail = buf.substring(start);
+        return "<i>" + collapseToSingleLine(tail) + "</i>";
+    }
+
+    /**
+     * Collapses any whitespace run (spaces, tabs, newlines) in an overlay line into a
+     * single space. Required because {@link #replaceTrailingThinkingLineWithEscaped}
+     * uses {@code \n\n} as the boundary between completed status blocks and the current
+     * trailing line — if the trailing {@code <i>…</i>} overlay itself contains
+     * {@code \n\n}, the next boundary search cuts inside the tags and the closing
+     * {@code </i>} is lost, producing invalid HTML that Telegram rejects with a parse
+     * error (the fallback sends the message unformatted, so users see a literal
+     * {@code <i>}).
+     */
+    private static String collapseToSingleLine(String s) {
+        if (s == null || s.isEmpty()) {
+            return s;
+        }
+        return s.replaceAll("\\s+", " ").trim();
+    }
+
+    private void applyUpdate(MessageHandlerContext ctx, RenderedUpdate update) {
+        switch (update) {
+            case RenderedUpdate.ReplaceTrailingThinkingLine r ->
+                    replaceTrailingThinkingLineWithEscaped(ctx,
+                            "<i>" + collapseToSingleLine(TelegramHtmlEscaper.escape(r.reasoning())) + "</i>",
+                            /*forceFlush=*/ false);
+            case RenderedUpdate.AppendFreshThinking ignored -> {
+                appendToStatusBuffer(ctx, "\n\n" + STATUS_THINKING_LINE, /*forceFlush=*/ false);
+            }
+            case RenderedUpdate.AppendToolCall tc ->
+                    appendToolCallBlock(ctx, tc.toolName(), tc.args());
+            case RenderedUpdate.AppendObservation obs ->
+                    appendObservationMarker(ctx, obs.kind(), obs.errorSummary());
+            case RenderedUpdate.AppendErrorToStatus err ->
+                    appendToStatusBuffer(ctx,
+                            "\n\n❌ Error: " + TelegramHtmlEscaper.escape(err.message()),
+                            /*forceFlush=*/ true);
+            case RenderedUpdate.RollbackAndAppendToolCall rb ->
+                    rollbackAndAppendToolCall(ctx, rb.toolName(), rb.args(), rb.foldedProse());
+            case RenderedUpdate.NoOp ignored -> { /* no-op */ }
+        }
+    }
+
+    // --- Status message helpers ---
+
+    /**
+     * Sends the initial {@code 💭 Thinking...} status message (once per agent run) and
+     * seeds {@link MessageHandlerContext#getStatusBuffer()} with its pre-escaped HTML so
+     * subsequent edits just overwrite the whole buffer. If the send fails the buffer
+     * still carries the text and later edit attempts short-circuit.
+     */
+    private void ensureStatusMessage(MessageHandlerContext ctx) {
+        if (ctx.getStatusMessageId() != null) {
+            return;
+        }
+        Long chatId = ctx.getCommand().telegramId();
+        ctx.getStatusBuffer().append(STATUS_THINKING_LINE);
+        // Seed iteration 0 so the first null-content THINKING event isn't treated as a
+        // rollover — otherwise the renderer would duplicate the thinking line. A new
+        // AppendFreshThinking still fires when iteration 1 starts.
+        ctx.setCurrentIteration(0);
+        Integer sentId = messageSender.sendHtmlAndGetId(
+                chatId, ctx.getStatusBuffer().toString(), ctx.consumeNextReplyToMessageId(), true);
+        if (sentId != null) {
+            ctx.setStatusMessageId(sentId);
+            ctx.markStatusEdited();
+            ctx.setAlreadySentInStream(true);
+            log.info("FSM agentStream: status message created id={}", sentId);
+        } else {
+            log.warn("FSM agentStream: status message send failed — later edits will no-op");
+        }
+    }
+
+    private void appendToStatusBuffer(MessageHandlerContext ctx, String escapedHtml, boolean forceFlush) {
+        ctx.getStatusBuffer().append(escapedHtml);
+        rotateStatusIfNeeded(ctx);
+        editStatusThrottled(ctx, forceFlush);
+    }
+
+    /**
+     * Replaces the trailing thinking/reasoning line in the status buffer. The trailing line
+     * is either {@link #STATUS_THINKING_LINE} or a prior {@code <i>…</i>} overlay — found by
+     * locating the last {@code \n\n} boundary and taking everything after it.
+     */
+    private void replaceTrailingThinkingLineWithEscaped(MessageHandlerContext ctx,
+                                                        String newTrailingLineEscaped,
+                                                        boolean forceFlush) {
+        StringBuilder buf = ctx.getStatusBuffer();
+        int lastBoundary = buf.lastIndexOf("\n\n");
+        int cut = lastBoundary >= 0 ? lastBoundary + 2 : 0;
+        buf.setLength(cut);
+        buf.append(newTrailingLineEscaped);
+        rotateStatusIfNeeded(ctx);
+        editStatusThrottled(ctx, forceFlush);
+    }
+
+    private void appendToolCallBlock(MessageHandlerContext ctx, String toolName, String args) {
+        String label = ToolLabels.label(toolName);
+        String escapedArgs = args == null || args.isBlank()
+                ? ""
+                : TelegramHtmlEscaper.escape(ToolLabels.truncateArg(args));
+        String blockBody = escapedArgs.isEmpty()
+                ? "🔧 Tool: " + label + "\nQuery: …"
+                : "🔧 Tool: " + label + "\nQuery: " + escapedArgs;
+        // Per spec: a tool call replaces the trailing "💭 Thinking..." / reasoning line
+        // for the current iteration. Prior completed tool blocks stay as the iteration
+        // log; new tool calls append after a "\n\n" separator.
+        StringBuilder buf = ctx.getStatusBuffer();
+        int lastBoundary = buf.lastIndexOf("\n\n");
+        int trailingStart = lastBoundary >= 0 ? lastBoundary + 2 : 0;
+        String trailing = buf.substring(trailingStart);
+        if (trailing.startsWith(STATUS_THINKING_LINE) || trailing.startsWith("<i>")) {
+            // Replace the trailing thinking/reasoning line in place.
+            buf.setLength(trailingStart);
+            buf.append(blockBody);
+        } else {
+            // No replaceable line — append as a new section.
+            if (buf.length() > 0) {
+                buf.append("\n\n");
+            }
+            buf.append(blockBody);
+        }
+        rotateStatusIfNeeded(ctx);
+        editStatusThrottled(ctx, /*forceFlush=*/ true);
+    }
+
+    private void appendObservationMarker(MessageHandlerContext ctx,
+                                         RenderedUpdate.ObservationKind kind,
+                                         String escapedErrorSummary) {
+        String marker = switch (kind) {
+            case RESULT -> "\n📋 Tool result received";
+            case EMPTY -> "\n📋 No result";
+            case FAILED -> "\n⚠️ Tool failed: " + TelegramHtmlEscaper.escape(escapedErrorSummary);
+        };
+        appendToStatusBuffer(ctx, marker, /*forceFlush=*/ true);
+    }
+
+    // --- Tentative answer helpers ---
+
+    /** Opens a separate answer bubble, switches render mode, and drops an "Answering…" marker on status. */
+    private void promoteTentativeAnswer(MessageHandlerContext ctx) {
+        Long chatId = ctx.getCommand().telegramId();
+        String html = ctx.getTentativeAnswerBuffer().toString();
+        Integer sentId = messageSender.sendHtmlAndGetId(chatId, html, null, true);
+        if (sentId == null) {
+            log.warn("FSM agentStream: tentative answer bubble send failed — staying in STATUS_ONLY");
+            return;
+        }
+        ctx.setTentativeAnswerMessageId(sentId);
+        ctx.setTentativeAnswerActive(true);
+        ctx.setAgentRenderMode(MessageHandlerContext.AgentRenderMode.TENTATIVE_ANSWER);
+        ctx.markAnswerEdited();
+        ctx.setAlreadySentInStream(true);
+        replaceTrailingThinkingLineWithEscaped(ctx, STATUS_ANSWERING_LINE, /*forceFlush=*/ true);
+        log.info("FSM agentStream: tentative answer bubble opened id={}", sentId);
+    }
+
+    private void editTentativeAnswer(MessageHandlerContext ctx, boolean forceFlush) {
+        Integer id = ctx.getTentativeAnswerMessageId();
+        if (id == null) {
+            return;
+        }
+        long throttleMs = telegramProperties.getAgentStreamEditMinIntervalMs();
+        long sinceLast = System.currentTimeMillis() - ctx.getLastAnswerEditAtMs();
+        if (!forceFlush && sinceLast < throttleMs) {
+            return;
+        }
+        Long chatId = ctx.getCommand().telegramId();
+        TelegramBufferRotator.rotateIfExceeds(ctx.getTentativeAnswerBuffer(),
+                        telegramProperties.getMaxMessageLength())
+                .ifPresent(head -> {
+                    // Finalize the current answer bubble with the head and open a fresh
+                    // bubble for the tail — prior bubble id is dropped.
+                    messageSender.editHtml(chatId, id, head, true);
+                    Integer next = messageSender.sendHtmlAndGetId(chatId,
+                            ctx.getTentativeAnswerBuffer().toString(), null, true);
+                    if (next != null) {
+                        ctx.setTentativeAnswerMessageId(next);
+                    }
+                });
+        messageSender.editHtml(chatId, ctx.getTentativeAnswerMessageId(),
+                ctx.getTentativeAnswerBuffer().toString(), true);
+        ctx.markAnswerEdited();
+    }
+
+    private void forceFinalAnswerEdit(MessageHandlerContext ctx) {
+        editTentativeAnswer(ctx, /*forceFlush=*/ true);
+    }
+
+    /**
+     * Tentative answer turned out to be reasoning: delete the bubble (or, on failure, edit
+     * it to a graceful fallback so the user isn't left with stale content), fold the prose
+     * into the status transcript as a reasoning line, and append a tool-call block.
+     */
+    private void rollbackAndAppendToolCall(MessageHandlerContext ctx, String toolName,
+                                           String args, String foldedProse) {
+        Long chatId = ctx.getCommand().telegramId();
+        Integer id = ctx.getTentativeAnswerMessageId();
+        if (id != null) {
+            boolean deleted = messageSender.deleteMessage(chatId, id);
+            if (!deleted) {
+                try {
+                    messageSender.editHtml(chatId, id, ROLLBACK_FALLBACK_HTML, true);
+                } catch (RuntimeException ex) {
+                    log.warn("FSM agentStream: rollback fallback edit failed for id={}", id, ex);
+                }
+            }
+        }
+        String foldedOverlay = "<i>" + collapseToSingleLine(foldedProse) + "</i>";
+        replaceTrailingThinkingLineWithEscaped(ctx, foldedOverlay, /*forceFlush=*/ true);
+        ctx.resetTentativeAnswer();
+        appendToolCallBlock(ctx, toolName, args);
+    }
+
+    // --- Stream-terminal helpers ---
+
+    /**
+     * Stream finished normally — if nothing new was rendered after the last throttled edit,
+     * flush both status and tentative-answer buffers once.
+     */
+    private void finalizeAfterStream(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {
+        editStatusThrottled(ctx, /*forceFlush=*/ true);
+        if (ctx.getTentativeAnswerMessageId() != null
+                && ctx.getTentativeAnswerBuffer().length() > 0) {
+            forceFinalAnswerEdit(ctx);
+        }
+    }
+
+    /**
+     * Stream errored — make sure any tentative answer bubble is finalized with its current
+     * buffer (the user shouldn't see an abandoned, partially-written answer) and append the
+     * error marker to the status transcript.
+     */
+    private void handleStreamError(MessageHandlerContext ctx, Throwable err) {
+        if (ctx.isTentativeAnswerActive()) {
+            forceFinalAnswerEdit(ctx);
+            ctx.setTentativeAnswerActive(false);
+        }
+        String msg = err.getMessage() != null ? err.getMessage() : err.getClass().getSimpleName();
+        appendToStatusBuffer(ctx, "\n\n❌ Error: " + TelegramHtmlEscaper.escape(msg), /*forceFlush=*/ true);
+    }
+
+    // --- Shared edit/rotate plumbing ---
+
+    /**
+     * Pushes the current status buffer to Telegram. Obeys the edit-interval throttle unless
+     * {@code forceFlush} is set. First call also seeds {@link MessageHandlerContext#getStatusMessageId()}
+     * when it is still {@code null} (e.g. {@link #ensureStatusMessage} failed earlier).
+     */
+    private void editStatusThrottled(MessageHandlerContext ctx, boolean forceFlush) {
+        Integer id = ctx.getStatusMessageId();
+        String html = ctx.getStatusBuffer().toString();
         if (html.isEmpty()) {
             return;
         }
-
-        Integer messageId = ctx.getAgentStreamMessageId();
-        if (messageId == null) {
-            Integer sentId = messageSender.sendHtmlAndGetId(
-                    chatId, html, ctx.consumeNextReplyToMessageId(), true);
+        Long chatId = ctx.getCommand().telegramId();
+        if (id == null) {
+            Integer sentId = messageSender.sendHtmlAndGetId(chatId, html, ctx.consumeNextReplyToMessageId(), true);
             if (sentId != null) {
-                ctx.setAgentStreamMessageId(sentId);
-                ctx.markAgentStreamEdited();
+                ctx.setStatusMessageId(sentId);
+                ctx.markStatusEdited();
                 ctx.setAlreadySentInStream(true);
-                log.info("FSM agentStreamEvent: created transcript message id={}, committed={}, pending={}",
-                        sentId, committedRaw.length(), pendingRaw.length());
             }
             return;
         }
-
         long throttleMs = telegramProperties.getAgentStreamEditMinIntervalMs();
-        long sinceLastEdit = System.currentTimeMillis() - ctx.getLastAgentStreamEditAtMs();
-        if (!forceFlush && sinceLastEdit < throttleMs) {
-            log.debug("FSM agentStreamEvent: throttled overlay edit id={}, sinceLastMs={}, windowMs={}",
-                    messageId, sinceLastEdit, throttleMs);
+        long sinceLast = System.currentTimeMillis() - ctx.getLastStatusEditAtMs();
+        if (!forceFlush && sinceLast < throttleMs) {
             return;
         }
-
-        messageSender.editHtml(chatId, messageId, html, true);
-        ctx.markAgentStreamEdited();
+        messageSender.editHtml(chatId, id, html, true);
+        ctx.markStatusEdited();
         ctx.setAlreadySentInStream(true);
-        log.info("FSM agentStreamEvent: updated transcript overlay id={}, committed={}, pending={}",
-                messageId, committedRaw.length(), pendingRaw.length());
     }
 
     /**
-     * Escapes HTML-special characters so raw LLM prose can be safely wrapped in {@code <i>…</i>}
-     * for Telegram parseMode=HTML. Only the three characters the parser reacts to need escaping
-     * ({@code &}, {@code <}, {@code >}). {@code &} must go first so existing entities are not
-     * double-escaped.
+     * If the status buffer exceeded {@code maxMessageLength}, cut it at a graceful boundary,
+     * send the head as the now-finalized previous status, and start a fresh status message
+     * for the tail (the buffer is mutated to hold the tail).
      */
-    private static String escapeHtml(String text) {
-        if (text == null || text.isEmpty()) {
-            return "";
-        }
-        return text.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
-    }
-
-    private static String stripTrailingNewlines(String text) {
-        if (text == null || text.isEmpty()) {
-            return text;
-        }
-        int end = text.length();
-        while (end > 0 && text.charAt(end - 1) == '\n') {
-            end--;
-        }
-        return end == text.length() ? text : text.substring(0, end);
-    }
-
-    /**
-     * Forces an edit of the transcript message with whatever is currently in the buffer,
-     * bypassing throttle. Called once the agent stream terminates to flush any edit that
-     * was skipped by the rate-limit window, and also right before an overflow-reset so
-     * the mid-flight tail isn't lost on the message about to be abandoned.
-     */
-    private void flushAgentStream(MessageHandlerContext ctx) {
-        if (ctx.isAgentStreamBufferEmpty() || ctx.getAgentStreamMessageId() == null) {
-            return;
-        }
-        String rawBuffer = ctx.getAgentStreamRawBuffer();
-        String html = AIUtils.convertMarkdownToHtml(normalizeTranscript(rawBuffer));
-        Long chatId = ctx.getCommand().telegramId();
-        messageSender.editHtml(chatId, ctx.getAgentStreamMessageId(), html, true);
-        ctx.markAgentStreamEdited();
-        log.info("FSM agentStreamFlush: forced final edit id={}, totalRawLength={}",
-                ctx.getAgentStreamMessageId(), rawBuffer.length());
-    }
-
-    /**
-     * Appends raw markdown to the unified transcript buffer and performs the corresponding
-     * Telegram call: first chunk sends a new message and captures its ID; subsequent chunks
-     * {@code editMessageText} the captured ID. When the accumulated raw buffer would push
-     * past {@code maxLength}, the buffer resets to the new chunk and a fresh message starts.
-     *
-     * <p>Throttling: edits within {@link TelegramProperties#getAgentStreamEditMinIntervalMs()}
-     * of the previous edit are skipped (data stays in the buffer). The next chunk after the
-     * window flushes the accumulated text in one edit. {@link #flushAgentStream} forces a
-     * final edit at stream termination so nothing is lost.
-     */
-    private void appendToTranscript(MessageHandlerContext ctx, String rawChunk, boolean forceFlush) {
-        Long chatId = ctx.getCommand().telegramId();
+    private void rotateStatusIfNeeded(MessageHandlerContext ctx) {
         int maxLength = telegramProperties.getMaxMessageLength();
-
-        // Before the buffer-reset branch of appendToAgentStream clears the tail, push
-        // the current buffer to Telegram so the old message shows its final state.
-        // Without this, any throttled mid-flight edits are dropped at overflow and
-        // the old message stays stuck at whatever was last actually flushed.
-        if (ctx.getAgentStreamMessageId() != null
-                && !ctx.isAgentStreamBufferEmpty()
-                && ctx.getAgentStreamRawBuffer().length() + rawChunk.length() > maxLength) {
-            flushAgentStream(ctx);
-        }
-
-        MessageHandlerContext.AgentStreamAppendResult result =
-                ctx.appendToAgentStream(rawChunk, maxLength);
-        String html = AIUtils.convertMarkdownToHtml(normalizeTranscript(result.rawBuffer()));
-
-        if (result.startsNewMessage()) {
-            Integer sentMessageId = messageSender.sendHtmlAndGetId(
-                    chatId, html, ctx.consumeNextReplyToMessageId(), true);
-            if (sentMessageId != null) {
-                ctx.setAgentStreamMessageId(sentMessageId);
-                ctx.markAgentStreamEdited();
-                log.info("FSM agentStreamEvent: created transcript message id={}, rawLength={}",
-                        sentMessageId, result.rawBuffer().length());
-            }
-            ctx.setAlreadySentInStream(true);
-            return;
-        }
-
-        Integer messageId = ctx.getAgentStreamMessageId();
-        if (messageId == null) {
-            return;
-        }
-
-        long throttleMs = telegramProperties.getAgentStreamEditMinIntervalMs();
-        long sinceLastEdit = System.currentTimeMillis() - ctx.getLastAgentStreamEditAtMs();
-        if (!forceFlush && sinceLastEdit < throttleMs) {
-            log.debug("FSM agentStreamEvent: throttled edit id={}, sinceLastMs={}, windowMs={}",
-                    messageId, sinceLastEdit, throttleMs);
-            return;
-        }
-
-        messageSender.editHtml(chatId, messageId, html, true);
-        ctx.markAgentStreamEdited();
-        ctx.setAlreadySentInStream(true);
-        log.info("FSM agentStreamEvent: updated transcript message id={}, rawLength={}",
-                messageId, result.rawBuffer().length());
-    }
-
-    /**
-     * Collapses runs of 3+ consecutive newlines to exactly two (one blank line) and
-     * strips leading newlines at the start of the message. Fenced markers in the
-     * renderer (🔧 …, ✅ done, ❌ Error) each carry {@code \n\n} on both sides so they
-     * appear as standalone paragraphs; when two markers arrive back-to-back their
-     * boundaries stack to {@code \n\n\n\n} which Telegram renders as multiple blank
-     * lines. Since {@link AIUtils#convertMarkdownToHtml(String)} forwards newlines
-     * verbatim, normalization belongs here at the HTML-render boundary.
-     */
-    private static String normalizeTranscript(String rawMarkdown) {
-        if (rawMarkdown == null || rawMarkdown.isEmpty()) {
-            return rawMarkdown;
-        }
-        String collapsed = rawMarkdown.replaceAll("\\n{3,}", "\n\n");
-        int start = 0;
-        while (start < collapsed.length() && collapsed.charAt(start) == '\n') {
-            start++;
-        }
-        return start == 0 ? collapsed : collapsed.substring(start);
+        TelegramBufferRotator.rotateIfExceeds(ctx.getStatusBuffer(), maxLength)
+                .ifPresent(head -> {
+                    Long chatId = ctx.getCommand().telegramId();
+                    Integer oldId = ctx.getStatusMessageId();
+                    if (oldId != null) {
+                        messageSender.editHtml(chatId, oldId, head, true);
+                    }
+                    Integer nextId = messageSender.sendHtmlAndGetId(
+                            chatId, ctx.getStatusBuffer().toString(), null, true);
+                    if (nextId != null) {
+                        ctx.setStatusMessageId(nextId);
+                        ctx.markStatusEdited();
+                        ctx.setAlreadySentInStream(true);
+                    }
+                });
     }
 
     private void extractAgentResult(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {

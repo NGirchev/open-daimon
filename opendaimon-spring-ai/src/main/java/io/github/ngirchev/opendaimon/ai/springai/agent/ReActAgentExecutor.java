@@ -92,8 +92,15 @@ public class ReActAgentExecutor implements AgentExecutor {
                     sink.tryEmitNext(AgentStreamEvent.finalAnswer(
                             result.finalAnswer(), result.iterationsUsed()));
                 } else if (result.terminalState() == AgentState.MAX_ITERATIONS) {
+                    // Two events: first the UI marker (limit reached), then the summary
+                    // produced by the tool-less LLM call in handleMaxIterations as a
+                    // FINAL_ANSWER so downstream consumers treat it as the canonical answer.
                     sink.tryEmitNext(AgentStreamEvent.maxIterations(
-                            result.finalAnswer(), result.iterationsUsed()));
+                            null, result.iterationsUsed()));
+                    if (result.finalAnswer() != null && !result.finalAnswer().isBlank()) {
+                        sink.tryEmitNext(AgentStreamEvent.finalAnswer(
+                                result.finalAnswer(), result.iterationsUsed()));
+                    }
                 } else {
                     sink.tryEmitNext(AgentStreamEvent.error(
                             ctx.getErrorMessage(), result.iterationsUsed()));

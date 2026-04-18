@@ -75,36 +75,34 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private String responseModel;
 
     /**
-     * Telegram message ID of the currently-growing agent transcript message —
-     * a single unified stream of THINKING / TOOL_CALL / OBSERVATION / answer
-     * text that we {@code editMessageText} as more content arrives. When the
-     * accumulated text would exceed Telegram's per-message length limit, this
-     * ID is reset to {@code null} and the next chunk starts a fresh message.
-     *
-     * <p>Previous design split the output into a "progress" message and a
-     * separate "answer" message; the unified transcript avoids classifying
-     * streamed text post-hoc (reasoning vs final answer — a decision only
-     * knowable after the LLM stops calling tools).
+     * Render mode selects where PARTIAL_ANSWER chunks flow:
+     * <ul>
+     *   <li>{@code STATUS_ONLY} — chunks overlay the trailing {@code 💭 Thinking...} line
+     *       as reasoning (no separate bubble).</li>
+     *   <li>{@code TENTATIVE_ANSWER} — chunks edit a separate answer bubble; the bubble
+     *       may be deleted later if a {@code TOOL_CALL} arrives.</li>
+     * </ul>
      */
-    private Integer agentStreamMessageId;
-    /** Accumulated raw markdown text of the current transcript message (pre-HTML). */
-    private final StringBuilder agentStreamRawBuffer = new StringBuilder();
-    /** Timestamp of the last {@code editMessageText} call for throttling against Telegram 429. */
-    private long lastAgentStreamEditAtMs;
+    public enum AgentRenderMode {
+        STATUS_ONLY,
+        TENTATIVE_ANSWER
+    }
 
-    /**
-     * Per-iteration buffer of {@code PARTIAL_ANSWER} chunks that have not yet been committed
-     * to {@link #agentStreamRawBuffer}. These are raw prose tokens from the LLM and we do not
-     * know whether the current iteration will end with a {@code TOOL_CALL} (in which case the
-     * prose was reasoning and gets discarded) or with no tool call (final iteration — the prose
-     * becomes the user-facing answer and gets committed). While unresolved, the text is
-     * rendered as an italic "🤔 …" overlay on top of the committed transcript so the user sees
-     * live streaming of thinking/answer tokens without prematurely mixing them into the
-     * permanent transcript.
-     */
-    private final StringBuilder pendingIterationText = new StringBuilder();
-    /** Iteration index that produced the current {@link #pendingIterationText}; {@code -1} when empty. */
-    private int pendingIteration = -1;
+    // --- Status message state ---
+    private Integer statusMessageId;
+    private final StringBuilder statusBuffer = new StringBuilder();
+    private long lastStatusEditAtMs;
+
+    // --- Tentative answer message state ---
+    private Integer tentativeAnswerMessageId;
+    private final StringBuilder tentativeAnswerBuffer = new StringBuilder();
+    private long lastAnswerEditAtMs;
+    private boolean tentativeAnswerActive;
+
+    // --- Iteration tracking (agent stream) ---
+    private int currentIteration = -1;
+    private boolean toolCallSeenThisIteration;
+    private AgentRenderMode agentRenderMode = AgentRenderMode.STATUS_ONLY;
 
     // --- Error handling ---
     private Exception exception;
@@ -306,117 +304,91 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.responseModel = responseModel;
     }
 
-    public Integer getAgentStreamMessageId() {
-        return agentStreamMessageId;
+    // --- Status message accessors ---
+
+    public Integer getStatusMessageId() {
+        return statusMessageId;
     }
 
-    public void setAgentStreamMessageId(Integer agentStreamMessageId) {
-        this.agentStreamMessageId = agentStreamMessageId;
+    public void setStatusMessageId(Integer statusMessageId) {
+        this.statusMessageId = statusMessageId;
     }
 
-    public boolean isAgentStreamBufferEmpty() {
-        return agentStreamRawBuffer.length() == 0;
+    public StringBuilder getStatusBuffer() {
+        return statusBuffer;
     }
 
-    public String getAgentStreamRawBuffer() {
-        return agentStreamRawBuffer.toString();
+    public long getLastStatusEditAtMs() {
+        return lastStatusEditAtMs;
     }
 
-    public long getLastAgentStreamEditAtMs() {
-        return lastAgentStreamEditAtMs;
+    public void markStatusEdited() {
+        this.lastStatusEditAtMs = System.currentTimeMillis();
     }
 
-    public void markAgentStreamEdited() {
-        this.lastAgentStreamEditAtMs = System.currentTimeMillis();
+    // --- Tentative answer accessors ---
+
+    public Integer getTentativeAnswerMessageId() {
+        return tentativeAnswerMessageId;
     }
 
-    /**
-     * Result of appending raw markdown text to the unified transcript buffer.
-     *
-     * @param rawBuffer        the full raw markdown text the caller should render (via markdown→HTML) and push to Telegram
-     * @param startsNewMessage {@code true} if the caller must call {@code sendMessage} and capture a fresh message id;
-     *                         {@code false} if the caller should {@code editMessageText} on {@link #getAgentStreamMessageId()}.
-     *                         {@code true} means either the transcript had no message yet, or the new chunk overflowed
-     *                         {@code maxLength} and a fresh message starts with just the new chunk.
-     */
-    public record AgentStreamAppendResult(String rawBuffer, boolean startsNewMessage) {}
-
-    /**
-     * Appends a raw markdown chunk to the unified transcript buffer. When adding the chunk
-     * would push the buffer past {@code maxLength}, the buffer is reset to contain only the
-     * new chunk and {@link AgentStreamAppendResult#startsNewMessage()} is {@code true} so
-     * the caller sends a fresh message and captures its ID via
-     * {@link #setAgentStreamMessageId(Integer)}.
-     *
-     * <p>No paragraph detection or batching — the buffer grows chunk by chunk and is split
-     * only on size. This is intentional: the per-chunk paragraph batching we used to do
-     * was an "early-render" UX hack; with live edits of a growing message it adds nothing
-     * but bugs around classification of streamed text.
-     *
-     * <p>Note on {@code maxLength}: the raw markdown is always shorter than or equal to the
-     * rendered HTML (markdown→HTML may add tags like {@code <b>}). Callers that need a hard
-     * HTML-length guarantee should keep a margin in {@code maxLength}.
-     *
-     * @param rawChunk  raw markdown text to append; {@code null}/empty is a no-op
-     * @param maxLength maximum length for a single message (raw-markdown budget; typically
-     *                  the Telegram 4096 char limit minus a small margin for HTML expansion)
-     */
-    public AgentStreamAppendResult appendToAgentStream(String rawChunk, int maxLength) {
-        String safeChunk = rawChunk == null ? "" : rawChunk;
-        if (safeChunk.isEmpty()) {
-            return new AgentStreamAppendResult(agentStreamRawBuffer.toString(), agentStreamMessageId == null);
-        }
-
-        int projected = agentStreamRawBuffer.length() + safeChunk.length();
-        if (projected <= maxLength) {
-            boolean startsNewMessage = agentStreamMessageId == null;
-            agentStreamRawBuffer.append(safeChunk);
-            return new AgentStreamAppendResult(agentStreamRawBuffer.toString(), startsNewMessage);
-        }
-
-        agentStreamRawBuffer.setLength(0);
-        agentStreamRawBuffer.append(safeChunk);
-        agentStreamMessageId = null;
-        return new AgentStreamAppendResult(agentStreamRawBuffer.toString(), true);
+    public void setTentativeAnswerMessageId(Integer tentativeAnswerMessageId) {
+        this.tentativeAnswerMessageId = tentativeAnswerMessageId;
     }
 
-    public String getPendingIterationText() {
-        return pendingIterationText.toString();
+    public StringBuilder getTentativeAnswerBuffer() {
+        return tentativeAnswerBuffer;
     }
 
-    public boolean hasPendingIterationText() {
-        return pendingIterationText.length() > 0;
+    public long getLastAnswerEditAtMs() {
+        return lastAnswerEditAtMs;
     }
 
-    /**
-     * Appends a {@code PARTIAL_ANSWER} chunk into the per-iteration buffer. When {@code iteration}
-     * differs from the one currently being accumulated, the previous iteration's leftover is
-     * discarded (it was reasoning swallowed by a tool call that did not fire a clear-event —
-     * defensive guard only; normal flow clears on TOOL_CALL).
-     */
-    public void appendPendingIterationText(int iteration, String chunk) {
-        if (chunk == null || chunk.isEmpty()) {
-            return;
-        }
-        if (pendingIteration != iteration) {
-            pendingIterationText.setLength(0);
-            pendingIteration = iteration;
-        }
-        pendingIterationText.append(chunk);
+    public void markAnswerEdited() {
+        this.lastAnswerEditAtMs = System.currentTimeMillis();
     }
 
-    /** Returns and clears the pending iteration text. Used when the iteration ends without a tool call. */
-    public String consumePendingIterationText() {
-        String text = pendingIterationText.toString();
-        pendingIterationText.setLength(0);
-        pendingIteration = -1;
-        return text;
+    public boolean isTentativeAnswerActive() {
+        return tentativeAnswerActive;
     }
 
-    /** Discards the pending iteration text. Used when a tool call fires — the prose was reasoning, not an answer. */
-    public void clearPendingIterationText() {
-        pendingIterationText.setLength(0);
-        pendingIteration = -1;
+    public void setTentativeAnswerActive(boolean tentativeAnswerActive) {
+        this.tentativeAnswerActive = tentativeAnswerActive;
+    }
+
+    // --- Iteration tracking ---
+
+    public int getCurrentIteration() {
+        return currentIteration;
+    }
+
+    public void setCurrentIteration(int currentIteration) {
+        this.currentIteration = currentIteration;
+    }
+
+    public boolean isToolCallSeenThisIteration() {
+        return toolCallSeenThisIteration;
+    }
+
+    public void setToolCallSeenThisIteration(boolean toolCallSeenThisIteration) {
+        this.toolCallSeenThisIteration = toolCallSeenThisIteration;
+    }
+
+    public AgentRenderMode getAgentRenderMode() {
+        return agentRenderMode;
+    }
+
+    public void setAgentRenderMode(AgentRenderMode agentRenderMode) {
+        this.agentRenderMode = agentRenderMode;
+    }
+
+    /** Clears tentative-answer state and reverts to STATUS_ONLY. Called on rollback. */
+    public void resetTentativeAnswer() {
+        this.tentativeAnswerMessageId = null;
+        this.tentativeAnswerBuffer.setLength(0);
+        this.tentativeAnswerActive = false;
+        this.lastAnswerEditAtMs = 0L;
+        this.agentRenderMode = AgentRenderMode.STATUS_ONLY;
     }
 
     // --- Error handling ---

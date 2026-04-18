@@ -141,28 +141,18 @@ Evaluated in order — first match wins:
 
 ---
 
-### UC-1B: Text message in agent mode (REACT/SIMPLE) with unified transcript
+### UC-1B: Text message in agent mode (REACT) — two-message UX
 **Trigger:** `open-daimon.agent.enabled=true` and user sends plain text
 **Mapping:** `mapToTelegramTextCommand()` → `MESSAGE`, `stream=true`
 **Handler:** `MessageTelegramCommandHandler` via FSM action `generateAgentResponse()`
-1. Builds `AgentRequest` from message text + metadata (`threadKey`, role, language, preferred model)
-2. Executes `agentExecutor.executeStream(request)`
-3. All text-bearing events feed a **single growing transcript message** — no separate progress / answer messages any more. `TelegramAgentStreamRenderer.render(event)` returns **raw markdown** (not HTML); the caller `appendToTranscript` appends it to `MessageHandlerContext.agentStreamRawBuffer` and renders the whole buffer to HTML via `AIUtils.convertMarkdownToHtml` each time, so cross-chunk markdown tokens (e.g. `**bold**` split over two PARTIAL_ANSWER frames) survive the chunk boundary.
-   - first rendered chunk → `sendMessageAndGetId(chatId, html, replyTo=<user message>, true)` with link previews disabled; the returned message id is stored in `agentStreamMessageId`
-   - subsequent chunks → `editMessageHtml(chatId, agentStreamMessageId, html, true)` with the full re-rendered HTML
-   - when the accumulated raw buffer would exceed `telegramProperties.maxMessageLength` (default 4096), the buffer resets to the new chunk and `agentStreamMessageId` is cleared → the next send starts a fresh transcript message (no `replyTo`)
-4. Per-event rendering rules in `TelegramAgentStreamRenderer`:
-   - `PARTIAL_ANSWER` → raw delta text appended verbatim (markdown-aware, no escaping at this stage)
-   - `TOOL_CALL` → `\n\n**🔧 {label}:** {arg}\n\n` where the argument comes from the tool JSON — `query` for `web_search`, `url` for `fetch_url`/`http_get`/`http_post`. Argument is truncated to 200 chars. Missing/blank arg or unknown tool degrades to `\n\n**🔧 {label}…**\n\n` (fallback label `Using a tool`).
-   - `OBSERVATION` → compact `\n\n*✅ done*\n\n` marker (payload never leaks to the user transcript)
-   - `ERROR` → `\n\n**❌ Error:** {content}\n\n` inline in the transcript
-   - `THINKING`, `FINAL_ANSWER`, `MAX_ITERATIONS`, `METADATA` → `null` (no transcript text). `THINKING` is dropped because structured reasoning from the provider duplicates what already streamed via `PARTIAL_ANSWER`. `FINAL_ANSWER` / `MAX_ITERATIONS` carry the full answer only for persistence; the text was already streamed as `PARTIAL_ANSWER` chunks.
-5. `METADATA` event updates `responseModel` on the context (not written to transcript).
-6. Edit throttling: `telegramProperties.agentStreamEditMinIntervalMs` (default 1500 ms) — chunks arriving inside the window only update the raw buffer, skipping the network call. The next chunk after the window flushes the accumulated text in one edit. Prevents Telegram `429 Too Many Requests` under fast token streams. Stream termination always calls `flushAgentStream()` which forces a final edit regardless of the window so nothing is lost.
-7. Final send at the end of `generateAgentResponse`:
-   - if `agentStreamMessageId` is non-null → the answer text already flowed through the transcript (possibly across several edits and/or overflowed into new messages). No extra message is sent.
-   - otherwise (no `PARTIAL_ANSWER` / `TOOL_CALL` / `OBSERVATION` ever arrived — e.g. non-streaming gateway fallback, or only a terminal event) → the answer text is sent as paragraphs via `sendTextByParagraphs` (no `replyTo`).
-8. Assistant response is persisted in DB; keyboard status is sent afterwards.
+
+See the canonical specification in **[## Agent Mode — REACT Loop Telegram UX](#agent-mode--react-loop-telegram-ux)** (below). The user-visible surface is:
+
+1. A **status message** (`💭 Thinking...` → replaced in-place by reasoning lines, `🔧 Tool: …` blocks, and `📋 Tool result received` observation markers) — a running per-iteration log, edited in place.
+2. A separate **answer message** (opened tentatively on the first paragraph boundary of a `PARTIAL_ANSWER` when no tool call has yet been made this iteration) — streamed paragraph-by-paragraph. The bubble is deleted and its prose folded back into the status message as `<i>…</i>` overlay whenever **either** of the two rollback triggers fires: (a) an `AgentStreamEvent.TOOL_CALL` event arrives from the agent loop, or (b) a tool-call marker (`<tool_call>`, `<arg_key>`, `<arg_value>`, `<tool>`, or their closing forms) is detected inside a streamed `PARTIAL_ANSWER` chunk — caught by a redundant scan in the Telegram layer because the upstream `StreamingAnswerFilter` only recognizes the exact `<tool_call>…</tool_call>` form.
+3. Final `FINAL_ANSWER` finalizes the answer bubble if one was opened; otherwise it is sent fresh (fallback path).
+
+Implementation: `TelegramMessageHandlerActions` orchestrates the two-message state in `MessageHandlerContext`; `TelegramAgentStreamRenderer` maps each `AgentStreamEvent` to a `RenderedUpdate` record. Throttling: `telegramProperties.agentStreamEditMinIntervalMs` (default 1000 ms). Paragraph-boundary rotation (when the status buffer would exceed `maxMessageLength`) is handled by `TelegramBufferRotator`. Assistant response is persisted in DB; keyboard status is sent afterwards.
 
 ---
 
@@ -468,7 +458,7 @@ pointing to the original user message.
 | Role | Purpose | Lifecycle |
 |------|---------|-----------|
 | **Status message** | Carries `💭 Thinking...`, tool-call lines, tool-result lines, reasoning text | Edited in place across iterations; rotated to a new message when Telegram length limit is hit |
-| **Answer message** | Final user-visible answer | Sent fresh when the model output is tentatively treated as final; edited ~once per second until complete (rolled back if a `<tool>` tag is detected — see "Final answer transition") |
+| **Answer message** | Final user-visible answer | Sent fresh when the model output is tentatively treated as final; edited ~once per second until complete. **Rolled back** — deleted and its prose folded back into the status message — when either a `<tool_call>` / `<arg_key>` / `<arg_value>` / `<tool>` marker is detected in a `PARTIAL_ANSWER` chunk, or an `AgentStreamEvent.TOOL_CALL` event arrives from the agent loop. See "Final answer transition" for both triggers. |
 
 Edit rate for both roles is throttled to **at most one edit per second** to stay below Telegram rate limits.
 
@@ -504,28 +494,78 @@ If the model emits `AgentStreamEvent.thinking` with non-empty reasoning:
 ### Final answer transition (tentative + rollback)
 
 Final-answer detection is **heuristic**, not driven by a single reliable event. The model may emit
-text that looks like a final answer but contains a `<tool>` / tool-call marker somewhere inside —
-in which case it was actually reasoning with an embedded tool call. `AgentStreamEvent.finalAnswer`
-alone is not sufficient because the tag may appear mid-stream.
+text that looks like a final answer but contains a `<tool_call>` / tool-call marker somewhere inside —
+in which case it was actually reasoning with an embedded tool call. `AgentStreamEvent.FINAL_ANSWER`
+alone is not sufficient, because the tag may appear mid-stream inside `PARTIAL_ANSWER` chunks **before**
+a `TOOL_CALL` event arrives from the agent loop.
 
-The flow therefore uses a **tentative-answer** state with rollback.
+The flow therefore uses a **tentative-answer** state with rollback driven by **two independent
+triggers**:
 
-1. **Commit to answer tentatively.** When we become confident the incoming text is the final answer
-   (see point 8 of the Russian draft below for the informal rule), send a new **answer message**
-   (fresh bubble, reply to the original user message) and begin streaming text into it ~once per
-   second, paragraph-by-paragraph (same paragraph-split logic as the gateway path).
+#### Trigger A — text scan on `PARTIAL_ANSWER` (Telegram layer)
 
-2. **Watch for tool markers.** Continuously scan the streamed text for `<tool>` / tool-call markers.
+The Telegram orchestrator scans every `PARTIAL_ANSWER` chunk for known tool-call markers. The
+scan is **necessary and not redundant**: the upstream
+`io.github.ngirchev.opendaimon.ai.springai.agent.StreamingAnswerFilter` only strips the exact
+`<think>…</think>` / `<tool_call>…</tool_call>` forms, but some providers (Qwen / Ollama variants)
+emit pseudo-XML tool calls using other tag names (`<arg_key>`, `<arg_value>`, `<tool>`) that slip
+through the filter and reach the Telegram layer as raw text inside `PARTIAL_ANSWER`. Without a
+redundant scan in the Telegram layer, those tokens end up rendered in the user's answer bubble
+(visible as `fetch_url`, `<arg_key>url</arg_key>`, `</tool_call>`, etc.).
 
-3. **Rollback on tag detection.** If a tool marker appears in the tentative answer:
-   - The output was actually reasoning with an embedded tool call.
-   - **Delete** the tentative answer message from Telegram.
-   - Return to the status message: render the prose so far as a thinking/processing line,
-     then render the embedded tool call following step 2 of "Iteration flow".
-   - Iteration continues as normal.
+**The set of markers the Telegram layer scans for** (stored as escaped forms because the
+tentative-answer buffer holds pre-escaped HTML fragments):
 
-4. **Finalize.** If the stream ends with no tool markers inside the tentative answer, that answer
-   message becomes the final user-visible response; editing stops once all content has been delivered.
+- `<tool_call>`, `</tool_call>`
+- `<tool>`, `</tool>`
+- `<arg_key>`, `</arg_key>`
+- `<arg_value>`, `</arg_value>`
+
+When any of these is found in the accumulated tentative-answer buffer, **trigger A fires**. The
+scan is skipped once the iteration's `toolCallSeenThisIteration` flag is already set, so
+subsequent chunks don't re-enter rollback.
+
+#### Trigger B — `AgentStreamEvent.TOOL_CALL` event (agent loop)
+
+If the `StreamingAnswerFilter` did strip a full `<tool_call>…</tool_call>` block, the Telegram
+layer never sees the marker in text, but the downstream agent loop will still emit a
+`TOOL_CALL` event. The `TelegramAgentStreamRenderer` maps that event to
+`RollbackAndAppendToolCall` whenever `ctx.isTentativeAnswerActive()` is true — same rollback
+path, different entry point.
+
+#### Rollback semantics (both triggers)
+
+When a rollback fires on an **active** tentative-answer bubble:
+
+1. **Delete** the tentative answer message in Telegram. If the delete call fails (message too
+   old, no rights, transient 5xx), edit the bubble to a graceful fallback
+   (`<i>(folded into reasoning)</i>`) instead — no retry.
+2. Fold the prose that had been streamed into the bubble back into the **status message**: it
+   replaces the trailing `💭 Thinking...` / reasoning line with an `<i>…</i>` overlay
+   containing the prose collapsed to a single line.
+3. Set `toolCallSeenThisIteration = true`. This suppresses any further promotion attempts in
+   the current iteration and short-circuits the scan on subsequent PARTIAL_ANSWER chunks.
+4. Reset tentative-answer state (buffer cleared, message id cleared, mode back to `STATUS_ONLY`).
+
+For trigger A, the orchestrator does **not** append a tool-call block at rollback time — it
+waits for the upcoming `TOOL_CALL` event (trigger B would have appended the block, but since
+we just reset `tentativeAnswerActive`, the renderer now maps `TOOL_CALL` to `AppendToolCall`
+instead of `RollbackAndAppendToolCall`, and the block is rendered normally in
+"Iteration flow" step 2).
+
+#### Finalize
+
+If the stream ends without any rollback firing, the tentative answer bubble becomes the final
+user-visible response: a final forced edit flushes the complete buffer, throttling is bypassed,
+and editing stops.
+
+#### Commit-to-answer rule
+
+A tentative answer bubble is opened the first time **both** of these hold in a single
+iteration:
+1. The accumulated `PARTIAL_ANSWER` buffer contains a paragraph boundary (`\n\n`).
+2. `toolCallSeenThisIteration == false` — no `TOOL_CALL` event has arrived **and** no tool
+   marker has been detected by trigger A so far this iteration.
 
 ### Max iterations exhausted
 

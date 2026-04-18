@@ -1,0 +1,90 @@
+package io.github.ngirchev.opendaimon.ai.springai.agent;
+
+import io.github.ngirchev.opendaimon.common.agent.AgentContext;
+import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingManager;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * {@link SpringAgentLoopActions#handleMaxIterations} now makes a tool-less LLM call to
+ * ask the model to summarize the step history and answer directly; on failure it falls
+ * back to the StringBuilder digest so the user still receives a non-empty final answer.
+ */
+class SpringAgentLoopActionsMaxIterationsTest {
+
+    private ChatModel chatModel;
+    private SpringAgentLoopActions actions;
+    private AgentContext ctx;
+
+    @BeforeEach
+    void setUp() {
+        chatModel = mock(ChatModel.class);
+        ToolCallingManager toolCallingManager = mock(ToolCallingManager.class);
+        actions = new SpringAgentLoopActions(
+                chatModel, toolCallingManager, List.of(), null, null, null);
+        ctx = new AgentContext("What's the BTC price?", "conv-1", Map.of(), 5, Set.of());
+        ctx.recordStep(new AgentStepResult(
+                0, "I should search", "web_search",
+                "{\"q\":\"btc\"}", "BTC is $50,000", Instant.now()));
+    }
+
+    @Test
+    void shouldCallChatModelWithoutToolsAndSetFinalAnswer() {
+        ChatResponse response = new ChatResponse(List.of(
+                new Generation(new AssistantMessage("BTC is currently $50,000 based on the search result."))
+        ));
+        when(chatModel.call(any(Prompt.class))).thenReturn(response);
+
+        actions.handleMaxIterations(ctx);
+
+        assertThat(ctx.getFinalAnswer())
+                .isEqualTo("BTC is currently $50,000 based on the search result.");
+        verify(chatModel).call(any(Prompt.class));
+    }
+
+    @Test
+    void shouldFallBackToStringBuilderWhenSummaryLlmCallFails() {
+        when(chatModel.call(any(Prompt.class)))
+                .thenThrow(new RuntimeException("LLM unavailable"));
+
+        actions.handleMaxIterations(ctx);
+
+        // Fallback digest is non-null and references the step history + iteration limit.
+        String answer = ctx.getFinalAnswer();
+        assertThat(answer).isNotBlank();
+        assertThat(answer).contains("maximum number of iterations");
+        assertThat(answer).contains("web_search");
+        assertThat(answer).contains("BTC is $50,000");
+    }
+
+    @Test
+    void shouldFallBackWhenLlmReturnsBlankContent() {
+        // Empty content → callSummaryModelWithoutTools throws IllegalStateException,
+        // caller catches it and falls back to the StringBuilder digest.
+        ChatResponse emptyResponse = new ChatResponse(List.of(
+                new Generation(new AssistantMessage(""))
+        ));
+        when(chatModel.call(any(Prompt.class))).thenReturn(emptyResponse);
+
+        actions.handleMaxIterations(ctx);
+
+        assertThat(ctx.getFinalAnswer()).contains("maximum number of iterations");
+    }
+}
