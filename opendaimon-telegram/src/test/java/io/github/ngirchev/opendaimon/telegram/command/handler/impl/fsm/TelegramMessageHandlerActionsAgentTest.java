@@ -666,6 +666,89 @@ class TelegramMessageHandlerActionsAgentTest {
         }
 
         @Test
+        @DisplayName("should discard PARTIAL_ANSWER prose from transcript when the same iteration ends with a TOOL_CALL")
+        void shouldDiscardReasoningProseWhenIterationEndsWithToolCall() {
+            // ReAct models routinely write prose before a tool call (e.g. "Let me search the web…"),
+            // which the provider streams via PARTIAL_ANSWER just like a final answer. We can only
+            // distinguish reasoning from answer once we see whether the iteration resolves to a
+            // TOOL_CALL; if it does, the prose was reasoning and must not leak into the transcript.
+            MessageHandlerContext ctx = createContextWithMessage("Write a story",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    // Iteration 0: prose that is REASONING (followed by a tool call).
+                    AgentStreamEvent.partialAnswer("Let me search the web for ideas.", 0),
+                    AgentStreamEvent.toolCall("web_search", "{\"query\":\"ideas\"}", 0),
+                    AgentStreamEvent.observation("results", 0),
+                    // Iteration 1: prose that IS the user-facing answer (no tool call follows).
+                    AgentStreamEvent.partialAnswer("Here is the story.", 1),
+                    AgentStreamEvent.finalAnswer("Here is the story.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
+
+            String finalHtml = editCaptor.getValue();
+            // Tool-call marker and final answer are committed to the transcript.
+            assertThat(finalHtml).contains("Searching the web");
+            assertThat(finalHtml).contains("Here is the story.");
+            // Reasoning prose is GONE from the final transcript — the italic overlay was replaced
+            // with the 🔧 marker when the tool call fired, and the pending buffer was cleared.
+            for (String html : editCaptor.getAllValues()) {
+                if (html.equals(finalHtml)) {
+                    // The LAST edit is what the user sees after the stream completes — it must
+                    // not carry the discarded reasoning prose.
+                    assertThat(html).doesNotContain("Let me search the web for ideas.");
+                }
+            }
+            assertThat(ctx.getResponseText()).hasValue("Here is the story.");
+        }
+
+        @Test
+        @DisplayName("should stream PARTIAL_ANSWER prose as italic thinking overlay until committed")
+        void shouldStreamPartialAnswerAsItalicOverlayBeforeCommit() {
+            // During streaming we don't yet know if this iteration will end with a tool call,
+            // so PARTIAL_ANSWER chunks are rendered as an italic "🤔 …" overlay. On final
+            // commit (stream terminates with no tool call in the last iteration) the overlay
+            // is replaced with the plain committed HTML.
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(TRANSCRIPT_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.partialAnswer("Streaming answer.", 1),
+                    AgentStreamEvent.finalAnswer("Streaming answer.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(TRANSCRIPT_MSG_ID), editCaptor.capture(), eq(true));
+
+            // At least one intermediate edit showed the italic thinking overlay.
+            boolean sawItalicOverlay = editCaptor.getAllValues().stream()
+                    .anyMatch(html -> html.contains("🤔") && html.contains("<i>") && html.contains("</i>"));
+            assertThat(sawItalicOverlay)
+                    .as("during streaming, PARTIAL_ANSWER should be rendered as italic 🤔 <i>…</i> overlay")
+                    .isTrue();
+
+            // Final edit has the same text but NOT wrapped in italic — it's a committed answer.
+            String finalHtml = editCaptor.getValue();
+            assertThat(finalHtml).contains("Streaming answer.");
+            assertThat(finalHtml).doesNotContain("🤔");
+            assertThat(finalHtml).doesNotContain("<i>");
+        }
+
+        @Test
         @DisplayName("should render terminal answer into the placeholder when stream emits only FINAL_ANSWER")
         void shouldRenderTerminalAnswerIntoPlaceholderWhenOnlyFinalAnswerEmitted() {
             MessageHandlerContext ctx = createContextWithMessage("Quick question",

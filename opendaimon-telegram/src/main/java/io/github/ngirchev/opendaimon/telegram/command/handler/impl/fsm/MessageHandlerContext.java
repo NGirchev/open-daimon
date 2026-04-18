@@ -92,6 +92,20 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     /** Timestamp of the last {@code editMessageText} call for throttling against Telegram 429. */
     private long lastAgentStreamEditAtMs;
 
+    /**
+     * Per-iteration buffer of {@code PARTIAL_ANSWER} chunks that have not yet been committed
+     * to {@link #agentStreamRawBuffer}. These are raw prose tokens from the LLM and we do not
+     * know whether the current iteration will end with a {@code TOOL_CALL} (in which case the
+     * prose was reasoning and gets discarded) or with no tool call (final iteration — the prose
+     * becomes the user-facing answer and gets committed). While unresolved, the text is
+     * rendered as an italic "🤔 …" overlay on top of the committed transcript so the user sees
+     * live streaming of thinking/answer tokens without prematurely mixing them into the
+     * permanent transcript.
+     */
+    private final StringBuilder pendingIterationText = new StringBuilder();
+    /** Iteration index that produced the current {@link #pendingIterationText}; {@code -1} when empty. */
+    private int pendingIteration = -1;
+
     // --- Error handling ---
     private Exception exception;
     private MessageHandlerErrorType errorType;
@@ -364,6 +378,45 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         agentStreamRawBuffer.append(safeChunk);
         agentStreamMessageId = null;
         return new AgentStreamAppendResult(agentStreamRawBuffer.toString(), true);
+    }
+
+    public String getPendingIterationText() {
+        return pendingIterationText.toString();
+    }
+
+    public boolean hasPendingIterationText() {
+        return pendingIterationText.length() > 0;
+    }
+
+    /**
+     * Appends a {@code PARTIAL_ANSWER} chunk into the per-iteration buffer. When {@code iteration}
+     * differs from the one currently being accumulated, the previous iteration's leftover is
+     * discarded (it was reasoning swallowed by a tool call that did not fire a clear-event —
+     * defensive guard only; normal flow clears on TOOL_CALL).
+     */
+    public void appendPendingIterationText(int iteration, String chunk) {
+        if (chunk == null || chunk.isEmpty()) {
+            return;
+        }
+        if (pendingIteration != iteration) {
+            pendingIterationText.setLength(0);
+            pendingIteration = iteration;
+        }
+        pendingIterationText.append(chunk);
+    }
+
+    /** Returns and clears the pending iteration text. Used when the iteration ends without a tool call. */
+    public String consumePendingIterationText() {
+        String text = pendingIterationText.toString();
+        pendingIterationText.setLength(0);
+        pendingIteration = -1;
+        return text;
+    }
+
+    /** Discards the pending iteration text. Used when a tool call fires — the prose was reasoning, not an answer. */
+    public void clearPendingIterationText() {
+        pendingIterationText.setLength(0);
+        pendingIteration = -1;
     }
 
     // --- Error handling ---

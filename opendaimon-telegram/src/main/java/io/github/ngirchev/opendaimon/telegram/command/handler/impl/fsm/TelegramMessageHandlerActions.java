@@ -272,8 +272,16 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     .doOnNext(event -> handleAgentStreamEvent(ctx, event))
                     .blockLast();
 
-            // Drain any pending throttled edit so the user sees the full transcript.
-            flushAgentStream(ctx);
+            // Final iteration without a tool call leaves prose tokens in the pending buffer —
+            // that prose IS the user-facing answer, so commit it to the transcript. Otherwise,
+            // any leftover in pending was reasoning that the loop discarded on TOOL_CALL;
+            // just drain the throttled committed tail.
+            if (ctx.hasPendingIterationText()) {
+                String pending = ctx.consumePendingIterationText();
+                appendToTranscript(ctx, pending, /*forceFlush=*/ true);
+            } else {
+                flushAgentStream(ctx);
+            }
 
             extractAgentResult(ctx, lastEvent);
 
@@ -306,8 +314,24 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     }
 
     /**
-     * Renders a single agent stream event into raw markdown and feeds it to the unified
-     * transcript. Non-text events (METADATA) update side-state instead.
+     * Renders a single agent stream event into the unified transcript.
+     *
+     * <p>Routing rules:
+     * <ul>
+     *   <li>{@code PARTIAL_ANSWER} — accumulated in the per-iteration pending buffer and
+     *       rendered as an italic "🤔 …" overlay on top of the committed transcript. The
+     *       LLM cannot distinguish reasoning from answer within a single ReAct iteration,
+     *       so we delay commitment until we know whether a {@code TOOL_CALL} follows.</li>
+     *   <li>{@code TOOL_CALL} — discards the pending buffer (the prose was reasoning before
+     *       the tool call, not a user-facing answer) and commits the tool marker to the
+     *       transcript with a forced flush (important state transition).</li>
+     *   <li>{@code OBSERVATION}/{@code ERROR}/{@code MAX_ITERATIONS} — commit their markers
+     *       and force-flush for the same reason.</li>
+     *   <li>{@code METADATA} — side-state (model name), not transcript.</li>
+     *   <li>{@code THINKING}/{@code FINAL_ANSWER} — no transcript contribution; the renderer
+     *       returns {@code null}. {@code FINAL_ANSWER}'s payload is already represented by
+     *       the pending buffer (which the caller commits at stream termination).</li>
+     * </ul>
      */
     private void handleAgentStreamEvent(MessageHandlerContext ctx, AgentStreamEvent event) {
         log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}",
@@ -324,12 +348,49 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return;
         }
 
-        String rawChunk = agentStreamRenderer.render(event);
-        if (rawChunk == null || rawChunk.isEmpty()) {
-            return;
+        switch (event.type()) {
+            case PARTIAL_ANSWER -> {
+                String content = event.content();
+                if (content == null || content.isEmpty()) {
+                    return;
+                }
+                // Overflow guard: if the pending overlay plus the new chunk would push the
+                // current message past the length budget, commit whatever pending has (as
+                // plain text, losing the italic UX on the tail) and feed the new chunk
+                // through appendToTranscript — which handles overflow-split and new-message
+                // creation. Without this the overlay HTML would exceed Telegram's per-message
+                // limit and the edit would be silently rejected.
+                int maxLength = telegramProperties.getMaxMessageLength();
+                int projected = ctx.getAgentStreamRawBuffer().length()
+                        + ctx.getPendingIterationText().length()
+                        + content.length();
+                if (projected > maxLength) {
+                    if (ctx.hasPendingIterationText()) {
+                        String toCommit = ctx.consumePendingIterationText();
+                        appendToTranscript(ctx, toCommit, /*forceFlush=*/ true);
+                    }
+                    appendToTranscript(ctx, content, /*forceFlush=*/ true);
+                    return;
+                }
+                ctx.appendPendingIterationText(event.iteration(), content);
+                renderTranscriptWithPending(ctx, /*forceFlush=*/ false);
+            }
+            case TOOL_CALL, OBSERVATION, ERROR, MAX_ITERATIONS -> {
+                if (ctx.hasPendingIterationText()) {
+                    String discarded = ctx.consumePendingIterationText();
+                    log.info("FSM agentStreamEvent: discarded {} chars of reasoning prose on {} (iteration={})",
+                            discarded.length(), event.type(), event.iteration());
+                }
+                String rawChunk = agentStreamRenderer.render(event);
+                if (rawChunk == null || rawChunk.isEmpty()) {
+                    return;
+                }
+                appendToTranscript(ctx, rawChunk, /*forceFlush=*/ true);
+            }
+            default -> {
+                // THINKING / FINAL_ANSWER — renderer returns null, nothing to do here.
+            }
         }
-
-        appendToTranscript(ctx, rawChunk, /*forceFlush=*/ false);
     }
 
     /**
@@ -351,6 +412,95 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         ctx.setAgentStreamMessageId(placeholderId);
         ctx.setAlreadySentInStream(true);
         log.info("FSM agentStreamPlaceholder: sent id={}", placeholderId);
+    }
+
+    /**
+     * Renders the committed transcript plus a pending-iteration overlay and pushes it to
+     * Telegram. The overlay format is {@code \n\n🤔 <i>pending text</i>} — italic to signal
+     * "unresolved / thinking", separated by a blank line from committed content. The pending
+     * text goes through HTML escaping (not markdown→HTML) because it is still possibly going
+     * to be discarded; running markdown conversion would be wasted work and could produce odd
+     * mid-render artifacts while tokens are still streaming in.
+     *
+     * <p>When {@code agentStreamMessageId} is {@code null} (placeholder send failed, or this
+     * is the very first render without a placeholder) this creates a new message and captures
+     * the id. Otherwise it edits with the same throttle window as {@link #appendToTranscript}.
+     */
+    private void renderTranscriptWithPending(MessageHandlerContext ctx, boolean forceFlush) {
+        Long chatId = ctx.getCommand().telegramId();
+        String committedRaw = ctx.getAgentStreamRawBuffer();
+        String pendingRaw = ctx.getPendingIterationText();
+
+        String committedHtml = committedRaw.isEmpty()
+                ? ""
+                : AIUtils.convertMarkdownToHtml(normalizeTranscript(committedRaw));
+        // Strip trailing newlines from committedHtml before concatenation — renderer chunks
+        // (TOOL_CALL / OBSERVATION markers) carry "\n\n" tails that would stack with the
+        // overlay's leading "\n\n" into 3+ consecutive newlines in the final HTML.
+        committedHtml = stripTrailingNewlines(committedHtml);
+        String pendingHtml = "";
+        if (!pendingRaw.isEmpty()) {
+            String separator = committedHtml.isEmpty() ? "" : "\n\n";
+            pendingHtml = separator + "🤔 <i>" + escapeHtml(pendingRaw) + "</i>";
+        }
+        String html = committedHtml + pendingHtml;
+        if (html.isEmpty()) {
+            return;
+        }
+
+        Integer messageId = ctx.getAgentStreamMessageId();
+        if (messageId == null) {
+            Integer sentId = messageSender.sendHtmlAndGetId(
+                    chatId, html, ctx.consumeNextReplyToMessageId(), true);
+            if (sentId != null) {
+                ctx.setAgentStreamMessageId(sentId);
+                ctx.markAgentStreamEdited();
+                ctx.setAlreadySentInStream(true);
+                log.info("FSM agentStreamEvent: created transcript message id={}, committed={}, pending={}",
+                        sentId, committedRaw.length(), pendingRaw.length());
+            }
+            return;
+        }
+
+        long throttleMs = telegramProperties.getAgentStreamEditMinIntervalMs();
+        long sinceLastEdit = System.currentTimeMillis() - ctx.getLastAgentStreamEditAtMs();
+        if (!forceFlush && sinceLastEdit < throttleMs) {
+            log.debug("FSM agentStreamEvent: throttled overlay edit id={}, sinceLastMs={}, windowMs={}",
+                    messageId, sinceLastEdit, throttleMs);
+            return;
+        }
+
+        messageSender.editHtml(chatId, messageId, html, true);
+        ctx.markAgentStreamEdited();
+        ctx.setAlreadySentInStream(true);
+        log.info("FSM agentStreamEvent: updated transcript overlay id={}, committed={}, pending={}",
+                messageId, committedRaw.length(), pendingRaw.length());
+    }
+
+    /**
+     * Escapes HTML-special characters so raw LLM prose can be safely wrapped in {@code <i>…</i>}
+     * for Telegram parseMode=HTML. Only the three characters the parser reacts to need escaping
+     * ({@code &}, {@code <}, {@code >}). {@code &} must go first so existing entities are not
+     * double-escaped.
+     */
+    private static String escapeHtml(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+    }
+
+    private static String stripTrailingNewlines(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        int end = text.length();
+        while (end > 0 && text.charAt(end - 1) == '\n') {
+            end--;
+        }
+        return end == text.length() ? text : text.substring(0, end);
     }
 
     /**
