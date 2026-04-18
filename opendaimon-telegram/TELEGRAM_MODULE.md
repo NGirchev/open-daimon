@@ -419,6 +419,132 @@ Cleared by: handler completion, `/start`, any slash command, `BackoffCommandHand
 
 ---
 
+## Agent Mode — REACT Loop Telegram UX
+
+This section describes the user-visible Telegram behavior when the REACT agent loop is active.
+It replaces the paragraph-streaming step of UC-1 (and related text-message UCs) while the request is being processed.
+
+### Activation
+
+- `open-daimon.agent.enabled=true` (otherwise the gateway flow from UC-1 is used)
+- Resolved `AgentStrategy = REACT` — see `StrategyDelegatingAgentExecutor#resolveStrategy`
+  (triggered when the selected model has capability `WEB` or `AUTO` and at least one tool is registered)
+
+The loop is driven by our own FSM (`SpringAgentLoopActions`). Spring AI's built-in tool-execution
+loop is explicitly disabled via `ToolCallingChatOptions.internalToolExecutionEnabled=false` —
+we pass tools to Spring AI but keep iteration control on our side. `SimpleChainExecutor` does not
+use this UX: it performs a single `ChatModel.call()` and falls back to paragraph streaming from UC-1.
+
+### Message roles
+
+Two logical messages coexist during one agent request. Both are sent as `reply_to_message_id`
+pointing to the original user message.
+
+| Role | Purpose | Lifecycle |
+|------|---------|-----------|
+| **Status message** | Carries `💭 Thinking...`, tool-call lines, tool-result lines, reasoning text | Edited in place across iterations; rotated to a new message when Telegram length limit is hit |
+| **Answer message** | Final user-visible answer | Sent fresh when the model output is tentatively treated as final; edited ~once per second until complete (rolled back if a `<tool>` tag is detected — see "Final answer transition") |
+
+Edit rate for both roles is throttled to **at most one edit per second** to stay below Telegram rate limits.
+
+### Iteration flow
+
+1. **Start.** Send the initial status message: `💭 Thinking...`
+2. **Tool call.** On `AgentStreamEvent.toolCall`, edit the status message, replacing the trailing
+   `💭 Thinking...` (or current reasoning line) with:
+   ```
+   🔧 Tool: <toolName>
+   Query: <toolArguments>
+   ```
+3. **Tool result.** On the matching `toolResult`, append one line to the same status message:
+
+   | Outcome | Appended line |
+   |---------|---------------|
+   | Result present | `📋 Tool result received` |
+   | Empty result | `📋 No result` |
+   | Tool threw | `⚠️ Tool failed: <error summary>` |
+
+4. **Next iteration.** A fresh `💭 Thinking...` line is appended below the previous tool block.
+   Completed tool blocks stay in the status message as a running iteration log.
+
+### Reasoning updates between tool calls
+
+If the model emits `AgentStreamEvent.thinking` with non-empty reasoning:
+
+- Replace the trailing `💭 Thinking...` line with the reasoning text (edit throttled to once per second).
+- If the iteration ends with a `toolCall`, the reasoning line is replaced by the `🔧 Tool: …`
+  block from step 2 — reasoning is not preserved across the tool action.
+- If the iteration turns into a final answer, see "Final answer transition" below.
+
+### Final answer transition (tentative + rollback)
+
+Final-answer detection is **heuristic**, not driven by a single reliable event. The model may emit
+text that looks like a final answer but contains a `<tool>` / tool-call marker somewhere inside —
+in which case it was actually reasoning with an embedded tool call. `AgentStreamEvent.finalAnswer`
+alone is not sufficient because the tag may appear mid-stream.
+
+The flow therefore uses a **tentative-answer** state with rollback.
+
+1. **Commit to answer tentatively.** When we become confident the incoming text is the final answer
+   (see point 8 of the Russian draft below for the informal rule), send a new **answer message**
+   (fresh bubble, reply to the original user message) and begin streaming text into it ~once per
+   second, paragraph-by-paragraph (same paragraph-split logic as the gateway path).
+
+2. **Watch for tool markers.** Continuously scan the streamed text for `<tool>` / tool-call markers.
+
+3. **Rollback on tag detection.** If a tool marker appears in the tentative answer:
+   - The output was actually reasoning with an embedded tool call.
+   - **Delete** the tentative answer message from Telegram.
+   - Return to the status message: render the prose so far as a thinking/processing line,
+     then render the embedded tool call following step 2 of "Iteration flow".
+   - Iteration continues as normal.
+
+4. **Finalize.** If the stream ends with no tool markers inside the tentative answer, that answer
+   message becomes the final user-visible response; editing stops once all content has been delivered.
+
+### Max iterations exhausted
+
+When `AgentProperties.maxIterations` is reached without a `finalAnswer`:
+
+1. One extra model call is made **without the tool list**, asking the model to summarize the
+   collected observations and answer the user directly — no further reasoning.
+2. The output is treated as a normal `finalAnswer` and drives the status-to-answer transition above.
+
+### Telegram length limit — message rotation
+
+When a status or answer message approaches Telegram's message-body length cap:
+
+1. Stop editing the current message.
+2. Start a new message of the **same role** (status or answer), still as a reply to the original user message.
+3. Split on paragraph or sentence boundaries — never mid-word.
+
+Splitting logic is implemented in `io.github.ngirchev.opendaimon.common.service.AIUtils`.
+Paragraph-boundary streaming is exercised by
+`io.github.ngirchev.opendaimon.ai.springai.SpringAIOllamaDnsIT#testStreamParagraphToConsole`.
+
+### Original Russian draft (reference)
+
+> **Exception to the English-only documentation rule.** This subsection intentionally preserves
+> the author's original Russian phrasing for convenience. The English spec above is canonical —
+> if the two diverge, the English version wins.
+
+1. Пользователь отправляет запрос: Сравни производительность Quarkus и Spring Boot в 2026 году. Найди свежие бенчмарки и дай конкретные цифры
+2. Агент запускает React Loop: Отправляет запрос в модель передавая тулы, используем spring ai, но не используем spring agent loop
+3. В телеграм отправляется сообщение: 💭 Thinking...
+4. Модель ответила с tool запросом, редактируем сообщение в телеграм, заменяем 💭 Thinking... на 🔧 Tool: web_search
+   Query: Quarkus vs Spring Boot performance benchmarks 2023 2024 latest comparison numbers metrics latency throughput memory consumption
+   4.1. Если тул ничего не вернул, редактируем сообщение и на следующей строке пишем: 📋 No result
+   4.2. Если тул упал с ошибкой, редактируем сообщение и на следующей строке пишем: ⚠️ Tool failed: HTTP 403
+   4.3. Если результат есть, редактируем сообщение и на следующей строке пишем: 📋 Tool result received
+5. Если модель кроме tool call присылает свои рассуждения, раз в секунду вместо 💭 Thinking... пишем её рассуждения через редактирование, но когда выясняем что это всё же только часть цикла, и когда получаем ответ, заменяем всё же эту строку на результат, как в пункте 4.
+7. Если модель достигла лимита, вызываем последний раз запрос без передачи tool в модель, просим модель сделать вывод по собранным данным и ответить пользователю на запрос без рассуждений.
+8. Продолжаем редактировать сообщение пока мы не стали уверенны что это ответ пользователю, в этом случае заканчиваем редактировать сообщение в телеграме отвечающее за рассуждения и начинаем редактировать новое сообщение - ответ пользователю. Раз в секунду отправляем текст ответа.
+9. Если модель прислала смешанный ответ, когда в тексте есть <tool call> - то не считаем такой ответ конечным для пользователя, так же пишем редактируя сообщение как в предыдущих пунктах, сообщение thinking/processing, считаем это рассуждением и в итоге мы пишем только вызываемые действия в агентском цикле и результат.
+10. Каждое сообщение должно быть reply пользовательного сообщения с которого всё началось.
+11. Если мы достигли лимита по кол-ву символов в сообщении, прекращаем редактировать это сообщение и начинаем новое, того же типа, thinking или ответа пользователю. Контент не должен быть разбит на полуслове, нужно закончить предложение или абзац. Логика этого есть в io.github.ngirchev.opendaimon.common.service.AIUtils, а тест io.github.ngirchev.opendaimon.ai.springai.SpringAIOllamaDnsIT.testStreamParagraphToConsole тестировал эти разбиения по параграфам.
+
+---
+
 ## File Upload Flow
 
 ```

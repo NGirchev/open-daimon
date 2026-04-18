@@ -92,6 +92,17 @@
   - `PlanAndExecuteAgentExecutor` — LLM generates plan, then executes each step with ReAct
   - AUTO: selects REACT if tools available, SIMPLE otherwise
 
+- [ ] **PLAN_AND_EXECUTE flow — finish end-to-end wiring**
+  - `PlanAndExecuteAgentExecutor` is implemented and wired as a bean, but no callsite
+    in production code requests `AgentStrategy.PLAN_AND_EXECUTE`. `TelegramMessageHandlerActions`
+    only sets `AUTO` or `SIMPLE`, and `StrategyDelegatingAgentExecutor#resolveStrategy`
+    never picks PLAN_AND_EXECUTE under `AUTO`.
+  - Needed: an entry point — either an explicit UI trigger (Telegram command / callback button),
+    request metadata flag, or a smarter `AUTO` heuristic that escalates complex multi-step
+    tasks to PLAN_AND_EXECUTE.
+  - Needed: E2E test case — `agent-test-cases.md` row 17 (`PlanAndExecute strategy E2E`) is still TODO.
+  - Verify `maxIterations` semantics for the compound strategy (per-step vs. total) and token-cost impact.
+
 - [ ] **REST Integration** — agent endpoint for REST/UI
 
 ## Bugs
