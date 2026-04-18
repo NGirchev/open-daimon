@@ -76,6 +76,9 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private boolean alreadySentInStream;
     private String responseModel;
     private Integer agentProgressMessageId;
+    private String agentProgressPendingHtml;
+    private boolean agentProgressPendingRequiresRotation;
+    private long agentProgressLastDeliveryAtMillis;
     private Integer agentFinalAnswerMessageId;
     private String agentFinalAnswerText = "";
     private int agentFinalAnswerDeliveredLength;
@@ -303,6 +306,35 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.agentFinalAnswerMessageId = agentFinalAnswerMessageId;
     }
 
+    public String getAgentProgressPendingHtml() {
+        return agentProgressPendingHtml;
+    }
+
+    public void setAgentProgressPendingHtml(String agentProgressPendingHtml) {
+        this.agentProgressPendingHtml = agentProgressPendingHtml;
+    }
+
+    public boolean isAgentProgressPendingRequiresRotation() {
+        return agentProgressPendingRequiresRotation;
+    }
+
+    public void setAgentProgressPendingRequiresRotation(boolean agentProgressPendingRequiresRotation) {
+        this.agentProgressPendingRequiresRotation = agentProgressPendingRequiresRotation;
+    }
+
+    public void clearAgentProgressPending() {
+        this.agentProgressPendingHtml = null;
+        this.agentProgressPendingRequiresRotation = false;
+    }
+
+    public long getAgentProgressLastDeliveryAtMillis() {
+        return agentProgressLastDeliveryAtMillis;
+    }
+
+    public void markAgentProgressDelivered() {
+        agentProgressLastDeliveryAtMillis = System.currentTimeMillis();
+    }
+
     public String getAgentFinalAnswerText() {
         return agentFinalAnswerText;
     }
@@ -345,13 +377,21 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         agentFinalAnswerLastDeliveryAtMillis = System.currentTimeMillis();
     }
 
+    public void resetAgentFinalAnswerStream() {
+        agentFinalAnswerMessageId = null;
+        agentFinalAnswerText = "";
+        agentFinalAnswerDeliveredLength = 0;
+        agentFinalAnswerCurrentMessageStartOffset = 0;
+        agentFinalAnswerLastDeliveryAtMillis = 0L;
+    }
+
     public boolean hasStreamedFinalAnswerChunks() {
         return agentFinalAnswerText != null && !agentFinalAnswerText.isBlank();
     }
 
     public AgentProgressUpdate mergeAgentProgressEvent(AgentStreamEvent event, String htmlChunk, int maxLength) {
         if (event == null) {
-            return new AgentProgressUpdate(buildProgressHtml(), false);
+            return new AgentProgressUpdate(buildProgressHtml(), false, false);
         }
 
         boolean changed = switch (event.type()) {
@@ -369,12 +409,14 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         };
 
         String merged = buildProgressHtml();
+        boolean trimmedForOverflow = false;
         while (merged.length() > maxLength && agentProgressChunks.size() > 1) {
             agentProgressChunks.remove(0);
             changed = true;
+            trimmedForOverflow = true;
             merged = buildProgressHtml();
         }
-        return new AgentProgressUpdate(merged, changed);
+        return new AgentProgressUpdate(merged, changed, trimmedForOverflow);
     }
 
     private String buildProgressHtml() {
@@ -439,7 +481,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
                                       boolean transientChunk,
                                       String html) { }
 
-    public record AgentProgressUpdate(String html, boolean changed) {
+    public record AgentProgressUpdate(String html, boolean changed, boolean trimmedForOverflow) {
         public boolean isEmpty() {
             return html == null || html.isBlank();
         }

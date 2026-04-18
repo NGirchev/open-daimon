@@ -476,9 +476,9 @@ pointing to the original user message.
 | Role | Purpose | Lifecycle |
 |------|---------|-----------|
 | **Status message** | Carries `💭 Thinking...`, tool-call lines, tool-result lines, reasoning text | Edited in place across iterations; rotated to a new message when Telegram length limit is hit |
-| **Answer message** | Final user-visible answer | Sent fresh when the model output is tentatively treated as final; edited ~once per second until complete (rolled back if a `<tool>` tag is detected — see "Final answer transition") |
+| **Answer message** | Final user-visible answer | Sent fresh when the model output is tentatively treated as final; edited ~once per 0.5 seconds until complete (rolled back if a `<tool>` tag is detected — see "Final answer transition") |
 
-Edit rate for both roles is throttled to **at most one edit per second** to stay below Telegram rate limits.
+Edit rate for both roles is throttled to **at most one edit per 0.5 seconds** to stay below Telegram rate limits.
 
 ### Iteration flow
 
@@ -504,7 +504,7 @@ Edit rate for both roles is throttled to **at most one edit per second** to stay
 
 If the model emits `AgentStreamEvent.thinking` with non-empty reasoning:
 
-- Replace the trailing `💭 Thinking...` line with the reasoning text (edit throttled to once per second).
+- Replace the trailing `💭 Thinking...` line with the reasoning text (edit throttled to once per 0.5 seconds).
 - If the iteration ends with a `toolCall`, the reasoning line is replaced by the `🔧 Tool: …`
   block from step 2 — reasoning is not preserved across the tool action.
 - If the iteration turns into a final answer, see "Final answer transition" below.
@@ -521,7 +521,7 @@ The flow therefore uses a **tentative-answer** state with rollback.
 1. **Commit to answer tentatively.** When we become confident the incoming text is the final answer
    (see point 8 of the Russian draft below for the informal rule), send a new **answer message**
    (fresh bubble, reply to the original user message) and begin streaming text into it ~once per
-   second, paragraph-by-paragraph (same paragraph-split logic as the gateway path).
+   0.5 seconds, paragraph-by-paragraph (same paragraph-split logic as the gateway path).
 
 2. **Watch for tool markers.** Continuously scan the streamed text for `<tool>` / tool-call markers.
 
@@ -569,9 +569,9 @@ Paragraph-boundary streaming is exercised by
    4.1. Если тул ничего не вернул, редактируем сообщение и на следующей строке пишем: 📋 No result
    4.2. Если тул упал с ошибкой, редактируем сообщение и на следующей строке пишем: ⚠️ Tool failed: HTTP 403
    4.3. Если результат есть, редактируем сообщение и на следующей строке пишем: 📋 Tool result received
-5. Если модель кроме tool call присылает свои рассуждения, раз в секунду вместо 💭 Thinking... пишем её рассуждения через редактирование, но когда выясняем что это всё же только часть цикла, и когда получаем ответ, заменяем всё же эту строку на результат, как в пункте 4.
+5. Если модель кроме tool call присылает свои рассуждения, раз в полсекунды вместо 💭 Thinking... пишем её рассуждения через редактирование, но когда выясняем что это всё же только часть цикла, и когда получаем ответ, заменяем всё же эту строку на результат, как в пункте 4.
 7. Если модель достигла лимита, вызываем последний раз запрос без передачи tool в модель, просим модель сделать вывод по собранным данным и ответить пользователю на запрос без рассуждений.
-8. Продолжаем редактировать сообщение пока мы не стали уверенны что это ответ пользователю, в этом случае заканчиваем редактировать сообщение в телеграме отвечающее за рассуждения и начинаем редактировать новое сообщение - ответ пользователю. Раз в секунду отправляем текст ответа.
+8. Продолжаем редактировать сообщение пока мы не стали уверенны что это ответ пользователю, в этом случае заканчиваем редактировать сообщение в телеграме отвечающее за рассуждения и начинаем редактировать новое сообщение - ответ пользователю. Раз в полсекунды отправляем текст ответа.
 9. Если модель прислала смешанный ответ, когда в тексте есть <tool call> - то не считаем такой ответ конечным для пользователя, так же пишем редактируя сообщение как в предыдущих пунктах, сообщение thinking/processing, считаем это рассуждением и в итоге мы пишем только вызываемые действия в агентском цикле и результат.
 10. Каждое сообщение должно быть reply пользовательного сообщения с которого всё началось.
 11. Если мы достигли лимита по кол-ву символов в сообщении, прекращаем редактировать это сообщение и начинаем новое, того же типа, thinking или ответа пользователю. Контент не должен быть разбит на полуслове, нужно закончить предложение или абзац. Логика этого есть в io.github.ngirchev.opendaimon.common.service.AIUtils, а тест io.github.ngirchev.opendaimon.ai.springai.SpringAIOllamaDnsIT.testStreamParagraphToConsole тестировал эти разбиения по параграфам.

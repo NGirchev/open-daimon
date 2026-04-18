@@ -68,7 +68,7 @@ import static io.github.ngirchev.opendaimon.common.service.AIUtils.retrieveMessa
 public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private static final String RAW_TOOL_PAYLOAD_ERROR = "raw_tool_payload_in_final_answer";
     private static final Set<String> TOOL_NAMES = Set.of("http_get", "http_post", "web_search", "fetch_url");
-    private static final long FINAL_ANSWER_STREAM_MIN_EDIT_INTERVAL_MS = 500L;
+    private static final long STREAM_MIN_EDIT_INTERVAL_MS = 500L;
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -309,12 +309,14 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return;
         }
         if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK) {
-            sendFinalAnswerChunkToTelegram(ctx, event.content());
+            flushPendingProgressToTelegram(ctx, true);
+            sendFinalAnswerChunkToTelegram(ctx, event);
             return;
         }
         if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER
                 || event.type() == AgentStreamEvent.EventType.MAX_ITERATIONS
                 || event.type() == AgentStreamEvent.EventType.ERROR) {
+            flushPendingProgressToTelegram(ctx, true);
             flushPendingFinalAnswerToTelegram(ctx);
         }
         if (agentStreamRenderer == null) {
@@ -329,39 +331,111 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         if (!progressUpdate.changed()) {
             return;
         }
-        Long chatId = ctx.getCommand().telegramId();
-        Integer progressMessageId = ctx.getAgentProgressMessageId();
+        scheduleProgressUpdate(ctx, progressUpdate, false);
+    }
+
+    private void scheduleProgressUpdate(MessageHandlerContext ctx,
+                                        MessageHandlerContext.AgentProgressUpdate progressUpdate,
+                                        boolean force) {
         if (progressUpdate.isEmpty()) {
+            flushPendingProgressToTelegram(ctx, true);
+            Integer progressMessageId = ctx.getAgentProgressMessageId();
             if (progressMessageId != null) {
+                Long chatId = ctx.getCommand().telegramId();
                 messageSender.deleteMessage(chatId, progressMessageId);
                 ctx.setAgentProgressMessageId(null);
                 log.info("FSM agentStreamEvent: deleted progress message id={}", progressMessageId);
             }
+            ctx.clearAgentProgressPending();
             ctx.setAlreadySentInStream(true);
             return;
         }
-        String progressHtml = progressUpdate.html();
-        if (progressMessageId == null) {
-            Integer sentMessageId = messageSender.sendHtmlAndGetId(
-                    chatId, progressHtml, ctx.getNextReplyToMessageId(), true);
-            if (sentMessageId != null) {
-                ctx.setAgentProgressMessageId(sentMessageId);
-                ctx.clearNextReplyToMessageId();
+
+        ctx.setAgentProgressPendingHtml(progressUpdate.html());
+        if (progressUpdate.trimmedForOverflow()) {
+            ctx.setAgentProgressPendingRequiresRotation(true);
+        }
+        deliverPendingProgressToTelegram(ctx, force);
+    }
+
+    private void flushPendingProgressToTelegram(MessageHandlerContext ctx, boolean force) {
+        deliverPendingProgressToTelegram(ctx, force);
+    }
+
+    private void deliverPendingProgressToTelegram(MessageHandlerContext ctx, boolean force) {
+        String pendingHtml = ctx.getAgentProgressPendingHtml();
+        if (pendingHtml == null || pendingHtml.isBlank()) {
+            return;
+        }
+
+        Integer progressMessageId = ctx.getAgentProgressMessageId();
+        boolean rotateMessage = ctx.isAgentProgressPendingRequiresRotation() && progressMessageId != null;
+        if (!force && progressMessageId != null && !rotateMessage && !shouldEditProgressMessage(ctx)) {
+            return;
+        }
+
+        Long chatId = ctx.getCommand().telegramId();
+        Integer replyToMessageId = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
+        if (progressMessageId == null || rotateMessage) {
+            Integer sentMessageId = messageSender.sendHtmlAndGetId(chatId, pendingHtml, replyToMessageId, true);
+            if (sentMessageId == null) {
+                return;
+            }
+            ctx.setAgentProgressMessageId(sentMessageId);
+            if (rotateMessage) {
+                log.info("FSM agentStreamEvent: rotated progress message, newId={}", sentMessageId);
+            } else {
                 log.info("FSM agentStreamEvent: created progress message id={}", sentMessageId);
             }
         } else {
-            messageSender.editHtml(chatId, progressMessageId, progressHtml, true);
+            messageSender.editHtml(chatId, progressMessageId, pendingHtml, true);
             log.info("FSM agentStreamEvent: updated progress message id={}", progressMessageId);
         }
+
+        ctx.clearAgentProgressPending();
+        ctx.markAgentProgressDelivered();
         ctx.setAlreadySentInStream(true);
     }
 
-    private void sendFinalAnswerChunkToTelegram(MessageHandlerContext ctx, String rawChunk) {
+    private void sendFinalAnswerChunkToTelegram(MessageHandlerContext ctx, AgentStreamEvent event) {
+        String rawChunk = event.content();
         if (rawChunk == null || rawChunk.isBlank()) {
             return;
         }
-        ctx.appendAgentFinalAnswerChunk(rawChunk);
+        String tentativeAnswer = ctx.appendAgentFinalAnswerChunk(rawChunk);
+        if (looksLikeToolCallPayload(tentativeAnswer)) {
+            rollbackTentativeFinalAnswerToProgress(ctx, event.iteration(), tentativeAnswer);
+            return;
+        }
         publishFinalAnswerToTelegram(ctx, false);
+    }
+
+    private void rollbackTentativeFinalAnswerToProgress(MessageHandlerContext ctx,
+                                                        int iteration,
+                                                        String tentativeAnswer) {
+        Long chatId = ctx.getCommand().telegramId();
+        Integer finalAnswerMessageId = ctx.getAgentFinalAnswerMessageId();
+        if (finalAnswerMessageId != null) {
+            messageSender.deleteMessage(chatId, finalAnswerMessageId);
+            log.warn("FSM agentStreamEvent: rolled back tentative final answer message id={}", finalAnswerMessageId);
+        }
+
+        String recoveredThinking = extractUserTextBeforeToolPayload(tentativeAnswer);
+        ctx.resetAgentFinalAnswerStream();
+        if (recoveredThinking.isBlank() || agentStreamRenderer == null) {
+            return;
+        }
+
+        AgentStreamEvent thinkingEvent = AgentStreamEvent.thinking(recoveredThinking, iteration);
+        String thinkingHtml = agentStreamRenderer.render(thinkingEvent);
+        MessageHandlerContext.AgentProgressUpdate progressUpdate = ctx.mergeAgentProgressEvent(
+                thinkingEvent,
+                thinkingHtml,
+                telegramProperties.getMaxMessageLength()
+        );
+        if (progressUpdate.changed()) {
+            scheduleProgressUpdate(ctx, progressUpdate, true);
+        }
     }
 
     private void flushPendingFinalAnswerToTelegram(MessageHandlerContext ctx) {
@@ -419,7 +493,6 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             // Current message reached Telegram length limit — continue the remaining tail in a new message.
             ctx.setAgentFinalAnswerCurrentMessageStartOffset(deliveredLength);
             ctx.setAgentFinalAnswerMessageId(null);
-            replyToMessageId = null;
             if (!force) {
                 return;
             }
@@ -477,7 +550,12 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return false;
         }
         long elapsedSinceLastEditMs = System.currentTimeMillis() - ctx.getAgentFinalAnswerLastDeliveryAtMillis();
-        return elapsedSinceLastEditMs >= FINAL_ANSWER_STREAM_MIN_EDIT_INTERVAL_MS;
+        return elapsedSinceLastEditMs >= STREAM_MIN_EDIT_INTERVAL_MS;
+    }
+
+    private static boolean shouldEditProgressMessage(MessageHandlerContext ctx) {
+        long elapsedSinceLastEditMs = System.currentTimeMillis() - ctx.getAgentProgressLastDeliveryAtMillis();
+        return elapsedSinceLastEditMs >= STREAM_MIN_EDIT_INTERVAL_MS;
     }
 
     private void extractAgentResult(MessageHandlerContext ctx, AgentStreamEvent lastEvent) {

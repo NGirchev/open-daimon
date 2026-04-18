@@ -28,9 +28,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import reactor.core.publisher.Flux;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -280,12 +283,9 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(firstProgress.getValue()).contains("Thinking");
 
         ArgumentCaptor<String> editedProgress = ArgumentCaptor.forClass(String.class);
-        verify(messageSender, org.mockito.Mockito.times(2))
+        verify(messageSender, times(1))
                 .editHtml(eq(42L), eq(700), editedProgress.capture(), eq(true));
-        assertThat(editedProgress.getAllValues().get(0))
-                .doesNotContain("Thinking")
-                .contains("web_search");
-        assertThat(editedProgress.getAllValues().get(1))
+        assertThat(editedProgress.getValue())
                 .doesNotContain("Thinking")
                 .contains("web_search")
                 .contains("Tool result received")
@@ -325,7 +325,7 @@ class TelegramMessageHandlerActionsAgentTest {
 
         verify(messageSender, times(2))
                 .sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true));
-        verify(messageSender, times(2)).editHtml(eq(42L), eq(700), any(), eq(true));
+        verify(messageSender, times(1)).editHtml(eq(42L), eq(700), any(), eq(true));
 
         ArgumentCaptor<String> finalEdits = ArgumentCaptor.forClass(String.class);
         verify(messageSender).editHtml(eq(42L), eq(800), finalEdits.capture(), eq(true));
@@ -399,11 +399,76 @@ class TelegramMessageHandlerActionsAgentTest {
                 .sendHtmlAndGetId(eq(42L), any(), replyToCaptor.capture(), eq(true));
         assertThat(replyToCaptor.getAllValues()).containsExactly(101, 101, 101);
 
-        verify(messageSender, times(2)).editHtml(eq(42L), eq(700), any(), eq(true));
+        verify(messageSender, times(1)).editHtml(eq(42L), eq(700), any(), eq(true));
         verify(messageSender, never()).editHtml(eq(42L), eq(800), any(), eq(true));
         verify(messageSender, never()).editHtml(eq(42L), eq(801), any(), eq(true));
         assertThat(ctx.getAgentFinalAnswerMessageId()).isEqualTo(801);
         assertThat(ctx.getResponseText()).hasValue(longTail);
+    }
+
+    @Test
+    @DisplayName("generateResponse rolls back tentative final answer when chunk contains tool marker")
+    void generateResponse_mixedFinalChunk_rollsBackTentativeAnswer() {
+        MessageHandlerContext ctx = createContextWithMetadata(
+                "Compare frameworks",
+                Set.of(ModelCapabilities.WEB),
+                s -> {},
+                101
+        );
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true)))
+                .thenReturn(700) // progress message
+                .thenReturn(800); // tentative final answer message
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.finalAnswerChunk("I have some preliminary data. ", 0),
+                AgentStreamEvent.finalAnswerChunk("<tool_call><tool_name>web_search</tool_name></tool_call>", 0),
+                AgentStreamEvent.toolCall("web_search", "latest benchmark", 0),
+                AgentStreamEvent.observation("No result", 0),
+                AgentStreamEvent.finalAnswer("Final answer after tool execution.", 1)
+        );
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        verify(messageSender).deleteMessage(42L, 800);
+        verify(messageSender).sendHtml(eq(42L), contains("Final answer after tool execution."), eq(101));
+    }
+
+    @Test
+    @DisplayName("generateResponse rotates progress message when status exceeds Telegram limit")
+    void generateResponse_progressOverflow_rotatesMessageWithReplyTo() {
+        MessageHandlerContext ctx = createContextWithMetadata(
+                "Long status flow",
+                Set.of(ModelCapabilities.WEB),
+                s -> {},
+                101
+        );
+
+        AtomicInteger nextMessageId = new AtomicInteger(700);
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true)))
+                .thenAnswer(invocation -> nextMessageId.getAndIncrement());
+
+        List<AgentStreamEvent> events = new ArrayList<>();
+        events.add(AgentStreamEvent.thinking(0));
+        for (int i = 0; i < 180; i++) {
+            events.add(AgentStreamEvent.toolCall(
+                    "fetch_url",
+                    "{\"url\":\"https://example.com/" + i + "\"}",
+                    i
+            ));
+        }
+        events.add(AgentStreamEvent.finalAnswer("Done", 1));
+        Flux<AgentStreamEvent> stream = Flux.fromIterable(events);
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        ArgumentCaptor<Integer> replyToCaptor = ArgumentCaptor.forClass(Integer.class);
+        verify(messageSender, org.mockito.Mockito.atLeast(2))
+                .sendHtmlAndGetId(eq(42L), any(), replyToCaptor.capture(), eq(true));
+        assertThat(replyToCaptor.getAllValues()).allMatch(replyTo -> replyTo != null && replyTo == 101);
+        assertThat(ctx.getAgentProgressMessageId()).isGreaterThan(700);
     }
 
     @Test
