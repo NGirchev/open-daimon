@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -328,7 +329,7 @@ class TelegramMessageHandlerActionsAgentTest {
         verify(messageSender, times(1)).editHtml(eq(42L), eq(700), any(), eq(true));
 
         ArgumentCaptor<String> finalEdits = ArgumentCaptor.forClass(String.class);
-        verify(messageSender).editHtml(eq(42L), eq(800), finalEdits.capture(), eq(true));
+        verify(messageSender).editHtml(eq(42L), eq(800), finalEdits.capture(), eq(false));
         assertThat(finalEdits.getValue()).contains("Bitcoin is currently").contains("$50,000.");
 
         verify(messageSender, never()).sendHtml(eq(42L), contains("Bitcoin is currently"), eq(101));
@@ -363,7 +364,7 @@ class TelegramMessageHandlerActionsAgentTest {
         actions.generateResponse(ctx);
 
         // Only one final edit expected: terminal flush of pending buffered chunks.
-        verify(messageSender, times(1)).editHtml(eq(42L), eq(800), any(), eq(true));
+        verify(messageSender, times(1)).editHtml(eq(42L), eq(800), any(), eq(false));
         verify(messageSender, never()).sendHtml(eq(42L), contains("Start "), eq(101));
         assertThat(ctx.getResponseText()).hasValue("Start " + tail);
     }
@@ -377,7 +378,7 @@ class TelegramMessageHandlerActionsAgentTest {
                 s -> {},
                 101
         );
-        when(messageSender.sendHtmlAndGetId(eq(42L), any(), any(), eq(true)))
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), any(), anyBoolean()))
                 .thenReturn(700) // progress message
                 .thenReturn(800) // first final answer message
                 .thenReturn(801); // second final answer message after rollover
@@ -395,13 +396,15 @@ class TelegramMessageHandlerActionsAgentTest {
         actions.generateResponse(ctx);
 
         ArgumentCaptor<Integer> replyToCaptor = ArgumentCaptor.forClass(Integer.class);
+        ArgumentCaptor<Boolean> previewCaptor = ArgumentCaptor.forClass(Boolean.class);
         verify(messageSender, times(3))
-                .sendHtmlAndGetId(eq(42L), any(), replyToCaptor.capture(), eq(true));
+                .sendHtmlAndGetId(eq(42L), any(), replyToCaptor.capture(), previewCaptor.capture());
         assertThat(replyToCaptor.getAllValues()).containsExactly(101, 101, 101);
+        assertThat(previewCaptor.getAllValues()).containsExactly(true, true, false);
 
         verify(messageSender, times(1)).editHtml(eq(42L), eq(700), any(), eq(true));
-        verify(messageSender, never()).editHtml(eq(42L), eq(800), any(), eq(true));
-        verify(messageSender, never()).editHtml(eq(42L), eq(801), any(), eq(true));
+        verify(messageSender, never()).editHtml(eq(42L), eq(800), any(), anyBoolean());
+        verify(messageSender, never()).editHtml(eq(42L), eq(801), any(), anyBoolean());
         assertThat(ctx.getAgentFinalAnswerMessageId()).isEqualTo(801);
         assertThat(ctx.getResponseText()).hasValue(longTail);
     }

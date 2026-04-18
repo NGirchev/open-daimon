@@ -319,11 +319,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             sendFinalAnswerChunkToTelegram(ctx, event);
             return;
         }
-        if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER
-                || event.type() == AgentStreamEvent.EventType.MAX_ITERATIONS
-                || event.type() == AgentStreamEvent.EventType.ERROR) {
+        boolean terminalFinalAnswer = event.type() == AgentStreamEvent.EventType.FINAL_ANSWER
+                || event.type() == AgentStreamEvent.EventType.MAX_ITERATIONS;
+        if (terminalFinalAnswer || event.type() == AgentStreamEvent.EventType.ERROR) {
             flushPendingProgressToTelegram(ctx, true);
-            flushPendingFinalAnswerToTelegram(ctx);
+            flushPendingFinalAnswerToTelegram(ctx, terminalFinalAnswer);
         }
         if (agentStreamRenderer == null) {
             return;
@@ -413,7 +413,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             rollbackTentativeFinalAnswerToProgress(ctx, event.iteration(), tentativeAnswer);
             return;
         }
-        publishFinalAnswerToTelegram(ctx, false);
+        publishFinalAnswerToTelegram(ctx, false, false);
     }
 
     private void rollbackTentativeFinalAnswerToProgress(MessageHandlerContext ctx,
@@ -444,17 +444,23 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
     }
 
-    private void flushPendingFinalAnswerToTelegram(MessageHandlerContext ctx) {
+    private void flushPendingFinalAnswerToTelegram(MessageHandlerContext ctx,
+                                                   boolean enablePreviewForFinalUpdate) {
         if (!ctx.hasStreamedFinalAnswerChunks()) {
             return;
         }
-        if (ctx.getAgentFinalAnswerPendingChars() <= 0) {
+        if (ctx.getAgentFinalAnswerPendingChars() > 0) {
+            publishFinalAnswerToTelegram(ctx, true, enablePreviewForFinalUpdate);
             return;
         }
-        publishFinalAnswerToTelegram(ctx, true);
+        if (enablePreviewForFinalUpdate) {
+            finalizeFinalAnswerPreview(ctx);
+        }
     }
 
-    private void publishFinalAnswerToTelegram(MessageHandlerContext ctx, boolean force) {
+    private void publishFinalAnswerToTelegram(MessageHandlerContext ctx,
+                                              boolean force,
+                                              boolean enablePreviewForFinalUpdate) {
         if (!force && !shouldEditFinalAnswerMessage(ctx)) {
             return;
         }
@@ -476,9 +482,17 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             String html = AIUtils.convertMarkdownToHtml(segmentToSend);
             String segmentPreview = previewForLog(segmentToSend, FINAL_ANSWER_LOG_PREVIEW_LIMIT);
             Integer finalAnswerMessageId = ctx.getAgentFinalAnswerMessageId();
+            int deliveredLength = segmentStartOffset + fitLength;
+            boolean isLastSegment = deliveredLength >= ctx.getAgentFinalAnswerText().length();
+            boolean disableWebPagePreview = !(enablePreviewForFinalUpdate && isLastSegment);
 
             if (finalAnswerMessageId == null) {
-                Integer sentMessageId = messageSender.sendHtmlAndGetId(chatId, html, replyToMessageId, true);
+                Integer sentMessageId = messageSender.sendHtmlAndGetId(
+                        chatId,
+                        html,
+                        replyToMessageId,
+                        disableWebPagePreview
+                );
                 if (sentMessageId == null) {
                     return;
                 }
@@ -486,12 +500,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                 log.info("FSM agentStreamEvent: created final answer message id={}, preview='{}'",
                         sentMessageId, segmentPreview);
             } else {
-                messageSender.editHtml(chatId, finalAnswerMessageId, html, true);
+                messageSender.editHtml(chatId, finalAnswerMessageId, html, disableWebPagePreview);
                 log.info("FSM agentStreamEvent: updated final answer message id={}, preview='{}'",
                         finalAnswerMessageId, segmentPreview);
             }
 
-            int deliveredLength = segmentStartOffset + fitLength;
             ctx.markAgentFinalAnswerDeliveredUpTo(deliveredLength);
             ctx.setAlreadySentInStream(true);
 
@@ -506,6 +519,30 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                 return;
             }
         }
+    }
+
+    private void finalizeFinalAnswerPreview(MessageHandlerContext ctx) {
+        Integer finalAnswerMessageId = ctx.getAgentFinalAnswerMessageId();
+        if (finalAnswerMessageId == null) {
+            return;
+        }
+
+        int segmentStartOffset = ctx.getAgentFinalAnswerCurrentMessageStartOffset();
+        if (segmentStartOffset >= ctx.getAgentFinalAnswerText().length()) {
+            return;
+        }
+
+        String finalSegment = ctx.getAgentFinalAnswerText().substring(segmentStartOffset);
+        if (finalSegment.isBlank()) {
+            return;
+        }
+
+        Long chatId = ctx.getCommand().telegramId();
+        String html = AIUtils.convertMarkdownToHtml(finalSegment);
+        messageSender.editHtml(chatId, finalAnswerMessageId, html, false);
+        ctx.markAgentFinalAnswerDeliveredUpTo(ctx.getAgentFinalAnswerText().length());
+        log.info("FSM agentStreamEvent: finalized final answer message id={} with link preview enabled",
+                finalAnswerMessageId);
     }
 
     private int findLargestPrefixThatFitsTelegramLimit(String text, int maxLength) {

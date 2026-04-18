@@ -18,6 +18,8 @@ import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionRepository;
+import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import org.springframework.ai.chat.memory.ChatMemory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.model.tool.ToolCallingManager;
@@ -120,10 +122,21 @@ public class AgentAutoConfig {
             List<ToolCallback> agentToolCallbacks,
             ObjectProvider<AgentMemory> agentMemoryProvider,
             ObjectProvider<FactExtractor> factExtractorProvider,
-            ObjectProvider<ChatMemory> chatMemoryProvider) {
+            ObjectProvider<ChatMemory> chatMemoryProvider,
+            ObjectProvider<ConversationThreadRepository> conversationThreadRepositoryProvider,
+            ObjectProvider<OpenDaimonMessageRepository> openDaimonMessageRepositoryProvider) {
         AgentMemory memory = agentMemoryProvider.getIfAvailable();
         FactExtractor extractor = factExtractorProvider.getIfAvailable();
-        return new SpringAgentLoopActions(agentChatModel, toolCallingManager, agentToolCallbacks, memory, extractor, chatMemoryProvider.getIfAvailable());
+        return new SpringAgentLoopActions(
+                agentChatModel,
+                toolCallingManager,
+                agentToolCallbacks,
+                memory,
+                extractor,
+                chatMemoryProvider.getIfAvailable(),
+                conversationThreadRepositoryProvider.getIfAvailable(),
+                openDaimonMessageRepositoryProvider.getIfAvailable()
+        );
     }
 
     @Bean("agentLoopFsm")

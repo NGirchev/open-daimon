@@ -9,6 +9,11 @@ import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentFact;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.MessageRole;
+import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
+import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -73,6 +78,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final AgentMemory agentMemory;
     private final FactExtractor factExtractor;
     private final ChatMemory chatMemory;
+    private final ConversationThreadRepository conversationThreadRepository;
+    private final OpenDaimonMessageRepository openDaimonMessageRepository;
 
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
     private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
@@ -87,12 +94,25 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                                   AgentMemory agentMemory,
                                   FactExtractor factExtractor,
                                   ChatMemory chatMemory) {
+        this(chatModel, toolCallingManager, toolCallbacks, agentMemory, factExtractor, chatMemory, null, null);
+    }
+
+    public SpringAgentLoopActions(ChatModel chatModel,
+                                  ToolCallingManager toolCallingManager,
+                                  List<ToolCallback> toolCallbacks,
+                                  AgentMemory agentMemory,
+                                  FactExtractor factExtractor,
+                                  ChatMemory chatMemory,
+                                  ConversationThreadRepository conversationThreadRepository,
+                                  OpenDaimonMessageRepository openDaimonMessageRepository) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : List.of();
         this.agentMemory = agentMemory;
         this.factExtractor = factExtractor;
         this.chatMemory = chatMemory;
+        this.conversationThreadRepository = conversationThreadRepository;
+        this.openDaimonMessageRepository = openDaimonMessageRepository;
     }
 
     @Override
@@ -474,6 +494,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         String limitNotice = buildMaxIterationsNotice(ctx);
         String synthesizedAnswer = synthesizeMaxIterationsAnswer(ctx);
         ctx.setFinalAnswer(composeMaxIterationsAnswer(ctx, limitNotice, synthesizedAnswer));
+        ctx.setCurrentTextResponse(ctx.getFinalAnswer());
+        saveConversationHistory(ctx);
+        extractFacts(ctx);
         cleanup(ctx);
         log.warn("Agent handleMaxIterations: {} iterations exhausted", ctx.getMaxIterations());
     }
@@ -795,13 +818,27 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      * {@link SystemMessage} entries from memory (e.g. summaries) to avoid
      * conflicting with the agent system prompt — the summary content is
      * prepended to the first system message instead.
+     *
+     * <p>If chat memory is empty for an existing conversation, restores history
+     * from primary message storage ({@code message} table) by thread key.
      */
     private void loadConversationHistory(AgentContext ctx, List<Message> messages) {
         if (chatMemory == null || ctx.getConversationId() == null) {
             return;
         }
         try {
-            List<Message> history = chatMemory.get(ctx.getConversationId());
+            String conversationId = ctx.getConversationId();
+            List<Message> history = chatMemory.get(conversationId);
+            boolean restoredFromPrimaryStore = false;
+            if (history == null || history.isEmpty()) {
+                history = restoreHistoryFromPrimaryStore(conversationId);
+                restoredFromPrimaryStore = history != null && !history.isEmpty();
+                if (restoredFromPrimaryStore) {
+                    chatMemory.add(conversationId, history);
+                    log.info("Agent think: restored {} history messages from primary store for conversationId={}",
+                            history.size(), conversationId);
+                }
+            }
             if (history == null || history.isEmpty()) {
                 return;
             }
@@ -815,10 +852,102 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     messages.add(msg);
                 }
             }
-            log.debug("Agent think: loaded {} history messages from ChatMemory", history.size());
+            if (restoredFromPrimaryStore) {
+                log.debug("Agent think: loaded {} restored history messages", history.size());
+            } else {
+                log.debug("Agent think: loaded {} history messages from ChatMemory", history.size());
+            }
         } catch (Exception e) {
             log.warn("Agent think: failed to load conversation history: {}", e.getMessage());
         }
+    }
+
+    private List<Message> restoreHistoryFromPrimaryStore(String conversationId) {
+        if (conversationThreadRepository == null || openDaimonMessageRepository == null) {
+            return List.of();
+        }
+        try {
+            ConversationThread thread = conversationThreadRepository.findByThreadKey(conversationId).orElse(null);
+            if (thread == null) {
+                return List.of();
+            }
+            List<OpenDaimonMessage> storedMessages = openDaimonMessageRepository.findByThreadOrderBySequenceNumberAsc(thread);
+            if (storedMessages == null || storedMessages.isEmpty()) {
+                return List.of();
+            }
+            List<Message> restored = new ArrayList<>(storedMessages.size() + 1);
+            String summary = buildSummaryContent(thread);
+            if (!summary.isBlank()) {
+                restored.add(new SystemMessage(summary));
+            }
+            for (OpenDaimonMessage stored : storedMessages) {
+                Message springMessage = convertToSpringMessage(stored);
+                if (springMessage != null) {
+                    restored.add(springMessage);
+                }
+            }
+            return restored;
+        } catch (Exception e) {
+            log.warn("Agent think: failed to restore history from primary store for conversationId={}: {}",
+                    conversationId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private Message convertToSpringMessage(OpenDaimonMessage msg) {
+        if (msg == null || msg.getRole() == null) {
+            return null;
+        }
+        String content = msg.getContent() != null ? msg.getContent() : "";
+        if (msg.getRole() == MessageRole.USER) {
+            return new UserMessage(enrichWithAttachmentInfo(content, msg.getAttachments()));
+        }
+        if (msg.getRole() == MessageRole.ASSISTANT) {
+            return new AssistantMessage(content);
+        }
+        return new SystemMessage(content);
+    }
+
+    private String enrichWithAttachmentInfo(String content, List<Map<String, Object>> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return content;
+        }
+        StringBuilder text = new StringBuilder(content != null ? content : "");
+        text.append("\n[Attached files: ");
+        for (int i = 0; i < attachments.size(); i++) {
+            if (i > 0) {
+                text.append(", ");
+            }
+            Map<String, Object> att = attachments.get(i);
+            String filename = att.get("filename") != null ? String.valueOf(att.get("filename")) : null;
+            String mimeType = att.get("mimeType") != null ? String.valueOf(att.get("mimeType")) : null;
+            if (filename != null) {
+                text.append("\"").append(filename).append("\"");
+            }
+            if (mimeType != null) {
+                text.append(" (").append(mimeType).append(")");
+            }
+        }
+        text.append("]");
+        return text.toString();
+    }
+
+    private String buildSummaryContent(ConversationThread thread) {
+        if (thread == null || (thread.getSummary() == null || thread.getSummary().isBlank())) {
+            return "";
+        }
+        StringBuilder content = new StringBuilder();
+        content.append("Summary of previous conversation:\n");
+        content.append(thread.getSummary());
+        if (thread.getMemoryBullets() != null && !thread.getMemoryBullets().isEmpty()) {
+            content.append("\n\nKey points:\n");
+            for (String bullet : thread.getMemoryBullets()) {
+                if (bullet != null && !bullet.isBlank()) {
+                    content.append("• ").append(bullet).append("\n");
+                }
+            }
+        }
+        return content.toString();
     }
 
     /**
