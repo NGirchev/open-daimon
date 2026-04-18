@@ -76,7 +76,7 @@ public class TelegramAgentStreamRenderer {
             return new RenderedUpdate.AppendObservation(
                     RenderedUpdate.ObservationKind.FAILED, nullToEmpty(content));
         }
-        if (content == null || content.isBlank()) {
+        if (content == null || content.isBlank() || "(no tool output)".equals(content)) {
             return new RenderedUpdate.AppendObservation(RenderedUpdate.ObservationKind.EMPTY, "");
         }
         return new RenderedUpdate.AppendObservation(RenderedUpdate.ObservationKind.RESULT, "");

@@ -685,7 +685,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private void promoteTentativeAnswer(MessageHandlerContext ctx) {
         Long chatId = ctx.getCommand().telegramId();
         String html = renderTentativeBuffer(ctx);
-        Integer sentId = messageSender.sendHtmlAndGetId(chatId, html, null, true);
+        Integer replyTo = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
+        Integer sentId = messageSender.sendHtmlAndGetId(chatId, html, replyTo, true);
         if (sentId == null) {
             log.warn("FSM agentStream: tentative answer bubble send failed — staying in STATUS_ONLY");
             return;

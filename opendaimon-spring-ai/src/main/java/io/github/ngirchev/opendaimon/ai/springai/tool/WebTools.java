@@ -126,6 +126,15 @@ public class WebTools {
             // avoid token overflow - todo add additional model call to grep and parse the result
             return text.length() > 6000 ? text.substring(0, 6000) : text;
         } catch (WebClientResponseException e) {
+            if (e.getStatusCode().is2xxSuccessful()) {
+                // Body decode failure on a successful status (maxInMemorySize exceeded,
+                // charset mismatch, malformed gzip). Surface a distinct error so the agent
+                // stops retrying the same URL and can fall back to another search hit
+                // instead of looping on an absurd "HTTP error 200 OK" marker.
+                log.warn("WebTools.fetchUrl: body decode failed on 2xx for url=[{}]: {}",
+                        url, e.getMessage());
+                return "Error: fetch_url could not decode response body for " + url;
+            }
             String reason = e.getStatusCode().value() + " " + e.getStatusText();
             log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, e.getMessage());
             return "HTTP error " + reason;

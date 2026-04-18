@@ -40,6 +40,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
@@ -269,6 +270,7 @@ class TelegramMessageHandlerActionsAgentTest {
         private static final int USER_MSG_ID = 100;
         private static final int STATUS_MSG_ID = 555;
         private static final int ANSWER_MSG_ID = 777;
+        private static final String STATUS_THINKING_LINE = "💭 Thinking...";
 
         @Test
         @DisplayName("should open a fresh answer bubble on the first PARTIAL_ANSWER chunk")
@@ -276,11 +278,15 @@ class TelegramMessageHandlerActionsAgentTest {
             MessageHandlerContext ctx = createContextWithMessage("Ask",
                     Set.of(ModelCapabilities.WEB));
 
-            // Status bubble on first send (replying to the user message); answer
-            // bubble on second send (no reply target — implicit thread continuation).
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+            // Both bubbles reply to the user message now — disambiguate via HTML content:
+            // status carries the thinking marker, answer bubble does not.
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(STATUS_MSG_ID);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(ANSWER_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(
@@ -293,18 +299,18 @@ class TelegramMessageHandlerActionsAgentTest {
             actions.generateResponse(ctx);
 
             // Status bubble seeded with thinking line as a reply to the user.
-            ArgumentCaptor<String> statusInitCaptor = ArgumentCaptor.forClass(String.class);
-            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), statusInitCaptor.capture(),
+            verify(messageSender, times(1)).sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
                     eq(USER_MSG_ID), eq(true));
-            assertThat(statusInitCaptor.getValue()).contains("💭 Thinking");
 
-            // Answer bubble opened on the first PARTIAL_ANSWER (no reply target). The
-            // initial content carries only the first chunk; the second chunk arrives via
+            // Answer bubble opened on the first PARTIAL_ANSWER (threaded reply to the user —
+            // distinguished from the status bubble by the absence of the thinking marker).
+            // The initial content carries only the first chunk; the second chunk arrives via
             // edits to the bubble below.
-            ArgumentCaptor<String> answerInitCaptor = ArgumentCaptor.forClass(String.class);
-            verify(messageSender).sendHtmlAndGetId(eq(CHAT_ID), answerInitCaptor.capture(),
-                    isNull(), eq(true));
-            assertThat(answerInitCaptor.getValue()).contains("First paragraph.");
+            verify(messageSender, times(1)).sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)
+                            && html.contains("First paragraph.")),
+                    eq(USER_MSG_ID), eq(true));
 
             // Status transitioned to "Answering…" when bubble opened.
             ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
@@ -337,9 +343,15 @@ class TelegramMessageHandlerActionsAgentTest {
             MessageHandlerContext ctx = createContextWithMessage("Ask",
                     Set.of(ModelCapabilities.WEB));
 
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(STATUS_MSG_ID);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(ANSWER_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(
@@ -395,9 +407,15 @@ class TelegramMessageHandlerActionsAgentTest {
             MessageHandlerContext ctx = createContextWithMessage("Compare",
                     Set.of(ModelCapabilities.WEB));
 
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(STATUS_MSG_ID);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(ANSWER_MSG_ID);
             when(messageSender.deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID))).thenReturn(true);
 
@@ -464,9 +482,15 @@ class TelegramMessageHandlerActionsAgentTest {
             MessageHandlerContext ctx = createContextWithMessage("Write",
                     Set.of(ModelCapabilities.WEB));
 
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(STATUS_MSG_ID);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(ANSWER_MSG_ID);
             when(messageSender.deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID)))
                     .thenReturn(true);
@@ -739,9 +763,15 @@ class TelegramMessageHandlerActionsAgentTest {
             MessageHandlerContext ctx = createContextWithMessage("Ask",
                     Set.of(ModelCapabilities.WEB));
 
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(STATUS_MSG_ID);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(ANSWER_MSG_ID);
 
             // Open a tentative answer bubble, then have the stream error out — without a
@@ -855,9 +885,15 @@ class TelegramMessageHandlerActionsAgentTest {
         void shouldConvertMarkdownInTentativeAnswerBubble() {
             MessageHandlerContext ctx = createContextWithMessage("Compare",
                     Set.of(ModelCapabilities.WEB));
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(STATUS_MSG_ID);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(ANSWER_MSG_ID);
 
             // A PARTIAL_ANSWER carrying **bold** and `code` markers crosses a paragraph
@@ -888,9 +924,15 @@ class TelegramMessageHandlerActionsAgentTest {
             MessageHandlerContext ctx = createContextWithMessage(
                     "Compare Quarkus and Spring Boot in 2026",
                     Set.of(ModelCapabilities.WEB));
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(STATUS_MSG_ID);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(ANSWER_MSG_ID);
 
             // Reproduces the production scenario with model z-ai/glm-4.5v:
@@ -944,9 +986,15 @@ class TelegramMessageHandlerActionsAgentTest {
             MessageHandlerContext ctx = createContextWithMessage("Ask",
                     Set.of(ModelCapabilities.WEB));
 
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(STATUS_MSG_ID);
-            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
                     .thenReturn(ANSWER_MSG_ID);
 
             Flux<AgentStreamEvent> stream = Flux.just(

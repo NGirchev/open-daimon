@@ -212,6 +212,29 @@ public class SpringAIAutoConfig {
     }
 
     /**
+     * WebClient dedicated to built-in agent tools ({@link WebTools}, HttpApiTool) that
+     * fetch arbitrary third-party pages/APIs. Raises {@code maxInMemorySize} to 2 MB
+     * (default is 256 KB) so large articles (e.g. Hacker Noon, long JSON payloads) do
+     * not raise a {@link org.springframework.web.reactive.function.client.WebClientResponseException}
+     * with a 2xx status — which the textual-failure heuristic in
+     * {@code SpringAgentLoopActions.observe()} would classify as FAILED and trigger the
+     * model to retry the same URL in a loop.
+     *
+     * <p>Kept separate from the default {@code webClient} so SSE streaming for
+     * OpenRouter/Ollama LLM calls uses the platform-standard codec limits. With the
+     * agent running at most {@code 10/5/1} concurrent calls via PriorityRequestExecutor,
+     * worst-case extra heap pressure is ~20 MB.
+     */
+    @Bean("webToolsWebClient")
+    public WebClient webToolsWebClient(WebClient.Builder builder) {
+        return builder
+                .codecs(configurer -> configurer
+                        .defaultCodecs()
+                        .maxInMemorySize(2 * 1024 * 1024))
+                .build();
+    }
+
+    /**
      * Creates WebClient.Builder for Ollama with proper DNS resolver.
      * Spring AI uses WebClient.Builder to create its WebClient.
      * This bean may be used by Spring AI auto-configuration.
@@ -324,7 +347,9 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public WebTools webTools(WebClient webClient, SpringAIProperties properties) {
+    public WebTools webTools(
+            @org.springframework.beans.factory.annotation.Qualifier("webToolsWebClient") WebClient webClient,
+            SpringAIProperties properties) {
         return new WebTools(
             webClient,
             properties.getSerper().getApi().getKey(),

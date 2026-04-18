@@ -1,5 +1,5 @@
 ---
-name: debug
+name: root-cause
 description: "Root-cause debugging workflow for Java/Spring Boot in opendaimon-* modules — read logs first, pinpoint the cause before exploring the codebase, fix only the reported file, run just the failing test. Use when the user reports a bug, exception, stack trace, or unexpected behavior and provides logs or a failing test."
 ---
 

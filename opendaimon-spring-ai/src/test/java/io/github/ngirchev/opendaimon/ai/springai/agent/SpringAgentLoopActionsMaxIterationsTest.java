@@ -41,7 +41,7 @@ class SpringAgentLoopActionsMaxIterationsTest {
         chatModel = mock(ChatModel.class);
         ToolCallingManager toolCallingManager = mock(ToolCallingManager.class);
         actions = new SpringAgentLoopActions(
-                chatModel, toolCallingManager, List.of(), null, null, null);
+                chatModel, toolCallingManager, List.of(), null);
         ctx = new AgentContext("What's the BTC price?", "conv-1", Map.of(), 5, Set.of());
         ctx.recordStep(new AgentStepResult(
                 0, "I should search", "web_search",
@@ -89,6 +89,31 @@ class SpringAgentLoopActionsMaxIterationsTest {
         actions.handleMaxIterations(ctx);
 
         assertThat(ctx.getFinalAnswer()).contains("maximum number of iterations");
+    }
+
+    @Test
+    void shouldFallBackWhenSummaryReturnsUnclosedThinkOnly() {
+        // Repro for the Telegram bug (20:49–20:51): summary model returned only an unclosed
+        // "<think>…" block with no prose. stripThinkTags sees "<think>" without a matching
+        // "</think>" → returns text up to start of tag → empty. stripToolCallTags keeps
+        // it empty → callSummaryModelWithoutTools throws IllegalStateException →
+        // handleMaxIterations catches → must invoke buildFallbackSummary so
+        // ctx.getFinalAnswer() is non-blank and Telegram can render the MAX_ITERATIONS
+        // response. If this test fails, the fallback chain is broken somewhere between
+        // buildFallbackSummary and ctx.setFinalAnswer.
+        ChatResponse openThinkOnly = new ChatResponse(List.of(
+                new Generation(new AssistantMessage("<think>reasoning but no closing tag and no prose"))
+        ));
+        when(chatModel.call(any(Prompt.class))).thenReturn(openThinkOnly);
+
+        actions.handleMaxIterations(ctx);
+
+        String answer = ctx.getFinalAnswer();
+        assertThat(answer)
+                .as("MAX_ITERATIONS must always produce a non-empty fallback answer, "
+                        + "even when the summary model returns only an unclosed <think> block")
+                .isNotBlank();
+        assertThat(answer).startsWith("I reached the maximum number of iterations");
     }
 
     @Test

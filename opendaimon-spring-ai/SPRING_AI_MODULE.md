@@ -369,6 +369,24 @@ emitting the `OBSERVATION` event:
 The recorded `AgentStepResult` keeps the full observation text (model context is
 unchanged), only the stream event and its UI-facing content are shortened.
 
+**2xx-guard on WebClient-based tools.** `WebTools.fetchUrl` and `HttpApiTool.httpGet` /
+`httpPost` talk to arbitrary third-party servers via Spring WebClient. `bodyToMono`
+can raise a `WebClientResponseException` with a **2xx status** when the body fails to
+decode — typically a `DataBufferLimitException` when the page exceeds
+`maxInMemorySize` (see codec note below), but also charset mismatches and malformed
+gzip. A naive `catch (WebClientResponseException)` that only formats
+`status + " " + reason` would then surface the absurd marker `"HTTP error 200 OK"`
+to the agent loop — which the textual-failure heuristic classifies as FAILED and the
+model tries to retry the same URL in a loop. Both tools therefore **must** branch on
+`e.getStatusCode().is2xxSuccessful()`:
+
+- 2xx + decode failure → return `"Error: <op> could not decode response body for <url>"`.
+- Non-2xx → keep the existing `"HTTP error <code> <status>[: <body>]"` contract.
+
+Both forms fall under the `"Error: "` / `"HTTP error "` prefix set recognized by
+`observe()`, so the observation remains FAILED either way; the difference is that the
+error text now actually describes what happened instead of lying about an HTTP 200.
+
 ### `handleMaxIterations` — tool-less summary call
 
 When the iteration counter hits `open-daimon.agent.max-iterations`, the loop terminates
@@ -396,6 +414,28 @@ final answer.
 1. `MAX_ITERATIONS` — informational marker (the Telegram layer treats this as a UI cue).
 2. `FINAL_ANSWER` carrying `ctx.finalAnswer` — the canonical answer signal consumed by
    both the Telegram orchestrator and the persistence layer.
+
+The `FINAL_ANSWER` emit is **unconditional**: if a regression upstream leaves
+`result.finalAnswer()` null or blank, the executor logs `log.warn("ReActAgentExecutor:
+MAX_ITERATIONS finished with empty finalAnswer — …")` and substitutes a safety text
+(`"I reached the iteration limit before producing a complete answer. Please rephrase
+or try again."`). This guarantees the Telegram path
+(`extractAgentResult` → `saveResponse.orElseThrow`) always has content, so the user
+never sees an orphan "⚠️ reached iteration limit" status line with no body text. If
+the warn message ever shows up in `logs/`, it flags a bug in the
+`handleMaxIterations` fallback chain rather than being normal steady state.
+
+### WebClient codec — `webToolsWebClient` bean
+
+Built-in agent tools that fetch arbitrary third-party pages/APIs (`WebTools`,
+`HttpApiTool`) use a dedicated `@Bean("webToolsWebClient")` with
+`maxInMemorySize = 2 MiB` (Spring default is 256 KiB). Large articles (Hacker Noon,
+long JSON payloads, etc.) exceed 256 KiB routinely and otherwise surface as decode
+failures on 2xx — see the "2xx-guard" note under *Tool failure detection*. The main
+`webClient` bean (used for LLM SSE streaming to OpenRouter / Ollama) keeps the
+platform defaults, so the codec bump is scoped to the tools that actually need it.
+With `PriorityRequestExecutor` capping concurrency at `10/5/1` threads, the worst-case
+heap headroom added by the bump is ~20 MiB.
 
 ---
 

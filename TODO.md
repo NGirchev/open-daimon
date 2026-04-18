@@ -66,11 +66,13 @@
   - Error recovery: failed step skips dependents, independent steps continue
   - DB tables: `agent_execution`, `agent_execution_step` (Flyway V10)
 
-- [x] **Pluggable Memory** — semantic long-term memory
-  - `AgentMemory` SPI: `store(fact)`, `recall(query, topK)`, `forget(factId)`
-  - `SemanticAgentMemory` — VectorStore-backed similarity search
-  - `CompositeAgentMemory` — combines multiple memory sources
-  - Memory integrated into `think()` — recalls relevant facts before each LLM call
+- [x] **Long-term Memory** — via shared `ChatMemory` (superseded earlier `AgentMemory` SPI)
+  - `SummarizingChatMemory` (from `SpringAIAutoConfig`) is the single memory bean
+  - Rolling JSON summary + `memory_bullets` are persisted on `ConversationThread`
+    and replayed as a `SystemMessage` on the next `ChatMemory.get(conversationId)`
+  - `SpringAgentLoopActions.think()` merges that `SystemMessage` into the agent
+    system prompt; `answer()` persists the new user/assistant turn via
+    `ChatMemory.add(...)` — no separate agent-memory stack
 
 - [x] **Telegram Integration** — agent mode via application property
   - `TelegramMessageHandlerActions` delegates to `AgentExecutor` when `open-daimon.agent.enabled=true`
@@ -80,10 +82,13 @@
   - New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
   - Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
 
-- [x] **FactExtractionMemory** — LLM auto-extracts key facts after agent conversations
-  - `FactExtractor` calls LLM to extract facts, stores via `AgentMemory.store()`
-  - Integrated into `SpringAgentLoopActions.answer()` (only for non-trivial conversations with tool use)
-  - Best-effort — failures don't affect agent response
+- [x] **Fact extraction (removed — superseded)**
+  - Previously a synchronous `FactExtractor.extractAndStore(ctx)` in
+    `SpringAgentLoopActions.answer()` ran an extra LLM call plus per-fact
+    embeddings before the final Telegram edit (~30 s delay).
+  - Replaced by the existing rolling summarization in `SummarizationService` /
+    `SummarizingChatMemory` — one LLM call returns `{summary, memory_bullets}`
+    and is replayed as a `SystemMessage` on the next turn, no critical-path cost.
 
 - [x] **AgentStrategy SPI** — configurable execution strategies
   - `AgentStrategy` enum: AUTO, REACT, SIMPLE, PLAN_AND_EXECUTE

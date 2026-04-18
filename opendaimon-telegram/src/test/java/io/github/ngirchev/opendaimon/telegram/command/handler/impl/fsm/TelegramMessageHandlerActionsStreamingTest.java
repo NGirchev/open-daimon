@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
@@ -99,9 +100,13 @@ class TelegramMessageHandlerActionsStreamingTest {
         MessageHandlerContext ctx = createContextWithMessage("Ask",
                 Set.of(ModelCapabilities.WEB));
 
-        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+        // Status bubble: first send carries the "💭 Thinking..." line.
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true)))
                 .thenReturn(STATUS_MSG_ID);
-        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+        // Answer bubble: threaded reply to the user message, content does not carry the thinking marker.
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true)))
                 .thenReturn(ANSWER_MSG_ID);
 
         // Single short PARTIAL_ANSWER without any paragraph boundary — the old code
@@ -116,11 +121,12 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        // Exactly one answer bubble send (no reply target).
-        ArgumentCaptor<String> answerInitCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messageSender, times(1)).sendHtmlAndGetId(eq(CHAT_ID), answerInitCaptor.capture(),
-                isNull(), eq(true));
-        assertThat(answerInitCaptor.getValue()).contains("Quick single-line reply.");
+        // Exactly one answer bubble send — threaded reply to the user message, content
+        // distinguished from the status bubble by the absence of the thinking marker.
+        verify(messageSender, times(1)).sendHtmlAndGetId(eq(CHAT_ID),
+                argThat(html -> html != null && html.contains("Quick single-line reply.")
+                        && !html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true));
 
         assertThat(ctx.getAgentRenderMode())
                 .isEqualTo(MessageHandlerContext.AgentRenderMode.TENTATIVE_ANSWER);
@@ -134,9 +140,13 @@ class TelegramMessageHandlerActionsStreamingTest {
         MessageHandlerContext ctx = createContextWithMessage("Compare",
                 Set.of(ModelCapabilities.WEB));
 
-        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+        // Status bubble send carries the thinking marker; answer bubble send does not.
+        // Both reply to the user message now (P1: keep agent bubbles threaded).
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true)))
                 .thenReturn(STATUS_MSG_ID);
-        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true)))
                 .thenReturn(ANSWER_MSG_ID);
         when(messageSender.deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID))).thenReturn(true);
 
@@ -165,9 +175,13 @@ class TelegramMessageHandlerActionsStreamingTest {
         MessageHandlerContext ctx = createContextWithMessage("Write",
                 Set.of(ModelCapabilities.WEB));
 
-        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+        // Status bubble send carries the thinking marker; answer bubble send does not.
+        // Both reply to the user message now (P1: keep agent bubbles threaded).
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true)))
                 .thenReturn(STATUS_MSG_ID);
-        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true)))
                 .thenReturn(ANSWER_MSG_ID);
         when(messageSender.deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID))).thenReturn(true);
 
@@ -290,7 +304,93 @@ class TelegramMessageHandlerActionsStreamingTest {
         assertThat(ctx.getStatusBuffer().toString()).contains("📋 Tool result received");
     }
 
+    /**
+     * MAX_ITERATIONS safety-net invariant: when the ReAct loop exhausts iterations,
+     * {@code ReActAgentExecutor} guarantees that a {@code FINAL_ANSWER} event follows the
+     * {@code MAX_ITERATIONS} event — even when the agent produced no partial answer, the
+     * executor emits a fallback text ("I reached the iteration limit before producing a
+     * complete answer..."). The Telegram layer MUST render that text in the chat so the
+     * user is never left with only the ⚠️ status line and no answer bubble.
+     */
+    @Test
+    @DisplayName("should render final answer bubble on MAX_ITERATIONS when FINAL_ANSWER follows")
+    void shouldRenderFinalAnswerBubbleOnMaxIterations() {
+        MessageHandlerContext ctx = createContextWithMessage("Heavy task", Set.of(ModelCapabilities.WEB));
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // ReActAgentExecutor safety-net: MAX_ITERATIONS is always followed by FINAL_ANSWER
+        // (fallback text if the loop produced no partial answer). Simulate the full tail.
+        String safetyText = "I reached the iteration limit before producing a complete answer. "
+                + "Please rephrase or try again.";
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.metadata("test-model", 0),
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"x\"}", 0),
+                AgentStreamEvent.observation("some data", false, 0),
+                AgentStreamEvent.maxIterations(null, MAX_ITERATIONS),
+                AgentStreamEvent.finalAnswer(safetyText, MAX_ITERATIONS));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // (a) responseText carries the safety-net fallback verbatim.
+        assertThat(ctx.getResponseText()).hasValue(safetyText);
+
+        // (b) status transcript records the ⚠️ iteration-limit marker.
+        assertThat(ctx.getStatusBuffer().toString()).contains(STATUS_MAX_ITER_LINE);
+
+        // (c) the answer was actually delivered to the chat — generateAgentResponse routes the
+        //     no-tentative-bubble path through sendHtml(chatId, html, null) per paragraph. The
+        //     html is produced by AIUtils.convertMarkdownToHtml, so assert on the payload the
+        //     user would actually see (plain sentence survives conversion).
+        ArgumentCaptor<String> sentHtmlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messageSender, atLeastOnce()).sendHtml(eq(CHAT_ID), sentHtmlCaptor.capture(), isNull());
+        boolean deliveredSafetyText = sentHtmlCaptor.getAllValues().stream()
+                .anyMatch(html -> html.contains("I reached the iteration limit"));
+        assertThat(deliveredSafetyText)
+                .as("MAX_ITERATIONS+FINAL_ANSWER safety-net text must reach the user as an answer message")
+                .isTrue();
+        assertThat(ctx.getErrorType()).isNull();
+    }
+
+    /**
+     * Regression guard: if MAX_ITERATIONS ever arrives WITHOUT the safety-net FINAL_ANSWER
+     * (safety-net in {@code ReActAgentExecutor} regressed, or a custom executor bypasses it),
+     * the Telegram layer must surface an explicit {@link MessageHandlerErrorType#EMPTY_RESPONSE}
+     * so the user gets the error-path notification instead of silently receiving nothing.
+     */
+    @Test
+    @DisplayName("should set EMPTY_RESPONSE when MAX_ITERATIONS is terminal with no FINAL_ANSWER")
+    void shouldSetEmptyResponseErrorWhenMaxIterationsEventHasNoFinalAnswer() {
+        MessageHandlerContext ctx = createContextWithMessage("Heavy task", Set.of(ModelCapabilities.WEB));
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // Terminal event is MAX_ITERATIONS with null content — mimics a broken/bypassed safety-net.
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.metadata("test-model", 0),
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"x\"}", 0),
+                AgentStreamEvent.observation("some data", false, 0),
+                AgentStreamEvent.maxIterations(null, MAX_ITERATIONS));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        assertThat(ctx.getResponseText()).isEmpty();
+        assertThat(ctx.getErrorType())
+                .as("missing FINAL_ANSWER after MAX_ITERATIONS must classify as EMPTY_RESPONSE")
+                .isEqualTo(MessageHandlerErrorType.EMPTY_RESPONSE);
+        assertThat(ctx.getStatusBuffer().toString()).contains(STATUS_MAX_ITER_LINE);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
+
+    private static final String STATUS_MAX_ITER_LINE = "⚠️ reached iteration limit";
+    private static final String STATUS_THINKING_LINE = "💭 Thinking...";
 
     private MessageHandlerContext createContextWithMessage(String userText,
                                                             Set<ModelCapabilities> capabilities) {

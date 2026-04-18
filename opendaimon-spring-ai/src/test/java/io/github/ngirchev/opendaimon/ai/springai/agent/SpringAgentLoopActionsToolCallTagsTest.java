@@ -59,13 +59,6 @@ class SpringAgentLoopActionsToolCallTagsTest {
     }
 
     @Test
-    void shouldStripLooseNameTags() {
-        String text = "prefix <name>web_search</name> suffix";
-        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
-                .isEqualTo("prefix  suffix");
-    }
-
-    @Test
     void shouldReturnNullForNullInput() {
         assertThat(SpringAgentLoopActions.stripToolCallTags(null)).isNull();
     }
@@ -117,13 +110,6 @@ class SpringAgentLoopActionsToolCallTagsTest {
     }
 
     @Test
-    void shouldStripUnclosedNameTag() {
-        String text = "answer text\n<name>web_search";
-        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
-                .isEqualTo("answer text");
-    }
-
-    @Test
     void shouldStripUnclosedArgKeyTag() {
         String text = "response here\n<arg_key>query";
         assertThat(SpringAgentLoopActions.stripToolCallTags(text))
@@ -164,13 +150,6 @@ class SpringAgentLoopActionsToolCallTagsTest {
     // --- Bare tool name tests ---
 
     @Test
-    void shouldStripBareToolNameOnOwnLine() {
-        String text = "some answer\nhttp_get\n\nmore text";
-        assertThat(SpringAgentLoopActions.stripToolCallTags(text))
-                .doesNotContain("http_get");
-    }
-
-    @Test
     void shouldNotStripWordWithoutUnderscoreOnOwnLine() {
         String text = "Hello\nQuarkus\nDone";
         assertThat(SpringAgentLoopActions.stripToolCallTags(text))
@@ -182,18 +161,6 @@ class SpringAgentLoopActionsToolCallTagsTest {
         String text = "I used http_get to fetch the data";
         assertThat(SpringAgentLoopActions.stripToolCallTags(text))
                 .isEqualTo("I used http_get to fetch the data");
-    }
-
-    @Test
-    void shouldStripMultipleBareToolNamesOnSeparateLines() {
-        String text = "result\nhttp_get\nweb_search\nfetch_url\nend";
-        String result = SpringAgentLoopActions.stripToolCallTags(text);
-        assertThat(result)
-                .doesNotContain("http_get")
-                .doesNotContain("web_search")
-                .doesNotContain("fetch_url")
-                .contains("result")
-                .contains("end");
     }
 
     @Test

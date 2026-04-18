@@ -146,4 +146,26 @@ class WebToolsTest {
         assertEquals("", result);
         verify(webClient, never()).get();
     }
+
+    @Test
+    void shouldReturnStructuredErrorWhenBodyDecodingFailsOn2xx() {
+        // WebClient.bodyToMono can raise a WebClientResponseException with a 2xx status
+        // when the body exceeds the codec memory limit (DataBufferLimitException) or fails
+        // to decode. The raw "HTTP error 200 OK" string is absurd and confuses the agent
+        // into retry loops — surface a distinct "Error: fetch_url could not decode …"
+        // instead so observe() classifies it as FAILED and the model tries a different URL.
+        WebClientResponseException okButUndecodable = WebClientResponseException.create(
+                HttpStatus.OK.value(), "OK", null, null, null);
+        when(webClient.get()).thenReturn(getSpec);
+        when(getSpec.uri(anyString())).thenReturn(getRequestHeadersSpec);
+        when(getRequestHeadersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.bodyToMono(eq(String.class)))
+                .thenReturn(Mono.error(okButUndecodable));
+
+        String result = webTools.fetchUrl("https://hackernoon.com/huge-article");
+
+        assertEquals(
+                "Error: fetch_url could not decode response body for https://hackernoon.com/huge-article",
+                result);
+    }
 }

@@ -1,9 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
-import io.github.ngirchev.opendaimon.ai.springai.agent.memory.CompositeAgentMemory;
-import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
-import io.github.ngirchev.opendaimon.ai.springai.agent.memory.SemanticAgentMemory;
 import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
@@ -15,7 +12,6 @@ import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopFsmFactory;
 import io.github.ngirchev.opendaimon.common.agent.AgentState;
-import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
 import io.github.ngirchev.opendaimon.common.agent.persistence.AgentExecutionRepository;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -25,11 +21,9 @@ import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.support.ToolCallbacks;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -46,7 +40,10 @@ import java.util.List;
  *
  * <p>Activated when {@code open-daimon.agent.enabled=true}.
  * Registers the ReAct agent executor with FSM-based loop, Spring AI integration,
- * auto-discovered tools, and optional semantic memory.
+ * and auto-discovered tools. Long-term memory is provided by
+ * {@link ChatMemory} (wired separately in {@link SpringAIAutoConfig}) which
+ * already performs rolling summarization of the conversation history — no
+ * additional agent-level fact extraction layer is required.
  *
  * <p>All beans use {@code @ConditionalOnMissingBean} so they can be overridden
  * by application-specific configurations.
@@ -72,43 +69,6 @@ public class AgentAutoConfig {
         return new DelegatingAgentChatModel(registry, ollamaProvider, openAiProvider);
     }
 
-    // --- Agent Memory ---
-
-    @Bean
-    @ConditionalOnMissingBean(SemanticAgentMemory.class)
-    @ConditionalOnBean(VectorStore.class)
-    @ConditionalOnProperty(name = FeatureToggle.Feature.AGENT_MEMORY_ENABLED, havingValue = "true")
-    public SemanticAgentMemory semanticAgentMemory(VectorStore vectorStore, AgentProperties properties) {
-        return new SemanticAgentMemory(vectorStore, properties.getMemorySimilarityThreshold());
-    }
-
-    /**
-     * When multiple {@link AgentMemory} beans exist, combines them via {@link CompositeAgentMemory}.
-     * Marked {@code @Primary} so other beans (FactExtractor, AgentLoopActions) get the composite.
-     */
-    @Bean
-    @Primary
-    @ConditionalOnMissingBean(CompositeAgentMemory.class)
-    @ConditionalOnBean(SemanticAgentMemory.class)
-    public AgentMemory compositeAgentMemory(List<AgentMemory> memories) {
-        if (memories.size() == 1) {
-            return memories.getFirst();
-        }
-        log.info("Agent memory: composing {} memory sources", memories.size());
-        return new CompositeAgentMemory(memories);
-    }
-
-    // --- Agent Loop ---
-
-    @Bean
-    @ConditionalOnMissingBean(FactExtractor.class)
-    @ConditionalOnBean(AgentMemory.class)
-    public FactExtractor factExtractor(
-            DelegatingAgentChatModel agentChatModel,
-            AgentMemory agentMemory) {
-        return new FactExtractor(agentChatModel, agentMemory);
-    }
-
     // --- Agent Loop ---
 
     @Bean
@@ -117,12 +77,9 @@ public class AgentAutoConfig {
             DelegatingAgentChatModel agentChatModel,
             ToolCallingManager toolCallingManager,
             List<ToolCallback> agentToolCallbacks,
-            ObjectProvider<AgentMemory> agentMemoryProvider,
-            ObjectProvider<FactExtractor> factExtractorProvider,
             ObjectProvider<ChatMemory> chatMemoryProvider) {
-        AgentMemory memory = agentMemoryProvider.getIfAvailable();
-        FactExtractor extractor = factExtractorProvider.getIfAvailable();
-        return new SpringAgentLoopActions(agentChatModel, toolCallingManager, agentToolCallbacks, memory, extractor, chatMemoryProvider.getIfAvailable());
+        return new SpringAgentLoopActions(
+                agentChatModel, toolCallingManager, agentToolCallbacks, chatMemoryProvider.getIfAvailable());
     }
 
     @Bean("agentLoopFsm")
@@ -202,7 +159,8 @@ public class AgentAutoConfig {
     @Bean
     @ConditionalOnMissingBean(HttpApiTool.class)
     @ConditionalOnProperty(name = FeatureToggle.Feature.AGENT_HTTP_API_TOOL_ENABLED, havingValue = "true")
-    public HttpApiTool httpApiTool(WebClient webClient) {
+    public HttpApiTool httpApiTool(
+            @org.springframework.beans.factory.annotation.Qualifier("webToolsWebClient") WebClient webClient) {
         return new HttpApiTool(webClient);
     }
 }

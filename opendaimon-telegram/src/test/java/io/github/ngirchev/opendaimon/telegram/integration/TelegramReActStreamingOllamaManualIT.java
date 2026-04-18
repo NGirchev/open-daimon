@@ -142,9 +142,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
         "open-daimon.agent.enabled=true",
         "open-daimon.agent.max-iterations=10",
-        "open-daimon.agent.memory.enabled=false",
         "open-daimon.agent.tools.http-api.enabled=false",
-        "open-daimon.agent.memory-similarity-threshold=0.7",
 
         "open-daimon.rest.enabled=false",
         "open-daimon.ui.enabled=false",

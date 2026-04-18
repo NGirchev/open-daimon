@@ -29,8 +29,7 @@ class SpringAgentLoopActionsRawToolCallTest {
         ToolCallback httpGetCallback = mockToolCallback("http_get");
         ToolCallback webSearchCallback = mockToolCallback("web_search");
         actions = new SpringAgentLoopActions(
-                null, null, List.of(httpGetCallback, webSearchCallback),
-                null, null, null);
+                null, null, List.of(httpGetCallback, webSearchCallback), null);
     }
 
     // --- tryParseRawToolCall: successful parsing ---

@@ -633,6 +633,35 @@ When `AgentProperties.maxIterations` is reached without a `finalAnswer`:
    collected observations and answer the user directly — no further reasoning.
 2. The output is treated as a normal `finalAnswer` and drives the status-to-answer transition above.
 
+#### Invariant: MAX_ITERATIONS always pairs with FINAL_ANSWER rendering
+
+`ReActAgentExecutor` is the authoritative source of the terminal stream tail: whenever it
+emits a `MAX_ITERATIONS` event, it **also emits a `FINAL_ANSWER` event immediately after** —
+either with the summarizer output from step 1 above, or, if that call produced nothing, with
+the hard-coded safety-net fallback
+`"I reached the iteration limit before producing a complete answer. Please rephrase or try again."`
+This guarantees the Telegram layer never reaches the end of the stream with `ctx.responseText`
+still unset after an iteration-limit exit.
+
+Consumer contract inside `TelegramMessageHandlerActions`:
+
+- The `MAX_ITERATIONS` event appends `⚠️ reached iteration limit` to the status transcript and
+  force-flushes the status edit (see `handleAgentStreamEvent`).
+- The subsequent `FINAL_ANSWER` event sets `ctx.responseText`; `generateAgentResponse` then
+  either finalizes the tentative answer bubble (if one was opened via `PARTIAL_ANSWER`
+  promotion) or sends the text as a fresh message via `sendTextByParagraphs`. Either way, the
+  user **always** receives an answer bubble alongside the ⚠️ status marker.
+- If a `MAX_ITERATIONS` event is ever observed as the terminal event without a following
+  `FINAL_ANSWER` (i.e. the `ReActAgentExecutor` safety-net is bypassed or broken), the
+  Telegram layer classifies the outcome as `MessageHandlerErrorType.EMPTY_RESPONSE` so the
+  error path surfaces a notification to the user instead of silence.
+
+This invariant is pinned by two tests in
+`TelegramMessageHandlerActionsStreamingTest`:
+`shouldRenderFinalAnswerBubbleOnMaxIterations` (happy path — bubble delivered) and
+`shouldSetEmptyResponseErrorWhenMaxIterationsEventHasNoFinalAnswer` (regression guard against
+silent iteration-limit exits).
+
 ### Telegram length limit — message rotation
 
 When a status or answer message approaches Telegram's message-body length cap:

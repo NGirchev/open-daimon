@@ -1,14 +1,11 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
-import io.github.ngirchev.opendaimon.ai.springai.agent.memory.FactExtractor;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
-import io.github.ngirchev.opendaimon.common.agent.memory.AgentFact;
-import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -52,13 +49,9 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SpringAgentLoopActions implements AgentLoopActions {
 
-    private static final int MEMORY_RECALL_TOP_K = 5;
-
     private final ChatModel chatModel;
     private final ToolCallingManager toolCallingManager;
     private final List<ToolCallback> toolCallbacks;
-    private final AgentMemory agentMemory;
-    private final FactExtractor factExtractor;
     private final ChatMemory chatMemory;
 
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
@@ -105,14 +98,10 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
                                   List<ToolCallback> toolCallbacks,
-                                  AgentMemory agentMemory,
-                                  FactExtractor factExtractor,
                                   ChatMemory chatMemory) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : List.of();
-        this.agentMemory = agentMemory;
-        this.factExtractor = factExtractor;
         this.chatMemory = chatMemory;
     }
 
@@ -124,10 +113,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             if (messages.isEmpty()) {
                 String systemPrompt = AgentPromptBuilder.buildSystemPrompt();
-                String memoryContext = recallMemoryContext(ctx);
-                if (memoryContext != null) {
-                    systemPrompt = systemPrompt + "\n\n" + memoryContext;
-                }
                 messages.add(new SystemMessage(systemPrompt));
                 loadConversationHistory(ctx, messages);
                 messages.add(new UserMessage(AgentPromptBuilder.buildUserMessage(ctx)));
@@ -187,17 +172,28 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
             if (response.hasToolCalls()) {
                 var toolCalls = output.getToolCalls();
-                if (toolCalls.size() > 1) {
-                    log.warn("Agent think: LLM returned {} tool calls, only the first will be executed. " +
-                            "Parallel tool calls are not yet supported.", toolCalls.size());
-                }
                 var firstToolCall = toolCalls.getFirst();
+                if (toolCalls.size() > 1) {
+                    log.warn("Agent think: LLM returned {} tool calls, truncating to first (parallel not supported)",
+                            toolCalls.size());
+                    AssistantMessage singleMsg = AssistantMessage.builder()
+                            .content(output.getText())
+                            .toolCalls(List.of(firstToolCall))
+                            .build();
+                    ChatResponse existing = ctx.getExtra(KEY_LAST_RESPONSE);
+                    Generation singleGen = existing.getResult() != null && existing.getResult().getMetadata() != null
+                            ? new Generation(singleMsg, existing.getResult().getMetadata())
+                            : new Generation(singleMsg);
+                    ctx.putExtra(KEY_LAST_RESPONSE, new ChatResponse(List.of(singleGen), existing.getMetadata()));
+                    messages.add(singleMsg);
+                } else {
+                    messages.add(output);
+                }
                 ctx.setCurrentThought("Calling tool: " + firstToolCall.name());
                 ctx.setCurrentToolName(firstToolCall.name());
                 ctx.setCurrentToolArguments(firstToolCall.arguments());
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
-                messages.add(output);
             } else {
                 String rawText = stripThinkTags(output.getText());
                 RawToolCall rawToolCall = tryParseRawToolCall(rawText);
@@ -262,7 +258,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     if (chunk.getResult() != null && chunk.getResult().getOutput() != null) {
                         AssistantMessage output = chunk.getResult().getOutput();
                         if (output.getText() != null) {
-                            fullText.append(output.getText());
+                            String text = output.getText();
+                            String accumulated = fullText.toString();
+                            fullText.append(normalizeDelta(accumulated, text));
                         }
                         if (output.getToolCalls() != null && !output.getToolCalls().isEmpty()) {
                             collectedToolCalls.addAll(output.getToolCalls());
@@ -361,6 +359,14 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             // promote the observation to an error so the UI shows "⚠️ Tool failed: …".
             if (streamContent != null) {
                 String trimmed = streamContent.trim();
+                // Spring AI serializes String tool return values as JSON-quoted strings
+                // (e.g. "HTTP error 200 OK" → "\"HTTP error 200 OK\""). Unwrap the outer
+                // quotes before checking the textual-failure prefix so the heuristic works
+                // regardless of whether the upstream serializer added them.
+                if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
+                    trimmed = trimmed.substring(1, trimmed.length() - 1);
+                    streamContent = trimmed;
+                }
                 if (trimmed.startsWith("HTTP error ") || trimmed.startsWith("Error: ")) {
                     toolError = true;
                     streamContent = summarizeToolError(trimmed);
@@ -392,7 +398,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     public void answer(AgentContext ctx) {
         ctx.setFinalAnswer(ctx.getCurrentTextResponse());
         saveConversationHistory(ctx);
-        extractFacts(ctx);
         cleanup(ctx);
         log.info("Agent answer: final answer set, length={}",
                 ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0);
@@ -463,7 +468,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         String raw = response.getResult() != null && response.getResult().getOutput() != null
                 ? response.getResult().getOutput().getText()
                 : null;
-        String clean = stripToolCallTags(raw);
+        String clean = stripToolCallTags(stripThinkTags(raw));
         if (clean == null || clean.isBlank()) {
             throw new IllegalStateException("Summary LLM returned empty content");
         }
@@ -530,38 +535,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         }
         cleanup(ctx);
         log.error("Agent handleError: {}", ctx.getErrorMessage());
-    }
-
-    /**
-     * Extracts key facts from the completed conversation and stores them in memory.
-     * Best-effort — failures don't affect the agent response.
-     */
-    private void extractFacts(AgentContext ctx) {
-        if (factExtractor != null && !ctx.getStepHistory().isEmpty()) {
-            // Only extract when there were tool interactions (non-trivial conversations)
-            factExtractor.extractAndStore(ctx);
-        }
-    }
-
-    private String recallMemoryContext(AgentContext ctx) {
-        if (agentMemory == null || ctx.getConversationId() == null) {
-            return null;
-        }
-        try {
-            List<AgentFact> facts = agentMemory.recall(
-                    ctx.getConversationId(), ctx.getTask(), MEMORY_RECALL_TOP_K);
-            if (facts.isEmpty()) {
-                return null;
-            }
-            String factsText = facts.stream()
-                    .map(AgentFact::content)
-                    .collect(Collectors.joining("\n- ", "- ", ""));
-            log.info("Agent memory: recalled {} facts for task", facts.size());
-            return "Relevant information from memory:\n" + factsText;
-        } catch (Exception e) {
-            log.warn("Agent memory recall failed: {}", e.getMessage());
-            return null;
-        }
     }
 
     /**
@@ -802,11 +775,27 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             return null;
         }
         int start = text.indexOf("<think>");
-        int end = text.indexOf("</think>");
-        if (start < 0 || end < 0 || end <= start) {
+        if (start < 0) {
             return text;
         }
+        int end = text.indexOf("</think>");
+        if (end < 0 || end <= start) {
+            return text.substring(0, start).trim();
+        }
         return (text.substring(0, start) + text.substring(end + "</think>".length())).trim();
+    }
+
+    /**
+     * Returns the delta to append to {@code accumulated} when a streaming chunk arrives.
+     * Some providers (Ollama) send cumulative snapshots rather than true deltas: each
+     * chunk repeats all previous content plus the new suffix. When the new chunk starts
+     * with the entire accumulated text, only the suffix beyond it is the new content.
+     */
+    static String normalizeDelta(String accumulated, String chunk) {
+        if (!accumulated.isEmpty() && chunk.startsWith(accumulated)) {
+            return chunk.substring(accumulated.length());
+        }
+        return chunk;
     }
 
     /**
@@ -829,9 +818,11 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         String result = TOOL_CALL_BLOCK_PATTERN.matcher(text).replaceAll("");
         result = TOOL_CALL_OPEN_PATTERN.matcher(result).replaceAll("");
         result = TOOL_CALL_CLOSE_PATTERN.matcher(result).replaceAll("");
-        result = TOOL_CALL_INNER_TAGS_PATTERN.matcher(result).replaceAll("");
-        result = TOOL_CALL_UNCLOSED_INNER_TAG_PATTERN.matcher(result).replaceAll("");
-        result = BARE_TOOL_NAME_PATTERN.matcher(result).replaceAll("");
+        if (result.contains("<arg_key>") || result.contains("<arg_value>")) {
+            result = TOOL_CALL_INNER_TAGS_PATTERN.matcher(result).replaceAll("");
+            result = TOOL_CALL_UNCLOSED_INNER_TAG_PATTERN.matcher(result).replaceAll("");
+            result = BARE_TOOL_NAME_PATTERN.matcher(result).replaceAll("");
+        }
         return result.trim().isEmpty() ? "" : result.trim();
     }
 

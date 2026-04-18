@@ -35,7 +35,7 @@ class SpringAgentLoopActionsStreamingTest {
         chatModel = mock(ChatModel.class);
         ToolCallingManager toolCallingManager = mock(ToolCallingManager.class);
         actions = new SpringAgentLoopActions(
-                chatModel, toolCallingManager, List.of(), null, null, null);
+                chatModel, toolCallingManager, List.of(), null);
         ctx = new AgentContext("test task", "conv-1", Map.of(), 5, Set.of());
         events = new ArrayList<>();
         ctx.setStreamSink(events::add);

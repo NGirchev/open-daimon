@@ -189,4 +189,48 @@ class TelegramAgentStreamRendererTest {
         assertThat(call.toolName()).isEmpty();
         assertThat(call.args()).isEmpty();
     }
+
+    @Test
+    void shouldRenderNoToolOutputSentinelAsEmpty() {
+        AgentStreamEvent event = AgentStreamEvent.observation("(no tool output)", false, 1);
+
+        RenderedUpdate result = renderer.render(event, ctx);
+
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendObservation.class);
+        assertThat(((RenderedUpdate.AppendObservation) result).kind())
+                .isEqualTo(RenderedUpdate.ObservationKind.EMPTY);
+    }
+
+    @Test
+    void shouldRenderNullContentAsEmpty() {
+        AgentStreamEvent event = AgentStreamEvent.observation(null, false, 1);
+
+        RenderedUpdate result = renderer.render(event, ctx);
+
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendObservation.class);
+        assertThat(((RenderedUpdate.AppendObservation) result).kind())
+                .isEqualTo(RenderedUpdate.ObservationKind.EMPTY);
+    }
+
+    @Test
+    void shouldRenderBlankContentAsEmpty() {
+        AgentStreamEvent event = AgentStreamEvent.observation("   ", false, 1);
+
+        RenderedUpdate result = renderer.render(event, ctx);
+
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendObservation.class);
+        assertThat(((RenderedUpdate.AppendObservation) result).kind())
+                .isEqualTo(RenderedUpdate.ObservationKind.EMPTY);
+    }
+
+    @Test
+    void shouldRenderActualContentAsResult() {
+        AgentStreamEvent event = AgentStreamEvent.observation("Bitcoin price: $105,000", false, 1);
+
+        RenderedUpdate result = renderer.render(event, ctx);
+
+        assertThat(result).isInstanceOf(RenderedUpdate.AppendObservation.class);
+        assertThat(((RenderedUpdate.AppendObservation) result).kind())
+                .isEqualTo(RenderedUpdate.ObservationKind.RESULT);
+    }
 }

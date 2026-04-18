@@ -97,10 +97,22 @@ public class ReActAgentExecutor implements AgentExecutor {
                     // FINAL_ANSWER so downstream consumers treat it as the canonical answer.
                     sink.tryEmitNext(AgentStreamEvent.maxIterations(
                             null, result.iterationsUsed()));
-                    if (result.finalAnswer() != null && !result.finalAnswer().isBlank()) {
-                        sink.tryEmitNext(AgentStreamEvent.finalAnswer(
-                                result.finalAnswer(), result.iterationsUsed()));
+                    String answer = result.finalAnswer();
+                    if (answer == null || answer.isBlank()) {
+                        // Defense-in-depth: SpringAgentLoopActions.handleMaxIterations is
+                        // contracted to always populate ctx.finalAnswer (via summary LLM or
+                        // buildFallbackSummary digest). If a future regression lets it slip
+                        // through blank, the user would see only "⚠️ reached iteration limit"
+                        // with no body text. Emit a safety message so the Telegram path
+                        // (extractAgentResult + saveResponse.orElseThrow) always has content.
+                        log.warn("ReActAgentExecutor: MAX_ITERATIONS finished with empty finalAnswer — "
+                                + "this indicates a regression in handleMaxIterations fallback chain. "
+                                + "Emitting safety text to avoid silent UX.");
+                        answer = "I reached the iteration limit before producing a complete answer. "
+                                + "Please rephrase or try again.";
                     }
+                    sink.tryEmitNext(AgentStreamEvent.finalAnswer(
+                            answer, result.iterationsUsed()));
                 } else {
                     sink.tryEmitNext(AgentStreamEvent.error(
                             ctx.getErrorMessage(), result.iterationsUsed()));
