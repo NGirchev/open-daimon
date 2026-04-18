@@ -48,9 +48,9 @@ public class TelegramAgentStreamRenderer {
 
     private String renderThinking(String content) {
         if (content == null || content.isBlank()) {
-            return "<i>\uD83E\uDD14 Thinking...</i>";
+            return "<i>\uD83D\uDCAD Thinking...</i>";
         }
-        return "<i>\uD83E\uDD14 " + escapeHtml(truncate(content, OBSERVATION_MAX_LENGTH)) + "</i>";
+        return "<i>\uD83D\uDCAD " + escapeHtml(truncate(content, OBSERVATION_MAX_LENGTH)) + "</i>";
     }
 
     private String renderToolCall(String content) {

@@ -163,6 +163,15 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
         AgentStreamEvent terminal = events.getLast();
         assertThat(terminal.type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER);
         assertThat(terminal.content()).isEqualTo("Hello world");
+
+        List<AgentStreamEvent> metadataEvents = events.stream()
+                .filter(event -> event.type() == AgentStreamEvent.EventType.METADATA)
+                .toList();
+        assertThat(metadataEvents).hasSize(1);
+
+        int metadataIndex = events.indexOf(metadataEvents.getFirst());
+        int firstChunkIndex = events.indexOf(finalChunks.getFirst());
+        assertThat(metadataIndex).isLessThan(firstChunkIndex);
     }
 
     @Test

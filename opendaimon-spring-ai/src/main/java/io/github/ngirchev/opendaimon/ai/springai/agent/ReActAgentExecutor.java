@@ -89,7 +89,7 @@ public class ReActAgentExecutor implements AgentExecutor {
                 // Emit metadata (model name) before terminal event
                 AgentResult result = ctx.toResult();
                 String streamedVisibleAnswer = SpringAgentLoopActions.getStreamedFinalVisibleAnswer(ctx);
-                if (result.modelName() != null) {
+                if (result.modelName() != null && !SpringAgentLoopActions.wasModelMetadataEmitted(ctx)) {
                     sink.tryEmitNext(AgentStreamEvent.metadata(
                             result.modelName(), result.iterationsUsed()));
                 }

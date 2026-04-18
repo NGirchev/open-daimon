@@ -436,6 +436,34 @@ class TelegramMessageHandlerActionsAgentTest {
     }
 
     @Test
+    @DisplayName("generateResponse rolls back tentative final answer when structured TOOL_CALL arrives")
+    void generateResponse_structuredToolCallAfterFinalChunk_rollsBackTentativeAnswer() {
+        MessageHandlerContext ctx = createContextWithMetadata(
+                "Compare frameworks",
+                Set.of(ModelCapabilities.WEB),
+                s -> {},
+                101
+        );
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true)))
+                .thenReturn(700) // progress message
+                .thenReturn(800); // tentative final answer message
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.finalAnswerChunk("I will gather benchmark data first. ", 0),
+                AgentStreamEvent.toolCall("web_search", "{\"query\":\"quarkus spring boot benchmark\"}", 0),
+                AgentStreamEvent.observation("Tool result received", 0),
+                AgentStreamEvent.finalAnswer("Final answer after tool execution.", 1)
+        );
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        verify(messageSender).deleteMessage(42L, 800);
+        verify(messageSender).sendHtml(eq(42L), contains("Final answer after tool execution."), eq(101));
+    }
+
+    @Test
     @DisplayName("generateResponse rotates progress message when status exceeds Telegram limit")
     void generateResponse_progressOverflow_rotatesMessageWithReplyTo() {
         MessageHandlerContext ctx = createContextWithMetadata(
@@ -472,8 +500,8 @@ class TelegramMessageHandlerActionsAgentTest {
     }
 
     @Test
-    @DisplayName("generateResponse keeps thinking progress when final answer arrives without tools")
-    void generateResponse_thinkingOnlyProgress_isKeptOnFinalAnswer() {
+    @DisplayName("generateResponse removes thinking-only progress when final answer arrives without tools")
+    void generateResponse_thinkingOnlyProgress_isRemovedOnFinalAnswer() {
         MessageHandlerContext ctx = createContextWithMetadata("Answer directly",
                 Set.of(ModelCapabilities.CHAT), s -> {}, 101);
         when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true))).thenReturn(700);
@@ -496,8 +524,8 @@ class TelegramMessageHandlerActionsAgentTest {
                 .contains("Analyzing request")
                 .doesNotContain("Thinking...");
 
-        verify(messageSender, never()).deleteMessage(eq(42L), eq(700));
-        assertThat(ctx.getAgentProgressMessageId()).isEqualTo(700);
+        verify(messageSender).deleteMessage(eq(42L), eq(700));
+        assertThat(ctx.getAgentProgressMessageId()).isNull();
         assertThat(ctx.getResponseText()).hasValue("Done.");
     }
 

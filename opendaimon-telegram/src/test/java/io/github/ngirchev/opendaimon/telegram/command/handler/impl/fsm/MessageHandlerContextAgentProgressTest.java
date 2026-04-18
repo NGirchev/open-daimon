@@ -61,7 +61,7 @@ class MessageHandlerContextAgentProgressTest {
     }
 
     @Test
-    void shouldKeepTransientThinkingOnTerminalEvent() {
+    void shouldRemoveTransientThinkingOnTerminalEvent() {
         MessageHandlerContext ctx = new MessageHandlerContext(mock(TelegramCommand.class), null, s -> {});
 
         MessageHandlerContext.AgentProgressUpdate thinkingUpdate = ctx.mergeAgentProgressEvent(
@@ -76,8 +76,9 @@ class MessageHandlerContextAgentProgressTest {
         );
 
         assertThat(thinkingUpdate.html()).contains("Thinking...");
-        assertThat(terminalUpdate.changed()).isFalse();
-        assertThat(terminalUpdate.html()).contains("Thinking...");
+        assertThat(terminalUpdate.changed()).isTrue();
+        assertThat(terminalUpdate.html()).doesNotContain("Thinking...");
+        assertThat(terminalUpdate.isEmpty()).isTrue();
     }
 
     @Test

@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -78,6 +79,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private static final String KEY_LAST_RESPONSE = "spring.lastResponse";
     private static final String KEY_STREAMING_EXECUTION = "spring.streamingExecution";
     private static final String KEY_STREAMED_VISIBLE_FINAL_ANSWER = "spring.streamedVisibleFinalAnswer";
+    private static final String KEY_MODEL_METADATA_EMITTED = "spring.modelMetadataEmitted";
 
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
@@ -132,9 +134,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             ChatResponse response = invokeThinkModel(prompt, ctx);
             ctx.putExtra(KEY_LAST_RESPONSE, response);
 
-            if (response.getMetadata().getModel() != null) {
-                ctx.setModelName(response.getMetadata().getModel());
-            }
+            maybeEmitModelMetadata(ctx, response.getMetadata().getModel());
 
             // Emit reasoning content if available from provider (OpenRouter/Anthropic/Ollama)
             String reasoning = extractReasoning(response);
@@ -217,6 +217,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         StringBuilder fullText = new StringBuilder();
         AtomicReference<String> previousChunkText = new AtomicReference<>("");
         AtomicReference<List<AssistantMessage.ToolCall>> latestStreamToolCalls = new AtomicReference<>(List.of());
+        AtomicBoolean hasStructuredToolCall = new AtomicBoolean(false);
         try {
             Flux<ChatResponse> responseFlux = chatModel.stream(prompt);
             if (responseFlux == null) {
@@ -225,8 +226,12 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             responseFlux
                     .doOnNext(chunk -> {
                         lastResponse.set(chunk);
+                        if (chunk.getMetadata() != null) {
+                            maybeEmitModelMetadata(ctx, chunk.getMetadata().getModel());
+                        }
                         List<AssistantMessage.ToolCall> chunkToolCalls = extractToolCallsFromChunk(chunk);
                         if (!chunkToolCalls.isEmpty()) {
+                            hasStructuredToolCall.set(true);
                             latestStreamToolCalls.set(List.copyOf(chunkToolCalls));
                         }
                         AIUtils.extractText(chunk).ifPresent(text -> {
@@ -236,6 +241,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                                 return;
                             }
                             fullText.append(delta);
+                            emitStreamFinalAnswerDelta(ctx, fullText.toString(), hasStructuredToolCall.get());
                         });
                     })
                     .blockLast(Duration.ofMinutes(10));
@@ -253,6 +259,54 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             return chatModel.call(prompt);
         }
         return mergeStreamingText(terminalChunk, fullText.toString(), latestStreamToolCalls.get());
+    }
+
+    private void maybeEmitModelMetadata(AgentContext ctx, String modelName) {
+        if (modelName == null || modelName.isBlank()) {
+            return;
+        }
+        ctx.setModelName(modelName);
+        if (!isStreamingExecution(ctx)) {
+            return;
+        }
+        if (Boolean.TRUE.equals(ctx.getExtra(KEY_MODEL_METADATA_EMITTED))) {
+            return;
+        }
+        ctx.emitEvent(AgentStreamEvent.metadata(modelName, ctx.getCurrentIteration()));
+        ctx.putExtra(KEY_MODEL_METADATA_EMITTED, Boolean.TRUE);
+    }
+
+    private void emitStreamFinalAnswerDelta(AgentContext ctx, String accumulatedText, boolean hasStructuredToolCall) {
+        if (hasStructuredToolCall) {
+            return;
+        }
+        String normalized = sanitizeFinalAnswerText(accumulatedText);
+        if (normalized == null || normalized.isBlank()) {
+            return;
+        }
+        String streamedVisible = getStreamedFinalVisibleAnswer(ctx);
+        if (normalized.equals(streamedVisible)) {
+            return;
+        }
+        if (streamedVisible.isBlank()) {
+            ctx.emitEvent(AgentStreamEvent.finalAnswerChunk(normalized, ctx.getCurrentIteration()));
+            ctx.putExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER, normalized);
+            return;
+        }
+        if (normalized.startsWith(streamedVisible)) {
+            String delta = normalized.substring(streamedVisible.length());
+            if (!delta.isEmpty()) {
+                ctx.emitEvent(AgentStreamEvent.finalAnswerChunk(delta, ctx.getCurrentIteration()));
+            }
+            ctx.putExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER, normalized);
+            return;
+        }
+        // Non-monotonic snapshots can briefly happen with some providers; ignore to avoid duplicate chunks.
+        if (streamedVisible.startsWith(normalized)) {
+            return;
+        }
+        log.debug("Agent think: stream delta diverged, skipping chunk emission. streamed='{}', normalized='{}'",
+                normalizeForLog(streamedVisible), normalizeForLog(normalized));
     }
 
     static String resolveStreamDelta(String previousChunkText, String currentChunkText) {
@@ -807,6 +861,10 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     static String getStreamedFinalVisibleAnswer(AgentContext ctx) {
         String streamed = ctx.getExtra(KEY_STREAMED_VISIBLE_FINAL_ANSWER);
         return streamed == null ? "" : streamed;
+    }
+
+    static boolean wasModelMetadataEmitted(AgentContext ctx) {
+        return Boolean.TRUE.equals(ctx.getExtra(KEY_MODEL_METADATA_EMITTED));
     }
 
     static RecoveredToolCall recoverToolCallFromText(String text) {

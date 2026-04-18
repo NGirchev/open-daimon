@@ -166,7 +166,8 @@ Evaluated in order — first match wins:
    - when edited content reaches Telegram max length, streaming automatically rolls over to a new final-answer message (tail continues there)
    - terminal event forces flush of any remaining buffered tail to avoid incomplete final text
 6. Terminal `FINAL_ANSWER`/`MAX_ITERATIONS` still finalizes state/persistence:
-   - `THINKING`/progress message remains visible and separate from final-answer message
+   - progress message remains visible and separate from final-answer message
+   - transient trailing `💭 Thinking...` line is removed on terminal event
    - if executor emitted no chunks, terminal content is sent by fallback as a separate message
    - if terminal content contains mixed payload (`user text + tool markers`), Telegram extracts user-visible prefix
    - if terminal content contains only raw tool payload (no user-visible prefix), flow marks it as `EMPTY_RESPONSE` and routes to standard error handling
@@ -476,9 +477,25 @@ pointing to the original user message.
 | Role | Purpose | Lifecycle |
 |------|---------|-----------|
 | **Status message** | Carries `💭 Thinking...`, tool-call lines, tool-result lines, reasoning text | Edited in place across iterations; rotated to a new message when Telegram length limit is hit |
-| **Answer message** | Final user-visible answer | Sent fresh when the model output is tentatively treated as final; edited ~once per 0.5 seconds until complete (rolled back if a `<tool>` tag is detected — see "Final answer transition") |
+| **Answer message** | Final user-visible answer | Sent fresh when the model output is tentatively treated as final; edited ~once per 0.5 seconds until complete (rolled back if tool intent is detected — see "Final answer transition") |
 
 Edit rate for both roles is throttled to **at most one edit per 0.5 seconds** to stay below Telegram rate limits.
+
+### Hard channel-separation contract
+
+This is the intended UX contract and should be treated as invariant:
+
+| Signal | Telegram route | Must not go to |
+|--------|----------------|----------------|
+| `THINKING` | **Status message** | Answer message |
+| `TOOL_CALL` | **Status message** | Answer message |
+| `OBSERVATION` | **Status message** | Answer message |
+| `ERROR` | **Status message** (plus terminal error flow) | Answer message |
+| `METADATA` | Internal context only (not rendered) | Any chat message |
+| `FINAL_ANSWER_CHUNK` | **Answer message** | Status message |
+| `FINAL_ANSWER` / `MAX_ITERATIONS` | Terminal finalize/fallback decision | N/A |
+
+Design intent: the user sees tool reasoning and orchestration only in the status thread, while the answer bubble stays user-facing and clean.
 
 ### Iteration flow
 
@@ -509,31 +526,27 @@ If the model emits `AgentStreamEvent.thinking` with non-empty reasoning:
   block from step 2 — reasoning is not preserved across the tool action.
 - If the iteration turns into a final answer, see "Final answer transition" below.
 
-### Final answer transition (tentative + rollback)
+### Final answer transition (strict intent + safety rollback)
 
-Final-answer detection is **heuristic**, not driven by a single reliable event. The model may emit
-text that looks like a final answer but contains a `<tool>` / tool-call marker somewhere inside —
-in which case it was actually reasoning with an embedded tool call. `AgentStreamEvent.finalAnswer`
-alone is not sufficient because the tag may appear mid-stream.
+Nominal behavior:
 
-The flow therefore uses a **tentative-answer** state with rollback.
+1. If the think step resolves to tool usage, we render `TOOL_CALL`/`OBSERVATION` in the **status message**.
+   In this path, nothing should be committed to the answer bubble.
+2. Only when output is interpreted as user-facing final text do we stream `FINAL_ANSWER_CHUNK`
+   into the **answer message**.
 
-1. **Commit to answer tentatively.** When we become confident the incoming text is the final answer
-   (see point 8 of the Russian draft below for the informal rule), send a new **answer message**
-   (fresh bubble, reply to the original user message) and begin streaming text into it ~once per
-   0.5 seconds, paragraph-by-paragraph (same paragraph-split logic as the gateway path).
+Because provider streams are not perfectly deterministic, we keep a safety fallback:
 
-2. **Watch for tool markers.** Continuously scan the streamed text for `<tool>` / tool-call markers.
-
-3. **Rollback on tag detection.** If a tool marker appears in the tentative answer:
-   - The output was actually reasoning with an embedded tool call.
-   - **Delete** the tentative answer message from Telegram.
-   - Return to the status message: render the prose so far as a thinking/processing line,
-     then render the embedded tool call following step 2 of "Iteration flow".
-   - Iteration continues as normal.
-
-4. **Finalize.** If the stream ends with no tool markers inside the tentative answer, that answer
-   message becomes the final user-visible response; editing stops once all content has been delivered.
+3. **Tentative answer mode.** Early answer chunks are treated as provisional until tool intent is ruled out.
+4. **Tool intent detection.** We monitor both:
+   - inline tool payload markers in text (`<tool_call>`, `<arg_key>`, `<arg_value>`, tool-name lines),
+   - late structured `TOOL_CALL` events that may arrive after provisional chunks.
+5. **Rollback rule.** If tool intent appears after provisional answer text started:
+   - delete the provisional answer message,
+   - move recoverable prose back to status/thinking rendering,
+   - continue loop as a normal tool iteration.
+6. **Commit rule.** If no tool intent appears by terminal completion, the answer message remains
+   as final user-visible output.
 
 ### Max iterations exhausted
 

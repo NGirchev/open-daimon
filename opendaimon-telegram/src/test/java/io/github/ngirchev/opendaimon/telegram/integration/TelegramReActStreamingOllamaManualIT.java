@@ -212,6 +212,12 @@ class TelegramReActStreamingOllamaManualIT {
         assertThat(messageTelegramCommandHandler).isNotNull();
     }
 
+    /**
+     * mvn test -pl opendaimon-telegram -Dtest=TelegramReActStreamingOllamaManualIT#testReActStreamToTelegramApiSnapshots -Dmanual.ollama.e2e=true (not in idea console!!!)
+     * If you run with -am, add: -Dsurefire.failIfNoSpecifiedTests=false
+     * Manual test: run locally with Ollama and PostgreSQL Testcontainers to inspect
+     * Telegram API-level REACT streaming snapshots.
+     */
     @Test
     @Timeout(5 * 60)
     @DisplayName("REACT stream reaches Telegram API as progress + final snapshots")
@@ -518,7 +524,7 @@ class TelegramReActStreamingOllamaManualIT {
             if (!hasText()) {
                 return false;
             }
-            return text.contains("🤔") || text.contains("Thinking");
+            return text.contains("💭") || text.contains("🤔") || text.contains("Thinking");
         }
 
         String plainText() {

@@ -402,9 +402,9 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
                 yield removedTransient || appended;
             }
             case FINAL_ANSWER_CHUNK -> false;
-            // Keep the last thinking snapshot visible even after terminal event.
-            // Final answer is streamed in a dedicated message and should not depend on progress cleanup.
-            case FINAL_ANSWER, MAX_ITERATIONS -> false;
+            // On terminal events remove transient "thinking" snapshot to avoid stale
+            // "Thinking..." line staying visible after final answer is shown.
+            case FINAL_ANSWER, MAX_ITERATIONS -> removeTransientChunks();
             case METADATA -> false;
         };
 

@@ -69,6 +69,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private static final String RAW_TOOL_PAYLOAD_ERROR = "raw_tool_payload_in_final_answer";
     private static final Set<String> TOOL_NAMES = Set.of("http_get", "http_post", "web_search", "fetch_url");
     private static final long STREAM_MIN_EDIT_INTERVAL_MS = 500L;
+    private static final int FINAL_ANSWER_LOG_PREVIEW_LIMIT = 160;
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -308,6 +309,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             ctx.setResponseModel(event.content());
             return;
         }
+        if (event.type() == AgentStreamEvent.EventType.TOOL_CALL && ctx.hasStreamedFinalAnswerChunks()) {
+            log.warn("FSM agentStreamEvent: TOOL_CALL arrived after FINAL_ANSWER_CHUNK stream, "
+                    + "rolling back tentative final answer");
+            rollbackTentativeFinalAnswerToProgress(ctx, event.iteration(), ctx.getAgentFinalAnswerText());
+        }
         if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK) {
             flushPendingProgressToTelegram(ctx, true);
             sendFinalAnswerChunkToTelegram(ctx, event);
@@ -468,6 +474,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
             String segmentToSend = currentSegment.substring(0, fitLength);
             String html = AIUtils.convertMarkdownToHtml(segmentToSend);
+            String segmentPreview = previewForLog(segmentToSend, FINAL_ANSWER_LOG_PREVIEW_LIMIT);
             Integer finalAnswerMessageId = ctx.getAgentFinalAnswerMessageId();
 
             if (finalAnswerMessageId == null) {
@@ -476,10 +483,12 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     return;
                 }
                 ctx.setAgentFinalAnswerMessageId(sentMessageId);
-                log.info("FSM agentStreamEvent: created final answer message id={}", sentMessageId);
+                log.info("FSM agentStreamEvent: created final answer message id={}, preview='{}'",
+                        sentMessageId, segmentPreview);
             } else {
                 messageSender.editHtml(chatId, finalAnswerMessageId, html, true);
-                log.info("FSM agentStreamEvent: updated final answer message id={}", finalAnswerMessageId);
+                log.info("FSM agentStreamEvent: updated final answer message id={}, preview='{}'",
+                        finalAnswerMessageId, segmentPreview);
             }
 
             int deliveredLength = segmentStartOffset + fitLength;
@@ -819,6 +828,14 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return "null";
         }
         return text.replace("\r", "\\r").replace("\n", "\\n");
+    }
+
+    private static String previewForLog(String text, int maxLength) {
+        String normalized = normalizeForLog(text);
+        if (normalized.length() <= maxLength) {
+            return normalized;
+        }
+        return normalized.substring(0, maxLength) + "...";
     }
 
 }
