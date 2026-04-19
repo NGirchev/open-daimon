@@ -196,6 +196,71 @@ class AgentLoopFsmFactoryTest {
     }
 
     @Test
+    @DisplayName("Empty response: single retry then successful final answer -> COMPLETED")
+    void emptyResponse_retryOnceThenAnswer_completes() {
+        var callCount = new int[]{0};
+        thinkBehavior = ctx -> {
+            callCount[0]++;
+            if (callCount[0] == 1) {
+                ctx.markEmptyResponse();
+            } else {
+                ctx.setCurrentThought("Recovered");
+                ctx.setCurrentTextResponse("Answer after retry");
+            }
+        };
+
+        AgentContext ctx = createContext(10);
+        fsm.handle(ctx, AgentEvent.START);
+
+        assertEquals(AgentState.COMPLETED, ctx.getState());
+        assertEquals("Answer after retry", ctx.getFinalAnswer());
+        assertEquals(1, ctx.getEmptyResponseRetryCount());
+        assertEquals(2, callCount[0]);
+    }
+
+    @Test
+    @DisplayName("Empty response twice in a row -> FAILED (retry budget exhausted)")
+    void emptyResponse_twoInARow_transitionsToFailed() {
+        thinkBehavior = ctx -> ctx.markEmptyResponse();
+
+        AgentContext ctx = createContext(10);
+        fsm.handle(ctx, AgentEvent.START);
+
+        assertEquals(AgentState.FAILED, ctx.getState());
+        assertEquals(1, ctx.getEmptyResponseRetryCount());
+    }
+
+    @Test
+    @DisplayName("Empty retry counter resets after a successful tool cycle")
+    void emptyResponseRetryCounter_resetsAfterObserve() {
+        var callCount = new int[]{0};
+        thinkBehavior = ctx -> {
+            callCount[0]++;
+            switch (callCount[0]) {
+                case 1 -> ctx.markEmptyResponse();
+                case 2 -> {
+                    ctx.setCurrentThought("Need tool");
+                    ctx.setCurrentToolName("search");
+                    ctx.setCurrentToolArguments("{}");
+                }
+                case 3 -> ctx.markEmptyResponse();
+                default -> {
+                    ctx.setCurrentThought("Done");
+                    ctx.setCurrentTextResponse("ok");
+                }
+            }
+        };
+
+        AgentContext ctx = createContext(10);
+        fsm.handle(ctx, AgentEvent.START);
+
+        assertEquals(AgentState.COMPLETED, ctx.getState());
+        assertEquals(1, ctx.getEmptyResponseRetryCount(),
+                "counter should reflect only the empty retry used in the final iteration");
+        assertEquals(4, callCount[0]);
+    }
+
+    @Test
     @DisplayName("Zero max iterations immediately triggers MAX_ITERATIONS on first think")
     void zeroMaxIterations_immediatelyTerminates() {
         thinkBehavior = ctx -> {

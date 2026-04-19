@@ -68,4 +68,19 @@ public interface AgentLoopActions {
      * on the context; this action can perform cleanup or logging.
      */
     void handleError(AgentContext ctx);
+
+    /**
+     * THINKING -> THINKING (self-loop, single retry).
+     *
+     * <p>Invoked when the LLM returned an empty response (no tool call, no text,
+     * no error) and {@link AgentContext#canRetryEmptyResponse()} is true.
+     * Implementations should increment the retry counter, clear the empty-response
+     * flag, optionally nudge the model (e.g. insert a SystemMessage), and re-invoke
+     * {@link #think(AgentContext)}.
+     */
+    default void retryEmptyResponse(AgentContext ctx) {
+        ctx.incrementEmptyResponseRetryCount();
+        ctx.clearEmptyResponse();
+        think(ctx);
+    }
 }

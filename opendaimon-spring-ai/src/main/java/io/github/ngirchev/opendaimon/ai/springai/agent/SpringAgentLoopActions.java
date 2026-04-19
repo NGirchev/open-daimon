@@ -244,12 +244,18 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                                     : "Calling tool: " + rawToolCall.name()));
                 } else {
                     String text = stripToolCallTags(rawText);
-                    ctx.setCurrentThought("Final answer ready");
-                    ctx.setCurrentTextResponse(text);
-                    log.info("Agent think: final answer, length={}",
-                            text != null ? text.length() : 0);
-                    log.debug("Agent think: final answer text:\n{}", text);
-                    messages.add(output);
+                    if (text == null || text.isBlank()) {
+                        ctx.markEmptyResponse();
+                        log.warn("Agent think: LLM returned empty response (no tool call, no text), "
+                                        + "iteration={}, emptyRetryCount={}",
+                                ctx.getCurrentIteration(), ctx.getEmptyResponseRetryCount());
+                    } else {
+                        ctx.setCurrentThought("Final answer ready");
+                        ctx.setCurrentTextResponse(text);
+                        log.info("Agent think: final answer, length={}", text.length());
+                        log.debug("Agent think: final answer text:\n{}", text);
+                        messages.add(output);
+                    }
                 }
             }
 
@@ -620,6 +626,27 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         }
         cleanup(ctx);
         log.error("Agent handleError: {}", ctx.getErrorMessage());
+    }
+
+    /**
+     * Single-shot recovery when the LLM returns an empty response. Appends a
+     * nudge SystemMessage to the conversation history, increments the retry
+     * counter, clears the empty flag, and re-invokes {@link #think(AgentContext)}.
+     *
+     * <p>The retry budget is enforced by {@link AgentContext#canRetryEmptyResponse()}
+     * in the FSM guard — this method itself is unconditional.
+     */
+    @Override
+    public void retryEmptyResponse(AgentContext ctx) {
+        List<Message> messages = getOrCreateHistory(ctx);
+        messages.add(new SystemMessage(
+                "Your previous response was empty. Reply with either a tool call "
+                        + "or a final text answer now. Do not return an empty message."));
+        ctx.incrementEmptyResponseRetryCount();
+        ctx.clearEmptyResponse();
+        log.info("Agent retryEmptyResponse: nudging LLM, iteration={}, retryCount={}",
+                ctx.getCurrentIteration(), ctx.getEmptyResponseRetryCount());
+        think(ctx);
     }
 
     /**

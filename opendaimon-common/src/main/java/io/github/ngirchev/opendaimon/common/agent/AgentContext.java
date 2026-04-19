@@ -23,6 +23,13 @@ import java.util.Set;
  */
 public final class AgentContext implements StateContext<AgentState> {
 
+    /**
+     * Maximum number of retry attempts when the LLM returns an empty response
+     * (no tool call, no text, no error) within a single iteration.
+     * Resets after a successful tool call or final answer (via {@link #resetIterationState()}).
+     */
+    public static final int MAX_EMPTY_RESPONSE_RETRIES = 1;
+
     // --- StateContext fields ---
     private AgentState state;
     private Transition<AgentState> currentTransition;
@@ -48,6 +55,10 @@ public final class AgentContext implements StateContext<AgentState> {
 
     // --- Error state ---
     private String errorMessage;
+
+    // --- Empty-response retry (resets per iteration) ---
+    private boolean emptyResponse;
+    private int emptyResponseRetryCount;
 
     // --- Output ---
     private String finalAnswer;
@@ -132,6 +143,25 @@ public final class AgentContext implements StateContext<AgentState> {
         return errorMessage != null && !errorMessage.isEmpty();
     }
 
+    /**
+     * LLM returned an empty response within the current iteration
+     * (no tool call, no text, no error). Cleared by {@link #clearEmptyResponse()}
+     * or {@link #resetIterationState()}.
+     */
+    public boolean hasEmptyResponse() {
+        return emptyResponse;
+    }
+
+    /**
+     * Guard used by the FSM to decide whether to retry a THINKING step
+     * after the LLM produced an empty response. True only while
+     * {@link #hasEmptyResponse()} is set and the per-iteration retry
+     * budget (controlled by {@link #MAX_EMPTY_RESPONSE_RETRIES}) is not exhausted.
+     */
+    public boolean canRetryEmptyResponse() {
+        return emptyResponse && emptyResponseRetryCount < MAX_EMPTY_RESPONSE_RETRIES;
+    }
+
     // --- Iteration management ---
 
     public void incrementIteration() {
@@ -147,6 +177,8 @@ public final class AgentContext implements StateContext<AgentState> {
         currentToolArguments = null;
         currentTextResponse = null;
         toolResult = null;
+        emptyResponse = false;
+        emptyResponseRetryCount = 0;
     }
 
     /**
@@ -236,6 +268,37 @@ public final class AgentContext implements StateContext<AgentState> {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    // --- Empty-response retry ---
+
+    /**
+     * Marks that the current THINKING step produced an empty response.
+     * Must be called from {@code think()} when the LLM returns no tool call,
+     * no final text, and no error.
+     */
+    public void markEmptyResponse() {
+        this.emptyResponse = true;
+    }
+
+    /**
+     * Clears the empty-response flag. Called by the retry action before
+     * re-invoking {@code think()} so the next response is evaluated fresh.
+     */
+    public void clearEmptyResponse() {
+        this.emptyResponse = false;
+    }
+
+    /**
+     * Number of empty-response retries consumed within the current iteration.
+     * Reset by {@link #resetIterationState()}.
+     */
+    public int getEmptyResponseRetryCount() {
+        return emptyResponseRetryCount;
+    }
+
+    public void incrementEmptyResponseRetryCount() {
+        this.emptyResponseRetryCount++;
     }
 
     // --- Output ---

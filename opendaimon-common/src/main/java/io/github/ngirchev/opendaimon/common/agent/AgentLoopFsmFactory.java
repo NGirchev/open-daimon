@@ -36,8 +36,10 @@ import static io.github.ngirchev.opendaimon.common.agent.AgentState.*;
  *                    │   action: executeTool()
  *                    ├─[hasFinalAnswer]────────> ANSWERING
  *                    │   action: answer()
+ *                    ├─[canRetryEmptyResponse]─> THINKING (self-loop, single retry)
+ *                    │   action: retryEmptyResponse()
  *                    └─[else]─────────────────> FAILED (terminal)
- *                        action: handleError()  (empty LLM output)
+ *                        action: handleError()  (empty LLM output, retry exhausted)
  *
  * TOOL_EXECUTING ──[auto]──┬─[hasError]──> FAILED (terminal)
  *                          │   action: handleError()
@@ -93,6 +95,10 @@ public final class AgentLoopFsmFactory {
                     .to(ANSWERING)
                         .onCondition(guard(AgentContext::hasFinalAnswer))
                         .action(action(actions::answer))
+                        .end()
+                    .to(THINKING)
+                        .onCondition(guard(AgentContext::canRetryEmptyResponse))
+                        .action(action(actions::retryEmptyResponse))
                         .end()
                     .to(FAILED)
                         .action(action(actions::handleError))
