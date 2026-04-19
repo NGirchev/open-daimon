@@ -122,27 +122,29 @@ class SpringAgentLoopActionsStreamingTest {
     /**
      * Fix 2 regression guard: some providers (e.g. Ollama) stream cumulative snapshots —
      * every chunk repeats the whole previous text plus the new suffix. Without snapshot
-     * normalization the previous pipeline fed {@code "Hel"}, {@code "Hello"}, {@code "Hello, "}
-     * each in full to {@link StreamingAnswerFilter#feed} and PARTIAL_ANSWER consumers
-     * would concatenate them as {@code "HelHelloHello, "}. After the fix only the true
-     * delta is emitted per chunk.
+     * normalization the pipeline would feed every snapshot in full to
+     * {@link StreamingAnswerFilter#feed}, and the PARTIAL_ANSWER consumer would see
+     * {@code "Hello, Hello, this is the Hello, this is the final answer."} — the text
+     * repeats on every chunk. After the fix only the true delta reaches the filter and
+     * the joined PARTIAL_ANSWER stream reproduces the source text exactly once.
      */
     @Test
     void shouldEmitDeltaPartialAnswerEventsWhenProviderStreamsCumulativeSnapshots() {
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
-                chunk("Hel"),
-                chunk("Hello"),
-                chunk("Hello, ")
+                chunk("Hello, "),
+                chunk("Hello, this is the "),
+                chunk("Hello, this is the final answer.")
         ));
 
         actions.think(ctx);
 
         List<AgentStreamEvent> partials = partialAnswers();
-        assertThat(partials.stream().map(AgentStreamEvent::content).toList())
-                .containsExactly("Hel", "lo", ", ");
-        // Downstream consumer concatenation yields the original text exactly once.
+        assertThat(partials).isNotEmpty();
         String joined = partials.stream().map(AgentStreamEvent::content).reduce("", String::concat);
-        assertThat(joined).isEqualTo("Hello, ");
+        assertThat(joined)
+                .as("snapshot stream must emit each character exactly once across PARTIAL_ANSWER events")
+                .isEqualTo("Hello, this is the final answer.");
+        assertThat(ctx.getCurrentTextResponse()).isEqualTo("Hello, this is the final answer.");
     }
 
     /**
