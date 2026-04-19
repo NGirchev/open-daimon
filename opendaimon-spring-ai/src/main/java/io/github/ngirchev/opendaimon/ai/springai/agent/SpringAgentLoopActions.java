@@ -40,7 +40,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -228,11 +227,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     }
 
     private ChatResponse streamThinkResponse(Prompt prompt, AgentContext ctx) {
-        AtomicReference<ChatResponse> lastResponse = new AtomicReference<>();
-        StringBuilder fullText = new StringBuilder();
-        AtomicReference<String> previousChunkText = new AtomicReference<>("");
-        AtomicReference<List<AssistantMessage.ToolCall>> latestStreamToolCalls = new AtomicReference<>(List.of());
-        AtomicBoolean hasStructuredToolCall = new AtomicBoolean(false);
+        AtomicReference<StreamState> streamState = new AtomicReference<>(StreamState.empty());
         try {
             Flux<ChatResponse> responseFlux = chatModel.stream(prompt);
             if (responseFlux == null) {
@@ -240,40 +235,63 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             }
             responseFlux
                     .doOnNext(chunk -> {
-                        lastResponse.set(chunk);
+                        StreamStateTransition transition = updateStreamState(streamState, chunk);
+                        StreamState updated = transition.current();
                         if (chunk.getMetadata() != null) {
                             maybeEmitModelMetadata(ctx, chunk.getMetadata().getModel());
                         }
-                        List<AssistantMessage.ToolCall> chunkToolCalls = extractToolCallsFromChunk(chunk);
-                        if (!chunkToolCalls.isEmpty()) {
-                            hasStructuredToolCall.set(true);
-                            latestStreamToolCalls.set(List.copyOf(chunkToolCalls));
+                        if (transition.fullTextChanged()) {
+                            emitStreamFinalAnswerDelta(ctx, updated.fullText(), updated.hasStructuredToolCall());
                         }
-                        AIUtils.extractText(chunk).ifPresent(text -> {
-                            String delta = resolveStreamDelta(previousChunkText.get(), text);
-                            previousChunkText.set(text);
-                            if (delta.isEmpty()) {
-                                return;
-                            }
-                            fullText.append(delta);
-                            emitStreamFinalAnswerDelta(ctx, fullText.toString(), hasStructuredToolCall.get());
-                        });
                     })
                     .blockLast(Duration.ofMinutes(10));
         } catch (Exception e) {
-            if (lastResponse.get() == null) {
+            if (streamState.get().lastResponse() == null) {
                 log.warn("Agent think: stream path unavailable, falling back to call(): {}", e.getMessage());
                 return chatModel.call(prompt);
             }
             throw e;
         }
 
-        ChatResponse terminalChunk = lastResponse.get();
-        if (terminalChunk == null) {
+        StreamState terminalState = streamState.get();
+        if (terminalState.lastResponse() == null) {
             log.warn("Agent think: stream returned no chunks, falling back to call()");
             return chatModel.call(prompt);
         }
-        return mergeStreamingText(terminalChunk, fullText.toString(), latestStreamToolCalls.get());
+        return mergeStreamingText(terminalState.lastResponse(), terminalState.fullText(), terminalState.toolCalls());
+    }
+
+    static StreamStateTransition updateStreamState(AtomicReference<StreamState> streamState, ChatResponse chunk) {
+        while (true) {
+            StreamState current = streamState.get();
+            StreamState next = advanceStreamState(current, chunk);
+            if (streamState.compareAndSet(current, next)) {
+                return new StreamStateTransition(current, next);
+            }
+        }
+    }
+
+    static StreamState advanceStreamState(StreamState current, ChatResponse chunk) {
+        StreamState base = current != null ? current : StreamState.empty();
+        String nextPreviousChunkText = base.previousChunkText();
+        String nextFullText = base.fullText();
+
+        var text = AIUtils.extractText(chunk);
+        if (text.isPresent()) {
+            String currentChunkText = text.get();
+            String delta = resolveStreamDelta(base.previousChunkText(), currentChunkText);
+            nextPreviousChunkText = currentChunkText;
+            if (!delta.isEmpty()) {
+                nextFullText = nextFullText + delta;
+            }
+        }
+
+        List<AssistantMessage.ToolCall> chunkToolCalls = extractToolCallsFromChunk(chunk);
+        List<AssistantMessage.ToolCall> nextToolCalls = chunkToolCalls.isEmpty()
+                ? base.toolCalls()
+                : List.copyOf(chunkToolCalls);
+
+        return new StreamState(chunk, nextPreviousChunkText, nextFullText, nextToolCalls);
     }
 
     private void maybeEmitModelMetadata(AgentContext ctx, String modelName) {
@@ -1147,6 +1165,34 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             return "null";
         }
         return text.replace("\r", "\\r").replace("\n", "\\n");
+    }
+
+    static final record StreamState(ChatResponse lastResponse,
+                                    String previousChunkText,
+                                    String fullText,
+                                    List<AssistantMessage.ToolCall> toolCalls) {
+
+        StreamState {
+            previousChunkText = previousChunkText != null ? previousChunkText : "";
+            fullText = fullText != null ? fullText : "";
+            toolCalls = toolCalls != null ? List.copyOf(toolCalls) : List.of();
+        }
+
+        static StreamState empty() {
+            return new StreamState(null, "", "", List.of());
+        }
+
+        boolean hasStructuredToolCall() {
+            return !toolCalls.isEmpty();
+        }
+    }
+
+    static final record StreamStateTransition(StreamState previous, StreamState current) {
+
+        boolean fullTextChanged() {
+            String previousText = previous != null ? previous.fullText() : "";
+            return !previousText.equals(current.fullText());
+        }
     }
 
     static final record RecoveredToolCall(String toolName, String argumentsJson, String leadingText) {

@@ -129,6 +129,8 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
 - Web tools use a dedicated HTTP client configured via `open-daimon.ai.spring-ai.web-tools.*`:
   - `max-in-memory-bytes` (codec buffer), `max-fetch-bytes` (`fetch_url` stream cap), `user-agent`
   - follows redirects and sends browser-compatible read headers (`Accept`, `Accept-Language`) for page fetches
+- Final-answer URL liveness checks cache live/dead results per normalized URL for
+  `open-daimon.ai.spring-ai.url-check.cache-ttl-minutes` (default config: 10 minutes), so repeated citations do not re-run HEAD/ranged GET checks within the TTL.
 - ReAct `MAX_ITERATIONS` handling performs one final synthesis LLM call using the accumulated step history:
   - no tool execution in this last pass (`internalToolExecutionEnabled=false`)
   - final user text is prefixed with an iteration-limit notice and stripped from tool payload markers/debug dumps
@@ -150,7 +152,10 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
 
 `SummarizingChatMemory` owns long-context compression. It triggers partial summarization only when
 the configured message-window or token threshold is reached, then summarizes the older half of the
-thread and keeps the recent half in `ChatMemory`.
+thread and keeps the recent half in `ChatMemory`. The trigger and rebuild run synchronously during
+history load, and `SummarizingChatMemory` serializes reads, writes, and rebuilds per `conversationId`
+so concurrent requests for the same thread cannot clear/repopulate the delegate memory at the same
+time.
 
 The summary LLM call already returns `memory_bullets`. After a successful partial summarization,
 new bullets are written to `AgentMemory` for semantic recall. Agent completion paths (`answer()` and

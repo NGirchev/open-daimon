@@ -1,5 +1,8 @@
 package io.github.ngirchev.opendaimon.ai.springai.tool;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Ticker;
 import io.github.ngirchev.opendaimon.common.service.UrlLivenessChecker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -33,22 +36,53 @@ public class UrlLivenessCheckerImpl implements UrlLivenessChecker {
     private static final Pattern BARE_URL_PATTERN =
             Pattern.compile("(?<![(\\[])https?://\\S+");
     private static final String DEAD_BARE_URL_REPLACEMENT = "(ссылка недоступна)";
+    private static final Duration DEFAULT_CACHE_TTL = Duration.ofMinutes(10);
+    private static final int MAX_CACHE_ENTRIES = 10_000;
 
     private final WebClient webClient;
     private final Duration timeout;
     private final int maxUrlsPerAnswer;
+    private final Cache<String, Boolean> livenessCache;
 
     public UrlLivenessCheckerImpl(WebClient webClient, Duration timeout, int maxUrlsPerAnswer) {
+        this(webClient, timeout, maxUrlsPerAnswer, DEFAULT_CACHE_TTL);
+    }
+
+    public UrlLivenessCheckerImpl(WebClient webClient,
+                                  Duration timeout,
+                                  int maxUrlsPerAnswer,
+                                  Duration cacheTtl) {
+        this(webClient, timeout, maxUrlsPerAnswer, cacheTtl, Ticker.systemTicker());
+    }
+
+    UrlLivenessCheckerImpl(WebClient webClient,
+                           Duration timeout,
+                           int maxUrlsPerAnswer,
+                           Duration cacheTtl,
+                           Ticker ticker) {
         this.webClient = webClient;
         this.timeout = timeout;
         this.maxUrlsPerAnswer = maxUrlsPerAnswer;
+        Duration effectiveCacheTtl = cacheTtl != null && !cacheTtl.isZero() && !cacheTtl.isNegative()
+                ? cacheTtl
+                : DEFAULT_CACHE_TTL;
+        this.livenessCache = Caffeine.newBuilder()
+                .maximumSize(MAX_CACHE_ENTRIES)
+                .expireAfterWrite(effectiveCacheTtl)
+                .ticker(ticker)
+                .build();
     }
 
     @Override
     public boolean isLive(String url) {
-        if (url == null || url.isBlank()) {
+        String normalizedUrl = normalizeUrl(url);
+        if (normalizedUrl == null || normalizedUrl.isBlank()) {
             return false;
         }
+        return livenessCache.get(normalizedUrl, this::isLiveUncached);
+    }
+
+    private boolean isLiveUncached(String url) {
         HttpStatusCode headStatus = headStatus(url);
         if (headStatus == null) {
             return false;
@@ -169,6 +203,10 @@ public class UrlLivenessCheckerImpl implements UrlLivenessChecker {
             log.debug("UrlLivenessChecker: ranged GET failed for url='{}': {}", url, e.getMessage());
             return false;
         }
+    }
+
+    private static String normalizeUrl(String url) {
+        return url == null ? null : url.trim();
     }
 
     private static String stripTrailingPunctuation(String url) {

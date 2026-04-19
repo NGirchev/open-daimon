@@ -372,7 +372,8 @@ public class SpringAIAutoConfig {
         return new UrlLivenessCheckerImpl(
                 webClient,
                 java.time.Duration.ofMillis(urlCheck.getTimeoutMs()),
-                urlCheck.getMaxUrlsPerAnswer()
+                urlCheck.getMaxUrlsPerAnswer(),
+                java.time.Duration.ofMinutes(urlCheck.getCacheTtlMinutes())
         );
     }
 

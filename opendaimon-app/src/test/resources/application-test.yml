@@ -75,6 +75,10 @@ open-daimon:
       enabled: false
       rag:
         enabled: false
+      url-check:
+        timeout-ms: 2000
+        max-urls-per-answer: 5
+        cache-ttl-minutes: 10
       openrouter-auto-rotation:
         models:
           enabled: false

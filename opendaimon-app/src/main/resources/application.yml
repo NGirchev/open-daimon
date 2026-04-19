@@ -203,6 +203,7 @@ open-daimon:
       url-check:
         timeout-ms: 2000
         max-urls-per-answer: 5
+        cache-ttl-minutes: 10
       # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
       # Ollama models (run locally: ollama pull qwen3.5:4b).
       models:

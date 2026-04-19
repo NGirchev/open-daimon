@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
+import io.github.ngirchev.opendaimon.common.service.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
@@ -63,22 +64,27 @@ class TelegramMessageHandlerActionsAgentTest {
     @Mock private ReplyImageAttachmentService replyImageAttachmentService;
     @Mock private TelegramMessageSender messageSender;
     @Mock private AgentExecutor agentExecutor;
+    @Mock private UrlLivenessChecker urlLivenessChecker;
 
+    private TelegramProperties telegramProperties;
     private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
 
     @BeforeEach
     void setUp() {
-        TelegramProperties telegramProperties = new TelegramProperties();
+        telegramProperties = new TelegramProperties();
         telegramProperties.setMaxMessageLength(4096);
         agentStreamRenderer = new TelegramAgentStreamRenderer();
+        actions = createActions(agentStreamRenderer);
+    }
 
-        actions = new TelegramMessageHandlerActions(
+    private TelegramMessageHandlerActions createActions(TelegramAgentStreamRenderer renderer) {
+        return new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, userModelPreferenceService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, MAX_ITERATIONS);
+                agentExecutor, renderer, MAX_ITERATIONS);
     }
 
     @Test
@@ -395,6 +401,39 @@ class TelegramMessageHandlerActionsAgentTest {
 
         verify(messageSender, never()).sendHtml(eq(42L), contains("ABC"), eq(101));
         assertThat(ctx.getResponseText()).hasValue("ABC");
+    }
+
+    @Test
+    @DisplayName("generateResponse force-edits streamed final answer when URL sanitization removes delivered text")
+    void generateResponse_terminalUrlSanitizationChangedPublishedText_forcesFinalEdit() {
+        actions = createActions(new TelegramAgentStreamRenderer(urlLivenessChecker));
+        MessageHandlerContext ctx = createContextWithMetadata(
+                "Give one dead link",
+                Set.of(ModelCapabilities.WEB),
+                s -> {},
+                101
+        );
+        when(messageSender.sendHtmlAndGetId(eq(42L), any(), eq(101), eq(true)))
+                .thenReturn(800);
+
+        String streamedAnswer = "See [dead guide](https://dead.example/docs)";
+        String sanitizedAnswer = "See dead guide";
+        when(urlLivenessChecker.stripDeadLinks(streamedAnswer)).thenReturn(sanitizedAnswer);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.finalAnswerChunk(streamedAnswer, 1),
+                AgentStreamEvent.finalAnswer(streamedAnswer, 1)
+        );
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        ArgumentCaptor<String> finalEdit = ArgumentCaptor.forClass(String.class);
+        verify(messageSender).editHtml(eq(42L), eq(800), finalEdit.capture(), eq(false));
+        assertThat(finalEdit.getValue()).contains("See dead guide");
+        assertThat(finalEdit.getValue()).doesNotContain("https://dead.example/docs");
+        verify(messageSender, never()).sendHtml(eq(42L), contains("dead.example"), eq(101));
+        assertThat(ctx.getResponseText()).hasValue(streamedAnswer);
     }
 
     @Test

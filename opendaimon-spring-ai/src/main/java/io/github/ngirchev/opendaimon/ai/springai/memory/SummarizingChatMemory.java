@@ -28,6 +28,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /**
@@ -36,7 +39,8 @@ import java.util.function.Supplier;
  * Main behaviour:
  * 1. Delegates core work to MessageWindowChatMemory
  * 2. When loading history adds summary from ConversationThread as SystemMessage
- * 3. On save checks whether to trigger summarization via SummarizationService
+ * 3. On load checks whether to trigger summarization via SummarizationService
+ * 4. Serializes ChatMemory reads, writes, and rebuilds per conversationId
  *
  * IMPORTANT: conversationId corresponds to thread_key from ConversationThread.
  */
@@ -51,6 +55,7 @@ public class SummarizingChatMemory implements ChatMemory {
     private final Integer maxMessages; // Max messages from MessageWindowChatMemory
     private final Integer maxWindowTokens; // Max tokens trigger for summarization
     private final Supplier<AgentMemory> agentMemorySupplier;
+    private final ConcurrentMap<String, ConversationLock> conversationLocks = new ConcurrentHashMap<>();
 
     public SummarizingChatMemory(
             ChatMemoryRepository chatMemoryRepository,
@@ -96,6 +101,15 @@ public class SummarizingChatMemory implements ChatMemory {
     @Override
     @NonNull
     public List<Message> get(@NonNull String conversationId) {
+        ConversationLock conversationLock = acquireConversationLock(conversationId);
+        try {
+            return getLocked(conversationId);
+        } finally {
+            releaseConversationLock(conversationId, conversationLock);
+        }
+    }
+
+    private List<Message> getLocked(@NonNull String conversationId) {
         // Get messages from delegate (MessageWindowChatMemory)
         List<Message> messages = delegate.get(conversationId);
 
@@ -130,14 +144,24 @@ public class SummarizingChatMemory implements ChatMemory {
 
     @Override
     public void add(@NonNull String conversationId, @NonNull Message message) {
-        // Save message via delegate
-        delegate.add(conversationId, message);
+        ConversationLock conversationLock = acquireConversationLock(conversationId);
+        try {
+            // Save message via delegate
+            delegate.add(conversationId, message);
+        } finally {
+            releaseConversationLock(conversationId, conversationLock);
+        }
     }
 
     @Override
     public void add(@NonNull String conversationId, @NonNull List<Message> messages) {
-        // Save messages via delegate
-        delegate.add(conversationId, messages);
+        ConversationLock conversationLock = acquireConversationLock(conversationId);
+        try {
+            // Save messages via delegate
+            delegate.add(conversationId, messages);
+        } finally {
+            releaseConversationLock(conversationId, conversationLock);
+        }
     }
 
     /**
@@ -263,7 +287,12 @@ public class SummarizingChatMemory implements ChatMemory {
 
     @Override
     public void clear(@NonNull String conversationId) {
-        delegate.clear(conversationId);
+        ConversationLock conversationLock = acquireConversationLock(conversationId);
+        try {
+            delegate.clear(conversationId);
+        } finally {
+            releaseConversationLock(conversationId, conversationLock);
+        }
     }
 
     /**
@@ -326,5 +355,52 @@ public class SummarizingChatMemory implements ChatMemory {
             }
         }
         return normalized;
+    }
+
+    private ConversationLock acquireConversationLock(String conversationId) {
+        ConversationLock conversationLock = conversationLocks.compute(conversationId, (key, existing) -> {
+            if (existing == null) {
+                return new ConversationLock();
+            }
+            existing.retain();
+            return existing;
+        });
+        conversationLock.lock();
+        return conversationLock;
+    }
+
+    private void releaseConversationLock(String conversationId, ConversationLock conversationLock) {
+        try {
+            conversationLock.unlock();
+        } finally {
+            conversationLocks.computeIfPresent(conversationId, (key, existing) -> {
+                if (existing != conversationLock) {
+                    return existing;
+                }
+                return existing.release() == 0 ? null : existing;
+            });
+        }
+    }
+
+    private static final class ConversationLock {
+
+        private final ReentrantLock lock = new ReentrantLock();
+        private int references = 1;
+
+        void retain() {
+            references++;
+        }
+
+        int release() {
+            return --references;
+        }
+
+        void lock() {
+            lock.lock();
+        }
+
+        void unlock() {
+            lock.unlock();
+        }
     }
 }

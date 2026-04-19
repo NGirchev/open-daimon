@@ -471,10 +471,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         if (!ctx.hasStreamedFinalAnswerChunks()) {
             return;
         }
-        if (enablePreviewForFinalUpdate) {
-            sanitizeFinalAnswerUrls(ctx);
-        }
-        if (ctx.getAgentFinalAnswerPendingChars() > 0) {
+        boolean finalAnswerSanitized = enablePreviewForFinalUpdate && sanitizeFinalAnswerUrls(ctx);
+        if (ctx.getAgentFinalAnswerPendingChars() > 0 || finalAnswerSanitized) {
             publishFinalAnswerToTelegram(ctx, true, enablePreviewForFinalUpdate);
             return;
         }
@@ -483,20 +481,22 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
     }
 
-    private void sanitizeFinalAnswerUrls(MessageHandlerContext ctx) {
+    private boolean sanitizeFinalAnswerUrls(MessageHandlerContext ctx) {
         if (agentStreamRenderer == null) {
-            return;
+            return false;
         }
         String original = ctx.getAgentFinalAnswerText();
         if (original == null || original.isBlank()) {
-            return;
+            return false;
         }
         String sanitized = agentStreamRenderer.sanitizeFinalAnswer(original);
         if (sanitized != null && !sanitized.equals(original)) {
             log.info("FSM agentStreamEvent: sanitized final answer URLs, originalLength={}, sanitizedLength={}",
                     original.length(), sanitized.length());
             ctx.replaceAgentFinalAnswerText(sanitized);
+            return true;
         }
+        return false;
     }
 
     private void publishFinalAnswerToTelegram(MessageHandlerContext ctx,

@@ -339,7 +339,7 @@ public class WebTools {
         return "fetch_url failed: " + reason + " for " + target;
     }
 
-    private Mono<String> readBodyWithStatusHandling(ClientResponse response) {
+    Mono<String> readBodyWithStatusHandling(ClientResponse response) {
         if (!response.statusCode().is2xxSuccessful()) {
             return response.createException().flatMap(Mono::error);
         }
@@ -347,22 +347,25 @@ public class WebTools {
         AtomicInteger totalBytes = new AtomicInteger();
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         return response.bodyToFlux(DataBuffer.class)
+                .doOnDiscard(DataBuffer.class, DataBufferUtils::release)
                 .doOnNext(dataBuffer -> appendChunk(output, totalBytes, dataBuffer))
                 .then(Mono.fromSupplier(() -> output.toString(StandardCharsets.UTF_8)));
     }
 
     private void appendChunk(ByteArrayOutputStream output, AtomicInteger totalBytes, DataBuffer dataBuffer) {
-        int chunkSize = dataBuffer.readableByteCount();
-        int nextTotal = totalBytes.addAndGet(chunkSize);
-        if (nextTotal > maxFetchBytes) {
-            DataBufferUtils.release(dataBuffer);
-            throw new ResponseBodyTooLargeException(maxFetchBytes);
-        }
+        try {
+            int chunkSize = dataBuffer.readableByteCount();
+            int nextTotal = totalBytes.addAndGet(chunkSize);
+            if (nextTotal > maxFetchBytes) {
+                throw new ResponseBodyTooLargeException(maxFetchBytes);
+            }
 
-        byte[] bytes = new byte[chunkSize];
-        dataBuffer.read(bytes);
-        DataBufferUtils.release(dataBuffer);
-        output.writeBytes(bytes);
+            byte[] bytes = new byte[chunkSize];
+            dataBuffer.read(bytes);
+            output.writeBytes(bytes);
+        } finally {
+            DataBufferUtils.release(dataBuffer);
+        }
     }
 
     private String extractPlainText(String html) {

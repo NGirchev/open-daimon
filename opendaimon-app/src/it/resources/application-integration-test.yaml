@@ -83,6 +83,10 @@ open-daimon:
       timeouts:
         response-timeout-seconds: 120
         stream-timeout-seconds: 120
+      url-check:
+        timeout-ms: 2000
+        max-urls-per-answer: 5
+        cache-ttl-minutes: 10
       web-tools:
         max-in-memory-bytes: 2097152
         max-fetch-bytes: 1048576

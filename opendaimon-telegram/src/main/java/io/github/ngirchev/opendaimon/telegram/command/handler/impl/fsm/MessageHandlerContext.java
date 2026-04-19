@@ -21,11 +21,11 @@ import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedExcepti
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 /**
@@ -84,7 +84,8 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private int agentFinalAnswerDeliveredLength;
     private int agentFinalAnswerCurrentMessageStartOffset;
     private long agentFinalAnswerLastDeliveryAtMillis;
-    private final List<AgentProgressChunk> agentProgressChunks = new ArrayList<>();
+    private final Object agentProgressChunksLock = new Object();
+    private final List<AgentProgressChunk> agentProgressChunks = new CopyOnWriteArrayList<>();
 
     // --- Error handling ---
     private Exception exception;
@@ -408,33 +409,35 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     }
 
     public AgentProgressUpdate mergeAgentProgressEvent(AgentStreamEvent event, String htmlChunk, int maxLength) {
-        if (event == null) {
-            return new AgentProgressUpdate(buildProgressHtml(), false, false);
-        }
-
-        boolean changed = switch (event.type()) {
-            case THINKING -> upsertThinkingChunk(event.iteration(), htmlChunk);
-            case TOOL_CALL, OBSERVATION, ERROR -> {
-                boolean removedTransient = removeTransientChunks();
-                boolean appended = appendPersistentChunk(event.type(), event.iteration(), htmlChunk);
-                yield removedTransient || appended;
+        synchronized (agentProgressChunksLock) {
+            if (event == null) {
+                return new AgentProgressUpdate(buildProgressHtml(), false, false);
             }
-            case FINAL_ANSWER_CHUNK -> false;
-            // On terminal events remove transient "thinking" snapshot to avoid stale
-            // "Thinking..." line staying visible after final answer is shown.
-            case FINAL_ANSWER, MAX_ITERATIONS -> removeTransientChunks();
-            case METADATA -> false;
-        };
 
-        String merged = buildProgressHtml();
-        boolean trimmedForOverflow = false;
-        while (merged.length() > maxLength && agentProgressChunks.size() > 1) {
-            agentProgressChunks.remove(0);
-            changed = true;
-            trimmedForOverflow = true;
-            merged = buildProgressHtml();
+            boolean changed = switch (event.type()) {
+                case THINKING -> upsertThinkingChunk(event.iteration(), htmlChunk);
+                case TOOL_CALL, OBSERVATION, ERROR -> {
+                    boolean removedTransient = removeTransientChunks();
+                    boolean appended = appendPersistentChunk(event.type(), event.iteration(), htmlChunk);
+                    yield removedTransient || appended;
+                }
+                case FINAL_ANSWER_CHUNK -> false;
+                // On terminal events remove transient "thinking" snapshot to avoid stale
+                // "Thinking..." line staying visible after final answer is shown.
+                case FINAL_ANSWER, MAX_ITERATIONS -> removeTransientChunks();
+                case METADATA -> false;
+            };
+
+            String merged = buildProgressHtml();
+            boolean trimmedForOverflow = false;
+            while (merged.length() > maxLength && agentProgressChunks.size() > 1) {
+                agentProgressChunks.remove(0);
+                changed = true;
+                trimmedForOverflow = true;
+                merged = buildProgressHtml();
+            }
+            return new AgentProgressUpdate(merged, changed, trimmedForOverflow);
         }
-        return new AgentProgressUpdate(merged, changed, trimmedForOverflow);
     }
 
     private String buildProgressHtml() {

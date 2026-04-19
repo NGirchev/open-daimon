@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.tool;
 
+import com.github.benmanes.caffeine.cache.Ticker;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
@@ -10,6 +11,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,6 +80,43 @@ class UrlLivenessCheckerImplTest {
         boolean live = checker.isLive(mockWebServer.url("/no-head").toString());
 
         assertThat(live).isTrue();
+    }
+
+    @Test
+    void shouldCacheLivenessResultByUrl() {
+        mockWebServer.enqueue(new MockResponse().setResponseCode(200));
+        String url = mockWebServer.url("/cached").toString();
+
+        boolean first = checker.isLive(url);
+        boolean second = checker.isLive(url);
+
+        assertThat(first).isTrue();
+        assertThat(second).isTrue();
+        assertThat(mockWebServer.getRequestCount()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRefreshLivenessResultAfterCacheTtl() {
+        AtomicLong nanos = new AtomicLong();
+        Ticker ticker = nanos::get;
+        UrlLivenessCheckerImpl ttlChecker = new UrlLivenessCheckerImpl(
+                WebClient.builder().build(),
+                Duration.ofSeconds(2),
+                5,
+                Duration.ofMinutes(10),
+                ticker
+        );
+        mockWebServer.enqueue(new MockResponse().setResponseCode(200));
+        mockWebServer.enqueue(new MockResponse().setResponseCode(404));
+        String url = mockWebServer.url("/expires").toString();
+
+        boolean first = ttlChecker.isLive(url);
+        nanos.addAndGet(Duration.ofMinutes(11).toNanos());
+        boolean second = ttlChecker.isLive(url);
+
+        assertThat(first).isTrue();
+        assertThat(second).isFalse();
+        assertThat(mockWebServer.getRequestCount()).isEqualTo(2);
     }
 
     @Test

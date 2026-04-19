@@ -128,9 +128,13 @@ class AgentStreamingTelegramProgressIT extends AbstractContainerIT {
                 .contains("No result");
 
         ArgumentCaptor<String> finalEdits = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Boolean> finalLinkPreviewDisabled = ArgumentCaptor.forClass(Boolean.class);
         verify(telegramBot, atLeastOnce())
-                .editMessageHtml(eq(CHAT_ID), eq(901), finalEdits.capture(), eq(true));
+                .editMessageHtml(eq(CHAT_ID), eq(901), finalEdits.capture(), finalLinkPreviewDisabled.capture());
         assertThat(finalEdits.getAllValues().getLast()).contains("Final answer for user.");
+        // TELEGRAM_MODULE.md invariant: stream chunks keep link preview disabled (true);
+        // terminal FINAL_ANSWER finalizes the last edit with preview enabled (false) so the URL card can appear.
+        assertThat(finalLinkPreviewDisabled.getAllValues().getLast()).isFalse();
 
         verify(telegramBot, never())
                 .sendMessage(eq(CHAT_ID), anyString(), eq(100), any(ReplyKeyboard.class));

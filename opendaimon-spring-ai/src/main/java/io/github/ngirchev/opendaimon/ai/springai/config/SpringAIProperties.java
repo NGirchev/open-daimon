@@ -133,6 +133,13 @@ public class SpringAIProperties {
         @NotNull(message = "urlCheck.maxUrlsPerAnswer is required")
         @Min(value = 1, message = "urlCheck.maxUrlsPerAnswer must be >= 1")
         private Integer maxUrlsPerAnswer;
+
+        /**
+         * Time to keep URL liveness results in the local cache, in minutes.
+         */
+        @NotNull(message = "urlCheck.cacheTtlMinutes is required")
+        @Min(value = 1, message = "urlCheck.cacheTtlMinutes must be >= 1")
+        private Integer cacheTtlMinutes;
     }
 
     @Getter

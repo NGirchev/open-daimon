@@ -5,15 +5,23 @@ import okhttp3.mockwebserver.MockWebServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.PooledDataBuffer;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class WebToolsTest {
 
@@ -178,6 +186,21 @@ class WebToolsTest {
         String result = limitedWebTools.fetchUrl(mockWebServer.url("/large").toString());
 
         assertThat(result).contains("TOO_LARGE");
+    }
+
+    @Test
+    void readBodyWithStatusHandling_releasesDiscardedDataBuffers() {
+        PooledDataBuffer discarded = mock(PooledDataBuffer.class);
+        when(discarded.isAllocated()).thenReturn(true);
+        when(discarded.release()).thenReturn(true);
+        ClientResponse response = ClientResponse.create(HttpStatus.OK)
+                .body(Flux.<DataBuffer>just(discarded).filter(ignored -> false))
+                .build();
+
+        String result = webTools.readBodyWithStatusHandling(response).block();
+
+        assertThat(result).isEmpty();
+        verify(discarded).release();
     }
 
     @Test

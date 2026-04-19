@@ -169,6 +169,7 @@ Evaluated in order — first match wins:
    - terminal event forces flush of any remaining buffered tail to avoid incomplete final text
    - if the stream completes after chunks without a terminal event, Telegram also force-flushes the remaining final-answer tail
    - during stream updates link previews stay disabled; on terminal `FINAL_ANSWER`/`MAX_ITERATIONS` the last final-answer message is finalized with link preview enabled (so URL card can appear at the end)
+   - terminal URL sanitization runs before the final preview edit; if removing dead links changes already streamed text, Telegram force-edits the final-answer message even when there are no pending characters
 6. Terminal `FINAL_ANSWER`/`MAX_ITERATIONS` still finalizes state/persistence:
    - progress message remains visible and separate from final-answer message
    - transient trailing `💭 Thinking...` line is removed on terminal event

@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -136,6 +137,50 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
                 .map(AgentStreamEvent::type)
                 .toList())
                 .doesNotContain(AgentStreamEvent.EventType.FINAL_ANSWER_CHUNK);
+    }
+
+    @Test
+    @DisplayName("stream state keeps terminal chunk, text, and early tool calls in one snapshot")
+    void streamState_keepsTerminalChunkTextAndEarlyToolCallsTogether() {
+        ChatResponse firstChunk = chatResponse("Hello ");
+        ChatResponse toolCallChunk = chatResponseWithToolCall(
+                "Hello world",
+                "web_search",
+                "{\"query\":\"OpenDaimon stream race\"}"
+        );
+        ChatResponse terminalChunk = chatResponse("Hello world!");
+        AtomicReference<SpringAgentLoopActions.StreamState> streamState =
+                new AtomicReference<>(SpringAgentLoopActions.StreamState.empty());
+
+        SpringAgentLoopActions.updateStreamState(streamState, firstChunk);
+        SpringAgentLoopActions.updateStreamState(streamState, toolCallChunk);
+        SpringAgentLoopActions.updateStreamState(streamState, terminalChunk);
+
+        SpringAgentLoopActions.StreamState state = streamState.get();
+        assertThat(state.lastResponse()).isSameAs(terminalChunk);
+        assertThat(state.fullText()).isEqualTo("Hello world!");
+        assertThat(state.toolCalls())
+                .singleElement()
+                .satisfies(toolCall -> {
+                    assertThat(toolCall.name()).isEqualTo("web_search");
+                    assertThat(toolCall.arguments()).contains("OpenDaimon stream race");
+                });
+    }
+
+    @Test
+    @DisplayName("think() in streaming mode merges accumulated text when terminal chunk has no output")
+    void think_streamingMode_terminalChunkWithoutOutput_usesAccumulatedText() {
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                chatResponse("Hello "),
+                chatResponseWithoutOutput()
+        ));
+
+        AgentContext ctx = new AgentContext("Say hello", "conv-stream-null-terminal", Map.of(), 10, Set.of());
+        SpringAgentLoopActions.markStreamingExecution(ctx);
+
+        actions.think(ctx);
+
+        assertThat(ctx.getCurrentTextResponse()).isEqualTo("Hello");
     }
 
     @Test
@@ -340,6 +385,13 @@ class SpringAgentLoopActionsMixedToolPayloadTest {
         return ChatResponse.builder()
                 .metadata(ChatResponseMetadata.builder().model("test-model").build())
                 .generations(List.of(new Generation(new AssistantMessage(text))))
+                .build();
+    }
+
+    private ChatResponse chatResponseWithoutOutput() {
+        return ChatResponse.builder()
+                .metadata(ChatResponseMetadata.builder().model("test-model").build())
+                .generations(List.of())
                 .build();
     }
 

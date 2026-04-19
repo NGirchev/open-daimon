@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.bulkhead.exception.AccessDeniedException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.rest.RestTestConfiguration;
+import io.github.ngirchev.opendaimon.rest.config.AdminSecurityConfig;
 import io.github.ngirchev.opendaimon.rest.dto.ChatMessageDto;
 import io.github.ngirchev.opendaimon.rest.dto.ChatRequestDto;
 import io.github.ngirchev.opendaimon.rest.dto.ChatResponseDto;
@@ -12,6 +13,7 @@ import io.github.ngirchev.opendaimon.rest.dto.ChatSessionDto;
 import io.github.ngirchev.opendaimon.rest.exception.RestExceptionHandler;
 import io.github.ngirchev.opendaimon.rest.exception.UnauthorizedException;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
+import io.github.ngirchev.opendaimon.rest.repository.RestUserRepository;
 import io.github.ngirchev.opendaimon.rest.service.ChatService;
 import io.github.ngirchev.opendaimon.rest.service.RestAuthorizationService;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,7 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = SessionController.class)
 @ContextConfiguration(classes = RestTestConfiguration.class)
-@Import({SessionController.class, RestExceptionHandler.class})
+@Import({SessionController.class, RestExceptionHandler.class, AdminSecurityConfig.class})
 class SessionControllerContractTest {
 
     private static final String BASE_URL = "/api/v1/session";
@@ -69,6 +71,9 @@ class SessionControllerContractTest {
 
     @MockitoBean
     private RestAuthorizationService restAuthorizationService;
+
+    @MockitoBean
+    private RestUserRepository restUserRepository;
 
     @MockitoBean
     private MessageLocalizationService messageLocalizationService;

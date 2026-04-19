@@ -5,6 +5,8 @@ import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentFact;
 import io.github.ngirchev.opendaimon.common.agent.memory.AgentMemory;
+import io.github.ngirchev.opendaimon.common.event.SummarizationStartedEvent;
+import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.SummarizationService;
@@ -25,8 +27,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-
-import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -36,6 +41,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -333,6 +339,44 @@ class SummarizingChatMemoryTest {
 
         assertThrows(SummarizationFailedException.class,
                 () -> summarizingChatMemory.get(CONVERSATION_ID));
+    }
+
+    @Test
+    void whenConcurrentGetReachesLimit_thenOnlyOneThreadSummarizesAndRebuildsChatMemory() throws Exception {
+        for (int i = 0; i < MAX_MESSAGES; i++) {
+            summarizingChatMemory.add(CONVERSATION_ID, new UserMessage("u" + i));
+            summarizingChatMemory.add(CONVERSATION_ID, new AssistantMessage("a" + i));
+        }
+        ConversationThread thread = new ConversationThread();
+        thread.setThreadKey(CONVERSATION_ID);
+        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
+        when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
+                .thenAnswer(invocation -> new ArrayList<>(List.of(
+                        createMockMessage(MessageRole.USER),
+                        createMockMessage(MessageRole.ASSISTANT),
+                        createMockMessage(MessageRole.USER),
+                        createMockMessage(MessageRole.ASSISTANT))));
+        doAnswer(invocation -> {
+            Thread.sleep(150);
+            thread.setSummary("Previous talk summary");
+            thread.setMemoryBullets(List.of("Point one"));
+            return null;
+        }).when(summarizationService).summarizeThread(any(), anyList());
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        Callable<List<Message>> loadHistory = () -> summarizingChatMemory.get(CONVERSATION_ID);
+        Future<List<Message>> first = executor.submit(loadHistory);
+        Future<List<Message>> second = executor.submit(loadHistory);
+
+        try {
+            first.get(2, TimeUnit.SECONDS);
+            second.get(2, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        verify(summarizationService, times(1)).summarizeThread(any(), anyList());
+        verify(eventPublisher, times(1)).publishEvent(any(SummarizationStartedEvent.class));
     }
 
     @Test

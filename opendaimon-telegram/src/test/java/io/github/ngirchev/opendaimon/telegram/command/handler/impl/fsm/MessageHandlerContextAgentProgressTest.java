@@ -4,6 +4,14 @@ import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
@@ -93,5 +101,42 @@ class MessageHandlerContextAgentProgressTest {
 
         assertThat(update.changed()).isFalse();
         assertThat(update.isEmpty()).isTrue();
+    }
+
+    @Test
+    void shouldHandleConcurrentProgressMerges() throws Exception {
+        MessageHandlerContext ctx = new MessageHandlerContext(mock(TelegramCommand.class), null, s -> {});
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Object>> futures = IntStream.range(0, 120)
+                .mapToObj(index -> executor.submit(() -> {
+                    start.await();
+                    AgentStreamEvent event = switch (index % 4) {
+                        case 0 -> AgentStreamEvent.thinking("Thinking " + index, index % 3);
+                        case 1 -> AgentStreamEvent.toolCall("web_search", "query " + index, index % 3);
+                        case 2 -> AgentStreamEvent.observation("Result " + index, index % 3);
+                        default -> AgentStreamEvent.error("Error " + index, index % 3);
+                    };
+                    ctx.mergeAgentProgressEvent(event, "<p>chunk " + index + "</p>", 512);
+                    return null;
+                }))
+                .toList();
+
+        start.countDown();
+        try {
+            for (Future<Object> future : futures) {
+                future.get(5, TimeUnit.SECONDS);
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+
+        MessageHandlerContext.AgentProgressUpdate terminalUpdate = ctx.mergeAgentProgressEvent(
+                AgentStreamEvent.finalAnswer("Done", 1),
+                null,
+                512
+        );
+
+        assertThat(terminalUpdate.html()).hasSizeLessThanOrEqualTo(512);
     }
 }
