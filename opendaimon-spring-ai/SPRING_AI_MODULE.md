@@ -437,6 +437,26 @@ platform defaults, so the codec bump is scoped to the tools that actually need i
 With `PriorityRequestExecutor` capping concurrency at `10/5/1` threads, the worst-case
 heap headroom added by the bump is ~20 MiB.
 
+### TLS trust store — `webToolsWebClient` bean
+
+`webToolsWebClient` attaches a Reactor Netty `HttpClient` configured with a
+**merged trust store**: JDK `cacerts` (from `${java.home}/lib/security/cacerts`)
+plus — when the Apple JSSE provider is registered (macOS) — every trusted
+certificate entry from the system and login `KeychainStore`. This guarantees the
+agent can reach Cloudflare-fronted sites (`itnext.io`, Medium-hosted domains,
+etc.) whose chains lag behind the bundled Corretto `cacerts`, without requiring
+JVM-level flags such as `-Djavax.net.ssl.trustStoreType=KeychainStore
+-Djavax.net.ssl.trustStore=NONE`.
+
+Degradation is silent and never fails bean creation:
+- Apple provider absent or Keychain load throws → JDK `cacerts` only (WARN).
+- JDK `cacerts` load fails → Netty default trust manager (ERROR).
+
+Scope is limited to `webToolsWebClient` only; the main `webClient`, the Ollama
+builder, and the OpenRouter customizer keep their existing configuration
+because OpenRouter and Ollama endpoints already validate under the bundled
+`cacerts` without intervention.
+
 ### Final-answer URL sanitization — `UrlLivenessChecker`
 
 LLMs regularly hallucinate plausible-looking citation URLs that return 404. To
