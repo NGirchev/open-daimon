@@ -1,6 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
-import io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions.RawToolCall;
+import io.github.ngirchev.opendaimon.ai.springai.agent.RawToolCallParser.RawToolCall;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
-import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,21 +15,20 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Tests for the raw tool call fallback parser in {@link SpringAgentLoopActions}.
+ * Tests for the fallback parser {@link RawToolCallParser}.
  *
  * <p>Covers the scenario where LLM models emit tool calls as XML tags in text
  * instead of using the structured function calling API.
  */
-class SpringAgentLoopActionsRawToolCallTest {
+class RawToolCallParserTest {
 
-    private SpringAgentLoopActions actions;
+    private RawToolCallParser parser;
 
     @BeforeEach
     void setUp() {
         ToolCallback httpGetCallback = mockToolCallback("http_get");
         ToolCallback webSearchCallback = mockToolCallback("web_search");
-        actions = new SpringAgentLoopActions(
-                null, null, List.of(httpGetCallback, webSearchCallback), null, Duration.ofSeconds(30));
+        parser = new RawToolCallParser(List.of(httpGetCallback, webSearchCallback));
     }
 
     // --- tryParseRawToolCall: successful parsing ---
@@ -49,7 +47,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_value>https://example.com</arg_value>\n"
                     + "</tool_call>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("http_get");
@@ -65,7 +63,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_value>https://example.com/article</arg_value>\n"
                     + "</tool_call>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("http_get");
@@ -83,7 +81,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_value>POST</arg_value>\n"
                     + "</tool_call>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("http_get");
@@ -99,7 +97,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_key>query</arg_key>\n"
                     + "<arg_value>Quarkus benchmarks 2026</arg_value>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("web_search");
@@ -112,7 +110,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_key>url</arg_key><arg_value>https://example.com</arg_value>"
                     + "</tool_call>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("http_get");
@@ -128,7 +126,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_value>Spring AI docs</arg_value>\n"
                     + "</tool_call>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("web_search");
@@ -143,7 +141,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_key>url</arg_key>\n"
                     + "<arg_value>https://example.com</arg_value>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("http_get");
@@ -159,21 +157,21 @@ class SpringAgentLoopActionsRawToolCallTest {
         @Test
         @DisplayName("should return null for null input")
         void shouldReturnNullForNullInput() {
-            assertThat(actions.tryParseRawToolCall(null)).isNull();
+            assertThat(parser.tryParseRawToolCall(null)).isNull();
         }
 
         @Test
         @DisplayName("should return null for plain text without arg tags")
         void shouldReturnNullForPlainText() {
             String text = "This is a regular answer with no tool call markup.";
-            assertThat(actions.tryParseRawToolCall(text)).isNull();
+            assertThat(parser.tryParseRawToolCall(text)).isNull();
         }
 
         @Test
         @DisplayName("should return null when arg tags present but no registered tool name found")
         void shouldReturnNullWhenNoToolNameFound() {
             String text = "<arg_key>param</arg_key><arg_value>value</arg_value>";
-            assertThat(actions.tryParseRawToolCall(text)).isNull();
+            assertThat(parser.tryParseRawToolCall(text)).isNull();
         }
 
         @Test
@@ -181,14 +179,14 @@ class SpringAgentLoopActionsRawToolCallTest {
         void shouldReturnNullWhenToolNotRegistered() {
             String text = "<name>unknown_tool</name>\n"
                     + "<arg_key>key</arg_key><arg_value>value</arg_value>";
-            assertThat(actions.tryParseRawToolCall(text)).isNull();
+            assertThat(parser.tryParseRawToolCall(text)).isNull();
         }
 
         @Test
         @DisplayName("should return null for text with tool name but no arg pairs")
         void shouldReturnNullWhenNoArgPairs() {
             String text = "I want to call http_get but forgot the arguments.";
-            assertThat(actions.tryParseRawToolCall(text)).isNull();
+            assertThat(parser.tryParseRawToolCall(text)).isNull();
         }
     }
 
@@ -210,7 +208,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_value>https://azeynalli1990.medium.com/quarkus-versus-spring-full-comparison-f294803332d0</arg_value>\n"
                     + "</tool_call>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("http_get");
@@ -226,7 +224,7 @@ class SpringAgentLoopActionsRawToolCallTest {
                     + "<arg_value>Quarkus vs Spring Boot performance benchmarks 2026</arg_value>\n"
                     + "</tool_call>";
 
-            RawToolCall result = actions.tryParseRawToolCall(text);
+            RawToolCall result = parser.tryParseRawToolCall(text);
 
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("web_search");
@@ -242,30 +240,30 @@ class SpringAgentLoopActionsRawToolCallTest {
 
         @Test
         void shouldEscapeQuotes() {
-            assertThat(SpringAgentLoopActions.escapeJson("say \"hello\""))
+            assertThat(RawToolCallParser.escapeJson("say \"hello\""))
                     .isEqualTo("say \\\"hello\\\"");
         }
 
         @Test
         void shouldEscapeBackslashes() {
-            assertThat(SpringAgentLoopActions.escapeJson("path\\to\\file"))
+            assertThat(RawToolCallParser.escapeJson("path\\to\\file"))
                     .isEqualTo("path\\\\to\\\\file");
         }
 
         @Test
         void shouldEscapeNewlinesAndTabs() {
-            assertThat(SpringAgentLoopActions.escapeJson("line1\nline2\ttab"))
+            assertThat(RawToolCallParser.escapeJson("line1\nline2\ttab"))
                     .isEqualTo("line1\\nline2\\ttab");
         }
 
         @Test
         void shouldReturnEmptyForNull() {
-            assertThat(SpringAgentLoopActions.escapeJson(null)).isEmpty();
+            assertThat(RawToolCallParser.escapeJson(null)).isEmpty();
         }
 
         @Test
         void shouldLeaveCleanStringUnchanged() {
-            assertThat(SpringAgentLoopActions.escapeJson("https://example.com/path?q=test"))
+            assertThat(RawToolCallParser.escapeJson("https://example.com/path?q=test"))
                     .isEqualTo("https://example.com/path?q=test");
         }
     }

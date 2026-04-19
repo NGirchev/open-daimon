@@ -6,6 +6,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -21,6 +22,16 @@ import java.util.stream.Collectors;
 @Slf4j
 @RequiredArgsConstructor
 public class WebTools {
+
+    private static final Duration FETCH_TIMEOUT = Duration.ofSeconds(6);
+    static final String BROWSER_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    + "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36";
+    static final String SERVICE_USER_AGENT = "OpenDaimonWebFetch/1.0";
+    private static final String ACCEPT_HEADER =
+            "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                    + "text/plain;q=0.8,*/*;q=0.7";
+    private static final String ACCEPT_LANGUAGE = "en-US,en;q=0.9";
 
     /**
      * Structured error reason codes returned to the agent in tool observations.
@@ -109,7 +120,7 @@ public class WebTools {
 
     @Tool(
         name = "fetch_url",
-        description = "Fetch a URL and return cleaned main text for citation."
+        description = "Fetch a selected HTTP(S) URL and return cleaned main text. Use web_search for discovery; do not retry a failed URL."
     )
     public String fetchUrl(String url) {
         if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
@@ -118,58 +129,91 @@ public class WebTools {
         }
         try {
             log.info("WebTools fetchUrl: {}", url);
-            String html = webClient.get()
-                .uri(url)
-                .retrieve()
-                .bodyToMono(String.class)
-                .timeout(Duration.ofSeconds(6))
-                .block();
-
-            if (html == null || html.isBlank()) {
-                log.warn("WebTools.fetchUrl: empty response for url=[{}]. Returning empty string.", url);
-                return "";
-            }
-
-            // HTML to plain text (minimal)
-            Document doc = Jsoup.parse(html);
-            doc.select("script, style, nav, footer, header").remove();
-
-            doc.body();
-            String text = doc.body().text();
-            // avoid token overflow - todo add additional model call to grep and parse the result
-            return text.length() > 6000 ? text.substring(0, 6000) : text;
+            return fetchAndExtract(url, BROWSER_USER_AGENT);
         } catch (WebClientResponseException e) {
-            if (e.getStatusCode().is2xxSuccessful()) {
-                // Body decode failure on a successful status (maxInMemorySize exceeded,
-                // charset mismatch, malformed gzip). Surface a distinct reason so the agent
-                // stops retrying the same URL and can fall back to another search hit
-                // instead of looping on an absurd "HTTP error 200 OK" marker.
-                log.warn("WebTools.fetchUrl: body decode failed on 2xx for url=[{}]: {}",
-                        url, e.getMessage());
-                return "Error: " + REASON_UNREADABLE_2XX
-                        + " — could not decode response body for " + url;
+            if (isCloudflareChallenge403(e)) {
+                log.warn("WebTools.fetchUrl: Cloudflare challenge for url=[{}], retrying once with service User-Agent", url);
+                try {
+                    return fetchAndExtract(url, SERVICE_USER_AGENT);
+                } catch (WebClientResponseException retryException) {
+                    return handleWebClientResponseException(url, retryException);
+                } catch (Exception retryException) {
+                    return handleFetchException(url, retryException);
+                }
             }
-            String reason = e.getStatusCode().value() + " " + e.getStatusText();
-            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, e.getMessage());
-            return "HTTP error " + reason;
+            return handleWebClientResponseException(url, e);
         } catch (Exception e) {
-            Throwable root = e;
-            while (root.getCause() != null && root.getCause() != root) {
-                root = root.getCause();
-            }
-            if (root instanceof DataBufferLimitException || e instanceof DataBufferLimitException) {
-                log.warn("WebTools.fetchUrl: response exceeded in-memory buffer for url=[{}]: {}",
-                        url, e.getMessage());
-                return "Error: " + REASON_TOO_LARGE + " — response exceeded buffer limit";
-            }
-            if (e instanceof TimeoutException || root instanceof TimeoutException) {
-                log.warn("WebTools.fetchUrl: request timed out for url=[{}]", url);
-                return "Error: " + REASON_TIMEOUT + " — request exceeded 6s timeout";
-            }
-            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, msg, e);
-            return "Error: " + msg;
+            return handleFetchException(url, e);
         }
+    }
+
+    private String fetchAndExtract(String url, String userAgent) {
+        String html = webClient.get()
+            .uri(url)
+            .headers(headers -> applyFetchHeaders(headers, userAgent))
+            .retrieve()
+            .bodyToMono(String.class)
+            .timeout(FETCH_TIMEOUT)
+            .block();
+
+        if (html == null || html.isBlank()) {
+            log.warn("WebTools.fetchUrl: empty response for url=[{}]. Returning empty string.", url);
+            return "";
+        }
+
+        Document doc = Jsoup.parse(html);
+        doc.select("script, style, nav, footer, header").remove();
+
+        doc.body();
+        String text = doc.body().text();
+        // avoid token overflow - todo add additional model call to grep and parse the result
+        return text.length() > 6000 ? text.substring(0, 6000) : text;
+    }
+
+    private static void applyFetchHeaders(HttpHeaders headers, String userAgent) {
+        headers.set(HttpHeaders.USER_AGENT, userAgent);
+        headers.set(HttpHeaders.ACCEPT, ACCEPT_HEADER);
+        headers.set(HttpHeaders.ACCEPT_LANGUAGE, ACCEPT_LANGUAGE);
+    }
+
+    private static boolean isCloudflareChallenge403(WebClientResponseException e) {
+        return e.getStatusCode().value() == 403
+                && "challenge".equalsIgnoreCase(e.getHeaders().getFirst("cf-mitigated"));
+    }
+
+    private String handleWebClientResponseException(String url, WebClientResponseException e) {
+        if (e.getStatusCode().is2xxSuccessful()) {
+            // Body decode failure on a successful status (maxInMemorySize exceeded,
+            // charset mismatch, malformed gzip). Surface a distinct reason so the agent
+            // stops retrying the same URL and can fall back to another search hit
+            // instead of looping on an absurd "HTTP error 200 OK" marker.
+            log.warn("WebTools.fetchUrl: body decode failed on 2xx for url=[{}]: {}",
+                    url, e.getMessage());
+            return "Error: " + REASON_UNREADABLE_2XX
+                    + " — could not decode response body for " + url;
+        }
+        String reason = e.getStatusCode().value() + " " + e.getStatusText();
+        log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, e.getMessage());
+        return "HTTP error " + reason;
+    }
+
+    private String handleFetchException(String url, Exception e) {
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        if (root instanceof DataBufferLimitException || e instanceof DataBufferLimitException) {
+            log.warn("WebTools.fetchUrl: response exceeded in-memory buffer for url=[{}]: {}",
+                    url, e.getMessage());
+            return "Error: " + REASON_TOO_LARGE + " — response exceeded buffer limit";
+        }
+        if (e instanceof TimeoutException || root instanceof TimeoutException) {
+            log.warn("WebTools.fetchUrl: request timed out for url=[{}]", url);
+            return "Error: " + REASON_TIMEOUT + " — request exceeded 6s timeout";
+        }
+        String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, msg, e);
+        return "Error: " + msg;
     }
 
     // Data classes
@@ -227,4 +271,3 @@ public class WebTools {
         }
     }
 }
-

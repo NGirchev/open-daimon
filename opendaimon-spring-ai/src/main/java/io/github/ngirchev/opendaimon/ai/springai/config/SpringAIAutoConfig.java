@@ -8,6 +8,7 @@ import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
@@ -240,8 +241,10 @@ public class SpringAIAutoConfig {
      * worst-case extra heap pressure is ~20 MB.
      */
     @Bean("webToolsWebClient")
-    public WebClient webToolsWebClient(WebClient.Builder builder) {
-        SslContext sslContext = buildWebToolsSslContext(isAppleProviderAvailable());
+    public WebClient webToolsWebClient(WebClient.Builder builder, SpringAIProperties properties) {
+        boolean mergeKeychain = Boolean.TRUE.equals(properties.getSsl().getMergeSystemKeychain())
+                && isAppleProviderAvailable();
+        SslContext sslContext = buildWebToolsSslContext(mergeKeychain);
         HttpClient httpClient = HttpClient.create()
                 .secure(spec -> spec.sslContext(sslContext));
         return builder
@@ -470,7 +473,7 @@ public class SpringAIAutoConfig {
     @Bean
     @ConditionalOnMissingBean
     public WebTools webTools(
-            @org.springframework.beans.factory.annotation.Qualifier("webToolsWebClient") WebClient webClient,
+            @Qualifier("webToolsWebClient") WebClient webClient,
             SpringAIProperties properties) {
         return new WebTools(
             webClient,
@@ -490,7 +493,7 @@ public class SpringAIAutoConfig {
             havingValue = "true",
             matchIfMissing = true)
     public UrlLivenessChecker urlLivenessChecker(
-            @org.springframework.beans.factory.annotation.Qualifier("webToolsWebClient") WebClient webClient,
+            @Qualifier("webToolsWebClient") WebClient webClient,
             SpringAIProperties properties) {
         SpringAIProperties.UrlCheck cfg = properties.getUrlCheck();
         return new UrlLivenessCheckerImpl(

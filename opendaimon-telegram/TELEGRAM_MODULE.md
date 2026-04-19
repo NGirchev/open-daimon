@@ -499,6 +499,13 @@ Edit rate for both roles is throttled to **at most one edit per second** to stay
    `WebTools`) return HTTP failures as a non-exceptional `String`, so the Telegram layer
    cannot rely on `toolResult.success()` alone to distinguish a 403 from a real page.
 
+   `fetch_url` may perform one internal retry for a Cloudflare challenge (`403` with
+   `cf-mitigated: challenge`) before the observation is emitted. This retry is not shown
+   as a second `🔧 Tool:` block because it is part of the same tool invocation. Repeated
+   blocked URLs are suppressed by the Spring AI agent guard: the next observation is a
+   synthetic `"Error: previously_failed_url ..."` or `"Error: host_unreadable ..."` result,
+   still rendered as `⚠️ Tool failed`.
+
 4. **Next iteration.** A fresh `💭 Thinking...` line is appended below the previous tool block.
    Completed tool blocks stay in the status message as a running iteration log.
 

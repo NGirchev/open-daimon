@@ -180,4 +180,63 @@ class StreamingAnswerFilterTest {
         out.append(filter.flush());
         assertThat(out.toString()).isEqualTo("hello world");
     }
+
+    @Test
+    void shouldPreserveNameTagWhenNoLooseToolCallAnchorSeen() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String out = filter.feed("Example: <name>John Doe</name> is the user")
+                + filter.flush();
+        assertThat(out).isEqualTo("Example: <name>John Doe</name> is the user");
+    }
+
+    @Test
+    void shouldPreserveNameTagAcrossChunksWhenNoAnchorSeen() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        StringBuilder out = new StringBuilder();
+        out.append(filter.feed("user: <na"));
+        out.append(filter.feed("me>Alice</na"));
+        out.append(filter.feed("me> done"));
+        out.append(filter.flush());
+        assertThat(out.toString()).isEqualTo("user: <name>Alice</name> done");
+    }
+
+    @Test
+    void shouldStripNameTagAfterArgKeyAnchorObserved() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String stream = "<arg_key>q</arg_key>later <name>stripped</name> tail";
+        String out = filter.feed(stream) + filter.flush();
+        assertThat(out).isEqualTo("later  tail");
+    }
+
+    @Test
+    void shouldStripNameTagAfterArgValueAnchorObserved() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String stream = "<arg_value>v</arg_value> <name>also-stripped</name> end";
+        String out = filter.feed(stream) + filter.flush();
+        assertThat(out).isEqualTo("  end");
+    }
+
+    @Test
+    void shouldStripNameTagAfterOrphanToolCallCloseAnchor() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String stream = "prefix</tool_call>mid <name>drop</name> tail";
+        String out = filter.feed(stream) + filter.flush();
+        assertThat(out).isEqualTo("prefixmid  tail");
+    }
+
+    @Test
+    void shouldPreserveNameTagEvenAfterThinkBlock() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String stream = "<think>reasoning</think>result: <name>Bob</name>";
+        String out = filter.feed(stream) + filter.flush();
+        assertThat(out).isEqualTo("result: <name>Bob</name>");
+    }
+
+    @Test
+    void shouldStripToolCallBlockContainingNameAndPreserveTrailingNameOutsideNoAnchorNeeded() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String stream = "<tool_call><name>web_search</name></tool_call>answer: <name>leak</name>";
+        String out = filter.feed(stream) + filter.flush();
+        assertThat(out).isEqualTo("answer: ");
+    }
 }

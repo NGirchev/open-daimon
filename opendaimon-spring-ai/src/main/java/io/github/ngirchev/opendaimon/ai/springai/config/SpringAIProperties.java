@@ -36,6 +36,30 @@ public class SpringAIProperties {
 
     private UrlCheck urlCheck = new UrlCheck();
 
+    private Ssl ssl = new Ssl();
+
+    /**
+     * TLS trust-store configuration for the dedicated {@code webToolsWebClient}
+     * (used by {@code WebTools}, {@code HttpApiTool}, and {@code UrlLivenessChecker}).
+     * Kept separate from the Spring AI chat WebClient because those tools hit
+     * arbitrary third-party hosts whose chains often lag Corretto's bundled cacerts,
+     * while the chat provider endpoints are covered by the default trust store.
+     */
+    @Getter
+    @Setter
+    public static class Ssl {
+        /**
+         * When true and the Apple JSSE provider is available (macOS dev machines),
+         * trusted-cert entries from the macOS System/Login Keychain are merged
+         * into the WebClient's trust store. Disable explicitly on dev laptops
+         * that carry corporate MITM or self-signed certificates in the Keychain
+         * whose trust must not leak into the service. On Linux containers the
+         * Apple provider is absent and this toggle has no effect regardless.
+         */
+        @NotNull(message = "ssl.merge-system-keychain is required")
+        private Boolean mergeSystemKeychain = true;
+    }
+
     /**
      * Configuration for {@link io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker}.
      * Controls HEAD/ranged-GET timeout, the per-answer URL cap, and the Caffeine cache TTL

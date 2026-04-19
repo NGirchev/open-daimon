@@ -205,6 +205,11 @@ open-daimon:
         timeout-ms: 3000
         max-urls-per-answer: 10
         cache-ttl-minutes: 10
+      # Trust-store policy for the dedicated webToolsWebClient (WebTools, HttpApiTool, UrlLivenessChecker).
+      # merge-system-keychain: on macOS dev machines merge Keychain-trusted CAs into the JVM trust store.
+      # Disable explicitly to isolate the service from local MITM/self-signed certs. No effect on Linux.
+      ssl:
+        merge-system-keychain: true
       # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
       # Ollama models (run locally: ollama pull qwen3.5:4b).
       models:

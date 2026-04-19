@@ -23,6 +23,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -170,7 +171,7 @@ public class AgentAutoConfig {
     @ConditionalOnMissingBean(HttpApiTool.class)
     @ConditionalOnProperty(name = FeatureToggle.Feature.AGENT_HTTP_API_TOOL_ENABLED, havingValue = "true")
     public HttpApiTool httpApiTool(
-            @org.springframework.beans.factory.annotation.Qualifier("webToolsWebClient") WebClient webClient) {
+            @Qualifier("webToolsWebClient") WebClient webClient) {
         return new HttpApiTool(webClient);
     }
 }

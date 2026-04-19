@@ -67,8 +67,8 @@ public class SimpleChainExecutor implements AgentExecutor {
             ChatResponse response = chatModel.call(prompt);
             response.getResult();
             String rawText = response.getResult().getOutput().getText();
-            String answer = SpringAgentLoopActions.stripToolCallTags(
-                    SpringAgentLoopActions.stripThinkTags(rawText));
+            String answer = AgentTextSanitizer.stripToolCallTags(
+                    AgentTextSanitizer.stripThinkTags(rawText));
             String modelName = response.getMetadata().getModel();
 
             saveConversationHistory(request, answer);
@@ -106,7 +106,7 @@ public class SimpleChainExecutor implements AgentExecutor {
                         ? response.getMetadata().getModel() : null;
 
                 // Extract thinking content from metadata (OpenRouter) or <think> tags (Ollama)
-                String reasoning = SpringAgentLoopActions.extractReasoning(response);
+                String reasoning = AgentTextSanitizer.extractReasoning(response);
                 log.info("SimpleChain stream: model={}, rawTextLength={}, reasoningLength={}, rawFirst100='{}'",
                         modelName,
                         rawText != null ? rawText.length() : 0,
@@ -116,8 +116,8 @@ public class SimpleChainExecutor implements AgentExecutor {
                     sink.tryEmitNext(AgentStreamEvent.thinking(reasoning, 0));
                 }
 
-                String answer = SpringAgentLoopActions.stripToolCallTags(
-                        SpringAgentLoopActions.stripThinkTags(rawText));
+                String answer = AgentTextSanitizer.stripToolCallTags(
+                        AgentTextSanitizer.stripThinkTags(rawText));
                 saveConversationHistory(request, answer);
 
                 if (modelName != null) {

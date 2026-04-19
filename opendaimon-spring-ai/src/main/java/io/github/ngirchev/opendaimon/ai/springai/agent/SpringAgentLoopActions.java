@@ -1,12 +1,17 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.ngirchev.opendaimon.ai.springai.agent.RawToolCallParser.RawToolCall;
+import io.github.ngirchev.opendaimon.ai.springai.agent.ToolObservationClassifier.Classification;
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
+import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
-import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -19,25 +24,30 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.metadata.ToolMetadata;
 import reactor.core.publisher.Flux;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -49,6 +59,21 @@ import java.util.stream.Collectors;
  *
  * <p>Tool execution is delegated to {@link ToolCallingManager} which resolves
  * and invokes tools discovered by Spring AI's {@code SpringBeanToolCallbackResolver}.
+ *
+ * <p>Cross-cutting concerns that are not FSM state transitions are delegated to
+ * focused helpers:
+ * <ul>
+ *   <li>{@link AgentTextSanitizer} — strips {@code <think>}/{@code <tool_call>} markup
+ *       from batch text; also owns the hot-path {@code appendDelta} helper used in
+ *       {@link #streamAndAggregate(AgentContext, Prompt)}.</li>
+ *   <li>{@link RawToolCallParser} — parses fallback XML-style tool calls emitted by
+ *       some models as plain text.</li>
+ *   <li>{@link ToolObservationClassifier} — turns a Spring AI-flavoured
+ *       {@link AgentToolResult} into the {@code (streamContent, observation, toolError)}
+ *       triple expected by the observation event + step history.</li>
+ *   <li>{@link SummaryModelInvoker} — produces the MAX_ITERATIONS closing answer
+ *       via tool-less LLM call with a deterministic step-history fallback.</li>
+ * </ul>
  */
 @Slf4j
 public class SpringAgentLoopActions implements AgentLoopActions {
@@ -60,56 +85,18 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final Duration streamTimeout;
     /** Optional — when set, final-answer text is passed through to strip dead URLs. */
     private final UrlLivenessChecker urlLivenessChecker;
+    private final RawToolCallParser rawToolCallParser;
+    private final SummaryModelInvoker summaryModelInvoker;
 
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
     private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
     private static final String KEY_LAST_RESPONSE = "spring.lastResponse";
-
-    /** Matches complete {@code <tool_call>...</tool_call>} blocks including content. */
-    private static final Pattern TOOL_CALL_BLOCK_PATTERN =
-            Pattern.compile("<tool_call>.*?</tool_call>", Pattern.DOTALL);
-
-    /** Matches orphaned {@code <tool_call>} tag without closing — consumes to end of string. */
-    private static final Pattern TOOL_CALL_OPEN_PATTERN =
-            Pattern.compile("<tool_call>.*", Pattern.DOTALL);
-
-    /** Matches orphaned {@code </tool_call>} closing tag. */
-    private static final Pattern TOOL_CALL_CLOSE_PATTERN =
-            Pattern.compile("</tool_call>");
-
-    /** Matches loose inner tags: {@code <name>}, {@code <arg_key>}, {@code <arg_value>} with content. */
-    private static final Pattern TOOL_CALL_INNER_TAGS_PATTERN =
-            Pattern.compile("<(name|arg_key|arg_value)>.*?</\\1>", Pattern.DOTALL);
-
-    /** Matches unclosed inner tags: e.g. {@code <arg_value>content} without a closing tag. */
-    private static final Pattern TOOL_CALL_UNCLOSED_INNER_TAG_PATTERN =
-            Pattern.compile("<(name|arg_key|arg_value)>[^\n]*");
-
-    /** Matches a bare tool-like name on its own line (e.g. {@code http_get}, {@code web_search}). */
-    private static final Pattern BARE_TOOL_NAME_PATTERN =
-            Pattern.compile("(?m)^\\s*\\w+_\\w+\\s*$");
-
+    private static final String KEY_FAILED_FETCH_URLS = "spring.failedFetchUrls";
+    private static final String KEY_FAILED_FETCH_HOSTS = "spring.failedFetchHosts";
     private static final String KEY_FALLBACK_TOOL_CALL = "spring.fallbackToolCall";
-
-    /** Matches {@code <name>toolName</name>} inside raw tool call markup. */
-    private static final Pattern NAME_TAG_PATTERN =
-            Pattern.compile("<name>(\\w+)</name>");
-
-    /**
-     * Matches {@code <tool_name>toolName</tool_name>} — the Ollama/Qwen variant. Kept as a
-     * separate pattern (not combined with {@link #NAME_TAG_PATTERN}) because some models
-     * emit both in the same payload and we want a deterministic priority: {@code <name>}
-     * wins, {@code <tool_name>} is the fallback.
-     */
-    private static final Pattern TOOL_NAME_TAG_PATTERN =
-            Pattern.compile("<tool_name>(\\w+)</tool_name>");
-
-    /** Matches {@code <arg_key>key</arg_key>...<arg_value>value</arg_value>} pairs. */
-    private static final Pattern ARG_PAIR_PATTERN =
-            Pattern.compile("<arg_key>(.*?)</arg_key>\\s*<arg_value>(.*?)</arg_value>", Pattern.DOTALL);
-
-    /** Parsed raw tool call from text output (fallback for models without structured function calling). */
-    record RawToolCall(String name, String arguments) {}
+    private static final String TOOL_FETCH_URL = "fetch_url";
+    private static final int MAX_FAILED_FETCHES_PER_HOST = 2;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
@@ -131,6 +118,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         this.chatMemory = chatMemory;
         this.streamTimeout = Objects.requireNonNull(streamTimeout, "streamTimeout must not be null");
         this.urlLivenessChecker = urlLivenessChecker;
+        this.rawToolCallParser = new RawToolCallParser(this.toolCallbacks);
+        this.summaryModelInvoker = new SummaryModelInvoker(chatModel);
     }
 
     @Override
@@ -190,8 +179,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 ctx.setModelName(response.getMetadata().getModel());
             }
 
-            // Emit reasoning content if available from provider (OpenRouter/Anthropic/Ollama)
-            String reasoning = extractReasoning(response);
+            String reasoning = AgentTextSanitizer.extractReasoning(response);
             log.info("Agent think: reasoning extracted, length={}",
                     reasoning != null ? reasoning.length() : 0);
             if (reasoning != null && !reasoning.isBlank()) {
@@ -227,8 +215,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 log.info("Agent think: tool call detected — tool={}, args={}",
                         firstToolCall.name(), firstToolCall.arguments());
             } else {
-                String rawText = stripThinkTags(output.getText());
-                RawToolCall rawToolCall = tryParseRawToolCall(rawText);
+                String rawText = AgentTextSanitizer.stripThinkTags(output.getText());
+                RawToolCall rawToolCall = rawToolCallParser.tryParseRawToolCall(rawText);
                 if (rawToolCall != null) {
                     ctx.setCurrentThought("Calling tool (fallback): " + rawToolCall.name());
                     ctx.setCurrentToolName(rawToolCall.name());
@@ -236,14 +224,13 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     ctx.putExtra(KEY_FALLBACK_TOOL_CALL, Boolean.TRUE);
                     log.info("Agent think: raw tool call detected via fallback — tool={}, args={}",
                             rawToolCall.name(), rawToolCall.arguments());
-                    // Add cleaned message to history — raw XML confuses the model on next iterations
-                    String cleanedText = stripToolCallTags(rawText);
+                    String cleanedText = AgentTextSanitizer.stripToolCallTags(rawText);
                     messages.add(new AssistantMessage(
                             cleanedText != null && !cleanedText.isEmpty()
                                     ? cleanedText
                                     : "Calling tool: " + rawToolCall.name()));
                 } else {
-                    String text = stripToolCallTags(rawText);
+                    String text = AgentTextSanitizer.stripToolCallTags(rawText);
                     if (text == null || text.isBlank()) {
                         ctx.markEmptyResponse();
                         log.warn("Agent think: LLM returned empty response (no tool call, no text), "
@@ -302,9 +289,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                         if (chunk.getResult() != null && chunk.getResult().getOutput() != null) {
                             AssistantMessage output = chunk.getResult().getOutput();
                             if (output.getText() != null) {
-                                String text = output.getText();
-                                String accumulated = fullText.toString();
-                                fullText.append(normalizeDelta(accumulated, text));
+                                AgentTextSanitizer.appendDelta(fullText, output.getText());
                             }
                             if (output.getToolCalls() != null && !output.getToolCalls().isEmpty()) {
                                 for (AssistantMessage.ToolCall call : output.getToolCalls()) {
@@ -367,6 +352,10 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void executeTool(AgentContext ctx) {
+        if (ctx.isCancelled()) {
+            ctx.setErrorMessage("Agent run cancelled by user before executeTool()");
+            return;
+        }
         ctx.emitEvent(AgentStreamEvent.toolCall(
                 ctx.getCurrentToolName(), ctx.getCurrentToolArguments(), ctx.getCurrentIteration()));
         try {
@@ -411,49 +400,20 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void observe(AgentContext ctx) {
-        AgentToolResult toolResult = ctx.getToolResult();
-        boolean toolError = toolResult != null && !toolResult.success();
-        String streamContent;
-        String observation;
-        if (toolResult == null) {
-            streamContent = null;
-            observation = "No result";
-        } else if (toolResult.success()) {
-            streamContent = toolResult.result();
-            observation = toolResult.result();
-            // Several built-in @Tool implementations (HttpApiTool, WebTools) return a
-            // non-exceptional String on HTTP failure — e.g. "HTTP error 403 FORBIDDEN: …" or
-            // "Error: …". Spring AI treats that as a successful tool execution, so
-            // toolResult.success() stays true and the Telegram layer would mis-render it as
-            // "📋 Tool result received". Detect those textual failure markers here and
-            // promote the observation to an error so the UI shows "⚠️ Tool failed: …".
-            if (streamContent != null) {
-                String trimmed = streamContent.trim();
-                // Spring AI serializes String tool return values as JSON-quoted strings
-                // (e.g. "HTTP error 200 OK" → "\"HTTP error 200 OK\""). Unwrap the outer
-                // quotes before checking the textual-failure prefix so the heuristic works
-                // regardless of whether the upstream serializer added them.
-                if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
-                    trimmed = trimmed.substring(1, trimmed.length() - 1);
-                    streamContent = trimmed;
-                }
-                if (trimmed.startsWith("HTTP error ") || trimmed.startsWith("Error: ")) {
-                    toolError = true;
-                    streamContent = summarizeToolError(trimmed);
-                }
-            }
-        } else {
-            streamContent = toolResult.error();
-            observation = "Error: " + toolResult.error();
+        if (ctx.isCancelled()) {
+            ctx.setErrorMessage("Agent run cancelled by user before observe()");
+            return;
         }
-        ctx.emitEvent(AgentStreamEvent.observation(streamContent, toolError, ctx.getCurrentIteration()));
+        Classification classification = ToolObservationClassifier.classify(ctx.getToolResult());
+        ctx.emitEvent(AgentStreamEvent.observation(
+                classification.streamContent(), classification.toolError(), ctx.getCurrentIteration()));
 
         ctx.recordStep(new AgentStepResult(
                 ctx.getCurrentIteration(),
                 ctx.getCurrentThought(),
                 ctx.getCurrentToolName(),
                 ctx.getCurrentToolArguments(),
-                observation,
+                classification.observation(),
                 Instant.now()
         ));
 
@@ -466,8 +426,16 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void answer(AgentContext ctx) {
+        if (ctx.isCancelled()) {
+            // Set error only — FSM's ANSWERING→FAILED guard on hasError routes the
+            // terminal state to FAILED (not COMPLETED), so AgentResult.isSuccess()
+            // returns false. handleError() runs cleanup on the failure branch; no
+            // finalAnswer is set because the user no longer wants the result.
+            ctx.setErrorMessage("Agent run cancelled by user before answer()");
+            return;
+        }
         String text = ctx.getCurrentTextResponse();
-        String sanitized = sanitizeDeadUrls(text);
+        String sanitized = sanitizeDeadUrls(ctx, text);
         ctx.setFinalAnswer(sanitized);
         saveConversationHistory(ctx);
         cleanup(ctx);
@@ -477,17 +445,20 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     }
 
     /**
-     * Passes the final answer text through {@link UrlLivenessChecker#stripDeadLinks(String)}
-     * when the checker bean is available. Defends against LLM-hallucinated URLs in the
-     * final user-visible answer. Failures in the checker never block answer delivery —
-     * on any exception the original text is returned unchanged.
+     * Passes the final answer text through {@link UrlLivenessChecker#stripDeadLinks(String, String)}
+     * when the checker bean is available. The language-code is pulled from
+     * {@link AICommand#LANGUAGE_CODE_FIELD} in the agent metadata so that dead-link markers
+     * localise to the same language as the rest of the answer. Failures in the checker never
+     * block answer delivery — on any exception the original text is returned unchanged.
      */
-    private String sanitizeDeadUrls(String text) {
+    private String sanitizeDeadUrls(AgentContext ctx, String text) {
         if (urlLivenessChecker == null || text == null || text.isBlank()) {
             return text;
         }
+        String languageCode = ctx.getMetadata() != null
+                ? ctx.getMetadata().get(AICommand.LANGUAGE_CODE_FIELD) : null;
         try {
-            return urlLivenessChecker.stripDeadLinks(text);
+            return urlLivenessChecker.stripDeadLinks(text, languageCode);
         } catch (Exception e) {
             log.warn("Agent answer: url liveness sanitization failed, keeping original text: {}",
                     e.getMessage());
@@ -497,126 +468,22 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void handleMaxIterations(AgentContext ctx) {
+        if (ctx.isCancelled()) {
+            ctx.setErrorMessage("Agent run cancelled by user before handleMaxIterations()");
+            ctx.setFinalAnswer(summaryModelInvoker.buildFallbackSummary(ctx));
+            cleanup(ctx);
+            return;
+        }
         String summary;
         try {
-            summary = callSummaryModelWithoutTools(ctx);
+            summary = summaryModelInvoker.callSummaryModelWithoutTools(ctx);
         } catch (Exception e) {
             log.warn("Agent handleMaxIterations: summary LLM call failed, falling back to step-history digest", e);
-            summary = buildFallbackSummary(ctx);
+            summary = summaryModelInvoker.buildFallbackSummary(ctx);
         }
         ctx.setFinalAnswer(summary);
         cleanup(ctx);
         log.warn("Agent handleMaxIterations: {} iterations exhausted", ctx.getMaxIterations());
-    }
-
-    /**
-     * Extracts a short, UI-friendly error line from a textual tool failure like
-     * {@code "HTTP error 403 FORBIDDEN: <html …>"} or {@code "Error: connection refused"}.
-     * Keeps only the head of the first line so the Telegram {@code ⚠️ Tool failed: …}
-     * marker stays compact (large CloudFlare challenge pages are ~7 kB otherwise).
-     */
-    private static String summarizeToolError(String raw) {
-        int maxLen = 200;
-        int newline = raw.indexOf('\n');
-        String firstLine = newline >= 0 ? raw.substring(0, newline) : raw;
-        if (firstLine.length() > maxLen) {
-            return firstLine.substring(0, maxLen) + "…";
-        }
-        return firstLine;
-    }
-
-    /**
-     * Asks the chat model to summarize the step history and answer the user's original
-     * question, with tool execution explicitly disabled and no tool callbacks registered.
-     * The model is forced to produce a direct answer from whatever observations already
-     * exist — no further tool calls are possible.
-     *
-     * <p>The system prompt includes a language instruction derived from the
-     * {@code languageCode} field in {@code ctx.getMetadata()} (see {@link AICommand#LANGUAGE_CODE_FIELD}).
-     * The prompt also explicitly forbids meta-prose and introductory phrases such as
-     * "Based on", "Answer:", "According to", or "The searches showed".
-     */
-    private String callSummaryModelWithoutTools(AgentContext ctx) {
-        List<Message> messages = new ArrayList<>();
-        String langInstruction = resolveLanguageInstruction(ctx.getMetadata());
-        String systemPrompt = "You have reached the iteration limit. "
-                + "Based on the step history, give a direct answer to the user's original question. "
-                + "Do not call any tools. "
-                + "Do not explain the research process. "
-                + "Do not use introductory phrases like 'Based on', 'Answer:', 'According to', "
-                + "'The searches showed', or similar. "
-                + "If the available information is insufficient, say so in one sentence."
-                + (langInstruction.isEmpty() ? "" : "\n" + langInstruction);
-        messages.add(new SystemMessage(systemPrompt));
-        messages.add(new UserMessage(ctx.getTask() + "\n\nContext so far:\n" + flattenStepHistory(ctx)));
-
-        ToolCallingChatOptions options = ToolCallingChatOptions.builder()
-                .internalToolExecutionEnabled(false)
-                .toolCallbacks(List.of())
-                .build();
-
-        ChatResponse response = chatModel.call(new Prompt(messages, options));
-        String raw = response.getResult() != null && response.getResult().getOutput() != null
-                ? response.getResult().getOutput().getText()
-                : null;
-        String clean = stripToolCallTags(stripThinkTags(raw));
-        if (clean == null || clean.isBlank()) {
-            throw new IllegalStateException("Summary LLM returned empty content");
-        }
-        return clean;
-    }
-
-    /** Flattens step history into a plain-text block for the summary prompt. */
-    private String flattenStepHistory(AgentContext ctx) {
-        var sb = new StringBuilder();
-        for (AgentStepResult step : ctx.getStepHistory()) {
-            if (step.observation() != null) {
-                String obs = stripToolCallTags(step.observation());
-                sb.append("- ").append(step.action()).append(": ").append(
-                        obs != null && obs.length() > 500 ? obs.substring(0, 500) + "..." : (obs != null ? obs : "")
-                ).append('\n');
-            }
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Resolves a language instruction string from agent metadata.
-     * Returns an empty string if no {@code languageCode} is set in metadata.
-     */
-    private static String resolveLanguageInstruction(Map<String, String> metadata) {
-        if (metadata == null) return "";
-        String code = metadata.get(AICommand.LANGUAGE_CODE_FIELD);
-        if (code == null || code.isBlank()) return "";
-        String name = switch (code.toLowerCase()) {
-            case "ru" -> "Russian";
-            case "en" -> "English";
-            case "de" -> "German";
-            case "fr" -> "French";
-            case "es" -> "Spanish";
-            case "zh" -> "Chinese";
-            default -> code;
-        };
-        return "Respond in " + name + " (" + code + ").";
-    }
-
-    /**
-     * Old StringBuilder digest — used only when the summary LLM call throws. Keeps the
-     * user from receiving an empty final answer on MAX_ITERATIONS.
-     */
-    private String buildFallbackSummary(AgentContext ctx) {
-        var sb = new StringBuilder();
-        sb.append("I reached the maximum number of iterations (").append(ctx.getMaxIterations()).append("). ");
-        sb.append("Here is what I found so far:\n\n");
-        for (AgentStepResult step : ctx.getStepHistory()) {
-            if (step.observation() != null) {
-                String obs = stripToolCallTags(step.observation());
-                sb.append("- ").append(step.action()).append(": ").append(
-                        obs != null && obs.length() > 200 ? obs.substring(0, 200) + "..." : (obs != null ? obs : "")
-                ).append('\n');
-            }
-        }
-        return sb.toString();
     }
 
     @Override
@@ -653,19 +520,161 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      * Filters the full tool callback list by {@code ctx.getEnabledTools()}.
      * If enabledTools is empty or null, all tools are available (default behavior).
      */
-    private List<ToolCallback> resolveEffectiveTools(AgentContext ctx) {
+    List<ToolCallback> resolveEffectiveTools(AgentContext ctx) {
         Set<String> enabled = ctx.getEnabledTools();
+        List<ToolCallback> resolved;
         if (enabled == null || enabled.isEmpty()) {
-            return toolCallbacks;
+            resolved = toolCallbacks;
+        } else {
+            List<ToolCallback> filtered = toolCallbacks.stream()
+                    .filter(cb -> enabled.contains(cb.getToolDefinition().name()))
+                    .toList();
+            if (filtered.isEmpty()) {
+                log.warn("Agent think: enabledTools={} matched no registered tools, using all", enabled);
+                resolved = toolCallbacks;
+            } else {
+                resolved = filtered;
+            }
         }
-        List<ToolCallback> filtered = toolCallbacks.stream()
-                .filter(cb -> enabled.contains(cb.getToolDefinition().name()))
+        return resolved.stream()
+                .map(callback -> guardFetchUrlCallback(ctx, callback))
                 .toList();
-        if (filtered.isEmpty()) {
-            log.warn("Agent think: enabledTools={} matched no registered tools, using all", enabled);
-            return toolCallbacks;
+    }
+
+    private ToolCallback guardFetchUrlCallback(AgentContext ctx, ToolCallback callback) {
+        if (!TOOL_FETCH_URL.equals(callback.getToolDefinition().name())) {
+            return callback;
         }
-        return filtered;
+        return new GuardedFetchUrlToolCallback(callback, ctx);
+    }
+
+    private static final class GuardedFetchUrlToolCallback implements ToolCallback {
+        private final ToolCallback delegate;
+        private final AgentContext ctx;
+
+        private GuardedFetchUrlToolCallback(ToolCallback delegate, AgentContext ctx) {
+            this.delegate = delegate;
+            this.ctx = ctx;
+        }
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return delegate.getToolDefinition();
+        }
+
+        @Override
+        public ToolMetadata getToolMetadata() {
+            return delegate.getToolMetadata();
+        }
+
+        @Override
+        public String call(String toolInput) {
+            return callGuarded(toolInput, () -> delegate.call(toolInput));
+        }
+
+        @Override
+        public String call(String toolInput, ToolContext toolContext) {
+            return callGuarded(toolInput, () -> delegate.call(toolInput, toolContext));
+        }
+
+        private String callGuarded(String toolInput, Supplier<String> delegateCall) {
+            String url = extractFetchUrl(toolInput);
+            String host = hostOf(url);
+            String shortCircuit = shortCircuitFetchMessage(ctx, url, host);
+            if (shortCircuit != null) {
+                return shortCircuit;
+            }
+
+            String result = delegateCall.get();
+            recordFetchFailure(ctx, url, host, result);
+            return result;
+        }
+    }
+
+    private static String extractFetchUrl(String toolInput) {
+        if (toolInput == null || toolInput.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = OBJECT_MAPPER.readTree(toolInput);
+            JsonNode urlNode = node.get("url");
+            if (urlNode == null || urlNode.isNull()) {
+                return null;
+            }
+            String url = urlNode.asText();
+            return url == null || url.isBlank() ? null : url.trim();
+        } catch (Exception e) {
+            log.debug("Agent fetch_url guard: could not parse tool input as JSON: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static String shortCircuitFetchMessage(AgentContext ctx, String url, String host) {
+        if (url != null && failedFetchUrls(ctx).contains(url)) {
+            log.info("Agent fetch_url guard: short-circuiting previously failed url={}", url);
+            return "Error: previously_failed_url - " + url
+                    + " failed earlier in this run; use another source or answer from search snippets";
+        }
+        if (host != null && failedFetchHosts(ctx).getOrDefault(host, 0) >= MAX_FAILED_FETCHES_PER_HOST) {
+            log.info("Agent fetch_url guard: short-circuiting host={} after repeated failures", host);
+            return "Error: host_unreadable - " + host
+                    + " failed repeatedly in this run; use another source or answer from search snippets";
+        }
+        return null;
+    }
+
+    private static void recordFetchFailure(AgentContext ctx, String url, String host, String result) {
+        String failure = ToolObservationClassifier.normalizeStringToolResult(result);
+        if (!ToolObservationClassifier.isTextualToolFailure(failure)) {
+            return;
+        }
+        if (url != null) {
+            failedFetchUrls(ctx).add(url);
+        }
+        if (host != null && shouldCountHostFailure(failure)) {
+            Map<String, Integer> hosts = failedFetchHosts(ctx);
+            hosts.put(host, hosts.getOrDefault(host, 0) + 1);
+        }
+    }
+
+    private static boolean shouldCountHostFailure(String failure) {
+        if (failure.startsWith("Error: " + WebTools.REASON_TIMEOUT)
+                || failure.startsWith("HTTP error 408")
+                || failure.startsWith("HTTP error 429")
+                || failure.matches("^HTTP error 5\\d\\d\\b.*")) {
+            return false;
+        }
+        return true;
+    }
+
+    private static String hostOf(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            String host = URI.create(url).getHost();
+            return host == null || host.isBlank() ? null : host.toLowerCase(Locale.ROOT);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static Set<String> failedFetchUrls(AgentContext ctx) {
+        Set<String> urls = ctx.getExtra(KEY_FAILED_FETCH_URLS);
+        if (urls == null) {
+            urls = new LinkedHashSet<>();
+            ctx.putExtra(KEY_FAILED_FETCH_URLS, urls);
+        }
+        return urls;
+    }
+
+    private static Map<String, Integer> failedFetchHosts(AgentContext ctx) {
+        Map<String, Integer> hosts = ctx.getExtra(KEY_FAILED_FETCH_HOSTS);
+        if (hosts == null) {
+            hosts = new HashMap<>();
+            ctx.putExtra(KEY_FAILED_FETCH_HOSTS, hosts);
+        }
+        return hosts;
     }
 
     /**
@@ -690,84 +699,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     }
 
     /**
-     * Attempts to parse a tool call from raw XML tags in the text output.
-     *
-     * <p>Some models (especially via Ollama/OpenRouter) emit tool calls as XML tags
-     * in text instead of using the structured function calling API. This method
-     * detects such patterns and parses them into a usable tool call.
-     *
-     * <p>Requirements for a valid parse:
-     * <ul>
-     *   <li>At least one {@code <arg_key>/<arg_value>} pair must be present</li>
-     *   <li>Tool name found via {@code <name>} tag or by matching registered tool names</li>
-     *   <li>Tool name must correspond to a registered tool callback</li>
-     * </ul>
-     *
-     * @param text raw text output from the LLM (after think-tag stripping)
-     * @return parsed tool call, or null if no valid tool call pattern found
-     */
-    RawToolCall tryParseRawToolCall(String text) {
-        if (text == null) {
-            return null;
-        }
-
-        Matcher firstArgCheck = ARG_PAIR_PATTERN.matcher(text);
-        if (!firstArgCheck.find()) {
-            return null;
-        }
-
-        String toolName = null;
-        Matcher nameMatcher = NAME_TAG_PATTERN.matcher(text);
-        if (nameMatcher.find()) {
-            toolName = nameMatcher.group(1).trim();
-        }
-
-        if (toolName == null) {
-            Matcher toolNameMatcher = TOOL_NAME_TAG_PATTERN.matcher(text);
-            if (toolNameMatcher.find()) {
-                toolName = toolNameMatcher.group(1).trim();
-            }
-        }
-
-        if (toolName == null) {
-            for (ToolCallback cb : toolCallbacks) {
-                String name = cb.getToolDefinition().name();
-                if (text.contains(name)) {
-                    toolName = name;
-                    break;
-                }
-            }
-        }
-
-        if (toolName == null) {
-            return null;
-        }
-
-        String resolvedName = toolName;
-        boolean registered = toolCallbacks.stream()
-                .anyMatch(cb -> cb.getToolDefinition().name().equals(resolvedName));
-        if (!registered) {
-            return null;
-        }
-
-        Matcher argMatcher = ARG_PAIR_PATTERN.matcher(text);
-        StringBuilder json = new StringBuilder("{");
-        boolean first = true;
-        while (argMatcher.find()) {
-            if (!first) {
-                json.append(",");
-            }
-            json.append("\"").append(escapeJson(argMatcher.group(1).trim())).append("\":");
-            json.append("\"").append(escapeJson(argMatcher.group(2).trim())).append("\"");
-            first = false;
-        }
-        json.append("}");
-
-        log.info("Agent think: parsed raw tool call — tool={}, args={}", toolName, json);
-        return new RawToolCall(toolName, json.toString());
-    }
-
-    /**
      * Executes a tool call that was parsed from raw text (fallback path).
      * Directly invokes the matching {@link ToolCallback} instead of going through
      * {@link ToolCallingManager}, since there is no structured tool call in the
@@ -789,7 +720,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
         log.info("Agent executeTool (fallback): tool={}, args={}", toolName, toolArgs);
 
-        String result = callback.call(toolArgs);
+        String result = guardFetchUrlCallback(ctx, callback).call(toolArgs);
         ctx.setToolResult(AgentToolResult.success(toolName, result));
 
         List<Message> messages = getOrCreateHistory(ctx);
@@ -802,164 +733,10 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         log.debug("Agent executeTool (fallback): raw result:\n{}", result);
     }
 
-    /**
-     * Escapes special characters for JSON string values.
-     */
-    static String escapeJson(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
-
     private void cleanup(AgentContext ctx) {
         ctx.removeExtra(KEY_CONVERSATION_HISTORY);
         ctx.removeExtra(KEY_LAST_PROMPT);
         ctx.removeExtra(KEY_LAST_RESPONSE);
-    }
-
-    /**
-     * Attempts to extract reasoning/thinking content from the LLM response.
-     *
-     * <p>Two sources are checked:
-     * <ol>
-     *   <li>Generation metadata key "reasoningContent" (OpenRouter/Anthropic)</li>
-     *   <li>{@code <think>...</think>} tags in text output (Ollama with think=true)</li>
-     * </ol>
-     *
-     * @return reasoning text, or null if not available
-     */
-    static String extractReasoning(ChatResponse response) {
-        try {
-            if (response == null) {
-                return null;
-            } else {
-                response.getResult();
-            }
-            var metadata = response.getResult().getMetadata();
-            // 1. Check "thinking" metadata key (Spring AI Ollama 1.1+ with think=true)
-            Object thinking = metadata.get("thinking");
-            if (thinking instanceof String text && !text.isBlank()) {
-                log.info("Agent extractReasoning: found 'thinking' metadata, length={}", text.length());
-                return text;
-            }
-            // 2. Check "reasoningContent" metadata key (OpenRouter/Anthropic)
-            Object reasoning = metadata.get("reasoningContent");
-            if (reasoning instanceof String text && !text.isBlank()) {
-                log.info("Agent extractReasoning: found 'reasoningContent' metadata, length={}", text.length());
-                return text;
-            }
-            // 3. Fallback: check <think> tags in text (older Ollama or custom models)
-            var output = response.getResult().getOutput();
-            if (output != null && output.getText() != null) {
-                String rawText = output.getText();
-                boolean hasThinkTags = rawText.contains("<think>");
-                if (hasThinkTags) {
-                    log.info("Agent extractReasoning: found <think> tags, textLength={}", rawText.length());
-                    return extractThinkTags(rawText);
-                }
-            }
-        } catch (Exception e) {
-            log.debug("Could not extract reasoning from response: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    /**
-     * Extracts content from {@code <think>...</think>} tags (Ollama thinking mode).
-     * Returns the thinking text, or null if no tags found.
-     */
-    static String extractThinkTags(String text) {
-        if (text == null) {
-            return null;
-        }
-        int start = text.indexOf("<think>");
-        int end = text.indexOf("</think>");
-        if (start < 0 || end < 0 || end <= start) {
-            return null;
-        }
-        String thinking = text.substring(start + "<think>".length(), end).trim();
-        return thinking.isEmpty() ? null : thinking;
-    }
-
-    /**
-     * Strips {@code <think>...</think>} block from text, returning only the answer part.
-     *
-     * <p>Handles three malformed cases observed from real models:
-     * <ul>
-     *   <li>Matched pair: removes the block, keeps surrounding text.</li>
-     *   <li>Open without close: drops from {@code <think>} to end — reasoning was never closed.</li>
-     *   <li>Close without open: drops from start of text up to and including {@code </think>}.
-     *       The open tag was lost (stream corruption, upstream sanitizer, or partial tag emit);
-     *       text ahead of the orphan close is reasoning that must not leak to the user.</li>
-     * </ul>
-     *
-     * <p>Diverges from {@link StreamingAnswerFilter} on the orphan-close case: the
-     * streaming path may have already emitted the reasoning prefix to the user in
-     * earlier chunks and can only strip the tag itself, whereas this method owns
-     * the full response and safely drops the entire prefix.
-     */
-    static String stripThinkTags(String text) {
-        if (text == null) {
-            return null;
-        }
-        int start = text.indexOf("<think>");
-        int end = text.indexOf("</think>");
-        if (start < 0 && end < 0) {
-            return text;
-        }
-        if (start < 0) {
-            return text.substring(end + "</think>".length()).trim();
-        }
-        if (end < 0 || end <= start) {
-            return text.substring(0, start).trim();
-        }
-        return (text.substring(0, start) + text.substring(end + "</think>".length())).trim();
-    }
-
-    /**
-     * Returns the delta to append to {@code accumulated} when a streaming chunk arrives.
-     * Some providers (Ollama) send cumulative snapshots rather than true deltas: each
-     * chunk repeats all previous content plus the new suffix. When the new chunk starts
-     * with the entire accumulated text, only the suffix beyond it is the new content.
-     */
-    static String normalizeDelta(String accumulated, String chunk) {
-        if (!accumulated.isEmpty() && chunk.startsWith(accumulated)) {
-            return chunk.substring(accumulated.length());
-        }
-        return chunk;
-    }
-
-    /**
-     * Strips raw XML tool call markup that some models emit in text responses
-     * instead of using the structured function calling API.
-     *
-     * <p>Removes:
-     * <ul>
-     *   <li>{@code <tool_call>...</tool_call>} blocks (including partial/unclosed)</li>
-     *   <li>Orphaned {@code </tool_call>} closing tags</li>
-     *   <li>Closed inner tags: {@code <name>x</name>}, {@code <arg_key>x</arg_key>}, etc.</li>
-     *   <li>Unclosed inner tags: {@code <arg_value>content} without closing tag</li>
-     *   <li>Bare tool-like names on their own line (e.g. {@code http_get})</li>
-     * </ul>
-     */
-    static String stripToolCallTags(String text) {
-        if (text == null) {
-            return null;
-        }
-        String result = TOOL_CALL_BLOCK_PATTERN.matcher(text).replaceAll("");
-        result = TOOL_CALL_OPEN_PATTERN.matcher(result).replaceAll("");
-        result = TOOL_CALL_CLOSE_PATTERN.matcher(result).replaceAll("");
-        if (result.contains("<arg_key>") || result.contains("<arg_value>")) {
-            result = TOOL_CALL_INNER_TAGS_PATTERN.matcher(result).replaceAll("");
-            result = TOOL_CALL_UNCLOSED_INNER_TAG_PATTERN.matcher(result).replaceAll("");
-            result = BARE_TOOL_NAME_PATTERN.matcher(result).replaceAll("");
-        }
-        return result.trim().isEmpty() ? "" : result.trim();
     }
 
     /**
@@ -980,7 +757,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             }
             for (Message msg : history) {
                 if (msg.getMessageType() == MessageType.SYSTEM) {
-                    // Append summary to existing system prompt instead of adding a second SystemMessage
                     if (!messages.isEmpty() && messages.getFirst() instanceof SystemMessage existing) {
                         messages.set(0, new SystemMessage(existing.getText() + "\n\n" + msg.getText()));
                     }

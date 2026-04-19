@@ -274,6 +274,36 @@ class AgentLoopFsmFactoryTest {
     }
 
     @Test
+    @DisplayName("Cancellation before answer(): hasError routes ANSWERING to FAILED, not COMPLETED")
+    void answerSetsErrorOnCancel_routesAnsweringToFailed() {
+        thinkBehavior = ctx -> {
+            // think() produced a text response — FSM normally takes THINKING→ANSWERING.
+            ctx.setCurrentThought("Ready to reply");
+            ctx.setCurrentTextResponse("Here is the answer.");
+        };
+
+        // answer() simulates the cancellation window: flag flipped after think() but
+        // before answer() runs. The action sets an error instead of finalAnswer,
+        // mirroring SpringAgentLoopActions.answer()'s cancellation branch.
+        AgentLoopActions cancellingActions = new DelegatingAgentLoopActions(testActions) {
+            @Override
+            public void answer(AgentContext ctx) {
+                ctx.setErrorMessage("Agent run cancelled by user before answer()");
+            }
+        };
+
+        var cancelFsm = AgentLoopFsmFactory.create(cancellingActions);
+        AgentContext ctx = createContext(10);
+        cancelFsm.handle(ctx, AgentEvent.START);
+
+        assertEquals(AgentState.FAILED, ctx.getState(),
+                "ANSWERING with hasError must route to FAILED so isSuccess()=false");
+        assertEquals("Agent run cancelled by user before answer()", ctx.getErrorMessage());
+        assertTrue(ctx.getFinalAnswer() == null || ctx.getFinalAnswer().isEmpty(),
+                "Cancelled run must not expose a successful final answer");
+    }
+
+    @Test
     @DisplayName("Event on terminal COMPLETED state throws exception")
     void eventOnTerminalCompleted_throws() {
         thinkBehavior = ctx -> {

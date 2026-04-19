@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Custom ChatMemory implementation that integrates SummarizationService.
@@ -43,6 +44,22 @@ public class SummarizingChatMemory implements ChatMemory {
     private final ApplicationEventPublisher eventPublisher;
     private final Integer maxMessages; // Max messages from MessageWindowChatMemory
     private final Integer maxWindowTokens; // Max tokens trigger for summarization
+
+    /**
+     * Per-conversation monitors used to serialize ChatMemory rebuild critical sections
+     * (primary-store recovery + post-summarization clear/add sequence). Replaces an
+     * earlier {@code String.intern(conversationId)} shortcut that polluted the JVM's
+     * shared string pool with every UUID/chat-id ever seen — a real memory leak on
+     * long-running instances. {@link ConcurrentHashMap#computeIfAbsent} gives us a
+     * cheap lazily-created, lock-striped monitor keyed by conversationId without
+     * touching the intern table.
+     *
+     * <p>Entries are never removed: the expected cardinality is bounded by the
+     * lifetime distinct conversation count per JVM, and each Object monitor is
+     * ~16 bytes — negligible compared to the per-conversation message cache held
+     * by the delegate.
+     */
+    private final ConcurrentHashMap<String, Object> conversationLocks = new ConcurrentHashMap<>();
 
     public SummarizingChatMemory(
             ChatMemoryRepository chatMemoryRepository,
@@ -78,7 +95,7 @@ public class SummarizingChatMemory implements ChatMemory {
         if (messages.isEmpty()) {
             List<Message> restored = restoreHistoryFromPrimaryStore(conversationId);
             if (!restored.isEmpty()) {
-                synchronized (conversationId.intern()) {
+                synchronized (lockFor(conversationId)) {
                     // Re-check under lock in case a concurrent writer populated it.
                     if (delegate.get(conversationId).isEmpty()) {
                         for (Message m : restored) {
@@ -239,10 +256,11 @@ public class SummarizingChatMemory implements ChatMemory {
                 .orElseThrow(() -> new RuntimeException("Thread not found after summarization"));
 
             // Rebuild ChatMemory atomically so that any concurrent get() on the same
-            // conversationId never observes a half-cleared state. conversationId.intern()
-            // gives us one shared monitor per conversation — cheap, and the critical
-            // section does no I/O (summarization LLM call already ran above).
-            synchronized (conversationId.intern()) {
+            // conversationId never observes a half-cleared state. {@link #lockFor}
+            // yields a per-conversation monitor via {@link #conversationLocks} —
+            // cheap, no string-pool leak, and the critical section does no I/O
+            // (summarization LLM call already ran above).
+            synchronized (lockFor(conversationId)) {
                 delegate.clear(conversationId);
 
                 if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
@@ -308,6 +326,15 @@ public class SummarizingChatMemory implements ChatMemory {
     @Override
     public void clear(@NonNull String conversationId) {
         delegate.clear(conversationId);
+    }
+
+    /**
+     * Returns the per-conversation monitor, lazily created on first request.
+     * Safe for concurrent callers: {@link ConcurrentHashMap#computeIfAbsent}
+     * guarantees exactly one {@code Object} instance per key.
+     */
+    private Object lockFor(@NonNull String conversationId) {
+        return conversationLocks.computeIfAbsent(conversationId, k -> new Object());
     }
 
     /**

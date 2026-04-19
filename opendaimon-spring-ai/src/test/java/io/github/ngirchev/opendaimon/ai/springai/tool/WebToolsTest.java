@@ -1,5 +1,8 @@
 package io.github.ngirchev.opendaimon.ai.springai.tool;
 
+import okhttp3.mockwebserver.MockResponse;
+import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -10,10 +13,13 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.io.IOException;
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -44,6 +50,7 @@ class WebToolsTest {
     @BeforeEach
     void setUp() {
         webTools = new WebTools(webClient, "test-key", "https://serper.dev/search");
+        lenient().when(getRequestHeadersSpec.headers(any())).thenReturn(getRequestHeadersSpec);
     }
 
     @Test
@@ -76,6 +83,73 @@ class WebToolsTest {
 
         assertNotNull(result);
         assertTrue(result.contains("Hello world"));
+    }
+
+    @Test
+    void fetchUrl_sendsBrowserLikeHeaders() throws Exception {
+        MockWebServer server = startServer();
+        try {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "text/html")
+                    .setBody("<html><body><p>Hello world</p></body></html>"));
+            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search");
+
+            String result = realWebTools.fetchUrl(server.url("/article").toString());
+
+            RecordedRequest request = takeRequest(server);
+            assertThat(result).contains("Hello world");
+            assertThat(request.getHeader("User-Agent")).contains("Mozilla/5.0");
+            assertThat(request.getHeader("Accept")).contains("text/html");
+            assertThat(request.getHeader("Accept-Language")).isEqualTo("en-US,en;q=0.9");
+        } finally {
+            server.shutdown();
+        }
+    }
+
+    @Test
+    void fetchUrl_retriesCloudflareChallenge403OnceWithServiceUserAgent() throws Exception {
+        MockWebServer server = startServer();
+        try {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(403)
+                    .setHeader("cf-mitigated", "challenge")
+                    .setBody("blocked"));
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Content-Type", "text/html")
+                    .setBody("<html><body><main>Readable fallback page</main></body></html>"));
+            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search");
+
+            String result = realWebTools.fetchUrl(server.url("/cloudflare").toString());
+
+            RecordedRequest first = takeRequest(server);
+            RecordedRequest second = takeRequest(server);
+            assertThat(result).contains("Readable fallback page");
+            assertThat(first.getHeader("User-Agent")).contains("Mozilla/5.0");
+            assertThat(second.getHeader("User-Agent")).isEqualTo("OpenDaimonWebFetch/1.0");
+            assertThat(server.getRequestCount()).isEqualTo(2);
+        } finally {
+            server.shutdown();
+        }
+    }
+
+    @Test
+    void fetchUrl_doesNotRetryRegular403() throws Exception {
+        MockWebServer server = startServer();
+        try {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(403)
+                    .setBody("blocked"));
+            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search");
+
+            String result = realWebTools.fetchUrl(server.url("/regular-403").toString());
+
+            assertThat(result).isEqualTo("HTTP error 403 Forbidden");
+            assertThat(server.getRequestCount()).isEqualTo(1);
+        } finally {
+            server.shutdown();
+        }
     }
 
     @Test
@@ -187,5 +261,17 @@ class WebToolsTest {
         String result = webTools.fetchUrl("https://example.com/10mb.html");
 
         assertThat(result).startsWith("Error: " + WebTools.REASON_TOO_LARGE);
+    }
+
+    private static MockWebServer startServer() throws IOException {
+        MockWebServer server = new MockWebServer();
+        server.start();
+        return server;
+    }
+
+    private static RecordedRequest takeRequest(MockWebServer server) throws InterruptedException {
+        RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
+        assertThat(request).isNotNull();
+        return request;
     }
 }

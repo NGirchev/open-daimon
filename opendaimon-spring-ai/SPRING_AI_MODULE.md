@@ -325,17 +325,23 @@ discrete `AgentStreamEvent`s and observed by the Telegram layer (see
 
 ### `StreamingAnswerFilter` — scope and limits
 
-`io.github.ngirchev.opendaimon.ai.springai.agent.StreamingAnswerFilter` strips two
-**exact** tag forms from the streamed model output before the text is emitted as
+`io.github.ngirchev.opendaimon.ai.springai.agent.StreamingAnswerFilter` strips the
+following tag forms from the streamed model output before the text is emitted as
 `AgentStreamEvent.PARTIAL_ANSWER`:
 
-- `<think>…</think>`
-- `<tool_call>…</tool_call>`
+- **Unconditional:** `<think>…</think>`, `<tool_call>…</tool_call>`,
+  `<tool_name>…</tool_name>`, `<arg_key>…</arg_key>`, `<arg_value>…</arg_value>`.
+- **Context-gated:** `<name>…</name>` — stripped only after the stream has
+  already yielded one of the four **loose tool-call anchors** above
+  (`<tool_call>`, `<tool_name>`, `<arg_key>`, `<arg_value>`, or an orphan closer
+  thereof). Before any anchor has been seen, `<name>` passes through as ordinary
+  content so that a user prompt like "show me XML with a `<name>` element"
+  renders correctly. This matches `AgentTextSanitizer.stripToolCallTags`, which
+  applies the `<name>`/`<arg_*>` inner-tag regex only when `<arg_key>` or
+  `<arg_value>` is also present in the buffer.
 
-Any other pseudo-XML tool-call variant (`<arg_key>`, `<arg_value>`, `<tool>`, bare
-tool-name tokens like `fetch_url\n<arg_key>url</arg_key>…`) passes through the filter
-and reaches downstream consumers as plain text. Some providers (Qwen / Ollama
-variants) use these alternative formats. Because of that, the Telegram UX layer
+Bare tool-name tokens on their own line (`fetch_url\n…`) still pass through and
+reach downstream consumers as plain text. Because of that, the Telegram UX layer
 implements a **redundant** marker scan on every `PARTIAL_ANSWER` chunk
 (`TelegramMessageHandlerActions#containsToolMarker`), which is what guarantees the
 tentative-answer bubble is rolled back when leaked tool markup appears. Do not treat
@@ -386,6 +392,39 @@ model tries to retry the same URL in a loop. Both tools therefore **must** branc
 Both forms fall under the `"Error: "` / `"HTTP error "` prefix set recognized by
 `observe()`, so the observation remains FAILED either way; the difference is that the
 error text now actually describes what happened instead of lying about an HTTP 200.
+
+### `fetch_url` request and retry policy
+
+`WebTools.fetchUrl` is a retrieval tool, not a discovery tool. The agent prompt tells
+the model to use `web_search` for discovery, then use `fetch_url` only for a selected
+URL that is worth opening. Runtime behavior is defensive because the model cannot know
+in advance which sites will block a plain HTTP client:
+
+- Every fetch sends browser-like `User-Agent`, `Accept`, and `Accept-Language` headers.
+- A normal non-2xx response remains a single failed tool observation:
+  `"HTTP error <code> <status>"`.
+- A 403 with Cloudflare's `cf-mitigated: challenge` header gets one internal retry with
+  `User-Agent: OpenDaimonWebFetch/1.0`. If that retry also fails, the retry failure is
+  surfaced using the same `"HTTP error "` / `"Error: "` contract.
+- There is no generic retry loop for 401/403/404/5xx responses; repeated attempts are
+  handled by the agent guard below.
+
+`SpringAgentLoopActions#resolveEffectiveTools` wraps only the `fetch_url` callback with
+a per-run guard. The guard records textual fetch failures in `AgentContext.extras`:
+
+- Repeating the exact same failed URL returns
+  `"Error: previously_failed_url - ..."` without making another network call.
+- After two non-transient failures on the same host, further URLs on that host return
+  `"Error: host_unreadable - ..."` without making another network call.
+- Timeouts, HTTP 408, HTTP 429, and HTTP 5xx do not increment the host-failure counter
+  because they can be transient; the exact failed URL is still remembered.
+- Successful fetches do not poison the URL or host.
+
+The synthetic guard results deliberately keep the `"Error: "` prefix so
+`observe()` and Telegram render them as failed tool observations. This mirrors the
+public server-tool pattern used by hosted assistants: tools produce structured,
+machine-readable failure signals, and the agent policy switches source instead of
+repeatedly asking the model to guess what a remote site will allow.
 
 ### `handleMaxIterations` — tool-less summary call
 
@@ -507,13 +546,23 @@ Behavior:
 
 `AgentContext` now exposes `cancel()` / `isCancelled()` as a cooperative
 shutdown channel used by transports (Telegram `/cancel`, REST `DELETE
-/agent/run/{id}`). `SpringAgentLoopActions` checks the flag at two points:
+/agent/run/{id}`). `SpringAgentLoopActions` checks the flag at several points:
 
 1. Entry of `think(ctx)` — short-circuit before making any LLM call.
 2. Inside `streamAndAggregate` — `.takeWhile(c -> !ctx.isCancelled())` stops
    consuming reactive chunks as soon as the flag flips; on exit it sets
    `errorMessage="Agent run cancelled by user during streaming"` and returns
    `null` so the outer loop terminates cleanly.
+3. Entry of `answer(ctx)` — if the flag flipped after `think()` populated
+   `currentTextResponse` but before the FSM dispatched to ANSWERING, the action
+   writes `errorMessage="Agent run cancelled by user before answer()"` and
+   leaves `finalAnswer` unset. The FSM's ANSWERING branch checks
+   `hasError` and routes to **FAILED** instead of COMPLETED, so
+   `AgentResult.isSuccess()` returns `false` and the stream surfaces an error
+   event rather than a `null` FINAL_ANSWER. `handleError()` performs the
+   cleanup on the failure branch.
+4. Entry of `handleMaxIterations(ctx)` — emits a short fallback summary so the
+   user still sees a closing message.
 
 The flag is `volatile` — writes from any caller thread are observed on the
 reactor scheduler without additional synchronization.

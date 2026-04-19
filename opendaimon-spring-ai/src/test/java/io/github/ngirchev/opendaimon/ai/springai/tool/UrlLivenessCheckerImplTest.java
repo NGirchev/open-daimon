@@ -1,8 +1,11 @@
 package io.github.ngirchev.opendaimon.ai.springai.tool;
 
+import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,7 +29,8 @@ class UrlLivenessCheckerImplTest {
                 WebClient.builder().build(),
                 Duration.ofSeconds(2),
                 5,
-                Duration.ofMinutes(10)
+                Duration.ofMinutes(10),
+                true
         );
     }
 
@@ -59,7 +63,8 @@ class UrlLivenessCheckerImplTest {
                 WebClient.builder().build(),
                 Duration.ofMillis(200),
                 5,
-                Duration.ofMinutes(10)
+                Duration.ofMinutes(10),
+                true
         );
         // HEAD has no body, so setBodyDelay has no effect. NO_RESPONSE keeps the
         // TCP socket open without sending status line, forcing the client side to
@@ -94,8 +99,19 @@ class UrlLivenessCheckerImplTest {
 
     @Test
     void shouldStripDeadMarkdownLinksLeavingAnchorText() {
-        mockWebServer.enqueue(new MockResponse().setResponseCode(200)); // live
-        mockWebServer.enqueue(new MockResponse().setResponseCode(404)); // dead
+        // Path-routed dispatcher: probeAll issues requests in parallel, so a FIFO
+        // enqueue would make the responses leak across URLs depending on thread
+        // scheduling. Route by request path instead.
+        mockWebServer.setDispatcher(new Dispatcher() {
+            @Override
+            @NotNull
+            public MockResponse dispatch(@NotNull RecordedRequest request) {
+                String path = request.getPath() != null ? request.getPath() : "";
+                if (path.endsWith("/live")) return new MockResponse().setResponseCode(200);
+                if (path.endsWith("/dead")) return new MockResponse().setResponseCode(404);
+                return new MockResponse().setResponseCode(500);
+            }
+        });
         String liveUrl = mockWebServer.url("/live").toString();
         String deadUrl = mockWebServer.url("/dead").toString();
         String text = "See [live guide](" + liveUrl + ") and [dead guide](" + deadUrl + ") for details.";
@@ -109,7 +125,7 @@ class UrlLivenessCheckerImplTest {
     }
 
     @Test
-    void shouldReplaceBareDeadUrlWithUnavailableMarker() {
+    void shouldReplaceBareDeadUrlWithNeutralMarkerWhenNoLanguageCode() {
         mockWebServer.enqueue(new MockResponse().setResponseCode(404));
         String deadUrl = mockWebServer.url("/gone").toString();
         String text = "Reference: " + deadUrl + " — see above.";
@@ -117,7 +133,43 @@ class UrlLivenessCheckerImplTest {
         String sanitized = checker.stripDeadLinks(text);
 
         assertThat(sanitized).doesNotContain(deadUrl);
+        assertThat(sanitized).contains("[link unavailable]");
+    }
+
+    @Test
+    void shouldReplaceBareDeadUrlWithRussianMarkerWhenLanguageCodeIsRu() {
+        mockWebServer.enqueue(new MockResponse().setResponseCode(404));
+        String deadUrl = mockWebServer.url("/gone").toString();
+        String text = "Ссылка: " + deadUrl + " — см. выше.";
+
+        String sanitized = checker.stripDeadLinks(text, "ru");
+
+        assertThat(sanitized).doesNotContain(deadUrl);
         assertThat(sanitized).contains("(ссылка недоступна)");
+    }
+
+    @Test
+    void shouldReplaceBareDeadUrlWithGermanMarkerWhenLanguageCodeIsDe() {
+        mockWebServer.enqueue(new MockResponse().setResponseCode(404));
+        String deadUrl = mockWebServer.url("/gone").toString();
+        String text = "Siehe: " + deadUrl + ".";
+
+        String sanitized = checker.stripDeadLinks(text, "de");
+
+        assertThat(sanitized).doesNotContain(deadUrl);
+        assertThat(sanitized).contains("[Link nicht verfügbar]");
+    }
+
+    @Test
+    void shouldFallBackToNeutralMarkerForUnknownLanguageCode() {
+        mockWebServer.enqueue(new MockResponse().setResponseCode(404));
+        String deadUrl = mockWebServer.url("/gone").toString();
+        String text = "Ref: " + deadUrl + ".";
+
+        String sanitized = checker.stripDeadLinks(text, "xx");
+
+        assertThat(sanitized).doesNotContain(deadUrl);
+        assertThat(sanitized).contains("[link unavailable]");
     }
 
     @Test
@@ -132,6 +184,39 @@ class UrlLivenessCheckerImplTest {
         assertThat(secondCall).isTrue();
         // Only the first call should have hit the mock server; no enqueued response for the second.
         assertThat(mockWebServer.getRequestCount()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldBlockLoopbackInDefaultConstructorWithoutMakingHttpRequest() throws IOException {
+        // Default constructor must leave the SSRF guard enabled — loopback probes are
+        // rejected before any HTTP call, so the MockWebServer receives no request and
+        // the URL is classified as dead.
+        UrlLivenessCheckerImpl prodChecker = new UrlLivenessCheckerImpl(
+                WebClient.builder().build(),
+                Duration.ofSeconds(2),
+                5,
+                Duration.ofMinutes(10)
+        );
+        mockWebServer.enqueue(new MockResponse().setResponseCode(200));
+
+        boolean live = prodChecker.isLive(mockWebServer.url("/should-not-reach").toString());
+
+        assertThat(live).isFalse();
+        assertThat(mockWebServer.getRequestCount()).isZero();
+    }
+
+    @Test
+    void shouldRejectMetadataGoogleInternalHostname() {
+        boolean live = UrlLivenessCheckerImpl.isUrlSafeToProbe(
+                "http://metadata.google.internal/computeMetadata/v1/", false);
+        assertThat(live).isFalse();
+    }
+
+    @Test
+    void shouldRejectNonHttpUrls() {
+        assertThat(UrlLivenessCheckerImpl.isUrlSafeToProbe("file:///etc/passwd", false)).isFalse();
+        assertThat(UrlLivenessCheckerImpl.isUrlSafeToProbe("ftp://example.com/", false)).isFalse();
+        assertThat(UrlLivenessCheckerImpl.isUrlSafeToProbe(null, false)).isFalse();
     }
 
     @Test

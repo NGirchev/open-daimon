@@ -74,9 +74,27 @@ public interface AgentLoopActions {
      *
      * <p>Invoked when the LLM returned an empty response (no tool call, no text,
      * no error) and {@link AgentContext#canRetryEmptyResponse()} is true.
-     * Implementations should increment the retry counter, clear the empty-response
-     * flag, optionally nudge the model (e.g. insert a SystemMessage), and re-invoke
-     * {@link #think(AgentContext)}.
+     *
+     * <p><b>Contract — implementations MUST:</b>
+     * <ol>
+     *   <li>call {@link AgentContext#incrementEmptyResponseRetryCount()};</li>
+     *   <li>call {@link AgentContext#clearEmptyResponse()};</li>
+     *   <li>re-invoke {@link #think(AgentContext)} so the FSM can observe the
+     *       new result on the next transition.</li>
+     * </ol>
+     *
+     * <p><b>Recommendation:</b> production implementations SHOULD also append a
+     * nudge to the prompt history (for example a {@code SystemMessage} reading
+     * "Your previous response was empty. Reply with either a tool call or a
+     * final text answer now.") before re-invoking {@link #think}. Without a
+     * nudge the LLM sees the exact same prompt and is very likely to return
+     * another empty response, burning the retry budget for nothing.
+     * {@code SpringAgentLoopActions.retryEmptyResponse} is the reference
+     * implementation.
+     *
+     * <p>The provided default is the <i>minimal</i> FSM-correctness wiring —
+     * it fulfils the contract above but does not modify the prompt history,
+     * so it is only suitable for stubs, tests, and toy executors.
      */
     default void retryEmptyResponse(AgentContext ctx) {
         ctx.incrementEmptyResponseRetryCount();

@@ -1,12 +1,35 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import java.util.List;
+
 /**
- * Stream-time filter that strips {@code <think>...</think>} and {@code <tool_call>...</tool_call>}
- * blocks from a token stream while preserving everything else.
+ * Stream-time filter that strips LLM-internal tool-call and reasoning markup from a
+ * token stream while preserving everything else.
  *
- * <p>Designed for chunked input: tags split across {@link #feed(String)} calls (e.g. {@code "<th"}
- * + {@code "ink>"}) are correctly handled. The filter holds back a small tail of recently fed
- * characters until it can prove the tail is not the start of a tag opening or closing.
+ * <p>Covers the following tag variants — both the canonical Qwen {@code <tool_call>}
+ * wrapper and the loose fallback that some Ollama-hosted models emit directly:
+ * <ul>
+ *   <li>{@code <think>...</think>}</li>
+ *   <li>{@code <tool_call>...</tool_call>}</li>
+ *   <li>{@code <tool_name>...</tool_name>}</li>
+ *   <li>{@code <arg_key>...</arg_key>}, {@code <arg_value>...</arg_value>}</li>
+ *   <li>{@code <name>...</name>} — context-gated, see below</li>
+ * </ul>
+ *
+ * <p><b>{@code <name>} handling:</b> because {@code <name>} is a legitimate XML
+ * token a user may ask the model to produce (e.g. "show me an XML example with a
+ * {@code <name>} tag"), stripping it unconditionally corrupts user-visible
+ * output. Instead this filter mirrors the batch sanitizer in
+ * {@link AgentTextSanitizer#stripToolCallTags(String)}: {@code <name>} is treated
+ * as tool-call markup only after the stream has already emitted an unambiguous
+ * loose tool-call anchor ({@code <tool_call>}, {@code <tool_name>},
+ * {@code <arg_key>}, or {@code <arg_value>}). Before any anchor has been seen,
+ * {@code <name>} passes through as ordinary content.
+ *
+ * <p>Designed for chunked input: tags split across {@link #feed(String)} calls
+ * (e.g. {@code "<th"} + {@code "ink>"}) are correctly handled. The filter holds
+ * back a small tail of recently fed characters until it can prove the tail is not
+ * the start of a tag opening or closing.
  *
  * <p>Behavior contract:
  * <ul>
@@ -17,17 +40,51 @@ package io.github.ngirchev.opendaimon.ai.springai.agent;
  */
 final class StreamingAnswerFilter {
 
-    private static final String THINK_OPEN = "<think>";
-    private static final String THINK_CLOSE = "</think>";
-    private static final String TOOL_OPEN = "<tool_call>";
-    private static final String TOOL_CLOSE = "</tool_call>";
+    /**
+     * Immutable pairing of opening tag + matching close tag, ordered from longest-open
+     * to shortest-open so the dispatcher matches greedily (e.g. {@code <tool_name>}
+     * is tried before {@code <tool>} would be, avoiding prefix confusion).
+     */
+    private record TagPair(String open, String close) {}
 
-    private static final int MAX_TAG_LEN = TOOL_CLOSE.length();
+    /** Tags stripped unconditionally whenever encountered in the stream. */
+    private static final List<TagPair> BASE_TAG_PAIRS = List.of(
+            new TagPair("<tool_call>", "</tool_call>"),
+            new TagPair("<tool_name>", "</tool_name>"),
+            new TagPair("<arg_value>", "</arg_value>"),
+            new TagPair("<arg_key>", "</arg_key>"),
+            new TagPair("<think>", "</think>")
+    );
 
-    private enum State { OUTSIDE, INSIDE_THINK, INSIDE_TOOL_CALL }
+    /** Ambiguous pair — only stripped once a loose tool-call anchor has been observed. */
+    private static final TagPair NAME_TAG_PAIR = new TagPair("<name>", "</name>");
+
+    private static final List<TagPair> EXTENDED_TAG_PAIRS;
+    static {
+        var ext = new java.util.ArrayList<TagPair>(BASE_TAG_PAIRS.size() + 1);
+        ext.addAll(BASE_TAG_PAIRS);
+        ext.add(NAME_TAG_PAIR);
+        EXTENDED_TAG_PAIRS = List.copyOf(ext);
+    }
+
+    private static final int MAX_TAG_LEN;
+    static {
+        int max = Math.max(NAME_TAG_PAIR.open().length(), NAME_TAG_PAIR.close().length());
+        for (TagPair p : BASE_TAG_PAIRS) {
+            max = Math.max(max, Math.max(p.open().length(), p.close().length()));
+        }
+        MAX_TAG_LEN = max;
+    }
 
     private final StringBuilder buffer = new StringBuilder();
-    private State state = State.OUTSIDE;
+    /** Non-null when currently inside a suppressed block; holds the expected close tag. */
+    private String activeCloseTag;
+    /**
+     * Flips to {@code true} the first time the stream yields an unambiguous loose
+     * tool-call marker (see {@link #isLooseAnchor}). Enables {@code <name>}
+     * stripping for the remainder of the stream.
+     */
+    private boolean looseToolCallAnchorSeen;
 
     String feed(String chunk) {
         if (chunk == null || chunk.isEmpty()) {
@@ -47,13 +104,12 @@ final class StreamingAnswerFilter {
 
     private void process(StringBuilder out, boolean atEnd) {
         while (true) {
-            if (state == State.OUTSIDE) {
+            if (activeCloseTag == null) {
                 if (!consumeOutside(out, atEnd)) {
                     return;
                 }
             } else {
-                String closeTag = state == State.INSIDE_THINK ? THINK_CLOSE : TOOL_CLOSE;
-                if (!consumeInside(closeTag, atEnd)) {
+                if (!consumeInside(activeCloseTag, atEnd)) {
                     return;
                 }
             }
@@ -61,8 +117,8 @@ final class StreamingAnswerFilter {
     }
 
     /**
-     * Emits text from the buffer up to the next opening tag, stripping orphan
-     * {@code </think>} and {@code </tool_call>} close tags that appear while outside any block.
+     * Emits text from the buffer up to the next opening tag, stripping orphan close
+     * tags that appear while outside any block.
      *
      * <p>Some models occasionally emit a closing tag without a matching opening one (e.g. when
      * the model quotes tool-call markup inside reasoning prose but the opening tag was never
@@ -73,29 +129,42 @@ final class StreamingAnswerFilter {
      * fully drained for the current state.
      */
     private boolean consumeOutside(StringBuilder out, boolean atEnd) {
-        int idxThinkOpen = buffer.indexOf(THINK_OPEN);
-        int idxToolOpen = buffer.indexOf(TOOL_OPEN);
-        int idxThinkClose = buffer.indexOf(THINK_CLOSE);
-        int idxToolClose = buffer.indexOf(TOOL_CLOSE);
+        int earliestIdx = -1;
+        TagPair earliestOpen = null;
+        TagPair earliestOrphanClosePair = null;
 
-        int idxAny = minNonNegative(
-                minNonNegative(idxThinkOpen, idxToolOpen),
-                minNonNegative(idxThinkClose, idxToolClose));
+        for (TagPair p : activeTagPairs()) {
+            int idxOpen = buffer.indexOf(p.open());
+            if (idxOpen >= 0 && (earliestIdx < 0 || idxOpen < earliestIdx)) {
+                earliestIdx = idxOpen;
+                earliestOpen = p;
+                earliestOrphanClosePair = null;
+            }
+            int idxClose = buffer.indexOf(p.close());
+            if (idxClose >= 0 && (earliestIdx < 0 || idxClose < earliestIdx)) {
+                earliestIdx = idxClose;
+                earliestOpen = null;
+                earliestOrphanClosePair = p;
+            }
+        }
 
-        if (idxAny >= 0) {
-            out.append(buffer, 0, idxAny);
-            if (idxAny == idxThinkOpen) {
-                buffer.delete(0, idxAny + THINK_OPEN.length());
-                state = State.INSIDE_THINK;
-            } else if (idxAny == idxToolOpen) {
-                buffer.delete(0, idxAny + TOOL_OPEN.length());
-                state = State.INSIDE_TOOL_CALL;
-            } else if (idxAny == idxThinkClose) {
-                // Orphan </think> — strip without emitting, remain OUTSIDE.
-                buffer.delete(0, idxAny + THINK_CLOSE.length());
+        if (earliestIdx >= 0) {
+            out.append(buffer, 0, earliestIdx);
+            if (earliestOpen != null) {
+                if (isLooseAnchor(earliestOpen)) {
+                    looseToolCallAnchorSeen = true;
+                }
+                buffer.delete(0, earliestIdx + earliestOpen.open().length());
+                activeCloseTag = earliestOpen.close();
             } else {
-                // Orphan </tool_call> — strip without emitting, remain OUTSIDE.
-                buffer.delete(0, idxAny + TOOL_CLOSE.length());
+                // Orphan close tag — strip without emitting, remain OUTSIDE.
+                // Orphan </tool_call>/</arg_*>/</tool_name> also enables <name> stripping:
+                // the matching open was lost (split chunk, upstream truncation) but the
+                // closer alone still proves the model entered loose tool-call mode.
+                if (isLooseAnchor(earliestOrphanClosePair)) {
+                    looseToolCallAnchorSeen = true;
+                }
+                buffer.delete(0, earliestIdx + earliestOrphanClosePair.close().length());
             }
             return true;
         }
@@ -127,7 +196,7 @@ final class StreamingAnswerFilter {
         int idxClose = buffer.indexOf(closeTag);
         if (idxClose >= 0) {
             buffer.delete(0, idxClose + closeTag.length());
-            state = State.OUTSIDE;
+            activeCloseTag = null;
             return true;
         }
 
@@ -158,9 +227,26 @@ final class StreamingAnswerFilter {
         return -1;
     }
 
-    private static int minNonNegative(int a, int b) {
-        if (a < 0) return b;
-        if (b < 0) return a;
-        return Math.min(a, b);
+    /**
+     * Returns the tag-pair list the filter is currently matching against. Starts as
+     * {@link #BASE_TAG_PAIRS} and upgrades to {@link #EXTENDED_TAG_PAIRS} (which also
+     * includes {@code <name>...</name>}) once a loose tool-call anchor has been seen.
+     */
+    private List<TagPair> activeTagPairs() {
+        return looseToolCallAnchorSeen ? EXTENDED_TAG_PAIRS : BASE_TAG_PAIRS;
+    }
+
+    /**
+     * True for tag pairs whose mere presence in the stream unambiguously indicates
+     * loose tool-call markup: {@code <tool_call>}, {@code <tool_name>},
+     * {@code <arg_key>}, {@code <arg_value>}. {@code <think>} and {@code <name>} are
+     * deliberately excluded — {@code <think>} is reasoning (not tool-call) and
+     * {@code <name>} is the ambiguous token whose stripping this method gates.
+     */
+    private static boolean isLooseAnchor(TagPair pair) {
+        return pair != null && switch (pair.open()) {
+            case "<tool_call>", "<tool_name>", "<arg_key>", "<arg_value>" -> true;
+            default -> false;
+        };
     }
 }

@@ -4,92 +4,92 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class SpringAgentLoopActionsThinkTagsTest {
+class AgentTextSanitizerThinkTagsTest {
 
     @Test
     void shouldExtractThinkingContent() {
         String text = "<think>I need to search the web for this</think>Here is the answer";
-        assertThat(SpringAgentLoopActions.extractThinkTags(text))
+        assertThat(AgentTextSanitizer.extractThinkTags(text))
                 .isEqualTo("I need to search the web for this");
     }
 
     @Test
     void shouldReturnNullWhenNoThinkTags() {
-        assertThat(SpringAgentLoopActions.extractThinkTags("Just a regular answer")).isNull();
+        assertThat(AgentTextSanitizer.extractThinkTags("Just a regular answer")).isNull();
     }
 
     @Test
     void shouldReturnNullForNullInput() {
-        assertThat(SpringAgentLoopActions.extractThinkTags(null)).isNull();
+        assertThat(AgentTextSanitizer.extractThinkTags(null)).isNull();
     }
 
     @Test
     void shouldReturnNullForEmptyThinkTags() {
-        assertThat(SpringAgentLoopActions.extractThinkTags("<think></think>Answer")).isNull();
+        assertThat(AgentTextSanitizer.extractThinkTags("<think></think>Answer")).isNull();
     }
 
     @Test
     void shouldReturnNullForBlankThinkTags() {
-        assertThat(SpringAgentLoopActions.extractThinkTags("<think>   </think>Answer")).isNull();
+        assertThat(AgentTextSanitizer.extractThinkTags("<think>   </think>Answer")).isNull();
     }
 
     @Test
     void shouldStripThinkTagsFromText() {
         String text = "<think>reasoning here</think>The actual answer";
-        assertThat(SpringAgentLoopActions.stripThinkTags(text))
+        assertThat(AgentTextSanitizer.stripThinkTags(text))
                 .isEqualTo("The actual answer");
     }
 
     @Test
     void shouldReturnTextUnchangedWhenNoThinkTags() {
-        assertThat(SpringAgentLoopActions.stripThinkTags("Just a regular answer"))
+        assertThat(AgentTextSanitizer.stripThinkTags("Just a regular answer"))
                 .isEqualTo("Just a regular answer");
     }
 
     @Test
     void shouldReturnNullForNullStripInput() {
-        assertThat(SpringAgentLoopActions.stripThinkTags(null)).isNull();
+        assertThat(AgentTextSanitizer.stripThinkTags(null)).isNull();
     }
 
     @Test
     void shouldHandleThinkTagsAtEnd() {
         String text = "Answer first<think>thinking after</think>";
-        assertThat(SpringAgentLoopActions.stripThinkTags(text)).isEqualTo("Answer first");
+        assertThat(AgentTextSanitizer.stripThinkTags(text)).isEqualTo("Answer first");
     }
 
     @Test
     void shouldHandleMultilineThinking() {
         String text = "<think>\nStep 1: Search\nStep 2: Analyze\n</think>\nHere is what I found";
-        assertThat(SpringAgentLoopActions.extractThinkTags(text))
+        assertThat(AgentTextSanitizer.extractThinkTags(text))
                 .contains("Step 1: Search")
                 .contains("Step 2: Analyze");
-        assertThat(SpringAgentLoopActions.stripThinkTags(text))
+        assertThat(AgentTextSanitizer.stripThinkTags(text))
                 .isEqualTo("Here is what I found");
     }
 
     @Test
     void shouldStripOrphanClosingThinkTagWhenAtStart() {
-        assertThat(SpringAgentLoopActions.stripThinkTags("</think>actual answer"))
+        assertThat(AgentTextSanitizer.stripThinkTags("</think>actual answer"))
                 .isEqualTo("actual answer");
     }
 
     @Test
     void shouldStripOrphanClosingThinkTagWithReasoningPrefix() {
         String text = "leaked reasoning</think>actual answer";
-        assertThat(SpringAgentLoopActions.stripThinkTags(text))
+        assertThat(AgentTextSanitizer.stripThinkTags(text))
                 .isEqualTo("actual answer");
     }
 
     @Test
     void shouldStripOrphanClosingThinkTagWithTrailingWhitespace() {
         String text = "leaked reasoning</think>\n\n   actual answer   ";
-        assertThat(SpringAgentLoopActions.stripThinkTags(text))
+        assertThat(AgentTextSanitizer.stripThinkTags(text))
                 .isEqualTo("actual answer");
     }
 
     @Test
     void shouldReturnEmptyWhenOnlyOrphanClosingThinkTagBeforeBlankText() {
-        assertThat(SpringAgentLoopActions.stripThinkTags("reasoning</think>   "))
+        assertThat(AgentTextSanitizer.stripThinkTags("reasoning</think>   "))
                 .isEqualTo("");
     }
 
@@ -100,7 +100,7 @@ class SpringAgentLoopActionsThinkTagsTest {
         // the orphan tag itself, keeping the prefix as plain text. The two paths
         // intentionally diverge on this edge case.
         String input = "reasoning prefix</think>final answer";
-        assertThat(SpringAgentLoopActions.stripThinkTags(input))
+        assertThat(AgentTextSanitizer.stripThinkTags(input))
                 .isEqualTo("final answer");
 
         StreamingAnswerFilter filter = new StreamingAnswerFilter();
