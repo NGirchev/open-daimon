@@ -273,6 +273,12 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         int iteration = ctx.getCurrentIteration();
 
         StringBuilder fullText = new StringBuilder();
+        // Separate accumulator from `fullText` (which `doOnNext` also feeds for tool-call
+        // aggregation). This one normalizes per-chunk text reaching StreamingAnswerFilter:
+        // providers that emit cumulative snapshots (full text so far, each chunk) would
+        // otherwise concatenate into `HHeHelHell…` downstream, and — worse — re-open the
+        // filter's <think>/<tool_call> state machine on every snapshot, swallowing content.
+        StringBuilder snapshotAcc = new StringBuilder();
         List<AssistantMessage.ToolCall> collectedToolCalls = new ArrayList<>();
         Set<String> seenToolCallIds = new LinkedHashSet<>();
         AtomicReference<ChatResponse> lastChunk = new AtomicReference<>();
@@ -306,6 +312,8 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                     .map(AIUtils::extractText)
                     .filter(Optional::isPresent)
                     .map(Optional::get)
+                    .map(text -> AgentTextSanitizer.computeDelta(snapshotAcc, text))
+                    .filter(s -> !s.isEmpty())
                     .map(filter::feed)
                     .filter(s -> !s.isEmpty())
                     .concatWith(Flux.defer(() -> {

@@ -213,6 +213,29 @@ final class AgentTextSanitizer {
         }
     }
 
+    /**
+     * Appends the genuinely new portion of {@code chunk} to {@code accumulator} and
+     * returns that new portion as a {@code String}. Mirrors {@link #appendDelta}'s
+     * snapshot-vs-delta detection (shared via {@link #startsWith}): if {@code chunk}
+     * begins with the accumulator it is treated as a cumulative snapshot and only
+     * the suffix beyond the accumulator is returned and appended. Otherwise the
+     * chunk is treated as a plain delta and returned unchanged.
+     *
+     * <p>Used on the streaming pipeline to normalize provider-specific stream shapes
+     * (snapshot vs true-delta) into monotonic deltas before they reach downstream
+     * stateful consumers (e.g. {@link StreamingAnswerFilter}).
+     */
+    static String computeDelta(StringBuilder accumulator, String chunk) {
+        int n = accumulator.length();
+        if (n > 0 && chunk.length() >= n && startsWith(chunk, accumulator)) {
+            String delta = chunk.substring(n);
+            accumulator.append(delta);
+            return delta;
+        }
+        accumulator.append(chunk);
+        return chunk;
+    }
+
     private static boolean startsWith(String chunk, StringBuilder prefix) {
         int n = prefix.length();
         for (int i = 0; i < n; i++) {

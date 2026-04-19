@@ -332,8 +332,18 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
                 if (ctx.isTentativeAnswerActive()) {
-                    // Force one final edit to the answer bubble — throttle may have skipped the tail chunk.
+                    // Drain-replace-drain: the streamed tentative-answer buffer holds raw model
+                    // output, but `answerText` is the sanitized final text (e.g. dead links
+                    // stripped by UrlLivenessChecker upstream). First drain any pending rotation
+                    // of the streamed buffer, then replace the buffer's content with the
+                    // sanitized text so the final bubble edit renders the clean version.
                     forceFinalAnswerEdit(ctx);
+                    if (!answerText.isEmpty()) {
+                        StringBuilder buf = ctx.getTentativeAnswerBuffer();
+                        buf.setLength(0);
+                        buf.append(TelegramHtmlEscaper.escape(answerText));
+                        forceFinalAnswerEdit(ctx);
+                    }
                     ctx.setTentativeAnswerActive(false);
                     log.info("FSM generateAgentResponse: final answer streamed via tentative bubble, textLength={}",
                             answerText.length());
@@ -917,6 +927,17 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         StringBuilder buffer = new StringBuilder();
 
         for (String paragraph : paragraphs) {
+            // Split a single oversized paragraph on sentence/word/hard boundaries
+            // so no outgoing chunk exceeds maxLength. Mirrors AIUtils.splitBlockByMaxLength.
+            while (paragraph.length() > maxLength) {
+                if (!buffer.isEmpty()) {
+                    sender.accept(AIUtils.convertMarkdownToHtml(buffer.toString().trim()));
+                    buffer.setLength(0);
+                }
+                int splitAt = AIUtils.findSplitPoint(paragraph, maxLength);
+                sender.accept(AIUtils.convertMarkdownToHtml(paragraph.substring(0, splitAt).trim()));
+                paragraph = paragraph.substring(splitAt);
+            }
             if (buffer.length() + paragraph.length() + 2 > maxLength && !buffer.isEmpty()) {
                 sender.accept(AIUtils.convertMarkdownToHtml(buffer.toString().trim()));
                 buffer.setLength(0);

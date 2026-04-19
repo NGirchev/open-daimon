@@ -589,10 +589,15 @@ On application restart (or any event that empties the `ChatMemoryRepository`
 cache) `SummarizingChatMemory.get(conversationId)` now rebuilds the window from
 the primary store: if the delegate returns empty but `ConversationThread` has
 a summary and/or post-summarization messages, the memory is re-seeded with
-`SystemMessage(summary) + most-recent N messages` (where N = `maxMessages - 1`
-to reserve a slot for the incoming user turn). This recovery runs under a
-`synchronized (conversationId.intern())` block to keep concurrent reads from
-observing a half-populated window.
+`SystemMessage(summary) + most-recent N messages` (where N = `maxMessages`).
+Before seeding, the trailing row is checked: if its role is `USER` it is
+dropped, because `TelegramMessageHandlerActions.saveMessage` persists the
+turn's user prompt before the agent runs — without the drop, the caller
+(`SpringAgentLoopActions.think`) would re-append the same prompt and the model
+would see the request twice. The single-writer-per-thread invariant on
+`saveMessage` guarantees at most one trailing `USER` row. This recovery runs
+under a `synchronized (conversationId.intern())` block to keep concurrent
+reads from observing a half-populated window.
 
 ---
 

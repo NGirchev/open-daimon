@@ -392,6 +392,90 @@ class TelegramMessageHandlerActionsStreamingTest {
         assertThat(ctx.getStatusBuffer().toString()).contains(STATUS_MAX_ITER_LINE);
     }
 
+    /**
+     * Fix 3 regression guard: when a tentative-answer bubble is active at stream-end, the
+     * sanitized final answer (e.g. dead URLs replaced by {@link io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker})
+     * must replace the streamed buffer content so the final bubble edit renders the clean
+     * text — not the raw streamed prefix with the dead link left in place.
+     */
+    @Test
+    @DisplayName("should render sanitized answer in the tentative bubble on the final edit")
+    void shouldRenderSanitizedAnswerInTentativeBubbleOnFinalEdit() {
+        MessageHandlerContext ctx = createContextWithMessage("Show me a link",
+                Set.of(ModelCapabilities.WEB));
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                eq(USER_MSG_ID), eq(true)))
+                .thenReturn(ANSWER_MSG_ID);
+
+        // Stream a partial answer with a dead URL, then emit a sanitized FINAL_ANSWER
+        // where the dead URL was replaced upstream (e.g. UrlLivenessChecker.stripDeadLinks).
+        String deadLink = "https://dead";
+        String streamedPartial = "Check " + deadLink + " for details.";
+        String sanitizedFinal = "Check [unavailable] for details.";
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.partialAnswer(streamedPartial, 0),
+                AgentStreamEvent.finalAnswer(sanitizedFinal, 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Collect all edit bodies applied to the answer bubble; the last one must contain
+        // the sanitized text and not the dead URL.
+        ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messageSender, atLeastOnce())
+                .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), editCaptor.capture(), anyBoolean());
+
+        String finalEdit = editCaptor.getAllValues().get(editCaptor.getAllValues().size() - 1);
+        assertThat(finalEdit)
+                .as("final bubble edit must render sanitized text")
+                .contains("[unavailable]")
+                .doesNotContain(deadLink);
+        assertThat(ctx.isTentativeAnswerActive()).isFalse();
+    }
+
+    /**
+     * Fix 4 regression guard: a single paragraph larger than
+     * {@code TelegramProperties.maxMessageLength} must be split on sentence/word/hard
+     * boundaries via {@link io.github.ngirchev.opendaimon.common.service.AIUtils#findSplitPoint}
+     * before being sent — otherwise Telegram silently rejects the 4096-char body limit and
+     * the user receives nothing.
+     */
+    @Test
+    @DisplayName("should split oversized single paragraph when sending the final answer")
+    void shouldSplitOversizedSingleParagraphWhenSendingFinalAnswer() {
+        // Force a tight chunk budget so the single paragraph must be split into several sends.
+        telegramProperties.setMaxMessageLength(120);
+
+        MessageHandlerContext ctx = createContextWithMessage("Give me a long essay",
+                Set.of(ModelCapabilities.WEB));
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // ~500 chars, no sentence terminators, no spaces — forces the hard-cut branch of
+        // findSplitPoint. The old code would have tried to send all 500 chars in one shot.
+        String oversizedParagraph = "x".repeat(500);
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.finalAnswer(oversizedParagraph, 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        ArgumentCaptor<String> sentHtmlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messageSender, atLeastOnce()).sendHtml(eq(CHAT_ID), sentHtmlCaptor.capture(), isNull());
+
+        assertThat(sentHtmlCaptor.getAllValues())
+                .as("oversized single paragraph must be split into multiple chunks")
+                .hasSizeGreaterThanOrEqualTo(3)
+                .allSatisfy(html -> assertThat(html.length()).isLessThanOrEqualTo(120));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private static final String STATUS_MAX_ITER_LINE = "⚠️ reached iteration limit";

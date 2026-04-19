@@ -1143,7 +1143,7 @@ public class AIUtils {
      * @param maxLength maximum length (limit)
      * @return split position (index of character after boundary)
      */
-    private static int findSplitPoint(String text, int maxLength) {
+    public static int findSplitPoint(String text, int maxLength) {
         if (text == null || text.length() <= maxLength) {
             return text != null ? text.length() : 0;
         }

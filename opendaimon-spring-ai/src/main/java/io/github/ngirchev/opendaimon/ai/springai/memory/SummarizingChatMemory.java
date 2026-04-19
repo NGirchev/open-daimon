@@ -13,6 +13,7 @@ import org.springframework.lang.NonNull;
 import io.github.ngirchev.opendaimon.common.event.SummarizationStartedEvent;
 import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
@@ -186,8 +187,26 @@ public class SummarizingChatMemory implements ChatMemory {
             List<OpenDaimonMessage> postSummaryMessages = messageRepository
                     .findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(thread, minSequenceNumber);
 
-            // Reserve one slot in the window for the incoming user message.
-            int windowCapacity = Math.max(0, maxMessages - restored.size() - 1);
+            // Drop the trailing in-flight USER row: TelegramMessageHandlerActions.saveMessage
+            // persists the turn's user prompt before the agent runs, so on restore we see it
+            // here. The caller (SpringAgentLoopActions.think) will append a fresh UserMessage
+            // built from ctx.getTask() on iteration 0 — keeping the DB row would make the
+            // model see the same request twice. The single-writer-per-thread invariant on
+            // saveMessage guarantees at most one trailing USER row.
+            int lastIdx = postSummaryMessages.size() - 1;
+            if (lastIdx >= 0 && postSummaryMessages.get(lastIdx).getRole() == MessageRole.USER) {
+                OpenDaimonMessage dropped = postSummaryMessages.get(lastIdx);
+                postSummaryMessages = postSummaryMessages.subList(0, lastIdx);
+                log.debug("restoreHistoryFromPrimaryStore: dropped trailing in-flight user message "
+                                + "for conversationId {} (role=USER, contentLength={})",
+                        conversationId,
+                        dropped.getContent() != null ? dropped.getContent().length() : 0);
+            }
+
+            // No reserved slot for the incoming user message: the dropped trailing USER row
+            // and the old `-1` reserve cancel each other; keeping both would truncate older
+            // context by one message unnecessarily.
+            int windowCapacity = Math.max(0, maxMessages - restored.size());
             int startIdx = Math.max(0, postSummaryMessages.size() - windowCapacity);
             for (int i = startIdx; i < postSummaryMessages.size(); i++) {
                 restored.add(convertToSpringMessage(postSummaryMessages.get(i)));

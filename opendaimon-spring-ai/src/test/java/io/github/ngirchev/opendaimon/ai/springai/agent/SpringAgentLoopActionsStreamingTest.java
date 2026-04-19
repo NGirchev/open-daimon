@@ -119,6 +119,57 @@ class SpringAgentLoopActionsStreamingTest {
         assertThat(partialAnswers()).isEmpty();
     }
 
+    /**
+     * Fix 2 regression guard: some providers (e.g. Ollama) stream cumulative snapshots —
+     * every chunk repeats the whole previous text plus the new suffix. Without snapshot
+     * normalization the previous pipeline fed {@code "Hel"}, {@code "Hello"}, {@code "Hello, "}
+     * each in full to {@link StreamingAnswerFilter#feed} and PARTIAL_ANSWER consumers
+     * would concatenate them as {@code "HelHelloHello, "}. After the fix only the true
+     * delta is emitted per chunk.
+     */
+    @Test
+    void shouldEmitDeltaPartialAnswerEventsWhenProviderStreamsCumulativeSnapshots() {
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                chunk("Hel"),
+                chunk("Hello"),
+                chunk("Hello, ")
+        ));
+
+        actions.think(ctx);
+
+        List<AgentStreamEvent> partials = partialAnswers();
+        assertThat(partials.stream().map(AgentStreamEvent::content).toList())
+                .containsExactly("Hel", "lo", ", ");
+        // Downstream consumer concatenation yields the original text exactly once.
+        String joined = partials.stream().map(AgentStreamEvent::content).reduce("", String::concat);
+        assertThat(joined).isEqualTo("Hello, ");
+    }
+
+    /**
+     * Fix 2 regression guard: when a snapshot-shaped stream repeats {@code <think>…</think>}
+     * plus the visible tail on every chunk, the {@link StreamingAnswerFilter}'s tag state
+     * machine used to re-open on each snapshot because it re-received the literal
+     * {@code <think>} prefix — the visible answer could be swallowed or emitted multiple
+     * times. After the fix the filter only ever sees the delta, so the reasoning block
+     * leaves state exactly once and the answer surfaces exactly once.
+     */
+    @Test
+    void shouldPreserveNonThinkContentWhenSnapshotStreamContainsEmbeddedThinkTag() {
+        when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
+                chunk("<think>reasoning</think>"),
+                chunk("<think>reasoning</think>answer"),
+                chunk("<think>reasoning</think>answer tail")
+        ));
+
+        actions.think(ctx);
+
+        String joined = partialAnswers().stream()
+                .map(AgentStreamEvent::content)
+                .reduce("", String::concat);
+        assertThat(joined).isEqualTo("answer tail");
+        assertThat(joined).doesNotContain("reasoning");
+    }
+
     private List<AgentStreamEvent> partialAnswers() {
         return events.stream()
                 .filter(e -> e.type() == EventType.PARTIAL_ANSWER)
