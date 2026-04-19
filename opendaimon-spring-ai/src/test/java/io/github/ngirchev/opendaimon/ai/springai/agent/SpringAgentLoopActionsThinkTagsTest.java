@@ -66,4 +66,45 @@ class SpringAgentLoopActionsThinkTagsTest {
         assertThat(SpringAgentLoopActions.stripThinkTags(text))
                 .isEqualTo("Here is what I found");
     }
+
+    @Test
+    void shouldStripOrphanClosingThinkTagWhenAtStart() {
+        assertThat(SpringAgentLoopActions.stripThinkTags("</think>actual answer"))
+                .isEqualTo("actual answer");
+    }
+
+    @Test
+    void shouldStripOrphanClosingThinkTagWithReasoningPrefix() {
+        String text = "leaked reasoning</think>actual answer";
+        assertThat(SpringAgentLoopActions.stripThinkTags(text))
+                .isEqualTo("actual answer");
+    }
+
+    @Test
+    void shouldStripOrphanClosingThinkTagWithTrailingWhitespace() {
+        String text = "leaked reasoning</think>\n\n   actual answer   ";
+        assertThat(SpringAgentLoopActions.stripThinkTags(text))
+                .isEqualTo("actual answer");
+    }
+
+    @Test
+    void shouldReturnEmptyWhenOnlyOrphanClosingThinkTagBeforeBlankText() {
+        assertThat(SpringAgentLoopActions.stripThinkTags("reasoning</think>   "))
+                .isEqualTo("");
+    }
+
+    @Test
+    void shouldDifferFromStreamingFilterOnOrphanClose() {
+        // Non-streaming: full text in hand → safely drops the entire reasoning prefix.
+        // Streaming: prefix may already have been emitted to the user → filter only strips
+        // the orphan tag itself, keeping the prefix as plain text. The two paths
+        // intentionally diverge on this edge case.
+        String input = "reasoning prefix</think>final answer";
+        assertThat(SpringAgentLoopActions.stripThinkTags(input))
+                .isEqualTo("final answer");
+
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String streamed = filter.feed(input) + filter.flush();
+        assertThat(streamed).isEqualTo("reasoning prefixfinal answer");
+    }
 }

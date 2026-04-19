@@ -888,16 +888,33 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     /**
      * Strips {@code <think>...</think>} block from text, returning only the answer part.
+     *
+     * <p>Handles three malformed cases observed from real models:
+     * <ul>
+     *   <li>Matched pair: removes the block, keeps surrounding text.</li>
+     *   <li>Open without close: drops from {@code <think>} to end — reasoning was never closed.</li>
+     *   <li>Close without open: drops from start of text up to and including {@code </think>}.
+     *       The open tag was lost (stream corruption, upstream sanitizer, or partial tag emit);
+     *       text ahead of the orphan close is reasoning that must not leak to the user.</li>
+     * </ul>
+     *
+     * <p>Diverges from {@link StreamingAnswerFilter} on the orphan-close case: the
+     * streaming path may have already emitted the reasoning prefix to the user in
+     * earlier chunks and can only strip the tag itself, whereas this method owns
+     * the full response and safely drops the entire prefix.
      */
     static String stripThinkTags(String text) {
         if (text == null) {
             return null;
         }
         int start = text.indexOf("<think>");
-        if (start < 0) {
+        int end = text.indexOf("</think>");
+        if (start < 0 && end < 0) {
             return text;
         }
-        int end = text.indexOf("</think>");
+        if (start < 0) {
+            return text.substring(end + "</think>".length()).trim();
+        }
         if (end < 0 || end <= start) {
             return text.substring(0, start).trim();
         }
