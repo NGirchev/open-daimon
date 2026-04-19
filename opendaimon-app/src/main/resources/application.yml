@@ -200,6 +200,9 @@ open-daimon:
         max-in-memory-bytes: 2097152  # 2 MB WebClient codec buffer for tool requests
         max-fetch-bytes: 1048576      # 1 MB hard cap for fetch_url streamed body
         user-agent: "OpenDaimonBot/1.0 (+https://github.com/ngirchev/open-daimon)"
+      url-check:
+        timeout-ms: 2000
+        max-urls-per-answer: 5
       # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
       # Ollama models (run locally: ollama pull qwen3.5:4b).
       models:

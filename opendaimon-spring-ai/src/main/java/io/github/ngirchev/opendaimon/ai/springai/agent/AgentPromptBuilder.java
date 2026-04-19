@@ -35,6 +35,10 @@ public final class AgentPromptBuilder {
             - When you have enough information, provide your final answer directly as text
             - Be concise and focused in your reasoning
             - If a tool returns an error, try an alternative approach
+            - NEVER fabricate URLs, document IDs, file paths, or citation anchors. Do not write a link you did not receive verbatim from a tool call in this conversation.
+            - If the user asks for a source, reference, or link and you did not fetch it via web_search/fetch_url/http_get in the current conversation — say so honestly ("I don't have a verified source for that") instead of producing a plausible-looking URL from memory.
+            - When you DO cite a URL, copy it byte-for-byte from the most recent matching tool result. Do not trim, shorten, guess slugs, or "fix" them.
+            - Domain knowledge (e.g. "Quarkus has a performance guide") is fine to mention in prose, but without a concrete URL unless a tool returned one.
             """;
 
     private static final String MAX_ITERATIONS_SYNTHESIS_SYSTEM_PROMPT = """

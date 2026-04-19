@@ -93,17 +93,73 @@ class WebToolsTest {
     }
 
     @Test
-    void fetchUrl_whenHttpError_returnsErrorText() {
+    void fetchUrl_whenUrlMissing_returnsMissingUrlErrorText() {
+        String nullResult = webTools.fetchUrl(null);
+        String blankResult = webTools.fetchUrl("   ");
+
+        assertThat(nullResult).isEqualTo("fetch_url failed: MISSING_URL for (missing url argument)");
+        assertThat(blankResult).isEqualTo("fetch_url failed: MISSING_URL for (missing url argument)");
+    }
+
+    @Test
+    void fetchUrl_whenHttp403AndSearchUnavailable_returnsOriginalErrorText() {
+        WebTools noSearchTools = new WebTools(
+                WebClient.builder().build(),
+                null,
+                mockWebServer.url("/search").toString(),
+                1_048_576
+        );
         mockWebServer.enqueue(new MockResponse()
                 .setResponseCode(403)
                 .setBody("blocked")
                 .addHeader("Content-Type", "text/plain"));
         String url = mockWebServer.url("/blocked").toString();
 
-        String result = webTools.fetchUrl(url);
+        String result = noSearchTools.fetchUrl(url);
 
-        assertThat(result).contains("HTTP 403");
-        assertThat(result).contains(url);
+        assertThat(result).isEqualTo("fetch_url failed: HTTP 403 for " + url);
+    }
+
+    @Test
+    void fetchUrl_whenHttp403AndFallbackCandidateSucceeds_returnsFallbackContent() throws IOException {
+        MockWebServer fallbackServer = new MockWebServer();
+        fallbackServer.start();
+        try {
+            String blockedUrl = mockWebServer.url("/blocked").toString();
+            String fallbackUrl = fallbackServer.url("/publisher").toString();
+
+            mockWebServer.enqueue(new MockResponse()
+                    .setResponseCode(403)
+                    .setBody("blocked")
+                    .addHeader("Content-Type", "text/plain"));
+            mockWebServer.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""
+                            {
+                              "organic": [
+                                {
+                                  "title": "Publisher source",
+                                  "link": "%s",
+                                  "snippet": "Publisher abstract"
+                                }
+                              ]
+                            }
+                            """.formatted(fallbackUrl))
+                    .addHeader("Content-Type", "application/json"));
+            fallbackServer.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setBody("<html><body><p>Publisher abstract text</p></body></html>")
+                    .addHeader("Content-Type", "text/html"));
+
+            String result = webTools.fetchUrl(blockedUrl);
+
+            assertThat(result).contains("Original URL blocked: " + blockedUrl);
+            assertThat(result).contains("Fallback source: " + fallbackUrl);
+            assertThat(result).contains("Publisher abstract text");
+            assertThat(result).doesNotContain("fetch_url failed");
+        } finally {
+            fallbackServer.shutdown();
+        }
     }
 
     @Test

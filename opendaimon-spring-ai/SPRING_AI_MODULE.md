@@ -115,13 +115,20 @@ Web tools (`WebTools` / Serper) are attached to the prompt when:
 - ReAct observation extraction reads tool output from `ToolResponseMessage.responses[].responseData` (not `Message.getText()` on tool messages).
   - when tool output is blank, observation is normalized to `(no tool output)`
   - for `fetch_url`, failures are classified and returned as short text visible in progress events:
+    - missing URL argument: `fetch_url failed: MISSING_URL for (missing url argument)`
     - invalid URL: `fetch_url failed: INVALID_URL for <url>`
     - empty 2xx body: `fetch_url failed: EMPTY_RESPONSE for <url>`
     - HTTP status failures: `fetch_url failed: HTTP <status> for <url>`
     - body-size guard: `fetch_url failed: TOO_LARGE for <url>`
     - 2xx with unreadable body: `fetch_url failed: UNREADABLE_2XX for <url>`
+  - on direct `HTTP 403`, `fetch_url` attempts a public-source fallback through web search:
+    - derives a title-like query from the blocked URL and excludes the original authority
+    - fetches up to 3 non-PDF candidate pages without recursive fallback
+    - on success, returns cleaned text prefixed with `Original URL blocked` and `Fallback source`
+    - if no fallback succeeds or Serper is unavailable, preserves the original `HTTP 403` failure
 - Web tools use a dedicated HTTP client configured via `open-daimon.ai.spring-ai.web-tools.*`:
   - `max-in-memory-bytes` (codec buffer), `max-fetch-bytes` (`fetch_url` stream cap), `user-agent`
+  - follows redirects and sends browser-compatible read headers (`Accept`, `Accept-Language`) for page fetches
 - ReAct `MAX_ITERATIONS` handling performs one final synthesis LLM call using the accumulated step history:
   - no tool execution in this last pass (`internalToolExecutionEnabled=false`)
   - final user text is prefixed with an iteration-limit notice and stripped from tool payload markers/debug dumps

@@ -19,7 +19,7 @@
   <configuration default="false" name="ApplicationLocal" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="io.github.ngirchev.opendaimon.Application" />
     <module name="opendaimon-app" />
-    <option name="PROGRAM_PARAMETERS" value="--spring.profiles.active=local" />
+    <option name="PROGRAM_PARAMETERS" value="--spring.profiles.active=local  -Djavax.net.ssl.trustStoreType=KeychainStore -Djavax.net.ssl.trustStore=NONE " />
     <extension name="coverage">
       <pattern>
         <option name="PATTERN" value="io.github.ngirchev.opendaimon.*" />

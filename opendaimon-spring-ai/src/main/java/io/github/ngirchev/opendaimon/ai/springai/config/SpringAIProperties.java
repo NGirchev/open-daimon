@@ -36,6 +36,8 @@ public class SpringAIProperties {
 
     private WebToolsClient webTools = new WebToolsClient();
 
+    private UrlCheck urlCheck = new UrlCheck();
+
     @Getter
     @Setter
     public static class OpenRouterApp {
@@ -109,6 +111,28 @@ public class SpringAIProperties {
         @NotNull(message = "streamTimeoutSeconds is required")
         @Min(value = 1, message = "streamTimeoutSeconds must be >= 1")
         private Integer streamTimeoutSeconds;
+    }
+
+    /**
+     * Post-processing URL liveness check applied to the agent's final answer before
+     * it reaches the user. Guards against hallucinated or stale links.
+     */
+    @Getter
+    @Setter
+    public static class UrlCheck {
+        /**
+         * Timeout for a single HEAD (or ranged GET fallback) request, in milliseconds.
+         */
+        @NotNull(message = "urlCheck.timeoutMs is required")
+        @Min(value = 1, message = "urlCheck.timeoutMs must be >= 1")
+        private Integer timeoutMs;
+
+        /**
+         * Maximum number of unique URLs to check per answer. Keeps streaming latency bounded.
+         */
+        @NotNull(message = "urlCheck.maxUrlsPerAnswer is required")
+        @Min(value = 1, message = "urlCheck.maxUrlsPerAnswer must be >= 1")
+        private Integer maxUrlsPerAnswer;
     }
 
     @Getter

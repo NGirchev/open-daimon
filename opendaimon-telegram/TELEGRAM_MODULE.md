@@ -151,12 +151,14 @@ Evaluated in order — first match wins:
    - first event → `sendMessageAndGetId(..., replyTo=<user message>)` with link previews disabled
    - `THINKING` is transient: it is shown while the agent is reasoning, then replaced/removed before persistent progress is appended
    - `TOOL_CALL`/`OBSERVATION`/`ERROR` are persistent: they are appended via `editMessageHtml(...)` on the same progress message with link previews disabled
-   - `TOOL_CALL` always shows tool name; for URL tools (`fetch_url`, `http_get`, `http_post`) it also shows the extracted URL
+   - `TOOL_CALL` always shows tool name; for URL tools (`fetch_url`, `http_get`, `http_post`) it also shows the extracted URL, or `URL: missing` when the model omitted it
    - `web_search` shows `Query: <search text>`; if query contains an HTTP(S) link, it also shows `URL: <link>`
    - `OBSERVATION` is compact and does not include raw payload/query/results dump:
      - success/non-empty result → `📋 Tool result received`
      - empty or `(no tool output)`/`No result` → `📋 No result`
-     - tool failure text (`error:`/`failed`) → `⚠️ Tool failed: <short reason>`
+     - tool failure text (`error:`/`failed`) → `⚠️ Tool failed: <short reason>` and the attempted URL when present
+       - `MISSING_URL` → `Missing URL argument` + `URL: missing`
+       - `HTTP 403` → `Access denied by site (HTTP 403)` + attempted URL
        - `TOO_LARGE` / DataBuffer limit errors → `Page is too large to parse`
        - `UNREADABLE_2XX` / `UNREADABLE_2XX_RESPONSE` / `HTTP 200 ...` → `Site returned HTTP 200, but content could not be extracted`
 4. `METADATA` event updates response model in context (not sent as chat text)
@@ -514,7 +516,7 @@ Design intent: the user sees tool reasoning and orchestration only in the status
    |---------|---------------|
    | Result present | `📋 Tool result received` |
    | Empty result | `📋 No result` |
-   | Tool threw | `⚠️ Tool failed: <error summary>` |
+   | Tool threw | `⚠️ Tool failed: <error summary>` plus attempted URL when present |
 
 4. **Next iteration.** A fresh `💭 Thinking...` line is appended below the previous tool block.
    Completed tool blocks stay in the status message as a running iteration log.
@@ -582,7 +584,7 @@ Paragraph-boundary streaming is exercised by
 4. Модель ответила с tool запросом, редактируем сообщение в телеграм, заменяем 💭 Thinking... на 🔧 Tool: web_search
    Query: Quarkus vs Spring Boot performance benchmarks 2023 2024 latest comparison numbers metrics latency throughput memory consumption
    4.1. Если тул ничего не вернул, редактируем сообщение и на следующей строке пишем: 📋 No result
-   4.2. Если тул упал с ошибкой, редактируем сообщение и на следующей строке пишем: ⚠️ Tool failed: HTTP 403
+   4.2. If a URL tool fails with HTTP 403, append: `⚠️ Tool failed: Access denied by site (HTTP 403)` and the attempted URL.
    4.3. Если результат есть, редактируем сообщение и на следующей строке пишем: 📋 Tool result received
 5. Если модель кроме tool call присылает свои рассуждения, раз в полсекунды вместо 💭 Thinking... пишем её рассуждения через редактирование, но когда выясняем что это всё же только часть цикла, и когда получаем ответ, заменяем всё же эту строку на результат, как в пункте 4.
 7. Если модель достигла лимита, вызываем последний раз запрос без передачи tool в модель, просим модель сделать вывод по собранным данным и ответить пользователю на запрос без рассуждений.

@@ -28,6 +28,7 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramM
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
 import io.github.ngirchev.opendaimon.telegram.service.InMemoryModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
+import io.github.ngirchev.opendaimon.common.service.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
@@ -185,8 +186,9 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public TelegramAgentStreamRenderer telegramAgentStreamRenderer() {
-        return new TelegramAgentStreamRenderer();
+    public TelegramAgentStreamRenderer telegramAgentStreamRenderer(
+            ObjectProvider<UrlLivenessChecker> urlLivenessCheckerProvider) {
+        return new TelegramAgentStreamRenderer(urlLivenessCheckerProvider.getIfAvailable());
     }
 
     @Bean

@@ -64,6 +64,21 @@ class TelegramAgentStreamRendererTest {
     }
 
     @Test
+    void shouldRenderFetchUrlToolCallWithMissingUrl() {
+        AgentStreamEvent event = AgentStreamEvent.toolCall(
+                "fetch_url",
+                "{\"url\":null}",
+                1
+        );
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("<code>fetch_url</code>");
+        assertThat(html).contains("URL: missing");
+        assertThat(html).doesNotContain("<a href=");
+    }
+
+    @Test
     void shouldRenderWebSearchToolCallWithUrlFromQuery() {
         AgentStreamEvent event = AgentStreamEvent.toolCall(
                 "web_search",
@@ -137,8 +152,24 @@ class TelegramAgentStreamRendererTest {
         String html = renderer.render(event);
 
         assertThat(html).contains("Tool failed:");
-        assertThat(html).contains("HTTP 403");
+        assertThat(html).contains("Access denied by site (HTTP 403)");
+        assertThat(html).contains("https://example.com/really/long/path");
+        assertThat(html).contains("<a href=");
         assertThat(html).doesNotContain("Tool result received");
+    }
+
+    @Test
+    void shouldRenderMissingUrlFailureAsFriendlyMessage() {
+        AgentStreamEvent event = AgentStreamEvent.observation(
+                "fetch_url failed: MISSING_URL for (missing url argument)",
+                1
+        );
+
+        String html = renderer.render(event);
+
+        assertThat(html).contains("Tool failed:");
+        assertThat(html).contains("Missing URL argument");
+        assertThat(html).contains("URL: missing");
     }
 
     @Test

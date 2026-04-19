@@ -377,6 +377,24 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         agentFinalAnswerLastDeliveryAtMillis = System.currentTimeMillis();
     }
 
+    /**
+     * Replaces the accumulated final-answer text with a sanitized version and
+     * clamps delivery offsets to the new length. Intended for terminal
+     * post-processing (e.g. stripping dead URLs) right before the last flush.
+     */
+    public void replaceAgentFinalAnswerText(String sanitized) {
+        if (sanitized == null) {
+            return;
+        }
+        agentFinalAnswerText = sanitized;
+        if (agentFinalAnswerDeliveredLength > sanitized.length()) {
+            agentFinalAnswerDeliveredLength = sanitized.length();
+        }
+        if (agentFinalAnswerCurrentMessageStartOffset > sanitized.length()) {
+            agentFinalAnswerCurrentMessageStartOffset = sanitized.length();
+        }
+    }
+
     public void resetAgentFinalAnswerStream() {
         agentFinalAnswerMessageId = null;
         agentFinalAnswerText = "";

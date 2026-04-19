@@ -46,7 +46,9 @@ import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelRotationAspect;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UnknownToolFallbackResolver;
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessCheckerImpl;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
+import io.github.ngirchev.opendaimon.common.service.UrlLivenessChecker;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.tool.resolution.DelegatingToolCallbackResolver;
@@ -220,6 +222,7 @@ public class SpringAIAutoConfig {
         String userAgent = properties.getWebTools().getUserAgent();
 
         HttpClient httpClient = HttpClient.create()
+                .followRedirect(true)
                 .responseTimeout(java.time.Duration.ofSeconds(timeoutSeconds));
 
         ExchangeStrategies strategies = ExchangeStrategies.builder()
@@ -231,6 +234,9 @@ public class SpringAIAutoConfig {
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .exchangeStrategies(strategies)
                 .defaultHeader(HttpHeaders.USER_AGENT, userAgent)
+                .defaultHeader(HttpHeaders.ACCEPT,
+                        "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7")
+                .defaultHeader(HttpHeaders.ACCEPT_LANGUAGE, "en-US,en;q=0.9")
                 .build();
     }
 
@@ -353,6 +359,20 @@ public class SpringAIAutoConfig {
             properties.getSerper().getApi().getKey(),
             properties.getSerper().getApi().getUrl(),
             properties.getWebTools().getMaxFetchBytes()
+        );
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public UrlLivenessChecker urlLivenessChecker(
+            @Qualifier("webToolsWebClient") WebClient webClient,
+            SpringAIProperties properties
+    ) {
+        SpringAIProperties.UrlCheck urlCheck = properties.getUrlCheck();
+        return new UrlLivenessCheckerImpl(
+                webClient,
+                java.time.Duration.ofMillis(urlCheck.getTimeoutMs()),
+                urlCheck.getMaxUrlsPerAnswer()
         );
     }
 

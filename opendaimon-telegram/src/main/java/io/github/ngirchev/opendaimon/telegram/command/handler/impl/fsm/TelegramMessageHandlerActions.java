@@ -273,7 +273,10 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             // Final answer fallback for executors that emit only terminal FINAL_ANSWER/MAX_ITERATIONS.
             // If FINAL_ANSWER_CHUNK stream already created a dedicated final message, do not duplicate.
             if (ctx.hasResponse()) {
-                String answerText = ctx.getResponseText().orElse("");
+                String rawAnswerText = ctx.getResponseText().orElse("");
+                String answerText = agentStreamRenderer != null
+                        ? agentStreamRenderer.sanitizeFinalAnswer(rawAnswerText)
+                        : rawAnswerText;
                 if (ctx.getAgentFinalAnswerMessageId() == null) {
                     log.info("FSM generateAgentResponse: sending fallback final answer, textLength={}, text='{}'",
                             answerText.length(), normalizeForLog(answerText));
@@ -468,12 +471,31 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         if (!ctx.hasStreamedFinalAnswerChunks()) {
             return;
         }
+        if (enablePreviewForFinalUpdate) {
+            sanitizeFinalAnswerUrls(ctx);
+        }
         if (ctx.getAgentFinalAnswerPendingChars() > 0) {
             publishFinalAnswerToTelegram(ctx, true, enablePreviewForFinalUpdate);
             return;
         }
         if (enablePreviewForFinalUpdate) {
             finalizeFinalAnswerPreview(ctx);
+        }
+    }
+
+    private void sanitizeFinalAnswerUrls(MessageHandlerContext ctx) {
+        if (agentStreamRenderer == null) {
+            return;
+        }
+        String original = ctx.getAgentFinalAnswerText();
+        if (original == null || original.isBlank()) {
+            return;
+        }
+        String sanitized = agentStreamRenderer.sanitizeFinalAnswer(original);
+        if (sanitized != null && !sanitized.equals(original)) {
+            log.info("FSM agentStreamEvent: sanitized final answer URLs, originalLength={}, sanitizedLength={}",
+                    original.length(), sanitized.length());
+            ctx.replaceAgentFinalAnswerText(sanitized);
         }
     }
 
