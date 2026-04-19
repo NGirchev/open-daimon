@@ -66,14 +66,31 @@ public final class ToolObservationClassifier {
 
     /**
      * Heuristic: true when the tool returned a non-exceptional but textually-marked
-     * failure such as {@code "HTTP error 403 FORBIDDEN: …"} or {@code "Error: connection refused"}.
+     * failure. Three prefixes are recognised, each originating from a distinct source:
+     * <ul>
+     *   <li>{@code "HTTP error "} — produced by {@link io.github.ngirchev.opendaimon.ai.springai.tool.WebTools}
+     *       {@code handleWebClientResponseException} when a downstream HTTP call
+     *       returns a non-2xx status (e.g. {@code "HTTP error 403 FORBIDDEN: …"}).</li>
+     *   <li>{@code "Error: "} — produced by {@code WebTools.fetchUrl} for structured
+     *       REASON_* codes (invalid URL, timeout, too large, unreadable 2xx) as well
+     *       as any generic exception message surfaced as a tool result.</li>
+     *   <li>{@code "Exception occurred in tool:"} — produced by Spring AI's
+     *       {@code DefaultToolCallResultConverter} when a {@code @Tool} method throws
+     *       an unhandled exception: the framework catches it above our try/catch and
+     *       substitutes this canonical string as a "successful" tool result. Without
+     *       recognising it the Telegram UI would render it as {@code 📋 Tool result received}.</li>
+     * </ul>
      *
      * <p>Exposed publicly so the {@code fetch_url} short-circuit guard can apply the same
      * rule for counting host failures — keeping one definition avoids drift between UI
      * classification and retry-throttling heuristics.
      */
     public static boolean isTextualToolFailure(String text) {
-        return text != null && (text.startsWith("HTTP error ") || text.startsWith("Error: "));
+        return text != null && (
+                text.startsWith("HTTP error ")
+                || text.startsWith("Error: ")
+                || text.startsWith("Exception occurred in tool:")
+        );
     }
 
     /**

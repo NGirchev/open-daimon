@@ -58,6 +58,12 @@ public class WebTools {
             return new SearchResult(query, List.of());
         }
 
+        if (query == null || query.isBlank()) {
+            log.warn("WebTools.webSearch: query is null/blank — skipping. "
+                    + "Likely the model emitted an empty tool_call arguments object.");
+            return new SearchResult(query == null ? "" : query, List.of());
+        }
+
         Map<String, Object> body = Map.of(
             "q", query,
             "num", 8

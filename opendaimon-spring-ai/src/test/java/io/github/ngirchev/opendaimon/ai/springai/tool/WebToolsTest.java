@@ -72,6 +72,33 @@ class WebToolsTest {
     }
 
     @Test
+    void shouldReturnEmptyResultWhenQueryIsNull() {
+        // Spring AI deserialises a tool_call with empty arguments ({}) as query=null
+        // and invokes webSearch(null). Without the guard, Map.of("q", null, ...) blows up
+        // with NPE and Spring AI converts that into an unhelpful "Exception occurred …"
+        // string. The guard returns an empty SearchResult early — no HTTP call is made.
+        var result = webTools.webSearch(null);
+
+        assertNotNull(result);
+        assertEquals("", result.query());
+        assertTrue(result.hits().isEmpty());
+        verify(webClient, never()).post();
+    }
+
+    @Test
+    void shouldReturnEmptyResultWhenQueryIsBlank() {
+        // Same guard as the null case — a whitespace-only query is equally useless.
+        // The original (non-null) input is echoed back in SearchResult.query() so the
+        // model can still see what it asked for.
+        var result = webTools.webSearch("   ");
+
+        assertNotNull(result);
+        assertEquals("   ", result.query());
+        assertTrue(result.hits().isEmpty());
+        verify(webClient, never()).post();
+    }
+
+    @Test
     void fetchUrl_returnsCleanedText() {
         when(webClient.get()).thenReturn(getSpec);
         when(getSpec.uri(anyString())).thenReturn(getRequestHeadersSpec);

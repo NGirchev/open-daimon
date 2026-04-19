@@ -64,7 +64,7 @@ Enabled by `open-daimon.telegram.message-coalescing.enabled=true`.
 |----------------------|---------|
 | `THREADS_` | `THREADS` |
 | `LANG_` | `LANGUAGE` |
-| `ERROR` / `IMPROVEMENT` | `BUGREPORT` |
+| `ERROR` / `IMPROVEMENT` / `BUG_CANCEL` | `BUGREPORT` |
 | `MODEL_` | `MODEL` |
 | session has `botStatus` | use `botStatus` |
 | otherwise | null → skip |
@@ -261,6 +261,7 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 **Trigger:** `/role` with no text
 **Handler:** `RoleTelegramCommandHandler`
 - Shows current role content + inline keyboard: 4 presets (DEFAULT, COACH, EDITOR, DEV) + "Write custom"
+- Menu includes a Cancel / Close button as the last row
 - No AI call
 
 ---
@@ -273,7 +274,7 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 ---
 
 ### UC-13: `/role` — multi-step custom role via keyboard
-**Step 1:** user clicks "Write custom role" button → callback → handler sets `botStatus = "/role"` → sends prompt
+**Step 1:** user clicks "Write custom role" button → callback → handler sets `botStatus = "/role"` → sends prompt, deletes the preset menu message after acknowledging
 **Step 2:** user sends text → `mapToTelegramTextCommand()` → `botStatus="/role"` → `ROLE` command
 **Handler:** detects no `/` prefix, has text, clears `botStatus`, saves role
 - Same outcome as UC-12
@@ -283,7 +284,7 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 ### UC-14: `/role` — preset via callback
 **Trigger:** user clicks preset button (e.g., `ROLE_COACH`)
 **Handler:** looks up preset content, calls `TelegramUserService.updateAssistantRole()`, clears `botStatus`
-- Sends confirmation
+- Deletes the preset menu message after updating role; no explicit 'role changed' chat message — toast only
 
 ---
 
@@ -353,20 +354,21 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 **Handler:** `ThreadsTelegramCommandHandler`
 - Lists all threads in scope `TELEGRAM_CHAT:<chat.id>` (active ✅ / inactive 🔒) up to 20
 - Inline keyboard: `N. ✅/🔒 <title or Conversation <id>>` per thread
+- Menu ends with a localized Cancel / Close row; clicking it acknowledges the callback and deletes the menu without side effects
 
 ---
 
 ### UC-23: `/threads` — switch thread via callback
 **Trigger:** `THREADS_<threadKey>` callback
 **Handler:** finds thread, verifies it belongs to the same chat scope (`TELEGRAM_CHAT:<chat.id>`), activates it in that scope
-- Replies with confirmation
+- After activation the preset menu message is deleted; the confirmation is toast-only (localized "Active: <title>") — no separate chat message
 
 ---
 
 ### UC-24: `/bugreport` — report flow
-**Step 1:** `/bugreport` → inline keyboard: "Report bug" / "Suggest improvement"
-**Step 2a:** `ERROR` callback → sets `botStatus="/bugreport/ERROR"` → prompts for description
-**Step 2b:** `IMPROVEMENT` callback → sets `botStatus="/bugreport/IMPROVEMENT"` → prompts
+**Step 1:** `/bugreport` → inline keyboard: "Report bug" / "Suggest improvement". The inline keyboard now includes a localized Cancel / Close button; clicking it acknowledges the callback and deletes the menu message without changing session state.
+**Step 2a:** `ERROR` callback → sets `botStatus="/bugreport/ERROR"` → prompts for description. After sending the prompt, the preset menu message is deleted.
+**Step 2b:** `IMPROVEMENT` callback → sets `botStatus="/bugreport/IMPROVEMENT"` → prompts. After sending the prompt, the preset menu message is deleted.
 **Step 3:** user sends text → matched by `botStatus` → `BugreportService.saveBug()` or `.saveImprovementProposal()` → clears `botStatus`
 
 ---
