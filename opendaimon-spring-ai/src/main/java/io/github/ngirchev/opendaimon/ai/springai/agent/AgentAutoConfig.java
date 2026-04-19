@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
+import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
@@ -82,6 +83,7 @@ public class AgentAutoConfig {
             List<ToolCallback> agentToolCallbacks,
             ObjectProvider<ChatMemory> chatMemoryProvider,
             ObjectProvider<UrlLivenessChecker> urlLivenessCheckerProvider,
+            PriorityRequestExecutor priorityRequestExecutor,
             AgentProperties agentProperties) {
         Duration streamTimeout = Duration.ofSeconds(agentProperties.getStreamTimeoutSeconds());
         return new SpringAgentLoopActions(
@@ -90,7 +92,8 @@ public class AgentAutoConfig {
                 agentToolCallbacks,
                 chatMemoryProvider.getIfAvailable(),
                 streamTimeout,
-                urlLivenessCheckerProvider.getIfAvailable());
+                urlLivenessCheckerProvider.getIfAvailable(),
+                priorityRequestExecutor);
     }
 
     @Bean("agentLoopFsm")
@@ -110,8 +113,10 @@ public class AgentAutoConfig {
     @ConditionalOnMissingBean
     public SimpleChainExecutor simpleChainExecutor(
             DelegatingAgentChatModel agentChatModel,
-            ObjectProvider<ChatMemory> chatMemoryProvider) {
-        return new SimpleChainExecutor(agentChatModel, chatMemoryProvider.getIfAvailable());
+            ObjectProvider<ChatMemory> chatMemoryProvider,
+            PriorityRequestExecutor priorityRequestExecutor) {
+        return new SimpleChainExecutor(agentChatModel, chatMemoryProvider.getIfAvailable(),
+                priorityRequestExecutor);
     }
 
     @Bean

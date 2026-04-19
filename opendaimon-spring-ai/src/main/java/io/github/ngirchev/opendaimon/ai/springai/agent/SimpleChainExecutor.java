@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
@@ -27,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Simple chain executor — single LLM call without tools.
@@ -44,10 +46,17 @@ public class SimpleChainExecutor implements AgentExecutor {
 
     private final ChatModel chatModel;
     private final ChatMemory chatMemory;
+    private final PriorityRequestExecutor priorityRequestExecutor;
 
     public SimpleChainExecutor(ChatModel chatModel, ChatMemory chatMemory) {
+        this(chatModel, chatMemory, null);
+    }
+
+    public SimpleChainExecutor(ChatModel chatModel, ChatMemory chatMemory,
+                               PriorityRequestExecutor priorityRequestExecutor) {
         this.chatModel = chatModel;
         this.chatMemory = chatMemory;
+        this.priorityRequestExecutor = priorityRequestExecutor;
     }
 
     @Override
@@ -64,7 +73,7 @@ public class SimpleChainExecutor implements AgentExecutor {
             ChatOptions options = buildOptions(request);
             Prompt prompt = new Prompt(messages, options);
 
-            ChatResponse response = chatModel.call(prompt);
+            ChatResponse response = callWithPriority(request, prompt);
             response.getResult();
             String rawText = response.getResult().getOutput().getText();
             String answer = AgentTextSanitizer.stripToolCallTags(
@@ -99,7 +108,7 @@ public class SimpleChainExecutor implements AgentExecutor {
                 messages.add(new UserMessage(request.task()));
 
                 ChatOptions options = buildOptions(request);
-                ChatResponse response = chatModel.call(new Prompt(messages, options));
+                ChatResponse response = callWithPriority(request, new Prompt(messages, options));
                 response.getResult();
                 String rawText = response.getResult().getOutput().getText();
                 String modelName = response.getMetadata() != null
@@ -138,6 +147,25 @@ public class SimpleChainExecutor implements AgentExecutor {
         }).subscribeOn(Schedulers.boundedElastic()).subscribe();
 
         return eventFlux;
+    }
+
+    /**
+     * Delegates {@code chatModel.call(prompt)} through {@link PriorityRequestExecutor} so that
+     * all LLM calls respect the per-user concurrency limits. When no executor is configured
+     * (e.g. in tests using the two-argument constructor), the call is made directly.
+     */
+    private ChatResponse callWithPriority(AgentRequest request, Prompt prompt) {
+        if (priorityRequestExecutor == null) {
+            return chatModel.call(prompt);
+        }
+        Long userId = SummaryModelInvoker.resolveUserId(
+                request.metadata() != null ? request.metadata() : Map.of());
+        try {
+            return priorityRequestExecutor.executeRequest(userId, () -> chatModel.call(prompt));
+        } catch (Exception e) {
+            log.warn("SimpleChain: LLM call via PriorityRequestExecutor failed: {}", e.getMessage());
+            throw e instanceof RuntimeException re ? re : new RuntimeException(e);
+        }
     }
 
     private ChatOptions buildOptions(AgentRequest request) {

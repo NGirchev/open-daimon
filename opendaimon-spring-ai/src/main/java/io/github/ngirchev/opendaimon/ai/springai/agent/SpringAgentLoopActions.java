@@ -6,6 +6,7 @@ import io.github.ngirchev.opendaimon.ai.springai.agent.RawToolCallParser.RawTool
 import io.github.ngirchev.opendaimon.ai.springai.agent.ToolObservationClassifier.Classification;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
+import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
@@ -87,6 +88,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final UrlLivenessChecker urlLivenessChecker;
     private final RawToolCallParser rawToolCallParser;
     private final SummaryModelInvoker summaryModelInvoker;
+    private final PriorityRequestExecutor priorityRequestExecutor;
 
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
     private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
@@ -103,7 +105,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                                   List<ToolCallback> toolCallbacks,
                                   ChatMemory chatMemory,
                                   Duration streamTimeout) {
-        this(chatModel, toolCallingManager, toolCallbacks, chatMemory, streamTimeout, null);
+        this(chatModel, toolCallingManager, toolCallbacks, chatMemory, streamTimeout, null, null);
     }
 
     public SpringAgentLoopActions(ChatModel chatModel,
@@ -112,14 +114,26 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                                   ChatMemory chatMemory,
                                   Duration streamTimeout,
                                   UrlLivenessChecker urlLivenessChecker) {
+        this(chatModel, toolCallingManager, toolCallbacks, chatMemory, streamTimeout,
+                urlLivenessChecker, null);
+    }
+
+    public SpringAgentLoopActions(ChatModel chatModel,
+                                  ToolCallingManager toolCallingManager,
+                                  List<ToolCallback> toolCallbacks,
+                                  ChatMemory chatMemory,
+                                  Duration streamTimeout,
+                                  UrlLivenessChecker urlLivenessChecker,
+                                  PriorityRequestExecutor priorityRequestExecutor) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : List.of();
         this.chatMemory = chatMemory;
         this.streamTimeout = Objects.requireNonNull(streamTimeout, "streamTimeout must not be null");
         this.urlLivenessChecker = urlLivenessChecker;
+        this.priorityRequestExecutor = priorityRequestExecutor;
         this.rawToolCallParser = new RawToolCallParser(this.toolCallbacks);
-        this.summaryModelInvoker = new SummaryModelInvoker(chatModel);
+        this.summaryModelInvoker = new SummaryModelInvoker(chatModel, priorityRequestExecutor);
     }
 
     @Override
@@ -328,7 +342,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                         streamTimeout, e.getMessage());
                 ctx.emitEvent(AgentStreamEvent.error(
                         "Streaming unavailable, switched to non-streaming mode", iteration));
-                return chatModel.call(prompt);
+                return callWithPriority(ctx, prompt);
             }
             log.warn("Agent think: stream failed mid-flight after partial chunks, surfacing partial response: {}",
                     e.getMessage());
@@ -356,6 +370,25 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 ? new Generation(finalMessage, last.getResult().getMetadata())
                 : new Generation(finalMessage);
         return new ChatResponse(List.of(finalGeneration), last.getMetadata());
+    }
+
+    /**
+     * Delegates {@code chatModel.call(prompt)} through {@link PriorityRequestExecutor} so that
+     * non-streaming fallback calls respect the same concurrency limits as all other AI calls.
+     * When no executor is configured (e.g. in tests using the two-argument constructor),
+     * the call is made directly.
+     */
+    private ChatResponse callWithPriority(AgentContext ctx, Prompt prompt) {
+        if (priorityRequestExecutor == null) {
+            return chatModel.call(prompt);
+        }
+        Long userId = SummaryModelInvoker.resolveUserId(ctx.getMetadata());
+        try {
+            return priorityRequestExecutor.executeRequest(userId, () -> chatModel.call(prompt));
+        } catch (Exception e) {
+            log.warn("Agent think: fallback call via PriorityRequestExecutor failed: {}", e.getMessage());
+            throw e instanceof RuntimeException re ? re : new RuntimeException(e);
+        }
     }
 
     @Override

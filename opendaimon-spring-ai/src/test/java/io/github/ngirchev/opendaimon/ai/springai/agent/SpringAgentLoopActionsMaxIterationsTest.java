@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
@@ -19,9 +20,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -115,6 +118,32 @@ class SpringAgentLoopActionsMaxIterationsTest {
                         + "even when the summary model returns only an unclosed <think> block")
                 .isNotBlank();
         assertThat(answer).startsWith("I reached the maximum number of iterations");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldRouteSummaryCallThroughPriorityRequestExecutorWhenConfigured() throws Exception {
+        PriorityRequestExecutor mockExecutor = mock(PriorityRequestExecutor.class);
+        when(mockExecutor.executeRequest(anyLong(), any(Callable.class)))
+                .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+
+        SpringAgentLoopActions actionsWithExecutor = new SpringAgentLoopActions(
+                chatModel, mock(ToolCallingManager.class), List.of(), null,
+                Duration.ofSeconds(30), null, mockExecutor);
+
+        AgentContext ctxWithUser = new AgentContext(
+                "What's the BTC price?", "conv-1",
+                Map.of(AICommand.USER_ID_FIELD, "42"), 5, Set.of());
+        ctxWithUser.recordStep(new AgentStepResult(
+                0, "searched", "web_search", "{}", "BTC is $50,000", Instant.now()));
+
+        when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+                new Generation(new AssistantMessage("BTC is $50k.")))));
+
+        actionsWithExecutor.handleMaxIterations(ctxWithUser);
+
+        assertThat(ctxWithUser.getFinalAnswer()).isEqualTo("BTC is $50k.");
+        verify(mockExecutor).executeRequest(anyLong(), any(Callable.class));
     }
 
     @Test

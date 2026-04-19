@@ -1,5 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentState;
@@ -21,9 +23,13 @@ import org.springframework.ai.chat.prompt.Prompt;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -134,6 +140,32 @@ class SimpleChainExecutorTest {
                 .extracting(AgentStreamEvent::type)
                 .contains(EventType.ERROR)
                 .doesNotContain(EventType.FINAL_ANSWER);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldRouteBothExecuteAndExecuteStreamThroughPriorityRequestExecutor() throws Exception {
+        PriorityRequestExecutor mockExecutor = mock(PriorityRequestExecutor.class);
+        when(mockExecutor.executeRequest(anyLong(), any(Callable.class)))
+                .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+
+        SimpleChainExecutor withExecutor = new SimpleChainExecutor(chatModel, chatMemory, mockExecutor);
+        AgentRequest requestWithUserId = new AgentRequest(
+                "question", "conv-1",
+                Map.of(AICommand.USER_ID_FIELD, "42"),
+                5, Set.of(), AgentStrategy.SIMPLE);
+
+        when(chatModel.call(any(Prompt.class))).thenReturn(chatResponse("answer"));
+
+        // execute path
+        AgentResult executeResult = withExecutor.execute(requestWithUserId);
+        assertThat(executeResult.terminalState()).isEqualTo(AgentState.COMPLETED);
+
+        // executeStream path
+        withExecutor.executeStream(requestWithUserId).collectList().block();
+
+        verify(mockExecutor, org.mockito.Mockito.atLeast(2))
+                .executeRequest(anyLong(), any(Callable.class));
     }
 
     private static AgentRequest request(String task) {

@@ -44,6 +44,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.telegram.telegrambots.meta.api.objects.Message;
 
+import reactor.core.publisher.Mono;
+
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -316,8 +319,13 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             // Stream agent events — two-message UX:
             //   status  ← iteration log (thinking / tool-call / observation / error)
             //   answer  ← tentative final answer bubble (may be rolled back on TOOL_CALL)
+            // concatMap (not flatMap) preserves event order: tool_call/observation sequences
+            // must not interleave. handleAgentStreamEvent returns Mono<Void>, whose completion
+            // (including any Mono.delay throttle wait) is awaited before the next event is
+            // processed. thenReturn(event) re-emits the original event so blockLast() can
+            // capture the terminal event (FINAL_ANSWER / MAX_ITERATIONS / ERROR).
             AgentStreamEvent lastEvent = agentExecutor.executeStream(request)
-                    .doOnNext(event -> handleAgentStreamEvent(ctx, event))
+                    .concatMap(event -> handleAgentStreamEvent(ctx, event).thenReturn(event))
                     .onErrorResume(err -> {
                         log.warn("FSM agentStreamEvent: stream errored — finalizing buffers", err);
                         handleStreamError(ctx, err);
@@ -373,8 +381,12 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
      * from the renderer's {@link RenderedUpdate} description, and orchestrates the
      * tentative-answer bubble lifecycle directly for {@code PARTIAL_ANSWER} /
      * {@code FINAL_ANSWER} / {@code MAX_ITERATIONS} (which touch message IDs and throttle).
+     *
+     * <p>Returns {@code Mono<Void>} so callers can use {@code concatMap} — preserving event
+     * order while allowing {@code Mono.delay} inside {@link #pacedForceFlushStatus} to
+     * suspend on a timer thread rather than blocking a Reactor worker thread.
      */
-    private void handleAgentStreamEvent(MessageHandlerContext ctx, AgentStreamEvent event) {
+    private Mono<Void> handleAgentStreamEvent(MessageHandlerContext ctx, AgentStreamEvent event) {
         // PARTIAL_ANSWER fires per-token (1–8 bytes) and would dominate INFO logs,
         // hiding structural events like TOOL_CALL/OBSERVATION/FINAL_ANSWER. Demote it
         // to DEBUG so upstream-stream gaps become visible as silence in INFO.
@@ -391,31 +403,31 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         // Capture model name — side state, not transcript.
         if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
             ctx.setResponseModel(event.content());
-            return;
+            return Mono.empty();
         }
 
         if (agentStreamRenderer == null) {
-            return;
+            return Mono.empty();
         }
 
         if (event.type() == AgentStreamEvent.EventType.PARTIAL_ANSWER) {
             handlePartialAnswer(ctx, event);
-            return;
+            return Mono.empty();
         }
         if (event.type() == AgentStreamEvent.EventType.FINAL_ANSWER) {
             // Final answer payload becomes responseText in extractAgentResult; nothing to render.
-            return;
+            return Mono.empty();
         }
         if (event.type() == AgentStreamEvent.EventType.MAX_ITERATIONS) {
             appendToStatusBuffer(ctx, "\n\n" + STATUS_MAX_ITER_LINE, /*forceFlush=*/ true);
-            return;
+            return Mono.empty();
         }
 
         // Update iteration bookkeeping BEFORE asking the renderer — it reads
         // ctx.getCurrentIteration() to decide whether a null-content THINKING is an
         // iteration-rollover marker.
         RenderedUpdate update = agentStreamRenderer.render(event, ctx);
-        applyUpdate(ctx, update);
+        Mono<Void> applyMono = applyUpdate(ctx, update);
 
         if (event.type() == AgentStreamEvent.EventType.THINKING
                 && event.iteration() != ctx.getCurrentIteration()) {
@@ -436,6 +448,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                 ctx.getTentativeAnswerBuffer().setLength(0);
             }
         }
+        return applyMono;
     }
 
     /**
@@ -573,27 +586,26 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         return s.replaceAll("\\s+", " ").trim();
     }
 
-    private void applyUpdate(MessageHandlerContext ctx, RenderedUpdate update) {
-        switch (update) {
-            case RenderedUpdate.ReplaceTrailingThinkingLine r ->
+    private Mono<Void> applyUpdate(MessageHandlerContext ctx, RenderedUpdate update) {
+        return switch (update) {
+            case RenderedUpdate.ReplaceTrailingThinkingLine r -> Mono.fromRunnable(() ->
                     replaceTrailingThinkingLineWithEscaped(ctx,
                             "<i>" + collapseToSingleLine(TelegramHtmlEscaper.escape(r.reasoning())) + "</i>",
-                            /*forceFlush=*/ false);
-            case RenderedUpdate.AppendFreshThinking ignored -> {
-                appendToStatusBuffer(ctx, "\n\n" + STATUS_THINKING_LINE, /*forceFlush=*/ false);
-            }
+                            /*forceFlush=*/ false));
+            case RenderedUpdate.AppendFreshThinking ignored -> Mono.fromRunnable(() ->
+                    appendToStatusBuffer(ctx, "\n\n" + STATUS_THINKING_LINE, /*forceFlush=*/ false));
             case RenderedUpdate.AppendToolCall tc ->
                     appendToolCallBlock(ctx, tc.toolName(), tc.args());
             case RenderedUpdate.AppendObservation obs ->
                     appendObservationMarker(ctx, obs.kind(), obs.errorSummary());
-            case RenderedUpdate.AppendErrorToStatus err ->
+            case RenderedUpdate.AppendErrorToStatus err -> Mono.fromRunnable(() ->
                     appendToStatusBuffer(ctx,
                             "\n\n❌ Error: " + TelegramHtmlEscaper.escape(err.message()),
-                            /*forceFlush=*/ true);
+                            /*forceFlush=*/ true));
             case RenderedUpdate.RollbackAndAppendToolCall rb ->
                     rollbackAndAppendToolCall(ctx, rb.toolName(), rb.args(), rb.foldedProse());
-            case RenderedUpdate.NoOp ignored -> { /* no-op */ }
-        }
+            case RenderedUpdate.NoOp ignored -> Mono.empty();
+        };
     }
 
     // --- Status message helpers ---
@@ -649,7 +661,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         editStatusThrottled(ctx, forceFlush);
     }
 
-    private void appendToolCallBlock(MessageHandlerContext ctx, String toolName, String args) {
+    private Mono<Void> appendToolCallBlock(MessageHandlerContext ctx, String toolName, String args) {
         String label = ToolLabels.label(toolName);
         String escapedArgs = args == null || args.isBlank()
                 ? ""
@@ -670,12 +682,12 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         buf.setLength(cut);
         buf.append(blockBody);
         rotateStatusIfNeeded(ctx);
-        pacedForceFlushStatus(ctx);
+        return pacedForceFlushStatus(ctx);
     }
 
-    private void appendObservationMarker(MessageHandlerContext ctx,
-                                         RenderedUpdate.ObservationKind kind,
-                                         String escapedErrorSummary) {
+    private Mono<Void> appendObservationMarker(MessageHandlerContext ctx,
+                                               RenderedUpdate.ObservationKind kind,
+                                               String escapedErrorSummary) {
         String body = switch (kind) {
             case RESULT -> "📋 Tool result received";
             case EMPTY -> "📋 No result";
@@ -683,30 +695,33 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         };
         ctx.getStatusBuffer().append("\n<blockquote>").append(body).append("</blockquote>");
         rotateStatusIfNeeded(ctx);
-        pacedForceFlushStatus(ctx);
+        return pacedForceFlushStatus(ctx);
     }
 
     /**
-     * Sleeps until at least one throttle window has elapsed since the last status edit, then
+     * Waits until at least one throttle window has elapsed since the last status edit, then
      * pushes the current buffer to Telegram. Used for transitions between iteration phases
      * (thinking → tool call → observation) to give the user time to visually register each
      * state — the throttle interval ({@code open-daimon.telegram.agent-stream-edit-min-interval-ms})
      * doubles as the minimum paced gap between phase-transition edits.
      *
+     * <p>Returns {@code Mono<Void>} — callers must subscribe (e.g. via {@code concatMap}) to
+     * activate the delay. The delay runs on Reactor's timer scheduler so no Reactor worker
+     * thread is blocked; this fixes the H9 thread-starvation issue with {@code Thread.sleep}.
+     *
      * <p>When {@code throttleMs == 0} (test fixtures typically set this to disable throttling),
-     * the sleep short-circuits and the helper degrades to a plain force flush.
+     * no delay is inserted and the helper degrades to a plain synchronous force flush wrapped in
+     * {@code Mono.fromRunnable}.
      */
-    private void pacedForceFlushStatus(MessageHandlerContext ctx) {
+    private Mono<Void> pacedForceFlushStatus(MessageHandlerContext ctx) {
         long throttleMs = telegramProperties.getAgentStreamEditMinIntervalMs();
         long sinceLast = System.currentTimeMillis() - ctx.getLastStatusEditAtMs();
-        if (throttleMs > 0 && sinceLast < throttleMs) {
-            try {
-                Thread.sleep(throttleMs - sinceLast);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+        long delayMs = throttleMs > 0 ? throttleMs - sinceLast : 0;
+        if (delayMs > 0) {
+            return Mono.delay(Duration.ofMillis(delayMs))
+                    .then(Mono.fromRunnable(() -> editStatusThrottled(ctx, /*forceFlush=*/ true)));
         }
-        editStatusThrottled(ctx, /*forceFlush=*/ true);
+        return Mono.fromRunnable(() -> editStatusThrottled(ctx, /*forceFlush=*/ true));
     }
 
     // --- Tentative answer helpers ---
@@ -789,8 +804,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
      * it to a graceful fallback so the user isn't left with stale content), fold the prose
      * into the status transcript as a reasoning line, and append a tool-call block.
      */
-    private void rollbackAndAppendToolCall(MessageHandlerContext ctx, String toolName,
-                                           String args, String foldedProse) {
+    private Mono<Void> rollbackAndAppendToolCall(MessageHandlerContext ctx, String toolName,
+                                                  String args, String foldedProse) {
         Long chatId = ctx.getCommand().telegramId();
         Integer id = ctx.getTentativeAnswerMessageId();
         if (id != null) {
@@ -806,7 +821,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         String foldedOverlay = "<i>" + collapseToSingleLine(foldedProse) + "</i>";
         replaceTrailingThinkingLineWithEscaped(ctx, foldedOverlay, /*forceFlush=*/ true);
         ctx.resetTentativeAnswer();
-        appendToolCallBlock(ctx, toolName, args);
+        return appendToolCallBlock(ctx, toolName, args);
     }
 
     // --- Stream-terminal helpers ---

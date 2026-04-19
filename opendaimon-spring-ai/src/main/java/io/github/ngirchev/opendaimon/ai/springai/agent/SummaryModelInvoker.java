@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
@@ -33,9 +34,11 @@ import java.util.Map;
 final class SummaryModelInvoker {
 
     private final ChatModel chatModel;
+    private final PriorityRequestExecutor priorityRequestExecutor;
 
-    SummaryModelInvoker(ChatModel chatModel) {
+    SummaryModelInvoker(ChatModel chatModel, PriorityRequestExecutor priorityRequestExecutor) {
         this.chatModel = chatModel;
+        this.priorityRequestExecutor = priorityRequestExecutor;
     }
 
     /**
@@ -61,7 +64,18 @@ final class SummaryModelInvoker {
                 .toolCallbacks(List.of())
                 .build();
 
-        ChatResponse response = chatModel.call(new Prompt(messages, options));
+        Long userId = resolveUserId(ctx.getMetadata());
+        ChatResponse response;
+        if (priorityRequestExecutor == null) {
+            response = chatModel.call(new Prompt(messages, options));
+        } else {
+            try {
+                response = priorityRequestExecutor.executeRequest(userId,
+                        () -> chatModel.call(new Prompt(messages, options)));
+            } catch (Exception e) {
+                throw new RuntimeException("Summary LLM call failed via PriorityRequestExecutor", e);
+            }
+        }
         String raw = response.getResult() != null && response.getResult().getOutput() != null
                 ? response.getResult().getOutput().getText()
                 : null;
@@ -104,6 +118,27 @@ final class SummaryModelInvoker {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Extracts the numeric user ID from agent metadata. Returns {@code null} when
+     * the field is absent or cannot be parsed — {@code NoOpPriorityRequestExecutor}
+     * accepts {@code null} and runs without bulkhead.
+     */
+    static Long resolveUserId(Map<String, String> metadata) {
+        if (metadata == null) {
+            return null;
+        }
+        String raw = metadata.get(AICommand.USER_ID_FIELD);
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            log.warn("SummaryModelInvoker: unparseable userId='{}', falling back to null", raw);
+            return null;
+        }
     }
 
     /**

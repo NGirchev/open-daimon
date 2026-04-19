@@ -1,5 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent.EventType;
@@ -18,10 +20,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SpringAgentLoopActionsStreamingTest {
@@ -170,6 +175,37 @@ class SpringAgentLoopActionsStreamingTest {
                 .reduce("", String::concat);
         assertThat(joined).isEqualTo("answer tail");
         assertThat(joined).doesNotContain("reasoning");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldRouteFallbackCallThroughPriorityRequestExecutor() throws Exception {
+        PriorityRequestExecutor mockExecutor = mock(PriorityRequestExecutor.class);
+        when(mockExecutor.executeRequest(anyLong(), any(Callable.class)))
+                .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+
+        ChatModel fallbackModel = mock(ChatModel.class);
+        ToolCallingManager tcm = mock(ToolCallingManager.class);
+        SpringAgentLoopActions actionsWithExecutor = new SpringAgentLoopActions(
+                fallbackModel, tcm, List.of(), null, Duration.ofMillis(1),
+                null, mockExecutor);
+
+        // stream throws immediately → fallback to call()
+        when(fallbackModel.stream(any(Prompt.class)))
+                .thenThrow(new RuntimeException("stream unavailable"));
+        when(fallbackModel.call(any(Prompt.class)))
+                .thenReturn(chunk("fallback answer"));
+
+        AgentContext ctxWithUser = new AgentContext(
+                "test task", "conv-1",
+                Map.of(AICommand.USER_ID_FIELD, "99"),
+                5, Set.of());
+        List<AgentStreamEvent> evts = new ArrayList<>();
+        ctxWithUser.setStreamSink(evts::add);
+
+        actionsWithExecutor.think(ctxWithUser);
+
+        verify(mockExecutor).executeRequest(anyLong(), any(Callable.class));
     }
 
     private List<AgentStreamEvent> partialAnswers() {
