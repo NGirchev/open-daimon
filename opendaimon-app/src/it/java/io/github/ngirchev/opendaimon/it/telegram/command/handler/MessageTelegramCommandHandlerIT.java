@@ -325,7 +325,7 @@ class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
                     telegramUserService, telegramUserSessionService, telegramMessageService,
                     aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
                     userModelPreferenceService, persistentKeyboardService, replyImageAttachmentService,
-                    messageSender, null, 10);
+                    messageSender, null, null, 10);
             ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
                     MessageHandlerFsmFactory.create(actions);
             return new MessageTelegramCommandHandler(

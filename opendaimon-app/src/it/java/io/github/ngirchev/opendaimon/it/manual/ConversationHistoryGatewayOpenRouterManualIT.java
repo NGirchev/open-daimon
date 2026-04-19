@@ -47,6 +47,10 @@ import static org.mockito.Mockito.reset;
 /**
  * Manual E2E integration test for conversation history in gateway (non-agent) mode.
  *
+ * <p><b>TODO:</b> Switch from {@code openrouter/auto} to an explicit chat model
+ * (e.g. {@code google/gemini-2.5-flash-preview}).
+ * {@code openrouter/auto} routes to unpredictable models, making test results non-reproducible.
+ *
  * <p>Agent mode is NOT enabled — requests go through {@code SpringAiGateway} with
  * {@code MessageChatMemoryAdvisor}. Verifies that text-only multi-turn conversations
  * retain context via {@code ChatMemory}.

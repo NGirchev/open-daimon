@@ -355,7 +355,7 @@ class RAGAutoConfigIT {
 
     private String[] chatOnlyModelList() {
         return new String[]{
-                "open-daimon.ai.spring-ai.models.list[0].name=qwen2.5:3b",
+                "open-daimon.ai.spring-ai.models.list[0].name=qwen3.5:4b",
                 "open-daimon.ai.spring-ai.models.list[0].capabilities=CHAT",
                 "open-daimon.ai.spring-ai.models.list[0].provider-type=OLLAMA",
                 "open-daimon.ai.spring-ai.models.list[0].priority=1",

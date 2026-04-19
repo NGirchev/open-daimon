@@ -93,13 +93,30 @@
       window.location.href = '/login';
       return;
     }
-    
+
+    await checkAdminAccess();
     await loadSessions();
     const fromHash = getHashSessionId();
     if (fromHash) {
       selectSession(fromHash, {updateHash: false});
     } else {
       setUIForNewChat();
+    }
+  }
+
+  async function checkAdminAccess() {
+    const link = document.getElementById('adminLink');
+    if (!link) return;
+    try {
+      const resp = await fetch('/api/v1/admin/me', {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      if (resp.ok) {
+        link.style.display = '';
+      }
+    } catch (e) {
+      // Silent — no admin link for non-admins / on error
     }
   }
 

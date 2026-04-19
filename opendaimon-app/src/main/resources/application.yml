@@ -108,6 +108,10 @@ open-daimon:
     get-updates-timeout-seconds: 50
     # Max message length for Telegram (chars). Default 4096 (Telegram Bot API limit). When exceeded, message is split at paragraph boundaries.
     max-message-length: 4096
+    # Minimum interval between editMessageText calls on the same chat during agent streaming (milliseconds).
+    # Prevents Telegram 429 "Too Many Requests" (retry-after up to several minutes) from bursts of edits.
+    # Chunks arriving inside the window update the buffer only; the next chunk after the window flushes in one edit.
+    agent-stream-edit-min-interval-ms: 1000
     commands:
       start-enabled: true
       role-enabled: true
@@ -118,6 +122,8 @@ open-daimon:
       threads-enabled: true
       language-enabled: true
       model-enabled: true
+    cache:
+      redis-enabled: false  # FEATURE FLAG - enable distributed Redis cache for session data
     message-coalescing:
       enabled: true
       wait-window-ms: 1200
@@ -193,9 +199,19 @@ open-daimon:
       mock: false
       timeouts:
         response-timeout-seconds: 600  # 10 minutes for HTTP requests to AI providers
-        stream-timeout-seconds: 600   # 10 minutes for streaming
+      # Final-answer URL sanitization — strips LLM-hallucinated dead links before they reach the user.
+      url-check:
+        enabled: true
+        timeout-ms: 3000
+        max-urls-per-answer: 10
+        cache-ttl-minutes: 10
+      # Trust-store policy for the dedicated webToolsWebClient (WebTools, HttpApiTool, UrlLivenessChecker).
+      # merge-system-keychain: on macOS dev machines merge Keychain-trusted CAs into the JVM trust store.
+      # Disable explicitly to isolate the service from local MITM/self-signed certs. No effect on Linux.
+      ssl:
+        merge-system-keychain: true
       # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
-      # Ollama models (run locally: ollama pull qwen2.5:7b).
+      # Ollama models (run locally: ollama pull qwen3.5:4b).
       models:
         list:
           - name: "openrouter/auto"
@@ -217,6 +233,7 @@ open-daimon:
               - TOOL_CALLING
               - WEB
               - VISION
+              - THINKING
             provider-type: OPENAI
             priority: 1
             allowed-roles:
@@ -235,15 +252,18 @@ open-daimon:
             allowed-roles:
               - ADMIN
               - REGULAR
-          - name: "qwen2.5:3b"
+          - name: "qwen3.5:4b"
             capabilities:
               - AUTO
               - CHAT
               - TOOL_CALLING
               - SUMMARIZATION
               - WEB
+              - THINKING
             provider-type: OLLAMA
             priority: 2
+            think: true
+            max-reasoning-tokens: 4000
           - name: "gemma3:4b"
             capabilities:
               - VISION
@@ -275,9 +295,21 @@ open-daimon:
           document-extract-error-document: "Could not extract text from file \"%s\" (type: %s). The file may be a scan or image. Please upload a document with a text layer or paste the text in your message."
           # RAG augmented prompt template. First %s = context text, second %s = user question.
           augmented-prompt-template: |
-            Based on the following context from the document, answer the user's question.
-            If the context doesn't contain relevant information to answer the question,
-            say that you couldn't find the answer in the provided documents.
+            The user attached one or more documents. The system already extracted
+            the most relevant passages from those documents and placed them below
+            in the "Context" section. Treat this context as authoritative source
+            material that the user explicitly wants you to use.
+
+            Instructions:
+            1. ALWAYS read the Context section first and look for the answer there.
+            2. Prefer answering from the Context. Do NOT call web_search or fetch_url
+               when the Context already contains the information the user asked about.
+            3. Only use web tools if the Context clearly does not cover the question
+               (e.g. user asks to compare document facts with fresh online data).
+            4. If the Context does not contain the answer and the question is not
+               about the web, say that you couldn't find the answer in the provided
+               documents.
+            5. When quoting the Context, keep it concise and cite the relevant snippet.
 
             Context:
             %s
@@ -290,12 +322,10 @@ open-daimon:
   agent:
     enabled: true
     max-iterations: 10
-    memory-similarity-threshold: 0.7
+    stream-timeout-seconds: 600   # 10 minutes for streaming
     tools:
       http-api:
         enabled: true
-    # memory:
-    #   enabled: true  # Requires VectorStore (RAG must be enabled)
 
 management:
   endpoints:
@@ -316,6 +346,13 @@ spring:
   flyway:
     enabled: false
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+
   ai:
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
@@ -333,6 +370,7 @@ logging:
   level:
     root: INFO
     io.github.ngirchev.opendaimon: INFO
+    io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions: DEBUG
     org.springframework.ai.chat.model.MessageAggregator: OFF
     reactor.core.publisher: WARN
     org.springframework.web.reactive.function.client: WARN

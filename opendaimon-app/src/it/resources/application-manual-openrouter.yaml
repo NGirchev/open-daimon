@@ -21,6 +21,14 @@ spring:
 
 open-daimon:
   common:
+    # Raise summarization threshold so 3-turn conversation tests do not trigger
+    # SummarizationService — which otherwise calls OpenRouter with a default
+    # max_price=0 and receives HTTP 404 "No endpoints found that satisfy the
+    # max price for this request", causing the turn to error and leaving the
+    # conversation with fewer assistant messages than asserted.
+    summarization:
+      message-window-size: 100
+      max-window-tokens: 200000
     bulkhead:
       enabled: true
       instances:
@@ -79,7 +87,10 @@ open-daimon:
           document-extract-error-pdf: "Could not extract text from file \"%s\"."
           document-extract-error-document: "Could not extract text from file \"%s\" (type: %s)."
           augmented-prompt-template: |
-            Based on the following context from the document, answer the user's question.
+            The user attached a document. Relevant passages are in the Context below.
+            Prefer answering from the Context. Do not call web_search or fetch_url
+            when the Context already contains the information the user asked about.
+
             Context:
             %s
 

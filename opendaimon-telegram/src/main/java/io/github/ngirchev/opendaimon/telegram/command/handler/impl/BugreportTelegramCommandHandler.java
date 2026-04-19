@@ -5,6 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
@@ -25,6 +26,8 @@ import java.util.List;
 
 @Slf4j
 public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHandler {
+
+    private static final String CALLBACK_CANCEL = "BUG_CANCEL";
 
     private final TelegramUserService telegramUserService;
     private final BugreportService bugReportService;
@@ -66,12 +69,22 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
         var message = cq.getMessage();
         Long chatId = message.getChatId();
         var telegramBot = telegramBotProvider.getObject();
+        if (CALLBACK_CANCEL.equals(data)) {
+            ackCallback(cq.getId());
+            deleteMenuMessage(chatId, cq);
+            return;
+        }
         var userSession = telegramUserService.getOrCreateSession(cq.getFrom());
-        telegramBot.showTyping(chatId);
         ackCallback(cq.getId());
         switch (data) {
-            case "ERROR" -> telegramBot.execute(new SendMessage(chatId.toString(), "Enter error description"));
-            case "IMPROVEMENT" -> telegramBot.execute(new SendMessage(chatId.toString(), "Enter your suggestion"));
+            case "ERROR" -> {
+                telegramBot.execute(new SendMessage(chatId.toString(), "Enter error description"));
+                deleteMenuMessage(chatId, cq);
+            }
+            case "IMPROVEMENT" -> {
+                telegramBot.execute(new SendMessage(chatId.toString(), "Enter your suggestion"));
+                deleteMenuMessage(chatId, cq);
+            }
             default -> telegramBot.execute(new SendMessage(chatId.toString(), "Unknown command: " + data));
         }
         telegramUserService.updateUserSession(userSession.getTelegramUser(), TelegramCommand.BUGREPORT + "/" + data);
@@ -84,7 +97,7 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
             handleBugreportStatusReply(command, userSession, message);
         } else {
             telegramUserService.updateUserSession(userSession.getTelegramUser(), TelegramCommand.BUGREPORT);
-            sendMenu(command.telegramId());
+            sendMenu(command.telegramId(), command.languageCode());
         }
     }
 
@@ -107,19 +120,21 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
         }
     }
 
-    public void sendMenu(Long chatId) throws TelegramApiException {
-        InlineKeyboardButton b1 = new InlineKeyboardButton("Report a bug");
-        b1.setCallbackData("ERROR");
-
-        InlineKeyboardButton b2 = new InlineKeyboardButton("Suggest improvement");
-        b2.setCallbackData("IMPROVEMENT");
+    public void sendMenu(Long chatId, String lang) throws TelegramApiException {
+        InlineKeyboardButton b1 = button(
+                messageLocalizationService.getMessage("telegram.bugreport.button.error", lang), "ERROR");
+        InlineKeyboardButton b2 = button(
+                messageLocalizationService.getMessage("telegram.bugreport.button.improvement", lang), "IMPROVEMENT");
+        String closeLabel = messageLocalizationService.getMessage("telegram.bugreport.close", lang);
 
         InlineKeyboardMarkup kb = new InlineKeyboardMarkup();
         kb.setKeyboard(List.of(
-                List.of(b1, b2) // one row, two buttons
+                List.of(b1, b2),
+                List.of(button(closeLabel, CALLBACK_CANCEL))
         ));
 
-        SendMessage msg = new SendMessage(chatId.toString(), "Choose an action:");
+        SendMessage msg = new SendMessage(chatId.toString(),
+                messageLocalizationService.getMessage("telegram.bugreport.menu", lang));
         msg.setReplyMarkup(kb);
         telegramBotProvider.getObject().execute(msg);
     }
@@ -130,5 +145,22 @@ public class BugreportTelegramCommandHandler extends AbstractTelegramCommandHand
         ack.setText("OK! Processing...");
         ack.setShowAlert(false);
         telegramBotProvider.getObject().execute(ack);
+    }
+
+    private InlineKeyboardButton button(String label, String callbackData) {
+        InlineKeyboardButton button = new InlineKeyboardButton(label);
+        button.setCallbackData(callbackData);
+        return button;
+    }
+
+    private void deleteMenuMessage(Long chatId, CallbackQuery callbackQuery) {
+        if (callbackQuery.getMessage() instanceof Message menuMessage) {
+            try {
+                telegramBotProvider.getObject().execute(
+                        new DeleteMessage(chatId.toString(), menuMessage.getMessageId()));
+            } catch (Exception e) {
+                log.warn("Failed to delete bugreport menu message: {}", e.getMessage());
+            }
+        }
     }
 }

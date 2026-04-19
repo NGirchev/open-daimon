@@ -120,6 +120,13 @@
             <version>${jsoup.version}</version>
         </dependency>
 
+        <!-- Caffeine: in-memory cache for UrlLivenessChecker (version managed in root pom) -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>${caffeine.version}</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

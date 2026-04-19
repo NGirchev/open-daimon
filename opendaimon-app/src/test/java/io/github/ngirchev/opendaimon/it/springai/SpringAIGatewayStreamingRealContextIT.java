@@ -79,7 +79,7 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         "open-daimon.ai.spring-ai.enabled=true",
         "open-daimon.ai.spring-ai.mock=false",
         "open-daimon.ai.spring-ai.timeouts.response-timeout-seconds=600",
-        "open-daimon.ai.spring-ai.timeouts.stream-timeout-seconds=600",
+        "open-daimon.agent.stream-timeout-seconds=600",
         "open-daimon.ai.spring-ai.openrouter-auto-rotation.models.enabled=false",
         "open-daimon.ai.spring-ai.serper.api.key=test-key",
         "open-daimon.ai.spring-ai.serper.api.url=https://example.com",

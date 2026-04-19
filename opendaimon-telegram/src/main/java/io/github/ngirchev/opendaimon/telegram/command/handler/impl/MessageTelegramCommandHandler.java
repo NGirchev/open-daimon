@@ -31,7 +31,6 @@ import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Telegram message handler that delegates processing to an FSM pipeline.
@@ -81,12 +80,10 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         Message message = command.update().getMessage();
 
         // Create streaming callback that sends paragraphs to Telegram
-        AtomicReference<Integer> replyToMessageId = new AtomicReference<>(message != null ? message.getMessageId() : null);
+        MessageHandlerContext[] ctxRef = new MessageHandlerContext[1];
         MessageHandlerContext ctx = new MessageHandlerContext(command, message,
-                htmlText -> {
-                    sendMessage(command.telegramId(), htmlText, replyToMessageId.get());
-                    replyToMessageId.set(null);
-                });
+                htmlText -> sendMessage(command.telegramId(), htmlText, ctxRef[0].consumeNextReplyToMessageId()));
+        ctxRef[0] = ctx;
 
         try {
             handlerFsm.handle(ctx, MessageHandlerEvent.HANDLE);
@@ -104,6 +101,8 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             dispatchError(ctx, command, message);
         }
 
+        // Returns null intentionally — this handler sends responses via FSM actions
+        // and streaming callbacks, not via the parent's handleInner() return value mechanism.
         return null;
     }
 
@@ -116,11 +115,14 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
                     command.telegramId(), ctx.getTelegramUser().getId(),
                     ctx.getThread(), ctx.getResponseModel());
         } else {
-            // Non-streaming: send text + keyboard (uses parent's sendMessage for proper exception wrapping)
+            // Non-streaming: send text + keyboard, then status message with model name
             String htmlText = AIUtils.convertMarkdownToHtml(ctx.getResponseText().orElseThrow());
             ReplyKeyboardMarkup keyboard = persistentKeyboardService.buildKeyboardMarkup(
                     ctx.getTelegramUser().getId(), ctx.getThread());
             sendMessage(command.telegramId(), htmlText, message.getMessageId(), keyboard);
+            persistentKeyboardService.sendKeyboard(
+                    command.telegramId(), ctx.getTelegramUser().getId(),
+                    ctx.getThread(), ctx.getResponseModel());
         }
     }
 

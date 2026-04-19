@@ -36,6 +36,17 @@
   - Make `extractText` and `runVisionOcr` idempotent (check VectorStore for existing chunks before writing)
   - Persist FSM intermediate states to DB for crash recovery and retry
   - Eliminate response loss window between AI call completion and DB save
+- [x] Cancel button for model selection + grouping
+- [ ] Show thinking + smooth text display in telegram
+  - [x] Agent observability: intermediate events (thinking, tool_call, observation) shown in Telegram
+  - [x] Agent final answer: stream by paragraphs (like gateway path) instead of single message
+  - [x] Ollama thinking: parse `<think>...</think>` tags from getText() and show as reasoning content
+  - [ ] OpenRouter reasoning: verify `reasoningContent` in Generation metadata for models with extended thinking
+- [ ] Show thinking in web
+- [ ] Provider Registry — replace ProviderType enum with String + Strategy pattern ([plan](docs/provider-registry-plan.md))
+- [ ] Different models in the flow
+- [ ] Add balance loader
+- [ ] WebTools need to parse result
 
 ## Agent Framework Pivot
 
@@ -55,24 +66,29 @@
   - Error recovery: failed step skips dependents, independent steps continue
   - DB tables: `agent_execution`, `agent_execution_step` (Flyway V10)
 
-- [x] **Pluggable Memory** — semantic long-term memory
-  - `AgentMemory` SPI: `store(fact)`, `recall(query, topK)`, `forget(factId)`
-  - `SemanticAgentMemory` — VectorStore-backed similarity search
-  - `CompositeAgentMemory` — combines multiple memory sources
-  - Memory integrated into `think()` — recalls relevant facts before each LLM call
+- [x] **Long-term Memory** — via shared `ChatMemory` (superseded earlier `AgentMemory` SPI)
+  - `SummarizingChatMemory` (from `SpringAIAutoConfig`) is the single memory bean
+  - Rolling JSON summary + `memory_bullets` are persisted on `ConversationThread`
+    and replayed as a `SystemMessage` on the next `ChatMemory.get(conversationId)`
+  - `SpringAgentLoopActions.think()` merges that `SystemMessage` into the agent
+    system prompt; `answer()` persists the new user/assistant turn via
+    `ChatMemory.add(...)` — no separate agent-memory stack
 
-- [x] **Telegram Integration** — `/agent` command
-  - `AgentTelegramCommandHandler` intercepts `/agent <task>`, delegates to `AgentExecutor`
-  - Registered via `TelegramCommandHandlerConfig` with `@ConditionalOnProperty`
+- [x] **Telegram Integration** — agent mode via application property
+  - `TelegramMessageHandlerActions` delegates to `AgentExecutor` when `open-daimon.agent.enabled=true`
+  - Agent mode is transparent — no `/agent` command, all messages go through agent pipeline
 
 - [ ] **opendaimon-spring-boot-starter** — auto-configuration starter for easy integration
   - New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
   - Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
 
-- [x] **FactExtractionMemory** — LLM auto-extracts key facts after agent conversations
-  - `FactExtractor` calls LLM to extract facts, stores via `AgentMemory.store()`
-  - Integrated into `SpringAgentLoopActions.answer()` (only for non-trivial conversations with tool use)
-  - Best-effort — failures don't affect agent response
+- [x] **Fact extraction (removed — superseded)**
+  - Previously a synchronous `FactExtractor.extractAndStore(ctx)` in
+    `SpringAgentLoopActions.answer()` ran an extra LLM call plus per-fact
+    embeddings before the final Telegram edit (~30 s delay).
+  - Replaced by the existing rolling summarization in `SummarizationService` /
+    `SummarizingChatMemory` — one LLM call returns `{summary, memory_bullets}`
+    and is replayed as a `SystemMessage` on the next turn, no critical-path cost.
 
 - [x] **AgentStrategy SPI** — configurable execution strategies
   - `AgentStrategy` enum: AUTO, REACT, SIMPLE, PLAN_AND_EXECUTE
@@ -81,8 +97,21 @@
   - `PlanAndExecuteAgentExecutor` — LLM generates plan, then executes each step with ReAct
   - AUTO: selects REACT if tools available, SIMPLE otherwise
 
+- [ ] **PLAN_AND_EXECUTE flow — finish end-to-end wiring**
+  - `PlanAndExecuteAgentExecutor` is implemented and wired as a bean, but no callsite
+    in production code requests `AgentStrategy.PLAN_AND_EXECUTE`. `TelegramMessageHandlerActions`
+    only sets `AUTO` or `SIMPLE`, and `StrategyDelegatingAgentExecutor#resolveStrategy`
+    never picks PLAN_AND_EXECUTE under `AUTO`.
+  - Needed: an entry point — either an explicit UI trigger (Telegram command / callback button),
+    request metadata flag, or a smarter `AUTO` heuristic that escalates complex multi-step
+    tasks to PLAN_AND_EXECUTE.
+  - Needed: E2E test case — `agent-test-cases.md` row 17 (`PlanAndExecute strategy E2E`) is still TODO.
+  - Verify `maxIterations` semantics for the compound strategy (per-step vs. total) and token-cost impact.
+
 - [ ] **REST Integration** — agent endpoint for REST/UI
 
+## Bugs
+- [ ] Bug - custom role for group chat is not working
 - [ ] Bug 2026-04-11 10:56:21.190 [opendaimon_bot Telegram Connection] ERROR o.t.t.u.DefaultBotSession - api.telegram.org
   2026-04-11T10:56:21.190938830Z java.net.UnknownHostException: api.telegram.org
   2026-04-11T10:56:21.190941994Z 	at java.base/java.net.InetAddress$CachedLookup.get(Unknown Source)...
@@ -149,6 +178,7 @@
   2026-04-11T07:20:05.389844438Z 	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.executeAndExtract(DefaultRestClient.java:814)
   2026-04-11T07:20:05.389846893Z 	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.body(DefaultRestClient.java:750)
   2026-04-11T07:20:05.389849206Z 	at org.springframework.ai.ollama.api.OllamaApi.chat(OllamaApi.java:115) - Also message was sent to personal chat instead of group
+- [x] Bug: WebTools.fetchUrl 403 Forbidden on Medium/Cloudflare sites — add browser-like fetch headers plus Cloudflare-challenge retry and per-run agent guard
 - [ ] Bug: WebTools.fetchUrl DataBufferLimitException → model responds in English (2026-04-11)
   - `WebClient` default buffer limit is 256KB (262144 bytes); large pages (e.g. GitHub issues) exceed it
   - `fetchUrl` catches the exception and returns empty string `""`
@@ -158,7 +188,35 @@
   - Fix 1: Set `maxInMemorySize` in `SpringAIAutoConfig.webClient()` (e.g. 2MB)
   - Fix 2: Investigate why language instruction (`"Prefer responding in Russian"`) is lost after tool call failure — check if system message is preserved in the retry/fallback path
   - Log: `WebTools.fetchUrl failed for url=[https://github.com/anthropics/claude-code/issues/42796]: DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144`
-- [ ] Cancel button for model selection + grouping
-- [ ] Bug - custom role for group chat is not working
-- [ ] Show thinking + smooth text display in telegram
-- [ ] Show thinking in web
+
+## Tech Debt
+
+- [ ] **Agent LLM calls bypass `PriorityRequestExecutor`** (raised during PR #22 review, severity HIGH)
+  - **Rule being violated.** `AGENTS.md` § Prioritization: *"Use `PriorityRequestExecutor` for all AI requests — never call AI services directly"*. The executor partitions an internal thread pool into ADMIN / VIP / REGULAR bulkheads (`Bulkhead` pattern, `BulkHeadProperties`); bypassing it means the ADMIN (10), VIP (5), REGULAR (1) concurrency contract is not enforced for those calls.
+  - **Where the rule is broken** (all in `opendaimon-spring-ai`):
+    - `agent/SpringAgentLoopActions.java:287` — happy path `chatModel.stream(prompt)` in `streamAndAggregate(...)`
+    - `agent/SpringAgentLoopActions.java:331` — fallback `chatModel.call(prompt)` when the stream times out (the site flagged in PR #22 review)
+    - `agent/SummaryModelInvoker.java:64` — `chatModel.call(new Prompt(messages, options))` for the MAX_ITERATIONS closing summary
+    - `agent/SimpleChainExecutor.java:67, 102` — `chatModel.call(prompt)` and `chatModel.call(new Prompt(messages, options))` on the SIMPLE (no-tool) fast path
+    - `agent/PlanAndExecuteAgentExecutor.java:134` — `chatModel.call(prompt)` when generating the plan
+  - **Why it was not fixed in PR #22.** The fix is more than a one-liner:
+    - `SpringAgentLoopActions` / `SummaryModelInvoker` / `SimpleChainExecutor` / `PlanAndExecuteAgentExecutor` do **not** receive `PriorityRequestExecutor` today (no field, no constructor arg).
+    - `PriorityRequestExecutor.executeRequest(Long userId, Callable<T>)` requires a `userId` to resolve `UserPriority` via `IUserPriorityService` — `AgentContext` today carries only `conversationId` and a generic `Map<String,String> metadata`; there is no `userId` field.
+    - Fixing only the timeout fallback in `SpringAgentLoopActions.java:331` (the PR-review call-out) would be asymmetric: happy-path `chatModel.stream(...)` on line 287 would still bypass the executor, so priority enforcement would remain effectively disabled for the agent. Any honest fix must cover all five call-sites.
+  - **Current defence.** Priority is enforced at the **entry layer** (REST controller / Telegram handler) that submits the agent run, not at each `ChatModel` call — see `SpringAIAutoConfig.java:240` comment *"agent running at most 10/5/1 concurrent calls via PriorityRequestExecutor"*. This keeps us correct for the normal case of "one user → one agent run", but it is a weaker guarantee than per-LLM-call bulkheading, and it breaks in two scenarios:
+    1. A single agent run fans out multiple LLM calls (ReAct with N tool iterations + final summary): only the outer slot is booked, the inner N calls race freely.
+    2. Any future code path that invokes `SpringAgentLoopActions` / `SummaryModelInvoker` etc. outside the priority-gated entry point will silently bypass the bulkhead.
+  - **Proposed fix (new PR).**
+    1. Add `Long userId` to `AgentContext` (set by the entry-layer; optional `null` for system/background runs which then fall back to a default `REGULAR` priority).
+    2. Inject `PriorityRequestExecutor` bean into `SpringAgentLoopActions`, `SummaryModelInvoker`, `SimpleChainExecutor`, `PlanAndExecuteAgentExecutor` via `AgentAutoConfig` / `SpringAIAutoConfig`.
+    3. Wrap every `chatModel.stream(prompt)` and `chatModel.call(prompt)` in those classes with `priorityRequestExecutor.executeRequest(userId, () -> chatModel....)`. For streaming, use `executeRequestAsync` + `CompletionStage<Flux<ChatResponse>>` or convert to a blocking collect inside the priority-guarded `Callable`.
+    4. Handle `AccessDeniedException` (blocked user) and pool-exhaustion uniformly — emit `AgentStreamEvent.error(...)` and set `ctx.setErrorMessage(...)`.
+    5. Update `AGENTS.md` § Prioritization example to show the agent wiring.
+  - **Test plan.**
+    - Unit: mock `PriorityRequestExecutor.executeRequest` and verify all five call-sites route through it; verify each one passes the right `userId`.
+    - Unit: ADMIN pool saturation test — 11th concurrent ADMIN agent iteration waits on bulkhead instead of running.
+    - Unit: BLOCKED user → agent iteration surfaces `AccessDeniedException` as an `AgentStreamEvent.error` and sets `ctx.errorMessage`.
+    - IT: existing `SpringAIAgentOllamaStreamIT` / `ReActAgentExecutorTest` must still pass unchanged (no behavioural regression for the happy path).
+  - **Acceptance criteria.**
+    - `grep -rn "chatModel\.\(call\|stream\)" opendaimon-spring-ai/src/main` returns zero hits outside `PriorityRequestExecutor.executeRequest(...)` wrapping, or each remaining hit has a `// priority enforced at entry layer — see TODO.md` comment with a documented reason.
+    - `AGENTS.md` rule *"never call AI services directly"* holds literally for `opendaimon-spring-ai/agent/**`.

@@ -1,12 +1,17 @@
+---
+paths:
+  - "opendaimon-app/src/it/**/*IT.java"
+  - "opendaimon-app/src/it/**/TestDatabaseConfiguration.java"
+  - "**/AbstractContainerIT.java"
+---
 # Testcontainers Rules
 
-> MANDATORY: Read `docs/testcontainers-plan.md` before making ANY changes to integration tests, manual tests, or `TestDatabaseConfiguration`/`AbstractContainerIT`.
+@docs/testcontainers-plan.md
 
 ## Before changing IT/manual tests
 
-1. Read `docs/testcontainers-plan.md` — contains requirements, lessons learned, and anti-patterns
-2. Check current state of `AbstractContainerIT` or `TestDatabaseConfiguration`
-3. Verify `mvn clean verify` is green BEFORE and AFTER changes
+1. Check current state of `AbstractContainerIT` or `TestDatabaseConfiguration`
+2. Verify `mvn clean verify` is green BEFORE and AFTER changes
 
 ## After changing IT/manual tests
 
