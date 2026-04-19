@@ -20,5 +20,4 @@ Classes implementing `StateContext` (e.g. `AIRequestContext`, `AgentContext`, `M
 
 ## References
 
-See skill: `java-coding-standards` for full coding standards with examples.
-See skill: `jpa-patterns` for JPA/Hibernate entity design patterns.
+See `.claude/rules/java/testing.md` and `AGENTS.md` § Project Style Guide for the full Java/Spring conventions for this project.

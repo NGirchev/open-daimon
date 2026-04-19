@@ -20,6 +20,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
 import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -71,7 +72,7 @@ import static org.mockito.Mockito.reset;
  *   -Dit.test=ImagesWithTextPdfVisionRagOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
  *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen3.5:4b \
+ *   -Dmanual.ollama.chat-model=qwen2.5:3b \
  *   -Dmanual.ollama.vision-model=gemma3:4b
  * </pre>
  */
@@ -87,7 +88,7 @@ class ImagesWithTextPdfVisionRagOllamaManualIT extends AbstractContainerIT {
     private static final String PDF_RESOURCE = "attachments/images_with_text.pdf";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen3.5:4b";
+    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
     private static final String VISION_MODEL_PROPERTY = "manual.ollama.vision-model";
     private static final String DEFAULT_VISION_MODEL = "gemma3:4b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
@@ -240,6 +241,7 @@ class ImagesWithTextPdfVisionRagOllamaManualIT extends AbstractContainerIT {
         assertThat(firstAssistantReply)
                 .as("First answer should not be blank")
                 .isNotBlank();
+
         assertThat(firstAssistantReply.toLowerCase())
                 .as("First answer should mention at least one author from the paper")
                 .containsAnyOf("pekka", "nikander", "jane", "long", "aalto", "usenix association");

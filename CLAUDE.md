@@ -1,12 +1,19 @@
 # Claude Code Rules for open-daimon
 
 @AGENTS.md
+@.claude/rules/webfetch-workarounds.md
 
 ## Critical Rules
 
-- NEVER run `git commit`, `git push`, `git stash pop`, `git reset`, `git rebase`, `git merge`, or `git cherry-pick` without explicit user request. Always ask first.
+- Ask before running destructive git commands (commit, push, reset, rebase, merge, cherry-pick, stash pop). Always confirm first.
 - Stay strictly within the scope of files and components the user specifies. Do not modify unrelated files, move test files, or refactor code outside the requested change.
 - Do not introduce new dependencies or update `pom.xml` without asking.
+- If a hypothesis cannot be verified from logs, code, or module docs, say "insufficient data" and ask — do not guess confidently.
+
+## Subagent delegation
+
+- For non-trivial Java changes in `opendaimon-*` modules (>1 file, requires a test, or touches JPA/Spring config), delegate to the `senior-enterprise-java` subagent.
+- Do not spawn a subagent for a one-line fix you can make directly.
 
 ## Debugging
 

@@ -13,6 +13,7 @@ import org.springframework.lang.NonNull;
 import io.github.ngirchev.opendaimon.common.event.SummarizationStartedEvent;
 import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
+import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Custom ChatMemory implementation that integrates SummarizationService.
@@ -43,6 +45,22 @@ public class SummarizingChatMemory implements ChatMemory {
     private final ApplicationEventPublisher eventPublisher;
     private final Integer maxMessages; // Max messages from MessageWindowChatMemory
     private final Integer maxWindowTokens; // Max tokens trigger for summarization
+
+    /**
+     * Per-conversation monitors used to serialize ChatMemory rebuild critical sections
+     * (primary-store recovery + post-summarization clear/add sequence). Replaces an
+     * earlier {@code String.intern(conversationId)} shortcut that polluted the JVM's
+     * shared string pool with every UUID/chat-id ever seen — a real memory leak on
+     * long-running instances. {@link ConcurrentHashMap#computeIfAbsent} gives us a
+     * cheap lazily-created, lock-striped monitor keyed by conversationId without
+     * touching the intern table.
+     *
+     * <p>Entries are never removed: the expected cardinality is bounded by the
+     * lifetime distinct conversation count per JVM, and each Object monitor is
+     * ~16 bytes — negligible compared to the per-conversation message cache held
+     * by the delegate.
+     */
+    private final ConcurrentHashMap<String, Object> conversationLocks = new ConcurrentHashMap<>();
 
     public SummarizingChatMemory(
             ChatMemoryRepository chatMemoryRepository,
@@ -70,6 +88,27 @@ public class SummarizingChatMemory implements ChatMemory {
     public List<Message> get(@NonNull String conversationId) {
         // Get messages from delegate (MessageWindowChatMemory)
         List<Message> messages = delegate.get(conversationId);
+
+        // Primary-store recovery: if the delegate cache is empty but the primary
+        // store (ConversationThread + OpenDaimonMessage) has history — rebuild the
+        // window from it. This covers app restarts and cache evictions: without
+        // this fallback the agent would lose all context on every restart.
+        if (messages.isEmpty()) {
+            List<Message> restored = restoreHistoryFromPrimaryStore(conversationId);
+            if (!restored.isEmpty()) {
+                synchronized (lockFor(conversationId)) {
+                    // Re-check under lock in case a concurrent writer populated it.
+                    if (delegate.get(conversationId).isEmpty()) {
+                        for (Message m : restored) {
+                            delegate.add(conversationId, m);
+                        }
+                    }
+                }
+                messages = delegate.get(conversationId);
+                log.info("Restored ChatMemory from primary store for conversationId {}: {} messages",
+                        conversationId, messages.size());
+            }
+        }
 
         int messageCount = messages.size();
 
@@ -110,6 +149,74 @@ public class SummarizingChatMemory implements ChatMemory {
     public void add(@NonNull String conversationId, @NonNull List<Message> messages) {
         // Save messages via delegate
         delegate.add(conversationId, messages);
+    }
+
+    /**
+     * Rebuilds a ChatMemory window from the primary store (ConversationThread +
+     * OpenDaimonMessage) when the cache is empty. Returns the messages to seed
+     * into the delegate — caller owns actually adding them under the shared
+     * per-conversation lock.
+     *
+     * <p>Layout of the restored window (oldest → newest):
+     * <ol>
+     *   <li>{@code SystemMessage(summary + memoryBullets)} if the thread has a summary</li>
+     *   <li>Up to {@code maxMessages - 1} most recent messages from {@code messages_at_last_summarization + 1}</li>
+     * </ol>
+     *
+     * <p>When the primary store has no thread (first-ever interaction) returns an
+     * empty list — the caller keeps the delegate empty and the agent treats the
+     * conversation as fresh.
+     */
+    private List<Message> restoreHistoryFromPrimaryStore(@NonNull String conversationId) {
+        try {
+            Optional<ConversationThread> threadOpt =
+                    conversationThreadRepository.findByThreadKey(conversationId);
+            if (threadOpt.isEmpty()) {
+                return List.of();
+            }
+            ConversationThread thread = threadOpt.get();
+
+            List<Message> restored = new ArrayList<>();
+            if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
+                restored.add(new SystemMessage(buildSummaryContent(thread)));
+            }
+
+            Integer messagesAtLastSummarization = thread.getMessagesAtLastSummarization();
+            int minSequenceNumber = messagesAtLastSummarization != null ? messagesAtLastSummarization : 0;
+
+            List<OpenDaimonMessage> postSummaryMessages = messageRepository
+                    .findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(thread, minSequenceNumber);
+
+            // Drop the trailing in-flight USER row: TelegramMessageHandlerActions.saveMessage
+            // persists the turn's user prompt before the agent runs, so on restore we see it
+            // here. The caller (SpringAgentLoopActions.think) will append a fresh UserMessage
+            // built from ctx.getTask() on iteration 0 — keeping the DB row would make the
+            // model see the same request twice. The single-writer-per-thread invariant on
+            // saveMessage guarantees at most one trailing USER row.
+            int lastIdx = postSummaryMessages.size() - 1;
+            if (lastIdx >= 0 && postSummaryMessages.get(lastIdx).getRole() == MessageRole.USER) {
+                OpenDaimonMessage dropped = postSummaryMessages.get(lastIdx);
+                postSummaryMessages = postSummaryMessages.subList(0, lastIdx);
+                log.debug("restoreHistoryFromPrimaryStore: dropped trailing in-flight user message "
+                                + "for conversationId {} (role=USER, contentLength={})",
+                        conversationId,
+                        dropped.getContent() != null ? dropped.getContent().length() : 0);
+            }
+
+            // No reserved slot for the incoming user message: the dropped trailing USER row
+            // and the old `-1` reserve cancel each other; keeping both would truncate older
+            // context by one message unnecessarily.
+            int windowCapacity = Math.max(0, maxMessages - restored.size());
+            int startIdx = Math.max(0, postSummaryMessages.size() - windowCapacity);
+            for (int i = startIdx; i < postSummaryMessages.size(); i++) {
+                restored.add(convertToSpringMessage(postSummaryMessages.get(i)));
+            }
+            return restored;
+        } catch (Exception e) {
+            log.warn("Failed to restore ChatMemory from primary store for conversationId {}: {}",
+                    conversationId, e.getMessage());
+            return List.of();
+        }
     }
 
     /**
@@ -167,18 +274,23 @@ public class SummarizingChatMemory implements ChatMemory {
             thread = conversationThreadRepository.findByThreadKey(conversationId)
                 .orElseThrow(() -> new RuntimeException("Thread not found after summarization"));
 
-            // Rebuild ChatMemory: summary + recent messages
-            delegate.clear(conversationId);
+            // Rebuild ChatMemory atomically so that any concurrent get() on the same
+            // conversationId never observes a half-cleared state. {@link #lockFor}
+            // yields a per-conversation monitor via {@link #conversationLocks} —
+            // cheap, no string-pool leak, and the critical section does no I/O
+            // (summarization LLM call already ran above).
+            synchronized (lockFor(conversationId)) {
+                delegate.clear(conversationId);
 
-            if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
-                String summaryContent = buildSummaryContent(thread);
-                delegate.add(conversationId, new SystemMessage(summaryContent));
-            }
+                if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
+                    String summaryContent = buildSummaryContent(thread);
+                    delegate.add(conversationId, new SystemMessage(summaryContent));
+                }
 
-            // Re-add recent messages to ChatMemory
-            for (OpenDaimonMessage msg : toKeep) {
-                Message springMessage = convertToSpringMessage(msg);
-                delegate.add(conversationId, springMessage);
+                for (OpenDaimonMessage msg : toKeep) {
+                    Message springMessage = convertToSpringMessage(msg);
+                    delegate.add(conversationId, springMessage);
+                }
             }
 
             log.info("Successfully summarized and rebuilt ChatMemory for conversationId {}: summary + {} recent messages",
@@ -233,6 +345,15 @@ public class SummarizingChatMemory implements ChatMemory {
     @Override
     public void clear(@NonNull String conversationId) {
         delegate.clear(conversationId);
+    }
+
+    /**
+     * Returns the per-conversation monitor, lazily created on first request.
+     * Safe for concurrent callers: {@link ConcurrentHashMap#computeIfAbsent}
+     * guarantees exactly one {@code Object} instance per key.
+     */
+    private Object lockFor(@NonNull String conversationId) {
+        return conversationLocks.computeIfAbsent(conversationId, k -> new Object());
     }
 
     /**

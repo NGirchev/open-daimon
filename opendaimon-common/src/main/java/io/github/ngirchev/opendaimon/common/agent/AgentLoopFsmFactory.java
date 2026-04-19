@@ -36,8 +36,10 @@ import static io.github.ngirchev.opendaimon.common.agent.AgentState.*;
  *                    │   action: executeTool()
  *                    ├─[hasFinalAnswer]────────> ANSWERING
  *                    │   action: answer()
+ *                    ├─[canRetryEmptyResponse]─> THINKING (self-loop, single retry)
+ *                    │   action: retryEmptyResponse()
  *                    └─[else]─────────────────> FAILED (terminal)
- *                        action: handleError()  (empty LLM output)
+ *                        action: handleError()  (empty LLM output, retry exhausted)
  *
  * TOOL_EXECUTING ──[auto]──┬─[hasError]──> FAILED (terminal)
  *                          │   action: handleError()
@@ -47,8 +49,16 @@ import static io.github.ngirchev.opendaimon.common.agent.AgentState.*;
  * OBSERVING ──[auto]──> THINKING (loop back)
  *     action: think()
  *
- * ANSWERING ──[auto]──> COMPLETED (terminal)
+ * ANSWERING ──[auto]──┬─[hasError]──> FAILED (terminal)
+ *                     │   action: handleError()
+ *                     └─[else]──────> COMPLETED (terminal)
  * </pre>
+ *
+ * <p>The {@code hasError} branch on ANSWERING covers cooperative cancellation — when
+ * the user cancels after the LLM has produced a text response but before {@code answer()}
+ * finalizes it, the action sets an error message instead of a final answer, and this
+ * guard routes the FSM to FAILED so {@link AgentResult#isSuccess()} reports {@code false}
+ * rather than completing with a {@code null} answer.
  */
 public final class AgentLoopFsmFactory {
 
@@ -94,6 +104,10 @@ public final class AgentLoopFsmFactory {
                         .onCondition(guard(AgentContext::hasFinalAnswer))
                         .action(action(actions::answer))
                         .end()
+                    .to(THINKING)
+                        .onCondition(guard(AgentContext::canRetryEmptyResponse))
+                        .action(action(actions::retryEmptyResponse))
+                        .end()
                     .to(FAILED)
                         .action(action(actions::handleError))
                         .end()
@@ -115,9 +129,15 @@ public final class AgentLoopFsmFactory {
                     .action(action(actions::think))
                     .end()
 
-                // === ANSWERING → COMPLETED (auto-transition, terminal) ===
-                .from(ANSWERING).to(COMPLETED)
-                    .end()
+                // === ANSWERING → FAILED if hasError else COMPLETED (auto-transition, terminal) ===
+                .from(ANSWERING).toMultiple()
+                    .to(FAILED)
+                        .onCondition(guard(AgentContext::hasError))
+                        .action(action(actions::handleError))
+                        .end()
+                    .to(COMPLETED)
+                        .end()
+                    .endMultiple()
 
                 .build();
 

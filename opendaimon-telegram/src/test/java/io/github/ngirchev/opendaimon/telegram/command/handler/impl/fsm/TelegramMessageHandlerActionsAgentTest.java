@@ -1,9 +1,8 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
-import io.github.ngirchev.opendaimon.common.agent.AgentResult;
-import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -22,22 +21,33 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import reactor.core.publisher.Flux;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,11 +71,16 @@ class TelegramMessageHandlerActionsAgentTest {
     private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
 
+    private TelegramProperties telegramProperties;
+
     @BeforeEach
     void setUp() {
-        TelegramProperties telegramProperties = new TelegramProperties();
+        telegramProperties = new TelegramProperties();
         telegramProperties.setMaxMessageLength(4096);
-        agentStreamRenderer = new TelegramAgentStreamRenderer();
+        // Unit tests run the stream synchronously — disable throttling so every
+        // event produces a Telegram call and the tests can assert on it directly.
+        telegramProperties.setAgentStreamEditMinIntervalMs(0);
+        agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
@@ -127,10 +142,14 @@ class TelegramMessageHandlerActionsAgentTest {
     }
 
     @Test
-    @DisplayName("generateResponse returns partial answer on MAX_ITERATIONS")
+    @DisplayName("generateResponse returns partial answer on MAX_ITERATIONS with content")
     void generateResponse_maxIterations_returnsPartialAnswer() {
         MessageHandlerContext ctx = createContextWithMetadata("Complex task");
 
+        // The ReActAgentExecutor now emits a MAX_ITERATIONS marker event followed by a
+        // FINAL_ANSWER with the tool-less summary — the last event is the terminal one.
+        // For backwards compatibility, extractAgentResult still honours MAX_ITERATIONS
+        // content when that's the terminal event (legacy producers / tests).
         Flux<AgentStreamEvent> stream = Flux.just(
                 AgentStreamEvent.thinking(0),
                 AgentStreamEvent.maxIterations("Partial answer so far...", 10));
@@ -234,53 +253,809 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(ctx.getResponseText()).hasValue("Reply");
     }
 
-    @Test
-    @DisplayName("generateResponse sends intermediate events to Telegram via streamingParagraphSender")
-    void generateResponse_withToolCalls_sendsIntermediateEvents() {
-        List<String> sentMessages = new ArrayList<>();
-        MessageHandlerContext ctx = createContextWithMetadata("Search for Bitcoin price",
-                Set.of(ModelCapabilities.WEB), sentMessages::add);
+    // ── Two-message orchestration tests ──────────────────────────────
+    //
+    // The agent run now renders to two separate Telegram messages:
+    //   • status — iteration log (💭 Thinking…, 🔧 Tool, 📋 result, ⚠️ error).
+    //   • answer — separate bubble opened on first paragraph boundary of
+    //     PARTIAL_ANSWER prose, deleted on TOOL_CALL (rollback), force-flushed
+    //     on FINAL_ANSWER. When no PARTIAL_ANSWER ever opens the bubble, a
+    //     fresh paragraph-batched message carries the FINAL_ANSWER.
 
-        Flux<AgentStreamEvent> stream = Flux.just(
-                AgentStreamEvent.thinking(0),
-                AgentStreamEvent.toolCall("web_search", "bitcoin price", 0),
-                AgentStreamEvent.observation("Current price: $50,000", 0),
-                AgentStreamEvent.metadata("gpt-4o", 1),
-                AgentStreamEvent.finalAnswer("Bitcoin is currently $50,000.", 1));
-        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+    @Nested
+    @DisplayName("Two-message orchestration")
+    class TwoMessageOrchestration {
 
-        actions.generateResponse(ctx);
+        private static final Long CHAT_ID = 12345L;
+        private static final int USER_MSG_ID = 100;
+        private static final int STATUS_MSG_ID = 555;
+        private static final int ANSWER_MSG_ID = 777;
+        private static final String STATUS_THINKING_LINE = "💭 Thinking...";
 
-        // 3 intermediate events + 1 final answer sent via streaming sender
-        assertThat(sentMessages).hasSize(4);
-        assertThat(sentMessages.get(0)).contains("Thinking");
-        assertThat(sentMessages.get(1)).contains("web_search");
-        assertThat(sentMessages.get(2)).contains("$50,000");
-        assertThat(sentMessages.get(3)).contains("Bitcoin is currently $50,000.");
-        assertThat(ctx.getResponseText()).hasValue("Bitcoin is currently $50,000.");
-        assertThat(ctx.getResponseModel()).isEqualTo("gpt-4o");
-        assertThat(ctx.isAlreadySentInStream()).isTrue();
+        @Test
+        @DisplayName("should open a fresh answer bubble on the first PARTIAL_ANSWER chunk")
+        void shouldCreateStatusAndAnswerMessagesOnFirstPartialAnswer() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            // Both bubbles reply to the user message now — disambiguate via HTML content:
+            // status carries the thinking marker, answer bubble does not.
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(ANSWER_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.partialAnswer("First paragraph.", 1),
+                    AgentStreamEvent.partialAnswer("\n\nSecond paragraph.", 1),
+                    AgentStreamEvent.finalAnswer("First paragraph.\n\nSecond paragraph.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // Status bubble seeded with thinking line as a reply to the user.
+            verify(messageSender, times(1)).sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true));
+
+            // Answer bubble opened on the first PARTIAL_ANSWER (threaded reply to the user —
+            // distinguished from the status bubble by the absence of the thinking marker).
+            // The initial content carries only the first chunk; the second chunk arrives via
+            // edits to the bubble below.
+            verify(messageSender, times(1)).sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)
+                            && html.contains("First paragraph.")),
+                    eq(USER_MSG_ID), eq(true));
+
+            // Status transitioned to "Answering…" when bubble opened.
+            ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), statusEditCaptor.capture(), eq(true));
+            assertThat(statusEditCaptor.getAllValues())
+                    .anyMatch(html -> html.contains("ℹ️ Answering"));
+
+            // Answer bubble received at least one edit (final flush enables link previews,
+            // so the preview flag varies across streaming vs. force-flushed edits). The
+            // second paragraph arrives to the bubble via these edits.
+            ArgumentCaptor<String> answerEditCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), answerEditCaptor.capture(), anyBoolean());
+            assertThat(answerEditCaptor.getAllValues())
+                    .anyMatch(html -> html.contains("Second paragraph."));
+
+            assertThat(ctx.getResponseText()).hasValue("First paragraph.\n\nSecond paragraph.");
+            assertThat(ctx.getErrorType()).isNull();
+        }
+
+        @Test
+        @DisplayName("status overlay never contains unbalanced <i> tags when PARTIAL_ANSWER carries \\n\\n")
+        void shouldProduceWellFormedItalicOverlayWhenPartialAnswerCrossesParagraphBoundary() {
+            // Regression: a PARTIAL_ANSWER chunk that contains "\n\n" used to leak its
+            // newlines into the <i>…</i> overlay on the status message. The next
+            // replaceTrailingThinkingLineWithEscaped call then split the buffer on
+            // that internal "\n\n", dropping the closing </i>. Telegram rejected the
+            // malformed HTML, fell back to plain text, and the user saw a literal "<i>".
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(ANSWER_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.partialAnswer("Конечно! Вот небольшая история:\n\n", 0),
+                    AgentStreamEvent.partialAnswer("## Заголовок\n\nТекст.", 0),
+                    AgentStreamEvent.finalAnswer("Конечно! Вот небольшая история:\n\n## Заголовок\n\nТекст.", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), statusEditCaptor.capture(), eq(true));
+            for (String html : statusEditCaptor.getAllValues()) {
+                int opens = countOccurrences(html, "<i>");
+                int closes = countOccurrences(html, "</i>");
+                assertThat(opens)
+                        .as("<i>/</i> tag count must balance in status HTML: <<%s>>", html)
+                        .isEqualTo(closes);
+                // No <i> should wrap content that itself contains \n\n.
+                int idx = 0;
+                while ((idx = html.indexOf("<i>", idx)) >= 0) {
+                    int end = html.indexOf("</i>", idx);
+                    assertThat(end).as("every <i> must have a </i>").isGreaterThan(idx);
+                    String inside = html.substring(idx + 3, end);
+                    assertThat(inside)
+                            .as("overlay content must be a single line")
+                            .doesNotContain("\n\n");
+                    idx = end + 4;
+                }
+            }
+        }
+
+        private static int countOccurrences(String haystack, String needle) {
+            int count = 0;
+            int idx = 0;
+            while ((idx = haystack.indexOf(needle, idx)) >= 0) {
+                count++;
+                idx += needle.length();
+            }
+            return count;
+        }
+
+        @Test
+        @DisplayName("should delete answer and fold prose into status when tool marker leaks into PARTIAL_ANSWER stream")
+        void shouldRollbackWhenEmbeddedToolMarkerAppearsInPartialAnswerStream() {
+            // Regression for the Qwen/Ollama pseudo-XML tool-call variant that the
+            // upstream StreamingAnswerFilter doesn't recognize — <arg_key>/<arg_value>
+            // leaked into the answer bubble as raw text. Per spec §"Final answer
+            // transition" step 3 and Russian draft point 9, the Telegram layer must
+            // scan streamed text for tool markers and rollback on detection.
+            MessageHandlerContext ctx = createContextWithMessage("Compare",
+                    Set.of(ModelCapabilities.WEB));
+
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(ANSWER_MSG_ID);
+            when(messageSender.deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID))).thenReturn(true);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    // First chunk promotes the tentative answer bubble (paragraph boundary).
+                    AgentStreamEvent.partialAnswer("Продолжаю сбор информации...\n\n", 0),
+                    // Second chunk leaks the embedded tool marker — the bubble must be rolled back.
+                    AgentStreamEvent.partialAnswer("fetch_url\n<arg_key>url</arg_key>\n<arg_value>https://example.com</arg_value>\n</tool_call>", 0),
+                    AgentStreamEvent.finalAnswer("The real answer.", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // The tentative answer bubble must have been deleted.
+            verify(messageSender).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
+
+            // Tentative state reset; promotion suppression flag set for the iteration.
+            assertThat(ctx.isTentativeAnswerActive()).isFalse();
+            assertThat(ctx.isToolCallSeenThisIteration()).isTrue();
+
+            // Status received a folded-prose reasoning overlay after rollback.
+            ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), statusEditCaptor.capture(), eq(true));
+            boolean sawFoldedProse = statusEditCaptor.getAllValues().stream()
+                    .anyMatch(html -> html.contains("<i>") && html.contains("</i>")
+                            && html.contains("Продолжаю"));
+            assertThat(sawFoldedProse)
+                    .as("folded reasoning overlay must appear in status after marker rollback")
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("should suppress promotion when tool marker appears before any paragraph boundary in PARTIAL_ANSWER")
+        void shouldSuppressPromotionWhenMarkerAppearsBeforeParagraphBoundary() {
+            MessageHandlerContext ctx = createContextWithMessage("Compare",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    // Marker appears before a \n\n — no bubble was ever opened; we just
+                    // want to make sure we never promote after that in this iteration.
+                    AgentStreamEvent.partialAnswer("Let me think... <tool_call>", 0),
+                    AgentStreamEvent.partialAnswer("fetch_url</tool_call>\n\nand more text", 0),
+                    AgentStreamEvent.finalAnswer("Real answer.", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // The tentative bubble must never have been opened — only the status send counts.
+            verify(messageSender, never()).sendHtmlAndGetId(eq(CHAT_ID), anyString(),
+                    isNull(), eq(true));
+            assertThat(ctx.isTentativeAnswerActive()).isFalse();
+            assertThat(ctx.isToolCallSeenThisIteration()).isTrue();
+        }
+
+        @Test
+        @DisplayName("should delete answer and fold prose into status when TOOL_CALL arrives during tentative answer")
+        void shouldDeleteAnswerAndFoldIntoStatusWhenToolCallArrivesDuringTentativeAnswer() {
+            MessageHandlerContext ctx = createContextWithMessage("Write",
+                    Set.of(ModelCapabilities.WEB));
+
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(ANSWER_MSG_ID);
+            when(messageSender.deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID)))
+                    .thenReturn(true);
+
+            // Paragraph boundary → tentative answer opens. THEN the model turns around
+            // and calls a tool — the answer bubble must be deleted, its prose folded
+            // into status as reasoning, and a tool-call block appended after it.
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.partialAnswer("Let me think.\n\nActually, I should check.", 0),
+                    AgentStreamEvent.toolCall("web_search", "{\"query\":\"facts\"}", 0),
+                    AgentStreamEvent.observation("found", 0),
+                    AgentStreamEvent.partialAnswer("Here is the real answer.", 1),
+                    AgentStreamEvent.finalAnswer("Here is the real answer.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // Delete of the tentative answer bubble MUST fire.
+            verify(messageSender).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
+
+            // Tentative state reset — a new answer bubble may be opened later in the
+            // next iteration if PARTIAL_ANSWER crosses another boundary.
+            assertThat(ctx.isTentativeAnswerActive()).isFalse();
+
+            // Status received the folded-prose overlay AND a tool-call block.
+            ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), statusEditCaptor.capture(), eq(true));
+            boolean sawFoldedProse = statusEditCaptor.getAllValues().stream()
+                    .anyMatch(html -> html.contains("<i>") && html.contains("check"));
+            boolean sawToolCall = statusEditCaptor.getAllValues().stream()
+                    .anyMatch(html -> html.contains("🔧 <b>Tool:</b>"));
+            assertThat(sawFoldedProse).as("folded reasoning overlay present").isTrue();
+            assertThat(sawToolCall).as("tool-call block present").isTrue();
+        }
+
+        @Test
+        @DisplayName("should render RESULT, EMPTY and FAILED observation variants distinctly")
+        void shouldRenderThreeObservationVariants() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            // Each iteration starts with a THINKING marker (null content) — this is what the
+            // real agent loop emits at the start of every think() call. The marker triggers
+            // an AppendFreshThinking which creates the "\n\n" boundary between iter-blocks
+            // and prevents the next tool-call edit from wiping out the previous iteration.
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"a\"}", 0),
+                    AgentStreamEvent.observation("Found 3 items", 0),
+                    AgentStreamEvent.thinking(1),
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"b\"}", 1),
+                    AgentStreamEvent.observation("", 1),
+                    AgentStreamEvent.thinking(2),
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"c\"}", 2),
+                    AgentStreamEvent.observation("Network timeout", true, 2),
+                    AgentStreamEvent.finalAnswer("done", 2));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
+            String lastHtml = editCaptor.getValue();
+
+            // All three markers eventually accumulate in the status buffer.
+            assertThat(lastHtml).contains("📋 Tool result received");
+            assertThat(lastHtml).contains("📋 No result");
+            assertThat(lastHtml).contains("⚠️ Tool failed: Network timeout");
+            assertThat(lastHtml).contains("<blockquote>📋 Tool result received</blockquote>");
+            assertThat(lastHtml).contains("<blockquote>📋 No result</blockquote>");
+            assertThat(lastHtml).contains("<blockquote>⚠️ Tool failed: Network timeout</blockquote>");
+        }
+
+        @Test
+        @DisplayName("should replace trailing thinking line with reasoning overlay on THINKING with content")
+        void shouldReplaceTrailingThinkingLineWhenReasoningEvent() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            // Iteration 0 starts with null-content THINKING (marker), then THINKING with
+            // reasoning text — the "💭 Thinking..." line is replaced with the <i>…</i>
+            // overlay carrying the reasoning.
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.thinking("Checking prices first.", 0),
+                    AgentStreamEvent.finalAnswer("done", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
+            boolean sawReasoning = editCaptor.getAllValues().stream()
+                    .anyMatch(html -> html.contains("<i>") && html.contains("Checking prices first."));
+            assertThat(sawReasoning).isTrue();
+
+            // The thinking marker should have been replaced — it must NOT coexist with
+            // the overlay in the final buffer.
+            String finalHtml = editCaptor.getValue();
+            assertThat(finalHtml).doesNotContain("💭 Thinking...\n");
+        }
+
+        @Test
+        @DisplayName("should append a fresh thinking line when a new iteration rolls over")
+        void shouldAppendFreshThinkingOnIterationRollover() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            // Per spec: iter-0's "💭 Thinking..." is replaced by the tool-call block when
+            // TOOL_CALL arrives. The iter-1 rollover appends a fresh thinking line below
+            // the (completed) iter-0 block — so the final state carries BOTH the iter-0
+            // tool log AND exactly one "💭 Thinking..." (the iter-1 placeholder).
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"x\"}", 0),
+                    AgentStreamEvent.observation("ok", 0),
+                    AgentStreamEvent.thinking(1),
+                    AgentStreamEvent.finalAnswer("done", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
+            String finalHtml = editCaptor.getValue();
+            assertThat(finalHtml).contains("🔧 <b>Tool:</b>");
+            assertThat(finalHtml).contains("📋 Tool result received");
+            assertThat(finalHtml).contains("<blockquote>📋 Tool result received</blockquote>");
+            int thinkingLines = finalHtml.split("💭 Thinking").length - 1;
+            assertThat(thinkingLines).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("should rotate status message when the buffer exceeds the Telegram length limit")
+        void shouldRotateStatusMessageAtParagraphBoundaryAtLengthLimit() {
+            // Tight limit forces rotation after a few markers.
+            telegramProperties.setMaxMessageLength(120);
+
+            int firstStatusId = 111;
+            int secondStatusId = 222;
+
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(firstStatusId);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true)))
+                    .thenReturn(secondStatusId);
+
+            // Tool-call blocks include "\n\n🔧 Tool: …\nQuery: …" — 3 iterations, each
+            // preceded by a THINKING marker that creates the "\n\n" boundary between them.
+            // Combined length pushes the buffer past 120 chars; rotator cuts at a "\n\n"
+            // boundary, sends the head as the finalized old status, starts a fresh message
+            // for the tail.
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"" + "x".repeat(20) + "\"}", 0),
+                    AgentStreamEvent.observation("r", 0),
+                    AgentStreamEvent.thinking(1),
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"" + "y".repeat(20) + "\"}", 1),
+                    AgentStreamEvent.observation("r", 1),
+                    AgentStreamEvent.thinking(2),
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"" + "z".repeat(20) + "\"}", 2),
+                    AgentStreamEvent.observation("r", 2),
+                    AgentStreamEvent.finalAnswer("done", 2));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // A fresh status message was started for the overflow tail.
+            verify(messageSender, atLeastOnce())
+                    .sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), eq(true));
+            assertThat(ctx.getStatusMessageId()).isEqualTo(secondStatusId);
+        }
+
+        @Test
+        @DisplayName("should send fresh answer via sendHtml when FINAL_ANSWER arrives with no PARTIAL_ANSWER")
+        void shouldSendFreshAnswerWhenFinalAnswerArrivesWithoutPartialAnswer() {
+            MessageHandlerContext ctx = createContextWithMessage("Quick question",
+                    Set.of(ModelCapabilities.CHAT));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            // No PARTIAL_ANSWER → no tentative bubble ever opens → the terminal answer
+            // is sent as a fresh, paragraph-batched message (not an edit).
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.finalAnswer("Terminal only answer.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> finalCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce()).sendHtml(eq(CHAT_ID), finalCaptor.capture(), isNull());
+            assertThat(finalCaptor.getValue()).contains("Terminal only answer.");
+            assertThat(ctx.getResponseText()).hasValue("Terminal only answer.");
+        }
+
+        @Test
+        @DisplayName("should HTML-escape tool arguments and error messages in the status buffer")
+        void shouldEscapeHtmlInToolArgumentsAndErrorMessages() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.toolCall("web_search", "{\"query\":\"<script>alert(1)</script>\"}", 0),
+                    AgentStreamEvent.error("Failure <b>bold</b> & friends", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
+            String finalHtml = editCaptor.getValue();
+            // Raw HTML must not survive into the buffer.
+            assertThat(finalHtml).doesNotContain("<script>");
+            assertThat(finalHtml).doesNotContain("<b>bold</b>");
+            // Escaped form is present.
+            assertThat(finalHtml).contains("&lt;script&gt;");
+            assertThat(finalHtml).contains("&lt;b&gt;bold&lt;/b&gt;");
+            assertThat(finalHtml).contains("&amp; friends");
+        }
+
+        @Test
+        @DisplayName("should throttle mid-stream status edits and only flush once at termination")
+        void shouldThrottleEditsAt1000ms() {
+            // Large window — every mid-stream edit is throttled out; only the forced
+            // terminal flush lands on Telegram.
+            telegramProperties.setAgentStreamEditMinIntervalMs(60_000);
+
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.thinking("r1", 0),
+                    AgentStreamEvent.thinking("r2", 0),
+                    AgentStreamEvent.thinking("r3", 0),
+                    AgentStreamEvent.finalAnswer("done", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // ensureStatusMessage seeds the status; then markStatusEdited → lastStatusEditAtMs
+            // is "now", so every subsequent edit is inside the 60s window EXCEPT the forced
+            // terminal flush. Tool-call / error blocks also force-flush — none here, so only
+            // one terminal edit lands.
+            verify(messageSender, atMost(1))
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), anyString(), eq(true));
+        }
+
+        @Test
+        @DisplayName("should finalize the tentative answer and append ❌ Error to status when the stream errors")
+        void shouldFinalizeTentativeAnswerAndAppendErrorOnStreamError() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(ANSWER_MSG_ID);
+
+            // Open a tentative answer bubble, then have the stream error out — without a
+            // final edit of the answer bubble, the user would see a partially-written
+            // answer that looks final but isn't. The error marker is appended to status.
+            Flux<AgentStreamEvent> stream = Flux.concat(
+                    Flux.just(
+                            AgentStreamEvent.partialAnswer("Beginning.\n\nMiddle.", 0)),
+                    Flux.error(new RuntimeException("network down")));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // Answer bubble received at least one edit (the final flush forced by the
+            // stream-error handler). Preview flag varies across streaming vs. final edits.
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), anyString(), anyBoolean());
+
+            // Status buffer has the ❌ Error marker.
+            ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), statusEditCaptor.capture(), eq(true));
+            String finalStatus = statusEditCaptor.getValue();
+            assertThat(finalStatus).contains("❌ Error:");
+            assertThat(finalStatus).contains("network down");
+        }
+
+        @Test
+        @DisplayName("should never edit when sendHtmlAndGetId returns null (bot unavailable)")
+        void shouldNotEditWhenStatusSendFails() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            when(messageSender.sendHtmlAndGetId(anyLong(), anyString(), any(), eq(true)))
+                    .thenReturn(null);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.thinking("r1", 0),
+                    AgentStreamEvent.finalAnswer("done", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            assertThat(ctx.getStatusMessageId()).isNull();
+            verify(messageSender, never()).editHtml(anyLong(), anyInt(), anyString(), eq(true));
+        }
+
+        @Test
+        @DisplayName("should render tool-call block with bold Tool/Query labels")
+        void shouldRenderToolCallWithBoldLabels() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"cats\"}", 0),
+                    AgentStreamEvent.observation("ok", 0),
+                    AgentStreamEvent.finalAnswer("done", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
+            String finalHtml = editCaptor.getValue();
+            assertThat(finalHtml).contains("🔧 <b>Tool:</b> Searching the web");
+            assertThat(finalHtml).contains("<b>Query:</b>");
+            // The label is HTML bold — no unformatted "Tool:" or "Query:" leaking through.
+            assertThat(finalHtml).doesNotContain("🔧 Tool:");
+            assertThat(finalHtml).doesNotContain("\nQuery:");
+        }
+
+        @Test
+        @DisplayName("should replace trailing reasoning line with tool-call block (visual chronology is time-based)")
+        void shouldReplaceTrailingReasoningWithToolCallBlock() {
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+
+            // Reasoning arrives first, then a tool call. The tool-call block replaces the
+            // reasoning overlay — the previous state is kept visible by the paced flush
+            // (throttle=0 in tests skips the sleep; pacing is observable in production).
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.thinking("I need to check the benchmarks first.", 0),
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"benchmarks\"}", 0),
+                    AgentStreamEvent.observation("ok", 0),
+                    AgentStreamEvent.finalAnswer("done", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
+            String finalHtml = editCaptor.getValue();
+
+            // Final buffer must have the tool-call block and the observation marker; the
+            // reasoning overlay has been overwritten by the tool-call edit (as per spec).
+            assertThat(finalHtml).contains("🔧 <b>Tool:</b>");
+            assertThat(finalHtml).contains("📋 Tool result received");
+            assertThat(finalHtml).contains("<blockquote>📋 Tool result received</blockquote>");
+            assertThat(finalHtml).doesNotContain("check the benchmarks first.");
+        }
+
+        @Test
+        @DisplayName("should convert Markdown in tentative answer bubble to HTML tags")
+        void shouldConvertMarkdownInTentativeAnswerBubble() {
+            MessageHandlerContext ctx = createContextWithMessage("Compare",
+                    Set.of(ModelCapabilities.WEB));
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(ANSWER_MSG_ID);
+
+            // A PARTIAL_ANSWER carrying **bold** and `code` markers crosses a paragraph
+            // boundary — the tentative bubble opens. The opened bubble must carry HTML,
+            // not raw Markdown.
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.partialAnswer("First paragraph.\n\n", 0),
+                    AgentStreamEvent.partialAnswer("**Bold** and `code`.", 0),
+                    AgentStreamEvent.finalAnswer("First paragraph.\n\n**Bold** and `code`.", 0));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            ArgumentCaptor<String> answerCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), answerCaptor.capture(), eq(true));
+            String lastAnswerHtml = answerCaptor.getValue();
+            assertThat(lastAnswerHtml).contains("<b>Bold</b>");
+            assertThat(lastAnswerHtml).contains("<code>code</code>");
+            assertThat(lastAnswerHtml).doesNotContain("**Bold**");
+            assertThat(lastAnswerHtml).doesNotContain("`code`");
+        }
+
+        @Test
+        @DisplayName("should drop pre-tool reasoning text from tentative buffer on TOOL_CALL " +
+                "so it doesn't leak into the final answer")
+        void shouldClearTentativeBufferOnToolCallSoPreToolReasoningDoesNotLeakIntoAnswer() {
+            MessageHandlerContext ctx = createContextWithMessage(
+                    "Compare Quarkus and Spring Boot in 2026",
+                    Set.of(ModelCapabilities.WEB));
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(ANSWER_MSG_ID);
+
+            // Reproduces the production scenario with model z-ai/glm-4.5v:
+            // iter-0 — model emits pre-tool REASONING as ordinary PARTIAL_ANSWER text
+            //   (no \n\n so no promotion), followed by a structured TOOL_CALL + OBSERVATION.
+            // iter-2 — model emits the REAL final answer with a \n\n boundary.
+            // Without the fix, the tentative-answer buffer would still contain the iter-0
+            // reasoning when iter-2 PARTIAL_ANSWER appends; promotion opens the bubble with
+            // both the reasoning AND the new answer concatenated.
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.partialAnswer(
+                            "To compare I need to find fresh benchmarks first.",
+                            0),
+                    AgentStreamEvent.toolCall("web_search", "{\"q\":\"benchmarks\"}", 0),
+                    AgentStreamEvent.observation("found hits", 0),
+                    AgentStreamEvent.thinking(1),
+                    AgentStreamEvent.toolCall("fetch_url", "{\"url\":\"https://example\"}", 1),
+                    AgentStreamEvent.observation("page body", 1),
+                    AgentStreamEvent.thinking(2),
+                    AgentStreamEvent.partialAnswer("Here is the real answer.\n\nSecond paragraph.", 2),
+                    AgentStreamEvent.finalAnswer("Here is the real answer.\n\nSecond paragraph.", 2));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // The answer bubble was opened and edited — collect every version that hit the wire.
+            // Preview flag varies across streaming vs. final edits, so we match any boolean.
+            ArgumentCaptor<String> answerCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), answerCaptor.capture(), anyBoolean());
+            String lastAnswerHtml = answerCaptor.getValue();
+
+            // The real final answer must be present; the pre-tool reasoning text must NOT
+            // appear in the final answer bubble in ANY edit.
+            assertThat(lastAnswerHtml).contains("Here is the real answer.");
+            assertThat(lastAnswerHtml).contains("Second paragraph.");
+            for (String html : answerCaptor.getAllValues()) {
+                assertThat(html)
+                        .as("pre-tool reasoning must not leak into the answer bubble")
+                        .doesNotContain("fresh benchmarks first");
+            }
+        }
+
+        @Test
+        @DisplayName("should enable link previews on the final edit of the answer bubble")
+        void shouldEnableLinkPreviewsOnFinalAnswerEdit() {
+            // During streaming the URL is typed character-by-character — preview resolution
+            // would either fail or flicker. On the terminal force-flush (after FINAL_ANSWER),
+            // the message is complete, so Telegram should render the preview card.
+            MessageHandlerContext ctx = createContextWithMessage("Ask",
+                    Set.of(ModelCapabilities.WEB));
+
+            // Status carries the thinking marker; the answer bubble send does not.
+            // Both reply to the user message (P1: keep agent bubbles threaded).
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(STATUS_MSG_ID);
+            when(messageSender.sendHtmlAndGetId(eq(CHAT_ID),
+                    argThat(html -> html != null && !html.contains(STATUS_THINKING_LINE)),
+                    eq(USER_MSG_ID), eq(true)))
+                    .thenReturn(ANSWER_MSG_ID);
+
+            Flux<AgentStreamEvent> stream = Flux.just(
+                    AgentStreamEvent.thinking(0),
+                    AgentStreamEvent.partialAnswer("Report available at https://example.com/r.", 1),
+                    AgentStreamEvent.partialAnswer("\n\nSee the link above.", 1),
+                    AgentStreamEvent.finalAnswer(
+                            "Report available at https://example.com/r.\n\nSee the link above.", 1));
+            when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+            actions.generateResponse(ctx);
+
+            // At least one edit of the answer bubble was made with disableWebPagePreview=false
+            // (preview enabled) — that's the terminal force-flush.
+            verify(messageSender, atLeastOnce())
+                    .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), anyString(), eq(false));
+        }
+
+        private MessageHandlerContext createContextWithMessage(String userText,
+                                                                Set<ModelCapabilities> capabilities) {
+            TelegramCommand command = mock(TelegramCommand.class);
+            when(command.userText()).thenReturn(userText);
+            when(command.telegramId()).thenReturn(CHAT_ID);
+
+            Message message = mock(Message.class);
+            when(message.getMessageId()).thenReturn(USER_MSG_ID);
+
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+            metadata.put(AICommand.USER_ID_FIELD, "42");
+
+            MessageHandlerContext ctx = new MessageHandlerContext(command, message, s -> {});
+            ctx.setMetadata(metadata);
+            if (capabilities != null) {
+                ctx.setModelCapabilities(capabilities);
+            }
+            return ctx;
+        }
     }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
 
     private MessageHandlerContext createContextWithMetadata(String userText) {
         return createContextWithMetadata(userText, Set.of(ModelCapabilities.AUTO));
     }
 
     private MessageHandlerContext createContextWithMetadata(String userText, Set<ModelCapabilities> capabilities) {
-        return createContextWithMetadata(userText, capabilities, s -> {});
-    }
-
-    private MessageHandlerContext createContextWithMetadata(String userText,
-                                                            Set<ModelCapabilities> capabilities,
-                                                            java.util.function.Consumer<String> sender) {
         TelegramCommand command = mock(TelegramCommand.class);
         when(command.userText()).thenReturn(userText);
+        when(command.telegramId()).thenReturn(42L);
 
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
         metadata.put(AICommand.USER_ID_FIELD, "42");
 
-        MessageHandlerContext ctx = new MessageHandlerContext(command, null, sender);
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
         ctx.setMetadata(metadata);
         if (capabilities != null) {
             ctx.setModelCapabilities(capabilities);

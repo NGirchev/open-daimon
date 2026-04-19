@@ -79,7 +79,7 @@ import static org.mockito.Mockito.reset;
  *   -Dit.test=XlsRagOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
  *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen3.5:4b
+ *   -Dmanual.ollama.chat-model=qwen2.5:3b
  * </pre>
  */
 @Tag("manual")
@@ -94,7 +94,7 @@ class XlsRagOllamaManualIT extends AbstractContainerIT {
     private static final String XLS_RESOURCE = "attachments/file_example_XLS_50.xls";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen3.5:4b";
+    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS =
             Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")

@@ -43,7 +43,6 @@ Proceed with this plan? (yes / adjust)
 - **Direct slash commands** (e.g., `/commit`, `/review`).
 - **Follow-up messages** that are clearly confirming or adjusting a previous clarification.
 - **Requests explicitly prefixed with `!`** — user signals "just do it".
-- **Auto mode** — the user has opted in to continuous execution; use judgement and proceed, asking only for destructive or irreversible actions.
 
 ## When in doubt
 

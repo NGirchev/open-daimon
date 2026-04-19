@@ -49,20 +49,25 @@ serves as the foundation — we build the agent layer on top, not from scratch.
 
 ---
 
-### Phase 3: Pluggable Memory
+### Phase 3: Pluggable Memory — SUPERSEDED
 
-**Why third:** Enriches agent context between iterations. 60% of the work is already done.
+> **Status**: superseded. The earlier plan introduced a parallel `AgentMemory` /
+> `SemanticAgentMemory` / `CompositeAgentMemory` / `FactExtractor` stack that ran
+> an extra synchronous LLM call (plus per-fact embeddings) on every `answer()` —
+> this added ~30 s to the final Telegram edit without providing new signal.
+>
+> Long-term memory is now delivered by the existing `SummarizingChatMemory`
+> (wired in `SpringAIAutoConfig`). It performs a single rolling-summary LLM
+> call from the chat pipeline, persists `{summary, memory_bullets}` on
+> `ConversationThread`, and replays them as a `SystemMessage` on the next
+> `ChatMemory.get(conversationId)`. The agent loop simply consumes this
+> `ChatMemory` via `SpringAgentLoopActions` — no dedicated agent-memory SPI.
 
-**What to build:**
-- `AgentMemory` SPI with methods: `store(fact)`, `recall(query, topK)`, `forget(factId)`
-- `ConversationMemory` — adapter over existing `SummarizingChatMemory`
-- `SemanticMemory` — VectorStore-backed long-term memory (reuse existing embedding infrastructure)
-- `FactExtractionMemory` — after each conversation, LLM extracts key facts -> stores as embeddings
-- Memory is injected into Agent Loop as context before each LLM call
+**Reuses:** `SummarizingChatMemory`, `SummarizationService`, `ConversationThread`.
 
-**Reuses:** `SummarizingChatMemory`, Spring AI `VectorStore`, existing embedding pipeline
-
-**Done when:** Agent recalls relevant facts from past conversations without explicit user prompting.
+**Done when:** agent recalls relevant facts from past conversations via the
+shared `ChatMemory` bean, with no extra LLM call on the critical finalization
+path.
 
 ---
 
@@ -89,8 +94,8 @@ serves as the foundation — we build the agent layer on top, not from scratch.
 
 **What to build:**
 - New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
-- Auto-configures: `AgentExecutor`, `ToolRegistry`, `AgentMemory`, `AIGateway` chain
-- Properties namespace: `open-daimon.agent.*` (strategy, max-iterations, memory-type)
+- Auto-configures: `AgentExecutor`, `ToolRegistry`, `ChatMemory`, `AIGateway` chain
+- Properties namespace: `open-daimon.agent.*` (strategy, max-iterations)
 - Conditional beans: `@ConditionalOnProperty`, `@ConditionalOnClass` for optional modules
 - Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`; Telegram/REST/UI stay optional
 

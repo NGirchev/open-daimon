@@ -23,6 +23,13 @@ import java.util.Set;
  */
 public final class AgentContext implements StateContext<AgentState> {
 
+    /**
+     * Maximum number of retry attempts when the LLM returns an empty response
+     * (no tool call, no text, no error) within a single iteration.
+     * Resets after a successful tool call or final answer (via {@link #resetIterationState()}).
+     */
+    public static final int MAX_EMPTY_RESPONSE_RETRIES = 1;
+
     // --- StateContext fields ---
     private AgentState state;
     private Transition<AgentState> currentTransition;
@@ -49,6 +56,10 @@ public final class AgentContext implements StateContext<AgentState> {
     // --- Error state ---
     private String errorMessage;
 
+    // --- Empty-response retry (resets per iteration) ---
+    private boolean emptyResponse;
+    private int emptyResponseRetryCount;
+
     // --- Output ---
     private String finalAnswer;
     private String modelName;
@@ -58,6 +69,15 @@ public final class AgentContext implements StateContext<AgentState> {
 
     // --- Per-execution transient state (used by AgentLoopActions implementations) ---
     private final Map<String, Object> extras = new java.util.HashMap<>();
+
+    /**
+     * Cooperative cancellation flag. Set by the transport layer (e.g. Telegram /cancel,
+     * REST DELETE /agent/run/{id}) to signal that the user no longer wants the result.
+     * Streaming loops and long-running FSM actions poll {@link #isCancelled()} and exit
+     * early. Declared {@code volatile} because set/read happens across thread boundaries
+     * (user request thread → reactor scheduler).
+     */
+    private volatile boolean cancelled;
 
     public AgentContext(String task, String conversationId, Map<String, String> metadata,
                         int maxIterations, Set<String> enabledTools) {
@@ -123,6 +143,25 @@ public final class AgentContext implements StateContext<AgentState> {
         return errorMessage != null && !errorMessage.isEmpty();
     }
 
+    /**
+     * LLM returned an empty response within the current iteration
+     * (no tool call, no text, no error). Cleared by {@link #clearEmptyResponse()}
+     * or {@link #resetIterationState()}.
+     */
+    public boolean hasEmptyResponse() {
+        return emptyResponse;
+    }
+
+    /**
+     * Guard used by the FSM to decide whether to retry a THINKING step
+     * after the LLM produced an empty response. True only while
+     * {@link #hasEmptyResponse()} is set and the per-iteration retry
+     * budget (controlled by {@link #MAX_EMPTY_RESPONSE_RETRIES}) is not exhausted.
+     */
+    public boolean canRetryEmptyResponse() {
+        return emptyResponse && emptyResponseRetryCount < MAX_EMPTY_RESPONSE_RETRIES;
+    }
+
     // --- Iteration management ---
 
     public void incrementIteration() {
@@ -138,6 +177,8 @@ public final class AgentContext implements StateContext<AgentState> {
         currentToolArguments = null;
         currentTextResponse = null;
         toolResult = null;
+        emptyResponse = false;
+        emptyResponseRetryCount = 0;
     }
 
     /**
@@ -229,6 +270,37 @@ public final class AgentContext implements StateContext<AgentState> {
         this.errorMessage = errorMessage;
     }
 
+    // --- Empty-response retry ---
+
+    /**
+     * Marks that the current THINKING step produced an empty response.
+     * Must be called from {@code think()} when the LLM returns no tool call,
+     * no final text, and no error.
+     */
+    public void markEmptyResponse() {
+        this.emptyResponse = true;
+    }
+
+    /**
+     * Clears the empty-response flag. Called by the retry action before
+     * re-invoking {@code think()} so the next response is evaluated fresh.
+     */
+    public void clearEmptyResponse() {
+        this.emptyResponse = false;
+    }
+
+    /**
+     * Number of empty-response retries consumed within the current iteration.
+     * Reset by {@link #resetIterationState()}.
+     */
+    public int getEmptyResponseRetryCount() {
+        return emptyResponseRetryCount;
+    }
+
+    public void incrementEmptyResponseRetryCount() {
+        this.emptyResponseRetryCount++;
+    }
+
     // --- Output ---
 
     public String getFinalAnswer() {
@@ -260,6 +332,18 @@ public final class AgentContext implements StateContext<AgentState> {
         if (streamSink != null) {
             streamSink.accept(event);
         }
+    }
+
+    // --- Cancellation ---
+
+    /** Signals the agent loop to abort at the next checkpoint. Idempotent. */
+    public void cancel() {
+        this.cancelled = true;
+    }
+
+    /** Returns {@code true} if {@link #cancel()} was invoked on this context. */
+    public boolean isCancelled() {
+        return cancelled;
     }
 
     // --- Extension map for implementation-specific state ---

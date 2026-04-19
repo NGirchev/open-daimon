@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.MessageSource;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -82,6 +83,18 @@ class RoleTelegramCommandHandlerTest {
         Update update = new Update();
         CallbackQuery cq = new CallbackQuery();
         cq.setData(ROLE_CALLBACK_PREFIX + "DEFAULT");
+        cq.setFrom(new User(200L, "user", false));
+        update.setCallbackQuery(cq);
+
+        TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.ROLE), update);
+        assertTrue(handler.canHandle(command));
+    }
+
+    @Test
+    void canHandle_whenCallbackQueryWithCancel_thenTrue() {
+        Update update = new Update();
+        CallbackQuery cq = new CallbackQuery();
+        cq.setData(ROLE_CALLBACK_PREFIX + "CANCEL");
         cq.setFrom(new User(200L, "user", false));
         update.setCallbackQuery(cq);
 
@@ -178,6 +191,9 @@ class RoleTelegramCommandHandlerTest {
         cq.setData(ROLE_CALLBACK_PREFIX + "CUSTOM");
         User from = new User(200L, "user", false);
         cq.setFrom(from);
+        Message callbackMessage = new Message();
+        callbackMessage.setMessageId(77);
+        cq.setMessage(callbackMessage);
         update.setCallbackQuery(cq);
 
         TelegramUser telegramUser = new TelegramUser();
@@ -190,6 +206,7 @@ class RoleTelegramCommandHandlerTest {
 
         verify(telegramUserService).updateUserSession(telegramUser, TelegramCommand.ROLE);
         verify(telegramBot, atLeast(1)).execute(any(org.telegram.telegrambots.meta.api.methods.BotApiMethod.class));
+        verify(telegramBot).execute(any(DeleteMessage.class));
     }
 
     @Test
@@ -200,6 +217,9 @@ class RoleTelegramCommandHandlerTest {
         cq.setData(ROLE_CALLBACK_PREFIX + "DEFAULT");
         User from = new User(200L, "user", false);
         cq.setFrom(from);
+        Message callbackMessage = new Message();
+        callbackMessage.setMessageId(77);
+        cq.setMessage(callbackMessage);
         update.setCallbackQuery(cq);
 
         TelegramUser telegramUser = new TelegramUser();
@@ -214,6 +234,85 @@ class RoleTelegramCommandHandlerTest {
         verify(telegramUserService).updateAssistantRole(from, "You are a helpful assistant.");
         verify(telegramBot).clearStatus(200L);
         verify(telegramBot, atLeast(1)).execute(any(org.telegram.telegrambots.meta.api.methods.BotApiMethod.class));
+        verify(telegramBot).execute(any(DeleteMessage.class));
+    }
+
+    @Test
+    void handleInner_whenCallbackCancel_thenDeletesMenuWithoutUpdatingRole() throws Exception {
+        Update update = new Update();
+        CallbackQuery cq = new CallbackQuery();
+        cq.setId("cq1");
+        cq.setData(ROLE_CALLBACK_PREFIX + "CANCEL");
+        User from = new User(200L, "user", false);
+        cq.setFrom(from);
+        Message callbackMessage = new Message();
+        callbackMessage.setMessageId(77);
+        cq.setMessage(callbackMessage);
+        update.setCallbackQuery(cq);
+
+        TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.ROLE), update);
+
+        assertNull(handler.handleInner(command));
+
+        verify(telegramBot).execute(any(DeleteMessage.class));
+        verify(telegramUserService, never()).updateAssistantRole(any(User.class), anyString());
+        verify(telegramUserService, never()).updateUserSession(any(TelegramUser.class), anyString());
+        verify(telegramBot, never()).clearStatus(anyLong());
+    }
+
+    @Test
+    void handle_whenPlainCommand_doesNotStartTyping() {
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        User from = new User(200L, "user", false);
+        message.setFrom(from);
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setTelegramId(200L);
+        AssistantRole role = new AssistantRole();
+        role.setId(1L);
+        role.setVersion(1);
+        role.setContent("Default role content");
+        telegramUser.setCurrentAssistantRole(role);
+
+        when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
+        when(telegramUserService.getOrCreateAssistantRole(any(TelegramUser.class), eq("You are a helpful assistant.")))
+                .thenReturn(role);
+
+        TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.ROLE), update, "   ");
+
+        handler.handle(command);
+
+        verify(typingIndicatorService, never()).startTyping(CHAT_ID);
+        verify(typingIndicatorService, never()).stopTyping(CHAT_ID);
+    }
+
+    @Test
+    void handle_whenCallbackPreset_doesNotStartTyping() {
+        Update update = new Update();
+        CallbackQuery cq = new CallbackQuery();
+        cq.setId("cq1");
+        cq.setData(ROLE_CALLBACK_PREFIX + "DEFAULT");
+        User from = new User(200L, "user", false);
+        cq.setFrom(from);
+        Message callbackMessage = new Message();
+        callbackMessage.setMessageId(77);
+        cq.setMessage(callbackMessage);
+        update.setCallbackQuery(cq);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setTelegramId(200L);
+        when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
+        when(telegramUserService.updateAssistantRole(eq(from), anyString())).thenReturn(telegramUser);
+
+        TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.ROLE), update);
+
+        handler.handle(command);
+
+        verify(typingIndicatorService, never()).startTyping(CHAT_ID);
+        verify(typingIndicatorService, never()).stopTyping(CHAT_ID);
     }
 
     @Test

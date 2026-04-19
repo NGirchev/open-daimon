@@ -51,7 +51,6 @@ public final class FeatureToggle {
         public static final String TELEGRAM_CACHE_REDIS_ENABLED = "open-daimon.telegram.cache.redis-enabled";
         public static final String TELEGRAM_FILE_UPLOAD_ENABLED = "open-daimon.telegram.file-upload.enabled";
         public static final String OPENROUTER_MODELS_ENABLED = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models.enabled";
-        public static final String AGENT_MEMORY_ENABLED = "open-daimon.agent.memory.enabled";
         public static final String AGENT_HTTP_API_TOOL_ENABLED = "open-daimon.agent.tools.http-api.enabled";
     }
 
@@ -114,7 +113,6 @@ public final class FeatureToggle {
         TELEGRAM_CACHE_REDIS(Feature.TELEGRAM_CACHE_REDIS_ENABLED),
         TELEGRAM_FILE_UPLOAD(Feature.TELEGRAM_FILE_UPLOAD_ENABLED),
         OPENROUTER_MODELS(Feature.OPENROUTER_MODELS_ENABLED),
-        AGENT_MEMORY(Feature.AGENT_MEMORY_ENABLED),
         AGENT_HTTP_API_TOOL(Feature.AGENT_HTTP_API_TOOL_ENABLED),
         // Telegram commands
         CMD_BUGREPORT(TelegramCommand.PREFIX + "." + TelegramCommand.BUGREPORT),

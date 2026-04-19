@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -185,8 +186,8 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public TelegramAgentStreamRenderer telegramAgentStreamRenderer() {
-        return new TelegramAgentStreamRenderer();
+    public TelegramAgentStreamRenderer telegramAgentStreamRenderer(ObjectMapper objectMapper) {
+        return new TelegramAgentStreamRenderer(objectMapper);
     }
 
     @Bean
