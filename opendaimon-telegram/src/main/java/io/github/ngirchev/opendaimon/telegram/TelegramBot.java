@@ -12,6 +12,8 @@ import org.telegram.telegrambots.meta.api.methods.polls.SendPoll;
 import org.telegram.telegrambots.meta.api.methods.send.SendChatAction;
 import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
@@ -483,7 +485,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.THREADS);
             } else if (callbackData.startsWith("LANG_")) {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.LANGUAGE);
-            } else if ("ERROR".equals(callbackData) || "IMPROVEMENT".equals(callbackData)) {
+            } else if ("ERROR".equals(callbackData) || "IMPROVEMENT".equals(callbackData) || "BUG_CANCEL".equals(callbackData)) {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.BUGREPORT);
             } else if (callbackData.startsWith("MODEL_")) {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.MODEL);
@@ -656,15 +658,26 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId) throws TelegramApiException {
-        return sendMessageAndGetId(chatId, text, replyToMessageId, null);
+        return sendMessageAndGetId(chatId, text, replyToMessageId, null, false);
     }
 
     public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId, ReplyKeyboard replyMarkup) throws TelegramApiException {
+        return sendMessageAndGetId(chatId, text, replyToMessageId, replyMarkup, false);
+    }
+
+    public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId,
+                                        boolean disableLinkPreview) throws TelegramApiException {
+        return sendMessageAndGetId(chatId, text, replyToMessageId, null, disableLinkPreview);
+    }
+
+    public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId,
+                                        ReplyKeyboard replyMarkup, boolean disableLinkPreview) throws TelegramApiException {
         try {
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
             message.setText(text);
             message.setParseMode("HTML");
+            message.setDisableWebPagePreview(disableLinkPreview);
             if (replyToMessageId != null) {
                 message.setReplyToMessageId(replyToMessageId);
             }
@@ -680,6 +693,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                     SendMessage fallbackMessage = new SendMessage();
                     fallbackMessage.setChatId(chatId.toString());
                     fallbackMessage.setText(text);
+                    fallbackMessage.setDisableWebPagePreview(disableLinkPreview);
                     if (replyToMessageId != null) {
                         fallbackMessage.setReplyToMessageId(replyToMessageId);
                     }
@@ -696,6 +710,76 @@ public class TelegramBot extends TelegramLongPollingBot {
             log.error("Error sending message", e);
             throw e;
         }
+    }
+
+    /**
+     * Edit an existing message's text with HTML formatting.
+     *
+     * <p>Falls back to plain text if HTML parsing fails (same pattern as
+     * {@link #sendMessageAndGetId}).
+     */
+    public void editMessageHtml(Long chatId, Integer messageId, String html) throws TelegramApiException {
+        editMessageHtml(chatId, messageId, html, false);
+    }
+
+    public void editMessageHtml(Long chatId, Integer messageId, String html,
+                                 boolean disableWebPagePreview) throws TelegramApiException {
+        if (messageId == null) {
+            log.warn("Message ID is null, cannot edit message for chat {}", chatId);
+            return;
+        }
+        try {
+            EditMessageText edit = new EditMessageText();
+            edit.setChatId(chatId.toString());
+            edit.setMessageId(messageId);
+            edit.setText(html);
+            edit.setParseMode("HTML");
+            edit.setDisableWebPagePreview(disableWebPagePreview);
+            execute(edit);
+        } catch (TelegramApiException e) {
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && errorMessage.contains("message is not modified")) {
+                log.debug("Message {} in chat {} was not modified", messageId, chatId);
+                return;
+            }
+            if (errorMessage != null && errorMessage.contains("parse")) {
+                log.warn("HTML parsing error in editMessage, retrying without formatting: {}", errorMessage);
+                try {
+                    EditMessageText fallback = new EditMessageText();
+                    fallback.setChatId(chatId.toString());
+                    fallback.setMessageId(messageId);
+                    fallback.setText(html);
+                    fallback.setDisableWebPagePreview(disableWebPagePreview);
+                    execute(fallback);
+                } catch (TelegramApiException fallbackException) {
+                    if (fallbackException.getMessage() != null
+                            && fallbackException.getMessage().contains("message is not modified")) {
+                        log.debug("Message {} in chat {} was not modified (fallback)", messageId, chatId);
+                        return;
+                    }
+                    log.error("Error editing fallback message", fallbackException);
+                    throw fallbackException;
+                }
+            } else {
+                log.error("Error editing message", e);
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Delete a message in a chat. Fails silently for messages older than 48 h or when
+     * the bot lacks the right to delete — caller should treat any exception as "couldn't
+     * delete, fall back to edit".
+     */
+    public void deleteMessage(Long chatId, Integer messageId) throws TelegramApiException {
+        if (messageId == null) {
+            return;
+        }
+        DeleteMessage delete = new DeleteMessage();
+        delete.setChatId(chatId.toString());
+        delete.setMessageId(messageId);
+        execute(delete);
     }
 
     public void sendErrorMessage(Long chatId, String errorMessage) throws TelegramApiException {

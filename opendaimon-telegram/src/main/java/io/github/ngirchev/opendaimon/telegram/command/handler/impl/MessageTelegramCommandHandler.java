@@ -31,7 +31,6 @@ import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Telegram message handler that delegates processing to an FSM pipeline.
@@ -81,12 +80,10 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         Message message = command.update().getMessage();
 
         // Create streaming callback that sends paragraphs to Telegram
-        AtomicReference<Integer> replyToMessageId = new AtomicReference<>(message != null ? message.getMessageId() : null);
+        MessageHandlerContext[] ctxRef = new MessageHandlerContext[1];
         MessageHandlerContext ctx = new MessageHandlerContext(command, message,
-                htmlText -> {
-                    sendMessage(command.telegramId(), htmlText, replyToMessageId.get());
-                    replyToMessageId.set(null);
-                });
+                htmlText -> sendMessage(command.telegramId(), htmlText, ctxRef[0].consumeNextReplyToMessageId()));
+        ctxRef[0] = ctx;
 
         try {
             handlerFsm.handle(ctx, MessageHandlerEvent.HANDLE);

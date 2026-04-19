@@ -40,8 +40,11 @@ public abstract class AbstractTelegramCommandHandlerWithResponseSend implements
 
     @Override
     public final Void handle(TelegramCommand command) {
+        boolean showTypingIndicator = shouldShowTypingIndicator(command);
         try {
-            typingIndicatorService.startTyping(command.telegramId());
+            if (showTypingIndicator) {
+                typingIndicatorService.startTyping(command.telegramId());
+            }
             try {
                 String message = handleInner(command);
                 if (StringUtils.isNoneBlank(message)) {
@@ -62,9 +65,15 @@ public abstract class AbstractTelegramCommandHandlerWithResponseSend implements
                 sendErrorMessage(command.telegramId(), messageLocalizationService.getMessage("common.error.processing", command.languageCode()));
             }
         } finally {
-            typingIndicatorService.stopTyping(command.telegramId());
+            if (showTypingIndicator) {
+                typingIndicatorService.stopTyping(command.telegramId());
+            }
         }
         return null;
+    }
+
+    protected boolean shouldShowTypingIndicator(TelegramCommand command) {
+        return true;
     }
 
     protected abstract String handleInner(TelegramCommand command) throws TelegramCommandHandlerException, TelegramApiException;

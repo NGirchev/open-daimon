@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +29,7 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramM
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
 import io.github.ngirchev.opendaimon.telegram.service.InMemoryModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
@@ -183,6 +185,12 @@ public class TelegramCommandHandlerConfig {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public TelegramAgentStreamRenderer telegramAgentStreamRenderer(ObjectMapper objectMapper) {
+        return new TelegramAgentStreamRenderer(objectMapper);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(MessageHandlerActions.class)
     @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MESSAGE, havingValue = "true", matchIfMissing = true)
     public TelegramMessageHandlerActions messageHandlerActions(
@@ -198,6 +206,7 @@ public class TelegramCommandHandlerConfig {
             ReplyImageAttachmentService replyImageAttachmentService,
             TelegramMessageSender telegramMessageSender,
             ObjectProvider<AgentExecutor> agentExecutorProvider,
+            TelegramAgentStreamRenderer agentStreamRenderer,
             // No default here — all defaults live in application.yml only (see coding-style.md)
             @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations) {
         return new TelegramMessageHandlerActions(
@@ -205,7 +214,7 @@ public class TelegramCommandHandlerConfig {
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, userModelPreferenceService,
                 persistentKeyboardService, replyImageAttachmentService, telegramMessageSender,
-                agentExecutorProvider.getIfAvailable(), agentMaxIterations);
+                agentExecutorProvider.getIfAvailable(), agentStreamRenderer, agentMaxIterations);
     }
 
     @Bean

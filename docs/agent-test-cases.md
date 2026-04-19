@@ -48,7 +48,7 @@ Legend: **DONE** = implemented and passing, **TODO** = not yet implemented.
 ### How to run
 
 ```bash
-# Ollama tests (requires local Ollama with qwen2.5:3b + nomic-embed-text:v1.5)
+# Ollama tests (requires local Ollama with qwen3.5:4b + nomic-embed-text:v1.5)
 ./mvnw -pl opendaimon-app -am test-compile failsafe:integration-test failsafe:verify \
   -Dit.test=AgentModeOllamaManualIT \
   -Dmanual.ollama.e2e=true
@@ -90,3 +90,13 @@ For hand-testing agent behavior via Telegram bot.
 | # | Prompt | Expected behavior |
 |---|--------|-------------------|
 | 8 | Select non-existent model via /model, then send any message | WARN log "not found in registry", fallback to auto-selection |
+
+
+### Telegram agent expected behavior
+
+The user-visible Telegram UX for the REACT loop (status/answer messages, tool-call rendering,
+reasoning updates, max-iterations handling, length-limit rotation) is specified in
+[`opendaimon-telegram/TELEGRAM_MODULE.md`](../opendaimon-telegram/TELEGRAM_MODULE.md) —
+see section **"Agent Mode — REACT Loop Telegram UX"**.
+
+Test cases in this document validate that specification.

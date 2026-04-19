@@ -16,7 +16,7 @@ The profile is shared by all manual tests (PDF/RAG, web tool calling, etc.).
 Rename: `opendaimon-app/src/it/resources/application-manual-ollama-e2e.yaml` -> `application-manual.yaml`
 
 Changes inside the YAML:
-- Added `TOOL_CALLING`, `WEB`, `SUMMARIZATION` capabilities to `qwen2.5:3b` model (matching prod config)
+- Added `TOOL_CALLING`, `WEB`, `SUMMARIZATION` capabilities to `qwen3.5:4b` model (matching prod config)
 - Added debug logging for `SpringAIPromptFactory`, `SpringAIChatService`, `WebTools`, `WebClientLogCustomizer`
 
 ### 2. ImagePdfVisionRagOllamaManualIT
@@ -58,7 +58,7 @@ Also delete stale `opendaimon-app/target/test-classes/application-manual-ollama-
 
 - Uses `@ActiveProfiles({"integration-test", "manual"})` (same shared profile)
 - Uses `MockWebServer` to stub HTTP responses for `WebTools` (no `@MockitoBean` on `WebTools` - see note below)
-- Verifies that `qwen2.5:3b` invokes Spring AI tool calling when message contains a URL
+- Verifies that `qwen3.5:4b` invokes Spring AI tool calling when message contains a URL
 
 Run command:
 ```bash
@@ -66,7 +66,7 @@ Run command:
   -Dit.test=WebToolCallingOllamaManualIT \
   -Dfailsafe.failIfNoSpecifiedTests=false \
   -Dmanual.ollama.e2e=true \
-  -Dmanual.ollama.chat-model=qwen2.5:3b
+  -Dmanual.ollama.chat-model=qwen3.5:4b
 ```
 
 ## Important: do NOT use @MockitoBean on WebTools

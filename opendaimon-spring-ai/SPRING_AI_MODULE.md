@@ -314,6 +314,314 @@ Telegram-specific bot identity is already part of `role` metadata from Telegram 
 
 ---
 
+## REACT Agent Loop — Iteration Handling
+
+The REACT loop lives in `SpringAgentLoopActions` (FSM actions) and is driven by `ReActAgentExecutor`.
+Spring AI's built-in tool-execution loop is disabled via
+`ToolCallingChatOptions.internalToolExecutionEnabled = false`; we drive tool invocations
+ourselves so that each `THINKING → TOOL_CALL → OBSERVATION` step can be streamed as
+discrete `AgentStreamEvent`s and observed by the Telegram layer (see
+`opendaimon-telegram/TELEGRAM_MODULE.md#agent-mode--react-loop-telegram-ux`).
+
+### `StreamingAnswerFilter` — scope and limits
+
+`io.github.ngirchev.opendaimon.ai.springai.agent.StreamingAnswerFilter` strips the
+following tag forms from the streamed model output before the text is emitted as
+`AgentStreamEvent.PARTIAL_ANSWER`:
+
+- **Unconditional:** `<think>…</think>`, `<tool_call>…</tool_call>`,
+  `<tool_name>…</tool_name>`, `<arg_key>…</arg_key>`, `<arg_value>…</arg_value>`.
+- **Context-gated:** `<name>…</name>` — stripped only after the stream has
+  already yielded one of the four **loose tool-call anchors** above
+  (`<tool_call>`, `<tool_name>`, `<arg_key>`, `<arg_value>`, or an orphan closer
+  thereof). Before any anchor has been seen, `<name>` passes through as ordinary
+  content so that a user prompt like "show me XML with a `<name>` element"
+  renders correctly. This matches `AgentTextSanitizer.stripToolCallTags`, which
+  applies the `<name>`/`<arg_*>` inner-tag regex only when `<arg_key>` or
+  `<arg_value>` is also present in the buffer.
+
+Bare tool-name tokens on their own line (`fetch_url\n…`) still pass through and
+reach downstream consumers as plain text. Because of that, the Telegram UX layer
+implements a **redundant** marker scan on every `PARTIAL_ANSWER` chunk
+(`TelegramMessageHandlerActions#containsToolMarker`), which is what guarantees the
+tentative-answer bubble is rolled back when leaked tool markup appears. Do not treat
+`StreamingAnswerFilter` as the sole defense against tool-call leakage into the user
+answer — downstream consumers that render model text to users must scan too.
+
+### Tool failure detection
+
+Spring AI's `@Tool` contract is **string-typed**: tool methods return a plain `String`
+either way, and the framework has no built-in way to mark a call as failed beyond having
+the method throw an exception. Several built-in tool implementations in this project
+(`HttpApiTool.httpGet` / `httpPost`, `WebTools.fetchUrl`) catch HTTP failures internally
+and return an error-describing string rather than propagating the exception, because
+Spring AI prefers that the tool surface error details to the model as text. The cost is
+that `ToolExecutionResult` comes back successful (`toolResult.success() == true`) even
+for HTTP 403 Cloudflare pages or timeouts. A naive Telegram renderer would then show
+"📋 Tool result received" for a failed fetch, contradicting the product spec that
+mandates "⚠️ Tool failed: …" for failures.
+
+`SpringAgentLoopActions#observe` therefore applies a **textual-failure heuristic** before
+emitting the `OBSERVATION` event:
+
+1. If `toolResult.success() == false` — error, no heuristic needed (exception path).
+2. Otherwise, inspect the trimmed result string. If it starts with any of the three
+   recognised failure prefixes, treat the observation as failed:
+   - `"HTTP error "` — produced by `WebTools.handleWebClientResponseException` /
+     `HttpApiTool` on non-2xx responses.
+   - `"Error: "` — produced by `WebTools.fetchUrl` for structured `REASON_*` codes
+     (invalid URL, timeout, too large, unreadable 2xx) and generic exception fallbacks.
+   - `"Exception occurred in tool:"` — produced by Spring AI's
+     `DefaultToolCallResultConverter` when a `@Tool` method throws an unhandled
+     exception: the framework catches it above our try/catch and substitutes this
+     canonical string as a "successful" tool result. Without recognising it the
+     Telegram renderer would show `📋 Tool result received` for a genuine NPE.
+
+   On match:
+   - Set `toolError = true` on the emitted `AgentStreamEvent.observation`.
+   - Replace the streamed content with a short summary (`summarizeToolError`) — first
+     line, capped at 200 characters — so UI surfaces (`⚠️ Tool failed: …`) don't have to
+     wrap a 7 kB CloudFlare challenge page.
+
+The recorded `AgentStepResult` keeps the full observation text (model context is
+unchanged), only the stream event and its UI-facing content are shortened.
+
+**2xx-guard on WebClient-based tools.** `WebTools.fetchUrl` and `HttpApiTool.httpGet` /
+`httpPost` talk to arbitrary third-party servers via Spring WebClient. `bodyToMono`
+can raise a `WebClientResponseException` with a **2xx status** when the body fails to
+decode — typically a `DataBufferLimitException` when the page exceeds
+`maxInMemorySize` (see codec note below), but also charset mismatches and malformed
+gzip. A naive `catch (WebClientResponseException)` that only formats
+`status + " " + reason` would then surface the absurd marker `"HTTP error 200 OK"`
+to the agent loop — which the textual-failure heuristic classifies as FAILED and the
+model tries to retry the same URL in a loop. Both tools therefore **must** branch on
+`e.getStatusCode().is2xxSuccessful()`:
+
+- 2xx + decode failure → return `"Error: <op> could not decode response body for <url>"`.
+- Non-2xx → keep the existing `"HTTP error <code> <status>[: <body>]"` contract.
+
+Both forms fall under the `"Error: "` / `"HTTP error "` prefix set recognized by
+`observe()`, so the observation remains FAILED either way; the difference is that the
+error text now actually describes what happened instead of lying about an HTTP 200.
+
+### `fetch_url` request and retry policy
+
+`WebTools.fetchUrl` is a retrieval tool, not a discovery tool. The agent prompt tells
+the model to use `web_search` for discovery, then use `fetch_url` only for a selected
+URL that is worth opening. Runtime behavior is defensive because the model cannot know
+in advance which sites will block a plain HTTP client:
+
+- Every fetch sends browser-like `User-Agent`, `Accept`, and `Accept-Language` headers.
+- A normal non-2xx response remains a single failed tool observation:
+  `"HTTP error <code> <status>"`.
+- A 403 with Cloudflare's `cf-mitigated: challenge` header gets one internal retry with
+  `User-Agent: OpenDaimonWebFetch/1.0`. If that retry also fails, the retry failure is
+  surfaced using the same `"HTTP error "` / `"Error: "` contract.
+- There is no generic retry loop for 401/403/404/5xx responses; repeated attempts are
+  handled by the agent guard below.
+
+`SpringAgentLoopActions#resolveEffectiveTools` wraps only the `fetch_url` callback with
+a per-run guard. The guard records textual fetch failures in `AgentContext.extras`:
+
+- Repeating the exact same failed URL returns
+  `"Error: previously_failed_url - ..."` without making another network call.
+- After two non-transient failures on the same host, further URLs on that host return
+  `"Error: host_unreadable - ..."` without making another network call.
+- Timeouts, HTTP 408, HTTP 429, and HTTP 5xx do not increment the host-failure counter
+  because they can be transient; the exact failed URL is still remembered.
+- Successful fetches do not poison the URL or host.
+
+The synthetic guard results deliberately keep the `"Error: "` prefix so
+`observe()` and Telegram render them as failed tool observations. This mirrors the
+public server-tool pattern used by hosted assistants: tools produce structured,
+machine-readable failure signals, and the agent policy switches source instead of
+repeatedly asking the model to guess what a remote site will allow.
+
+### `handleMaxIterations` — tool-less summary call
+
+When the iteration counter hits `open-daimon.agent.max-iterations`, the loop terminates
+in state `MAX_ITERATIONS`. The action now issues **one extra tool-less LLM call** to
+summarize the collected step history and produce a direct answer for the user:
+
+1. Build a `SystemMessage` instructing the model that it has reached the iteration limit
+   and must answer directly without calling any tools. The prompt also:
+   - Forbids meta-prose and introductory phrases such as "Based on", "Answer:",
+     "According to", "The searches showed", or similar.
+   - Appends a language instruction derived from the `languageCode` field in
+     `ctx.getMetadata()` (e.g. `"Respond in Russian (ru)."`) when the field is present.
+2. Build a `UserMessage` carrying the original user question plus a flat text digest of
+   `AgentStepResult`s accumulated so far.
+3. Call `chatModel.call(Prompt(messages, ToolCallingChatOptions.builder()
+   .internalToolExecutionEnabled(false).toolCallbacks(List.of()).build()))`.
+4. Run the response through `stripToolCallTags` and set it as `ctx.finalAnswer`.
+
+If the summary call throws, or the model returns blank content, the action falls back
+to a `StringBuilder`-based digest that references the iteration limit and the step
+history. The fallback keeps the invariant that the user always receives a non-empty
+final answer.
+
+`ReActAgentExecutor` emits two events on MAX_ITERATIONS termination:
+1. `MAX_ITERATIONS` — informational marker (the Telegram layer treats this as a UI cue).
+2. `FINAL_ANSWER` carrying `ctx.finalAnswer` — the canonical answer signal consumed by
+   both the Telegram orchestrator and the persistence layer.
+
+The `FINAL_ANSWER` emit is **unconditional**: if a regression upstream leaves
+`result.finalAnswer()` null or blank, the executor logs `log.warn("ReActAgentExecutor:
+MAX_ITERATIONS finished with empty finalAnswer — …")` and substitutes a safety text
+(`"I reached the iteration limit before producing a complete answer. Please rephrase
+or try again."`). This guarantees the Telegram path
+(`extractAgentResult` → `saveResponse.orElseThrow`) always has content, so the user
+never sees an orphan "⚠️ reached iteration limit" status line with no body text. If
+the warn message ever shows up in `logs/`, it flags a bug in the
+`handleMaxIterations` fallback chain rather than being normal steady state.
+
+### WebClient codec — `webToolsWebClient` bean
+
+Built-in agent tools that fetch arbitrary third-party pages/APIs (`WebTools`,
+`HttpApiTool`) use a dedicated `@Bean("webToolsWebClient")` with
+`maxInMemorySize = 2 MiB` (Spring default is 256 KiB). Large articles (Hacker Noon,
+long JSON payloads, etc.) exceed 256 KiB routinely and otherwise surface as decode
+failures on 2xx — see the "2xx-guard" note under *Tool failure detection*. The main
+`webClient` bean (used for LLM SSE streaming to OpenRouter / Ollama) keeps the
+platform defaults, so the codec bump is scoped to the tools that actually need it.
+With `PriorityRequestExecutor` capping concurrency at `10/5/1` threads, the worst-case
+heap headroom added by the bump is ~20 MiB.
+
+### TLS trust store — `webToolsWebClient` bean
+
+`webToolsWebClient` attaches a Reactor Netty `HttpClient` configured with a
+**merged trust store**: JDK `cacerts` (from `${java.home}/lib/security/cacerts`)
+plus — when the Apple JSSE provider is registered (macOS) — every trusted
+certificate entry from the system and login `KeychainStore`. This guarantees the
+agent can reach Cloudflare-fronted sites (`itnext.io`, Medium-hosted domains,
+etc.) whose chains lag behind the bundled Corretto `cacerts`, without requiring
+JVM-level flags such as `-Djavax.net.ssl.trustStoreType=KeychainStore
+-Djavax.net.ssl.trustStore=NONE`.
+
+Degradation is silent and never fails bean creation:
+- Apple provider absent or Keychain load throws → JDK `cacerts` only (WARN).
+- JDK `cacerts` load fails → Netty default trust manager (ERROR).
+
+Scope is limited to `webToolsWebClient` only; the main `webClient`, the Ollama
+builder, and the OpenRouter customizer keep their existing configuration
+because OpenRouter and Ollama endpoints already validate under the bundled
+`cacerts` without intervention.
+
+### Final-answer URL sanitization — `UrlLivenessChecker`
+
+LLMs regularly hallucinate plausible-looking citation URLs that return 404. To
+defend the user-visible answer, `SpringAgentLoopActions.answer()` passes the
+final text through `UrlLivenessChecker.stripDeadLinks(...)` when the bean is
+available (wired via `ObjectProvider`, so the loop stays functional when
+URL-check is disabled).
+
+Behavior:
+- HEAD probe per URL with a strict timeout; on `405 Method Not Allowed` fall
+  back to a ranged GET (`Range: bytes=0-0`) because many CDNs block HEAD.
+- Dead markdown links `[anchor](url)` collapse to plain `anchor` text.
+- Dead bare URLs are replaced with a short unavailable marker so the reader is
+  not sent to a broken page.
+- Results are cached in an in-memory Caffeine cache keyed by URL with TTL
+  `open-daimon.ai.spring-ai.url-check.cache-ttl-minutes` (default 10 min), so
+  a single answer mentioning the same URL twice produces one HTTP round-trip.
+- Per-answer cap: `url-check.max-urls-per-answer` (default 10) bounds total
+  added latency on long answers with many citations.
+
+Disable the whole feature by setting
+`open-daimon.ai.spring-ai.url-check.enabled=false` — the bean is then skipped
+and the agent loop returns raw text unchanged. The bean is **not** invoked on
+every `WebTools.fetchUrl` call — only once as the last step before
+`ctx.finalAnswer` is set. Sanitization failures never block answer delivery:
+on any exception the original text is returned and a warning is logged.
+
+### Streaming timeout & fallback — `SpringAgentLoopActions.streamAndAggregate`
+
+The streaming reactor pipeline is now bounded by a hard timeout sourced from
+`open-daimon.agent.stream-timeout-seconds` (required property on `AgentProperties`;
+owned by the agent module because only `SpringAgentLoopActions` consumes it).
+Behavior:
+
+- `.blockLast(streamTimeout)` replaces the previous unbounded block — a stuck
+  upstream (LLM provider never emits `onComplete`) can no longer hang the FSM
+  thread indefinitely.
+- On `Exception` before any chunk arrived, the loop **falls back to the
+  non-streaming** `chatModel.call(prompt)` and emits an `AgentStreamEvent.ERROR`
+  event so UI renderers can surface a "switched to non-streaming" notice.
+- On `Exception` after partial chunks, the partial response is surfaced
+  (warn-logged) rather than lost; also accompanied by an `ERROR` event.
+- Tool calls collected across chunks are deduplicated by `id` (falling back to
+  `name|arguments`) via a `LinkedHashSet` — older implementations would double-
+  count when a provider echoed the same tool call in multiple chunks.
+
+### Cooperative cancellation — `AgentContext.cancel()`
+
+`AgentContext` now exposes `cancel()` / `isCancelled()` as a cooperative
+shutdown channel used by transports (Telegram `/cancel`, REST `DELETE
+/agent/run/{id}`). `SpringAgentLoopActions` checks the flag at several points:
+
+1. Entry of `think(ctx)` — short-circuit before making any LLM call.
+2. Inside `streamAndAggregate` — `.takeWhile(c -> !ctx.isCancelled())` stops
+   consuming reactive chunks as soon as the flag flips; on exit it sets
+   `errorMessage="Agent run cancelled by user during streaming"` and returns
+   `null` so the outer loop terminates cleanly.
+3. Entry of `answer(ctx)` — if the flag flipped after `think()` populated
+   `currentTextResponse` but before the FSM dispatched to ANSWERING, the action
+   writes `errorMessage="Agent run cancelled by user before answer()"` and
+   leaves `finalAnswer` unset. The FSM's ANSWERING branch checks
+   `hasError` and routes to **FAILED** instead of COMPLETED, so
+   `AgentResult.isSuccess()` returns `false` and the stream surfaces an error
+   event rather than a `null` FINAL_ANSWER. `handleError()` performs the
+   cleanup on the failure branch.
+4. Entry of `handleMaxIterations(ctx)` — emits a short fallback summary so the
+   user still sees a closing message.
+
+The flag is `volatile` — writes from any caller thread are observed on the
+reactor scheduler without additional synchronization.
+
+### Structured reason codes — `WebTools`
+
+`WebTools` returns observation strings prefixed with stable reason codes so
+the agent loop (and `observe()` heuristics) can classify failure modes without
+pattern-matching on raw exception messages:
+
+- `REASON_INVALID_URL` — pre-flight check on non-http(s) URLs.
+- `REASON_UNREADABLE_2XX` — 2xx status but body decode failed (charset, gzip,
+  or `maxInMemorySize`).
+- `REASON_TOO_LARGE` — `DataBufferLimitException` (response larger than the
+  WebClient buffer limit, currently 2 MiB).
+- `REASON_TIMEOUT` — request exceeded the per-tool 6s timeout.
+
+The codes are public constants on `WebTools`; downstream test fixtures and
+`observe()` heuristics should reference them by constant, not literal string.
+
+**Empty-arguments guard on `web_search`.** Some chat models (observed on
+`z-ai/glm-4.5v`) emit a `web_search` `tool_call` with empty arguments — Spring AI
+deserialises this as `query=null` and invokes `WebTools.webSearch(null)`.
+`Map.of("q", query, …)` would then throw NPE, and Spring AI converts the
+exception into the textual `"Exception occurred in tool: web_search (…)"`
+string (now recognised by `isTextualToolFailure`). To avoid even reaching that
+path, `webSearch` returns an empty `SearchResult` early on `query == null` or
+`query.isBlank()`, logging the event at WARN. The result is a valid JSON the
+model handles gracefully.
+
+### History recovery from primary store — `SummarizingChatMemory`
+
+On application restart (or any event that empties the `ChatMemoryRepository`
+cache) `SummarizingChatMemory.get(conversationId)` now rebuilds the window from
+the primary store: if the delegate returns empty but `ConversationThread` has
+a summary and/or post-summarization messages, the memory is re-seeded with
+`SystemMessage(summary) + most-recent N messages` (where N = `maxMessages`).
+Before seeding, the trailing row is checked: if its role is `USER` it is
+dropped, because `TelegramMessageHandlerActions.saveMessage` persists the
+turn's user prompt before the agent runs — without the drop, the caller
+(`SpringAgentLoopActions.think`) would re-append the same prompt and the model
+would see the request twice. The single-writer-per-thread invariant on
+`saveMessage` guarantees at most one trailing `USER` row. This recovery runs
+under a `synchronized (conversationId.intern())` block to keep concurrent
+reads from observing a half-populated window.
+
+---
+
 ## Responses
 
 | Type | Class | When |

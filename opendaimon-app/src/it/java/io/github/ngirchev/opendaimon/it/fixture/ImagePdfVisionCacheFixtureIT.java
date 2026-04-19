@@ -244,7 +244,7 @@ class ImagePdfVisionCacheFixtureIT {
     void modelSelection_autoWithVision_findsVisionModel() {
         // Production-like model config: separate text and vision models
         SpringAIModelConfig textModel = new SpringAIModelConfig();
-        textModel.setName("qwen2.5:3b");
+        textModel.setName("qwen3.5:4b");
         textModel.setCapabilities(Set.of(
                 ModelCapabilities.AUTO, ModelCapabilities.CHAT,
                 ModelCapabilities.TOOL_CALLING, ModelCapabilities.SUMMARIZATION));

@@ -37,7 +37,7 @@ The wizard will:
 
 - Configure `.env` with your credentials
 - Let you choose AI provider (OpenRouter or Ollama)
-- For Ollama — check the connection and pull `qwen2.5:3b` automatically
+- For Ollama — check the connection and pull `qwen3.5:4b` automatically
 - Generate ready-to-run `docker-compose.yml` and `application-local.yml`
 - Offer to start the stack immediately
 

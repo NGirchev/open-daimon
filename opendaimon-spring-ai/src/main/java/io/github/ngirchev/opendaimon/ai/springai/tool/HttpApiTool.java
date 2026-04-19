@@ -80,8 +80,7 @@ public class HttpApiTool {
 
             return truncate(response);
         } catch (WebClientResponseException e) {
-            log.error("HttpApiTool GET failed: url={}, status={}", url, e.getStatusCode());
-            return "HTTP error " + e.getStatusCode() + ": " + truncate(e.getResponseBodyAsString());
+            return formatWebClientError(e, url, "http_get");
         } catch (Exception e) {
             log.error("HttpApiTool GET failed: url={}, error={}", url, e.getMessage());
             return "Error: " + e.getMessage();
@@ -113,12 +112,35 @@ public class HttpApiTool {
 
             return truncate(response);
         } catch (WebClientResponseException e) {
-            log.error("HttpApiTool POST failed: url={}, status={}", url, e.getStatusCode());
-            return "HTTP error " + e.getStatusCode() + ": " + truncate(e.getResponseBodyAsString());
+            return formatWebClientError(e, url, "http_post");
         } catch (Exception e) {
             log.error("HttpApiTool POST failed: url={}, error={}", url, e.getMessage());
             return "Error: " + e.getMessage();
         }
+    }
+
+    /**
+     * Classifies a {@link WebClientResponseException} into a tool-layer error string.
+     *
+     * <p>{@code WebClient.bodyToMono} can raise this exception with a 2xx status when the
+     * response body cannot be decoded (e.g. exceeds {@code maxInMemorySize} codec limit,
+     * charset mismatch, malformed gzip). In that case the status is misleading — the
+     * upstream server actually succeeded — so we surface {@code "Error: <op> could not
+     * decode …"} which the agent layer classifies as FAILED. For genuine non-2xx
+     * failures we keep the existing {@code "HTTP error <code> <status>: <body>"} contract.
+     *
+     * @param e  the exception from WebClient
+     * @param url the request URL (for diagnostics in the returned message)
+     * @param op  the tool operation ({@code "http_get"} or {@code "http_post"})
+     */
+    private String formatWebClientError(WebClientResponseException e, String url, String op) {
+        if (e.getStatusCode().is2xxSuccessful()) {
+            log.warn("HttpApiTool.{}: body decode failed on 2xx for url=[{}]: {}",
+                    op, url, e.getMessage());
+            return "Error: " + op + " could not decode response body for " + url;
+        }
+        log.error("HttpApiTool.{} failed: url={}, status={}", op, url, e.getStatusCode());
+        return "HTTP error " + e.getStatusCode() + ": " + truncate(e.getResponseBodyAsString());
     }
 
     /**
