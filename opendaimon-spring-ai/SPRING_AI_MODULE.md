@@ -365,8 +365,19 @@ mandates "⚠️ Tool failed: …" for failures.
 emitting the `OBSERVATION` event:
 
 1. If `toolResult.success() == false` — error, no heuristic needed (exception path).
-2. Otherwise, inspect the trimmed result string. If it starts with `"HTTP error "` or
-   `"Error: "`, treat the observation as failed:
+2. Otherwise, inspect the trimmed result string. If it starts with any of the three
+   recognised failure prefixes, treat the observation as failed:
+   - `"HTTP error "` — produced by `WebTools.handleWebClientResponseException` /
+     `HttpApiTool` on non-2xx responses.
+   - `"Error: "` — produced by `WebTools.fetchUrl` for structured `REASON_*` codes
+     (invalid URL, timeout, too large, unreadable 2xx) and generic exception fallbacks.
+   - `"Exception occurred in tool:"` — produced by Spring AI's
+     `DefaultToolCallResultConverter` when a `@Tool` method throws an unhandled
+     exception: the framework catches it above our try/catch and substitutes this
+     canonical string as a "successful" tool result. Without recognising it the
+     Telegram renderer would show `📋 Tool result received` for a genuine NPE.
+
+   On match:
    - Set `toolError = true` on the emitted `AgentStreamEvent.observation`.
    - Replace the streamed content with a short summary (`summarizeToolError`) — first
      line, capped at 200 characters — so UI surfaces (`⚠️ Tool failed: …`) don't have to
@@ -582,6 +593,16 @@ pattern-matching on raw exception messages:
 
 The codes are public constants on `WebTools`; downstream test fixtures and
 `observe()` heuristics should reference them by constant, not literal string.
+
+**Empty-arguments guard on `web_search`.** Some chat models (observed on
+`z-ai/glm-4.5v`) emit a `web_search` `tool_call` with empty arguments — Spring AI
+deserialises this as `query=null` and invokes `WebTools.webSearch(null)`.
+`Map.of("q", query, …)` would then throw NPE, and Spring AI converts the
+exception into the textual `"Exception occurred in tool: web_search (…)"`
+string (now recognised by `isTextualToolFailure`). To avoid even reaching that
+path, `webSearch` returns an empty `SearchResult` early on `query == null` or
+`query.isBlank()`, logging the event at WARN. The result is a valid JSON the
+model handles gracefully.
 
 ### History recovery from primary store — `SummarizingChatMemory`
 
