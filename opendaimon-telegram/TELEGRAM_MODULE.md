@@ -314,13 +314,16 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 
 ### UC-18: `/language` — view
 **Trigger:** `/language`
-**Handler:** `LanguageTelegramCommandHandler` — shows current language + inline keyboard (ru / en)
+**Handler:** `LanguageTelegramCommandHandler` — sends one inline-menu message with current language, ru/en choices, and a localized cancel/close button.
+- This UI-only flow does not start the typing indicator.
+- `LANG_CANCEL` acknowledges the callback and deletes the menu message without changing language.
 
 ---
 
 ### UC-19: `/language` — select via callback
 **Trigger:** `LANG_ru` or `LANG_en` callback
-**Handler:** `TelegramUserService.updateLanguageCode()` → `TelegramBotMenuService.setupBotMenuForUser()` — reloads bot command menu in new language for this user's chat
+**Handler:** `TelegramUserService.updateLanguageCode()` → `TelegramBotMenuService.setupBotMenuForUser()` — reloads bot command menu in new language for this user's chat.
+- Confirmation is callback-only (`telegram.language.updated`); the inline menu is deleted and no separate chat message is sent.
 
 ---
 
