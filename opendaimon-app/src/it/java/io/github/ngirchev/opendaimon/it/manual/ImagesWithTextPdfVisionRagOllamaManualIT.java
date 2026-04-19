@@ -20,6 +20,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
 import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -241,25 +242,7 @@ class ImagesWithTextPdfVisionRagOllamaManualIT extends AbstractContainerIT {
                 .as("First answer should not be blank")
                 .isNotBlank();
 
-        // Extraction from long RAG context is a model-capability benchmark, not a pipeline
-        // verification — RAG correctness is already proven above by the chunk-content
-        // assertions (usenix/pekka/prince found in stored chunks). Small chat models
-        // (qwen2.5:3b) reliably admit "couldn't find" when the target fact sits deep in a
-        // multi-section context; that still demonstrates the RAG pipeline delivered the
-        // text to the model, but fails the strict keyword match. Skip via Assumptions
-        // so this regression remains visible without forcing a larger model by default.
-        String lowerFirst = firstAssistantReply.toLowerCase();
-        boolean modelAdmittedIgnorance = lowerFirst.contains("couldn't find")
-                || lowerFirst.contains("could not find")
-                || lowerFirst.contains("no information")
-                || lowerFirst.contains("not mentioned")
-                || lowerFirst.contains("no authors");
-        Assumptions.assumeFalse(modelAdmittedIgnorance,
-                "Chat model '" + CHAT_MODEL + "' could not extract author info from the RAG "
-                        + "context (reply: \"" + firstAssistantReply + "\"). RAG chunks are "
-                        + "verified correct above. Use -Dmanual.ollama.chat-model=<larger> "
-                        + "to exercise full extraction path.");
-        assertThat(lowerFirst)
+        assertThat(firstAssistantReply.toLowerCase())
                 .as("First answer should mention at least one author from the paper")
                 .containsAnyOf("pekka", "nikander", "jane", "long", "aalto", "usenix association");
 

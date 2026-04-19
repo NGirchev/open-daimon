@@ -96,7 +96,11 @@ class ConversationHistoryOllamaManualIT extends AbstractContainerIT {
     private static final Long REGULAR_CHAT_ID = 350009011L;
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
+    // qwen3.5:4b chosen over qwen2.5:3b for this class: H3 REACT 3-turn deep
+    // recall requires the model to reproduce exact multi-digit numbers from
+    // conversation history. 3B sometimes truncates (e.g. "529" for "5529").
+    // Override via -Dmanual.ollama.chat-model=<model> if needed.
+    private static final String DEFAULT_CHAT_MODEL = "qwen3.5:4b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS = Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
             .distinct()

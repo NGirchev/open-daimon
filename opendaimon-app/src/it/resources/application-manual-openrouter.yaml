@@ -87,7 +87,10 @@ open-daimon:
           document-extract-error-pdf: "Could not extract text from file \"%s\"."
           document-extract-error-document: "Could not extract text from file \"%s\" (type: %s)."
           augmented-prompt-template: |
-            Based on the following context from the document, answer the user's question.
+            The user attached a document. Relevant passages are in the Context below.
+            Prefer answering from the Context. Do not call web_search or fetch_url
+            when the Context already contains the information the user asked about.
+
             Context:
             %s
 

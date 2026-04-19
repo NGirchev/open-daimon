@@ -88,7 +88,10 @@ class WebToolCallingOllamaManualIT extends AbstractContainerIT {
     private static final Long TEST_CHAT_ID = 350009002L;
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
+    // qwen3.5:4b chosen over qwen2.5:3b: 4B reliably obeys tool-calling prompts,
+    // 3B often answers from memory even after explicit "you MUST call fetch_url"
+    // instructions. Override via -Dmanual.ollama.chat-model=<model> if needed.
+    private static final String DEFAULT_CHAT_MODEL = "qwen3.5:4b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS = Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
             .distinct()

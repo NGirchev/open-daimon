@@ -290,9 +290,21 @@ open-daimon:
           document-extract-error-document: "Could not extract text from file \"%s\" (type: %s). The file may be a scan or image. Please upload a document with a text layer or paste the text in your message."
           # RAG augmented prompt template. First %s = context text, second %s = user question.
           augmented-prompt-template: |
-            Based on the following context from the document, answer the user's question.
-            If the context doesn't contain relevant information to answer the question,
-            say that you couldn't find the answer in the provided documents.
+            The user attached one or more documents. The system already extracted
+            the most relevant passages from those documents and placed them below
+            in the "Context" section. Treat this context as authoritative source
+            material that the user explicitly wants you to use.
+
+            Instructions:
+            1. ALWAYS read the Context section first and look for the answer there.
+            2. Prefer answering from the Context. Do NOT call web_search or fetch_url
+               when the Context already contains the information the user asked about.
+            3. Only use web tools if the Context clearly does not cover the question
+               (e.g. user asks to compare document facts with fresh online data).
+            4. If the Context does not contain the answer and the question is not
+               about the web, say that you couldn't find the answer in the provided
+               documents.
+            5. When quoting the Context, keep it concise and cite the relevant snippet.
 
             Context:
             %s
