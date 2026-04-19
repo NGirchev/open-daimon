@@ -173,10 +173,10 @@ class DefaultAgentOrchestratorTest {
     }
 
     private AgentResult successResult(String answer) {
-        return new AgentResult(answer, List.of(), AgentState.COMPLETED, 1, Duration.ofMillis(100));
+        return new AgentResult(answer, List.of(), AgentState.COMPLETED, 1, Duration.ofMillis(100), null);
     }
 
     private AgentResult failedResult() {
-        return new AgentResult(null, List.of(), AgentState.FAILED, 0, Duration.ofMillis(50));
+        return new AgentResult(null, List.of(), AgentState.FAILED, 0, Duration.ofMillis(50), null);
     }
 }

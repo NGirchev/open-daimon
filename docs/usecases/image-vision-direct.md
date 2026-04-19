@@ -192,7 +192,7 @@ sequenceDiagram
    The model must infer context from the conversation, not from VectorStore chunks.
 
 6. **Model switch between turns** — the first message uses a VISION-capable model (e.g.
-   `gemma3:4b`), but the follow-up may use a different TEXT-only model (e.g. `qwen2.5:3b`)
+   `gemma3:4b`), but the follow-up may use a different TEXT-only model (e.g. `qwen3.5:4b`)
    since no images are present. The conversation history bridges the context gap.
 
 7. **Attachment context in ChatMemory** — `addAttachmentContextToMessagesAndMemory()` adds a

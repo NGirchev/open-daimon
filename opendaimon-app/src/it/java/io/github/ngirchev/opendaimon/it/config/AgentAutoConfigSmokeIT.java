@@ -7,7 +7,6 @@ import io.github.ngirchev.opendaimon.ai.springai.agent.SimpleChainExecutor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions;
 import io.github.ngirchev.opendaimon.ai.springai.agent.StrategyDelegatingAgentExecutor;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
-import io.github.ngirchev.opendaimon.common.agent.AgentCommandHandler;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.orchestration.AgentOrchestrator;
@@ -59,6 +58,7 @@ import static org.mockito.Mockito.mock;
                 "io.github.ngirchev.opendaimon.telegram.config.TelegramAutoConfig",
         "open-daimon.agent.enabled=true",
         "open-daimon.agent.max-iterations=5",
+        "open-daimon.agent.stream-timeout-seconds=60",
         "open-daimon.common.bulkhead.enabled=false",
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"
@@ -107,12 +107,6 @@ class AgentAutoConfigSmokeIT extends AbstractContainerIT {
     void primaryExecutor_isStrategyDelegating() {
         AgentExecutor executor = context.getBean(AgentExecutor.class);
         assertThat(executor).isInstanceOf(StrategyDelegatingAgentExecutor.class);
-    }
-
-    @Test
-    @DisplayName("AgentAutoConfig — AgentCommandHandler registered")
-    void agentCommandHandler_registered() {
-        assertThat(context.getBean(AgentCommandHandler.class)).isNotNull();
     }
 
     @Test

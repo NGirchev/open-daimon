@@ -10,6 +10,8 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.ai.ollama.api.ThinkOption;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Flux;
@@ -56,17 +58,19 @@ public class DelegatingAgentChatModel implements ChatModel {
 
     @Override
     public ChatResponse call(Prompt prompt) {
-        SpringAIModelConfig modelConfig = resolveModel();
+        String preferredModelId = extractPreferredModelId(prompt);
+        SpringAIModelConfig modelConfig = resolveModel(preferredModelId);
         ChatModel target = selectBean(modelConfig);
-        Prompt enriched = enrichWithModelName(prompt, modelConfig.getName());
+        Prompt enriched = enrichWithModelOptions(prompt, modelConfig);
         return target.call(enriched);
     }
 
     @Override
     public Flux<ChatResponse> stream(Prompt prompt) {
-        SpringAIModelConfig modelConfig = resolveModel();
+        String preferredModelId = extractPreferredModelId(prompt);
+        SpringAIModelConfig modelConfig = resolveModel(preferredModelId);
         ChatModel target = selectBean(modelConfig);
-        Prompt enriched = enrichWithModelName(prompt, modelConfig.getName());
+        Prompt enriched = enrichWithModelOptions(prompt, modelConfig);
         return target.stream(enriched);
     }
 
@@ -77,20 +81,34 @@ public class DelegatingAgentChatModel implements ChatModel {
         return primary != null ? primary.getDefaultOptions() : null;
     }
 
-    private SpringAIModelConfig resolveModel() {
+    /**
+     * Extracts the preferred model ID from the prompt's ChatOptions, if set.
+     * Callers (SpringAgentLoopActions, SimpleChainExecutor) read the user's
+     * preferred model from AgentContext/AgentRequest metadata and set it
+     * as {@code ChatOptions.model}.
+     */
+    private String extractPreferredModelId(Prompt prompt) {
+        ChatOptions options = prompt.getOptions();
+        if (options == null) {
+            return null;
+        }
+        return options.getModel();
+    }
+
+    private SpringAIModelConfig resolveModel(String preferredModelId) {
         List<SpringAIModelConfig> candidates = registry.getCandidatesByCapabilities(
-                Set.of(ModelCapabilities.CHAT, ModelCapabilities.TOOL_CALLING), null);
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.TOOL_CALLING), preferredModelId);
         if (candidates.isEmpty()) {
             candidates = registry.getCandidatesByCapabilities(
-                    Set.of(ModelCapabilities.CHAT), null);
+                    Set.of(ModelCapabilities.CHAT), preferredModelId);
         }
         if (candidates.isEmpty()) {
             throw new IllegalStateException(
                     "No model with CHAT capability found in registry for agent");
         }
         SpringAIModelConfig modelConfig = candidates.getFirst();
-        log.debug("DelegatingAgentChatModel: resolved model='{}' (provider={})",
-                modelConfig.getName(), modelConfig.getProviderType());
+        log.info("DelegatingAgentChatModel: resolved model='{}' (provider={}, preferred='{}')",
+                modelConfig.getName(), modelConfig.getProviderType(), preferredModelId);
         return modelConfig;
     }
 
@@ -114,12 +132,23 @@ public class DelegatingAgentChatModel implements ChatModel {
     }
 
     /**
-     * Enriches the prompt with the resolved model name. If the prompt already has
-     * ChatOptions (e.g. ToolCallingChatOptions with tool callbacks), the model name
-     * is merged into a copy. Otherwise, a minimal ChatOptions with just the model is created.
+     * Enriches the prompt with the resolved model name and provider-specific options.
+     *
+     * <p>For Ollama models: builds {@link OllamaChatOptions} which supports both
+     * {@code thinkOption} and {@code toolCallbacks} (implements {@code ToolCallingChatOptions}).
+     * This ensures thinking mode is enabled when the model config has {@code think=true}.
+     *
+     * <p>For OpenAI/OpenRouter models: builds generic {@link ToolCallingChatOptions}.
      */
-    private Prompt enrichWithModelName(Prompt prompt, String modelName) {
+    private Prompt enrichWithModelOptions(Prompt prompt, SpringAIModelConfig modelConfig) {
         ChatOptions existing = prompt.getOptions();
+        String modelName = modelConfig.getName();
+
+        if (modelConfig.getProviderType() == SpringAIModelConfig.ProviderType.OLLAMA) {
+            return enrichForOllama(prompt, existing, modelConfig);
+        }
+
+        // OpenAI / OpenRouter path — generic ToolCallingChatOptions
         if (existing instanceof ToolCallingChatOptions tco) {
             ToolCallingChatOptions enriched = ToolCallingChatOptions.builder()
                     .model(modelName)
@@ -137,5 +166,42 @@ public class DelegatingAgentChatModel implements ChatModel {
                 .model(modelName)
                 .build();
         return new Prompt(prompt.getInstructions(), options);
+    }
+
+    /**
+     * Builds {@link OllamaChatOptions} that combines model name, think option,
+     * and tool callbacks from the original prompt options.
+     */
+    private Prompt enrichForOllama(Prompt prompt, ChatOptions existing, SpringAIModelConfig modelConfig) {
+        OllamaChatOptions.Builder builder = OllamaChatOptions.builder()
+                .model(modelConfig.getName());
+
+        boolean thinkEnabled = Boolean.TRUE.equals(modelConfig.getThink());
+        if (thinkEnabled) {
+            builder.thinkOption(ThinkOption.ThinkBoolean.ENABLED);
+        }
+        log.info("DelegatingAgentChatModel: enrichForOllama model='{}', think={}, hasExistingOptions={}",
+                modelConfig.getName(), thinkEnabled, existing != null);
+
+        // Transfer tool callbacks and other options from the original prompt
+        if (existing instanceof ToolCallingChatOptions tco) {
+            builder.toolCallbacks(tco.getToolCallbacks());
+            builder.toolNames(tco.getToolNames());
+            builder.internalToolExecutionEnabled(tco.getInternalToolExecutionEnabled());
+            if (tco.getTemperature() != null) {
+                builder.temperature(tco.getTemperature());
+            }
+            if (tco.getMaxTokens() != null) {
+                builder.numPredict(tco.getMaxTokens());
+            }
+            if (tco.getTopP() != null) {
+                builder.topP(tco.getTopP());
+            }
+            if (tco.getTopK() != null) {
+                builder.topK(tco.getTopK());
+            }
+        }
+
+        return new Prompt(prompt.getInstructions(), builder.build());
     }
 }

@@ -11,13 +11,15 @@ import java.util.List;
  * @param terminalState  the FSM state when execution ended
  * @param iterationsUsed number of think-act-observe cycles performed
  * @param totalDuration  wall-clock time of the entire execution
+ * @param modelName      LLM model identifier used during execution (may be null)
  */
 public record AgentResult(
         String finalAnswer,
         List<AgentStepResult> steps,
         AgentState terminalState,
         int iterationsUsed,
-        Duration totalDuration
+        Duration totalDuration,
+        String modelName
 ) {
 
     public boolean isSuccess() {

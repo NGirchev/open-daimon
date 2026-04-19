@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenDaimon Admin</title>
+    <link rel="stylesheet" href="/css/chat.css">
+    <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+<div class="admin-app">
+    <aside class="admin-sidebar">
+        <div class="sidebar-header">
+            <h1>Conversations</h1>
+            <a href="/chat" class="secondary link-btn">Chat</a>
+        </div>
+
+        <div class="admin-filters">
+            <label>
+                User
+                <select id="filterUser">
+                    <option value="">All users</option>
+                </select>
+            </label>
+            <label>
+                Scope
+                <select id="filterScope">
+                    <option value="">All scopes</option>
+                    <option value="USER">USER (REST)</option>
+                    <option value="TELEGRAM_CHAT">TELEGRAM_CHAT</option>
+                </select>
+            </label>
+            <label>
+                Active
+                <select id="filterActive">
+                    <option value="">Any</option>
+                    <option value="true">Active</option>
+                    <option value="false">Closed</option>
+                </select>
+            </label>
+        </div>
+
+        <ul id="conversationList" class="admin-list" aria-live="polite"></ul>
+
+        <div class="admin-pager">
+            <button id="prevPageBtn" class="secondary">← Prev</button>
+            <span id="pageInfo"></span>
+            <button id="nextPageBtn" class="secondary">Next →</button>
+        </div>
+
+        <div class="sidebar-footer">
+            <div id="userEmail" class="user-email"></div>
+            <button id="logoutBtn" class="secondary">Log out</button>
+        </div>
+    </aside>
+
+    <section class="admin-messages">
+        <div class="admin-pane-header">
+            <h2 id="conversationTitle">Select a conversation</h2>
+            <div id="conversationMeta" class="admin-meta"></div>
+        </div>
+        <div id="messageList" class="admin-message-list" aria-live="polite"></div>
+    </section>
+
+    <section class="admin-detail">
+        <div class="admin-pane-header">
+            <h2>Message detail</h2>
+        </div>
+        <div id="messageDetail" class="admin-detail-body">
+            <p class="admin-hint">Click a message to inspect.</p>
+        </div>
+    </section>
+</div>
+<script src="/js/admin.js" defer></script>
+</body>
+</html>

@@ -14,7 +14,7 @@ open-daimon:
           cooldown404: 1h
       models:
         list:
-          - name: "qwen2.5:3b"
+          - name: "qwen3.5:4b"
             capabilities:
               - AUTO
               - CHAT

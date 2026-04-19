@@ -162,8 +162,8 @@ Autonomous AI agent that can use tools iteratively to solve tasks.
 
 **Architecture:**
 ```
-/agent <task> → AgentTelegramCommandHandler
-    ↓
+Message → TelegramMessageHandlerActions.generateResponse()
+    ↓ (when open-daimon.agent.enabled=true)
 AgentExecutor.execute(AgentRequest)
     ↓
 AgentLoopFsmFactory (FSM with cyclic auto-transitions)
@@ -184,7 +184,7 @@ COMPLETED → AgentResult → send to user
 **Key components:**
 - `AgentLoopFsmFactory` — FSM definition using `io.github.ngirchev:fsm` library
 - `SpringAgentLoopActions` — Spring AI integration with `internalToolExecutionEnabled=false`
-- `AgentMemory` SPI — optional semantic memory via VectorStore
+- `SummarizingChatMemory` — long-term memory for agent turns (shared with the chat flow); rolling JSON summary + bullets are injected as a `SystemMessage` on recall
 - `DefaultAgentOrchestrator` — multi-step DAG execution with topological sort
 - `PersistingAgentOrchestrator` — saves execution history to `agent_execution` tables
 

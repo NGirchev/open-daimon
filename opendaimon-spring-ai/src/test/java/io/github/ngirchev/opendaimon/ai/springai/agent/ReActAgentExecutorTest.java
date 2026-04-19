@@ -232,16 +232,43 @@ class ReActAgentExecutorTest {
     void shouldEmitMaxIterationsEventWhenLimitReached() {
         // Arrange
         AgentRequest request = new AgentRequest("Exhaust iterations", "conv-7", Map.of(), 2, Set.of());
-        stubFsmHandle(ctx -> ctx.setState(AgentState.MAX_ITERATIONS));
+        stubFsmHandle(ctx -> {
+            ctx.setState(AgentState.MAX_ITERATIONS);
+            ctx.setFinalAnswer("I reached the maximum number of iterations. Here is what I found so far: ...");
+        });
 
         // Act
         List<AgentStreamEvent> events = executor.executeStream(request)
                 .collectList()
                 .block();
 
-        // Assert
-        assertThat(events).hasSize(1);
+        // Assert — both the status marker and the FINAL_ANSWER from handleMaxIterations
+        assertThat(events).hasSize(2);
         assertThat(events.get(0).type()).isEqualTo(AgentStreamEvent.EventType.MAX_ITERATIONS);
+        assertThat(events.get(1).type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER);
+        assertThat(events.get(1).content()).startsWith("I reached the maximum number of iterations");
+    }
+
+    @Test
+    @DisplayName("executeStream() emits FINAL_ANSWER with safety text when MAX_ITERATIONS leaves finalAnswer blank")
+    void shouldEmitFinalAnswerWithSafetyTextWhenResultFinalAnswerBlank() {
+        // Safety-net: if a future regression in handleMaxIterations lets ctx.finalAnswer
+        // slip through as null/blank, the user must still receive a textual answer in the
+        // Telegram chat — not just an orphan "⚠️ reached iteration limit" status line.
+        AgentRequest request = new AgentRequest("Exhaust iterations", "conv-7b", Map.of(), 2, Set.of());
+        stubFsmHandle(ctx -> ctx.setState(AgentState.MAX_ITERATIONS)); // no finalAnswer set
+
+        List<AgentStreamEvent> events = executor.executeStream(request)
+                .collectList()
+                .block();
+
+        assertThat(events).hasSize(2);
+        assertThat(events.get(0).type()).isEqualTo(AgentStreamEvent.EventType.MAX_ITERATIONS);
+        assertThat(events.get(1).type()).isEqualTo(AgentStreamEvent.EventType.FINAL_ANSWER);
+        assertThat(events.get(1).content())
+                .as("Safety-net text must be emitted when finalAnswer is blank")
+                .isNotBlank();
+        assertThat(events.get(1).content()).contains("iteration limit");
     }
 
     @Test

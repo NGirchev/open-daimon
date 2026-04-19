@@ -99,9 +99,9 @@ class ProviderConfigIT {
             when(promptBuilder.options(org.mockito.ArgumentMatchers.any())).thenReturn(promptBuilder);
 
             var factory = promptFactory(ollamaClient, /* openAiClient */ null);
-            var ollamaConfig = ollamaModelConfig("qwen2.5:3b");
+            var ollamaConfig = ollamaModelConfig("qwen3.5:4b");
 
-            var result = factory.preparePrompt(ollamaConfig, "qwen2.5:3b", Map.of(), null, false, List.of(), null);
+            var result = factory.preparePrompt(ollamaConfig, "qwen3.5:4b", Map.of(), null, false, List.of(), null);
             assertThat(result).isNotNull();
         }
     }
@@ -143,13 +143,13 @@ class ProviderConfigIT {
         @DisplayName("SpringAIPromptFactory throws when OLLAMA model is requested but ollamaClient is null")
         void promptFactory_throwsIllegalState_whenOllamaClientIsNull() {
             var factory = promptFactory(/* ollamaClient */ null, /* openAiClient */ mock(ChatClient.class));
-            var ollamaConfig = ollamaModelConfig("qwen2.5:3b");
+            var ollamaConfig = ollamaModelConfig("qwen3.5:4b");
 
             assertThatThrownBy(() ->
-                    factory.preparePrompt(ollamaConfig, "qwen2.5:3b", Map.of(), null, false, List.of(), null))
+                    factory.preparePrompt(ollamaConfig, "qwen3.5:4b", Map.of(), null, false, List.of(), null))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Ollama client is not configured")
-                    .hasMessageContaining("qwen2.5:3b");
+                    .hasMessageContaining("qwen3.5:4b");
         }
     }
 
@@ -176,7 +176,7 @@ class ProviderConfigIT {
         }
 
         @Test
-        @DisplayName("OLLAMA model (qwen2.5:3b) is routed to ollamaClient when both providers configured")
+        @DisplayName("OLLAMA model (qwen3.5:4b) is routed to ollamaClient when both providers configured")
         void promptFactory_routesOllamaModel_toOllamaClient_whenBothClientsPresent() {
             var ollamaClient = mock(ChatClient.class);
             var openAiClient = mock(ChatClient.class);
@@ -186,7 +186,7 @@ class ProviderConfigIT {
 
             var factory = promptFactory(ollamaClient, openAiClient);
 
-            var result = factory.preparePrompt(ollamaModelConfig("qwen2.5:3b"), "qwen2.5:3b", Map.of(), null, false, List.of(), null);
+            var result = factory.preparePrompt(ollamaModelConfig("qwen3.5:4b"), "qwen3.5:4b", Map.of(), null, false, List.of(), null);
 
             assertThat(result).isNotNull();
             org.mockito.Mockito.verify(ollamaClient).prompt();
@@ -203,10 +203,10 @@ class ProviderConfigIT {
             var factory = promptFactory(/* ollamaClient= */ null, mock(ChatClient.class));
 
             assertThatThrownBy(() ->
-                    factory.preparePrompt(ollamaModelConfig("qwen2.5:3b"), "qwen2.5:3b", Map.of(), null, false, List.of(), null))
+                    factory.preparePrompt(ollamaModelConfig("qwen3.5:4b"), "qwen3.5:4b", Map.of(), null, false, List.of(), null))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Ollama client is not configured")
-                    .hasMessageContaining("qwen2.5:3b");
+                    .hasMessageContaining("qwen3.5:4b");
         }
     }
 

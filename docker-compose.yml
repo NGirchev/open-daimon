@@ -34,6 +34,8 @@ services:
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       # MinIO (use service name from docker-compose)
       - MINIO_ENDPOINT=http://minio:9000
+      # Redis (use service name from docker-compose)
+      - REDIS_HOST=redis
       # Config override: place application.yml next to docker-compose.yml.
       # optional: prefix = if file is absent, uses bundled defaults.
       - SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/app/config/application.yml
@@ -148,6 +150,22 @@ services:
     networks:
       - open-daimon-network
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: open-daimon-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - open-daimon-network
+
   logstash:
     image: docker.elastic.co/logstash/logstash:8.12.0
     container_name: open-daimon-logstash
@@ -206,6 +224,7 @@ volumes:
   postgres-data:
   prometheus-data:
   minio-data:
+  redis-data:
 
 networks:
   open-daimon-network:

@@ -6,6 +6,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserService;
 import io.github.ngirchev.opendaimon.bulkhead.service.IWhitelistService;
@@ -13,7 +14,7 @@ import io.github.ngirchev.opendaimon.bulkhead.service.impl.DefaultUserPrioritySe
 
 @AutoConfiguration
 @EnableConfigurationProperties(BulkHeadProperties.class)
-@ConditionalOnProperty(name = "open-daimon.common.bulkhead.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Feature.BULKHEAD_ENABLED, havingValue = "true")
 public class BulkHeadAutoConfig {
 
     @Bean

@@ -20,6 +20,13 @@ spring:
 
 open-daimon:
   common:
+    # Raise summarization threshold so 3-turn conversation tests keep full
+    # history in context instead of compressing into a summary — small models
+    # (qwen2.5:3b) lose the ability to recall specific facts (e.g. lucky
+    # number) when the history is replaced by a generated summary.
+    summarization:
+      message-window-size: 100
+      max-window-tokens: 200000
     bulkhead:
       enabled: true
       instances:
@@ -45,12 +52,16 @@ open-daimon:
         channels: []
       REGULAR:
         channels: []
+  agent:
+    stream-timeout-seconds: 600
   ai:
     gateway-mock:
       enabled: false
     spring-ai:
       enabled: true
       mock: false
+      timeouts:
+        response-timeout-seconds: 600
       openrouter-auto-rotation:
         models:
           enabled: false
@@ -63,6 +74,11 @@ open-daimon:
           url: https://google.serper.dev/search
       models:
         list:
+          # Default chat model qwen2.5:3b does NOT support Ollama's `think` parameter
+          # (Ollama returns HTTP 400 "does not support thinking" when think=true is
+          # forwarded). Keep capabilities and think flag aligned with the smallest
+          # supported model; override via -Dmanual.ollama.chat-model=<thinking-model>
+          # plus a custom profile yaml if a thinking-capable model is required.
           - name: ${manual.ollama.chat-model:qwen2.5:3b}
             capabilities:
               - AUTO
@@ -72,6 +88,8 @@ open-daimon:
               - SUMMARIZATION
             provider-type: OLLAMA
             priority: 1
+            think: false
+            max-reasoning-tokens: 4000
           - name: ${manual.ollama.vision-model:gemma3:4b}
             capabilities:
               - CHAT

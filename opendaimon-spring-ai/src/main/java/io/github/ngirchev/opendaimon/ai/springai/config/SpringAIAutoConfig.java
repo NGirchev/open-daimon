@@ -8,8 +8,10 @@ import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
@@ -23,11 +25,23 @@ import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.context.annotation.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.resolver.DefaultAddressResolverGroup;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.netty.http.client.HttpClient;
+
+import javax.net.ssl.TrustManagerFactory;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.Provider;
+import java.security.Security;
+import java.util.Collections;
+import java.util.Enumeration;
 import io.github.ngirchev.opendaimon.ai.springai.memory.SummarizingChatMemory;
 import io.github.ngirchev.opendaimon.ai.springai.rest.OpenRouterSseNormalizingCustomizer;
 import io.github.ngirchev.opendaimon.ai.springai.rest.RestClientLogCustomizer;
@@ -41,6 +55,8 @@ import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelRotationAspect;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UnknownToolFallbackResolver;
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessCheckerImpl;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingManager;
@@ -70,7 +86,7 @@ import io.github.ngirchev.opendaimon.common.service.SummarizationService;
 @AutoConfigureBefore(name = "org.springframework.ai.model.tool.autoconfigure.ToolCallingAutoConfiguration")
 @EnableConfigurationProperties({SpringAIProperties.class, OpenRouterModelsProperties.class})
 @Import(SpringAIFlywayConfig.class)
-@ConditionalOnProperty(name = "open-daimon.ai.spring-ai.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.SPRING_AI_ENABLED, havingValue = "true")
 public class SpringAIAutoConfig {
 
     @Bean
@@ -81,7 +97,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public OpenRouterModelsApiClient openRouterModelsApiClient(
             RestTemplate restTemplate,
             ObjectMapper objectMapper
@@ -92,7 +108,7 @@ public class SpringAIAutoConfig {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnClass(Flux.class)
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public OpenRouterStreamMetricsTracker openRouterStreamMetricsTracker(
             ObjectProvider<OpenRouterModelStatsRecorder> openRouterModelStatsRecorderProvider
     ) {
@@ -115,7 +131,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public SpringAIModelRegistryRefreshScheduler springAIModelRegistryRefreshScheduler(SpringAIModelRegistry registry) {
         return new SpringAIModelRegistryRefreshScheduler(registry);
     }
@@ -128,7 +144,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public OpenRouterFreeModelResolver openRouterFreeModelResolver(
             RestTemplate restTemplate,
             ObjectMapper objectMapper,
@@ -163,7 +179,7 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.ai.spring-ai.openrouter-auto-rotation.models", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = FeatureToggle.OpenRouterModels.PREFIX, name = FeatureToggle.OpenRouterModels.ENABLED, havingValue = "true")
     public OpenRouterModelRotationAspect openRouterModelRotationAspect(
             OpenRouterRotationRegistry openRouterRotationRegistry,
             SpringAIProperties springAIProperties
@@ -208,6 +224,139 @@ public class SpringAIAutoConfig {
     @Bean
     public WebClient webClient(WebClient.Builder builder) {
         return builder.build();
+    }
+
+    /**
+     * WebClient dedicated to built-in agent tools ({@link WebTools}, HttpApiTool) that
+     * fetch arbitrary third-party pages/APIs. Raises {@code maxInMemorySize} to 2 MB
+     * (default is 256 KB) so large articles (e.g. Hacker Noon, long JSON payloads) do
+     * not raise a {@link org.springframework.web.reactive.function.client.WebClientResponseException}
+     * with a 2xx status — which the textual-failure heuristic in
+     * {@code SpringAgentLoopActions.observe()} would classify as FAILED and trigger the
+     * model to retry the same URL in a loop.
+     *
+     * <p>Kept separate from the default {@code webClient} so SSE streaming for
+     * OpenRouter/Ollama LLM calls uses the platform-standard codec limits. With the
+     * agent running at most {@code 10/5/1} concurrent calls via PriorityRequestExecutor,
+     * worst-case extra heap pressure is ~20 MB.
+     */
+    @Bean("webToolsWebClient")
+    public WebClient webToolsWebClient(WebClient.Builder builder, SpringAIProperties properties) {
+        boolean mergeKeychain = Boolean.TRUE.equals(properties.getSsl().getMergeSystemKeychain())
+                && isAppleProviderAvailable();
+        SslContext sslContext = buildWebToolsSslContext(mergeKeychain);
+        HttpClient httpClient = HttpClient.create()
+                .secure(spec -> spec.sslContext(sslContext));
+        return builder
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .codecs(configurer -> configurer
+                        .defaultCodecs()
+                        .maxInMemorySize(2 * 1024 * 1024))
+                .build();
+    }
+
+    /**
+     * Builds a Netty {@link SslContext} for the {@code webToolsWebClient} that uses a merged trust
+     * store: JDK {@code cacerts} plus — on macOS — the system/login Keychain. Designed so JVM-level
+     * {@code -Djavax.net.ssl.trustStoreType=KeychainStore} flags are no longer required to avoid
+     * PKIX failures when the agent fetches Cloudflare-fronted pages (e.g. {@code itnext.io}) whose
+     * chain lags behind Corretto's bundled cacerts.
+     *
+     * <p>This method must <b>never</b> throw: the agent has to boot even when trust-store discovery
+     * hits an unexpected environment. Failure modes degrade silently:
+     * <ul>
+     *   <li>Apple provider absent or Keychain load fails → JDK cacerts only (WARN).</li>
+     *   <li>JDK cacerts load fails → Netty default trust manager (ERROR).</li>
+     * </ul>
+     *
+     * @param includeKeychain whether to attempt merging the macOS Keychain (gated by the caller so
+     *                        the test suite can exercise both branches deterministically).
+     */
+    static SslContext buildWebToolsSslContext(boolean includeKeychain) {
+        KeyStore merged;
+        try {
+            merged = loadJdkTrustStore();
+        } catch (Exception e) {
+            log.error("Failed to load JDK cacerts for webToolsWebClient; falling back to Netty default trust manager", e);
+            try {
+                return SslContextBuilder.forClient().build();
+            } catch (Exception fallbackEx) {
+                throw new IllegalStateException("Failed to build default Netty SslContext", fallbackEx);
+            }
+        }
+
+        if (includeKeychain) {
+            mergeMacKeychainInto(merged);
+        }
+
+        try {
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init(merged);
+            return SslContextBuilder.forClient().trustManager(tmf).build();
+        } catch (Exception e) {
+            log.error("Failed to build merged TrustManagerFactory for webToolsWebClient; falling back to Netty default trust manager", e);
+            try {
+                return SslContextBuilder.forClient().build();
+            } catch (Exception fallbackEx) {
+                throw new IllegalStateException("Failed to build default Netty SslContext", fallbackEx);
+            }
+        }
+    }
+
+    /**
+     * Loads the JDK-shipped {@code cacerts} from {@code ${java.home}/lib/security/cacerts}.
+     * Uses the default keystore type and the standard {@code "changeit"} password — matches
+     * what the default JDK SSLContext would do at startup.
+     */
+    static KeyStore loadJdkTrustStore() throws Exception {
+        String javaHome = System.getProperty("java.home");
+        if (javaHome == null || javaHome.isBlank()) {
+            throw new IllegalStateException("System property 'java.home' is not set");
+        }
+        Path cacertsPath = Path.of(javaHome, "lib", "security", "cacerts");
+        KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        try (InputStream in = Files.newInputStream(cacertsPath)) {
+            keyStore.load(in, "changeit".toCharArray());
+        }
+        return keyStore;
+    }
+
+    /**
+     * Imports every trusted certificate entry from the macOS {@code KeychainStore} provider
+     * (System + Login keychains, aggregated by the Apple JSSE provider) into {@code target}.
+     * Any failure is logged at WARN and swallowed — callers rely on the silent degradation
+     * contract declared by {@link #buildWebToolsSslContext(boolean)}.
+     */
+    static void mergeMacKeychainInto(KeyStore target) {
+        try {
+            KeyStore keychain = KeyStore.getInstance("KeychainStore");
+            keychain.load(null, null);
+            Enumeration<String> aliases = keychain.aliases();
+            int imported = 0;
+            for (String alias : Collections.list(aliases)) {
+                if (keychain.isCertificateEntry(alias)) {
+                    try {
+                        target.setCertificateEntry("keychain-" + alias, keychain.getCertificate(alias));
+                        imported++;
+                    } catch (Exception entryEx) {
+                        // A single bad entry must not abort the whole merge.
+                        log.debug("Skipping keychain entry '{}' during trust-store merge: {}", alias, entryEx.getMessage());
+                    }
+                }
+            }
+            log.info("Merged {} macOS Keychain certificate entries into webToolsWebClient trust store", imported);
+        } catch (Exception e) {
+            log.warn("Could not merge macOS Keychain into webToolsWebClient trust store; using JDK cacerts only: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Returns {@code true} when the Apple JSSE provider (source of {@code KeychainStore}) is
+     * registered. Used to gate the keychain merge on non-macOS hosts.
+     */
+    static boolean isAppleProviderAvailable() {
+        Provider apple = Security.getProvider("Apple");
+        return apple != null;
     }
 
     /**
@@ -323,12 +472,35 @@ public class SpringAIAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    public WebTools webTools(WebClient webClient, SpringAIProperties properties) {
+    public WebTools webTools(
+            @Qualifier("webToolsWebClient") WebClient webClient,
+            SpringAIProperties properties) {
         return new WebTools(
             webClient,
             properties.getSerper().getApi().getKey(),
             properties.getSerper().getApi().getUrl()
         );
+    }
+
+    /**
+     * Last-mile sanitizer that strips LLM-hallucinated dead URLs from the final
+     * answer. Disabled by setting {@code open-daimon.ai.spring-ai.url-check.enabled=false}.
+     */
+    @Bean
+    @ConditionalOnMissingBean(UrlLivenessChecker.class)
+    @ConditionalOnProperty(
+            name = "open-daimon.ai.spring-ai.url-check.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    public UrlLivenessChecker urlLivenessChecker(
+            @Qualifier("webToolsWebClient") WebClient webClient,
+            SpringAIProperties properties) {
+        SpringAIProperties.UrlCheck cfg = properties.getUrlCheck();
+        return new UrlLivenessCheckerImpl(
+                webClient,
+                java.time.Duration.ofMillis(cfg.getTimeoutMs()),
+                cfg.getMaxUrlsPerAnswer(),
+                java.time.Duration.ofMinutes(cfg.getCacheTtlMinutes()));
     }
 
     @Primary
