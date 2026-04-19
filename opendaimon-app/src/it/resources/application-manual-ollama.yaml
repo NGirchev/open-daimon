@@ -11,8 +11,6 @@ spring:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
   autoconfigure:
     exclude:
-      - io.github.ngirchev.opendaimon.rest.config.RestAutoConfig
-      - io.github.ngirchev.opendaimon.ui.config.UIAutoConfig
       - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration

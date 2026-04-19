@@ -10,8 +10,6 @@ spring:
       api-key: ${OPENROUTER_KEY:sk-placeholder}
   autoconfigure:
     exclude:
-      - io.github.ngirchev.opendaimon.rest.config.RestAutoConfig
-      - io.github.ngirchev.opendaimon.ui.config.UIAutoConfig
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
