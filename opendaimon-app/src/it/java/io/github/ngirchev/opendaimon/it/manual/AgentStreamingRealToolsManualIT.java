@@ -170,8 +170,14 @@ class AgentStreamingRealToolsManualIT extends AbstractContainerIT {
     @DisplayName("R1: Agent stream with z-ai/glm-4.5v — no raw XML in final answer")
     void agentStream_explicitModel_noRawXmlInFinalAnswer() {
         String conversationId = "test-stream-" + System.currentTimeMillis();
+        // USER_ID_FIELD must be the internal DB id (TelegramUser.getId()), not the
+        // external Telegram chat id: DefaultUserPriorityService → TelegramWhitelistService
+        // resolves users via telegramUserRepository.findById(userId) which expects the PK.
+        TelegramUser adminUser = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Admin user should exist after setUp"));
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.PREFERRED_MODEL_ID_FIELD, TEST_MODEL);
+        metadata.put(AICommand.USER_ID_FIELD, adminUser.getId().toString());
 
         AgentRequest request = new AgentRequest(
                 "Сравни производительность Quarkus и Spring Boot в 2026 году. Поищи в интернете.",
@@ -323,8 +329,14 @@ class AgentStreamingRealToolsManualIT extends AbstractContainerIT {
     @DisplayName("R3: SIMPLE strategy with z-ai/glm-4.5v — meaningful response without tools")
     void simpleStrategy_explicitModel_meaningfulResponse() {
         String conversationId = "test-simple-" + System.currentTimeMillis();
+        // USER_ID_FIELD must be the internal DB id (TelegramUser.getId()), not the
+        // external Telegram chat id: DefaultUserPriorityService → TelegramWhitelistService
+        // resolves users via telegramUserRepository.findById(userId) which expects the PK.
+        TelegramUser adminUser = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Admin user should exist after setUp"));
         Map<String, String> metadata = new HashMap<>();
         metadata.put(AICommand.PREFERRED_MODEL_ID_FIELD, TEST_MODEL);
+        metadata.put(AICommand.USER_ID_FIELD, adminUser.getId().toString());
 
         AgentRequest request = new AgentRequest(
                 "Что такое Java? Ответь 2-3 предложениями.",

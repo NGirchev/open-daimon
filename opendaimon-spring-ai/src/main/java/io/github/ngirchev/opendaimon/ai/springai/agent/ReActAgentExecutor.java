@@ -1,6 +1,5 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
-import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
@@ -30,9 +29,9 @@ import reactor.core.scheduler.Schedulers;
 @Slf4j
 public class ReActAgentExecutor implements AgentExecutor {
 
-    private final ExDomainFsm<AgentContext, AgentState, AgentEvent> agentFsm;
+    private final AgentFsmHandler agentFsm;
 
-    public ReActAgentExecutor(ExDomainFsm<AgentContext, AgentState, AgentEvent> agentFsm) {
+    public ReActAgentExecutor(AgentFsmHandler agentFsm) {
         this.agentFsm = agentFsm;
     }
 

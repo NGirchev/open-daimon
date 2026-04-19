@@ -1,6 +1,5 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
-import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
@@ -24,25 +23,23 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.withSettings;
 
 /**
  * Unit tests for {@link ReActAgentExecutor}.
  *
- * <p>{@link ExDomainFsm} is a Kotlin class whose {@code handle} method is {@code final}.
- * The module-level {@code mock-maker-subclass} cannot intercept final methods, so the
- * mock is created programmatically with the inline mock maker for this dependency only.
+ * <p>The executor depends on {@link AgentFsmHandler} — a thin functional interface that
+ * wraps the Kotlin {@code ExDomainFsm}. Mocking the interface lets us stay on
+ * the module-default {@code mock-maker-subclass}, which works on every JDK/CI.
  */
 class ReActAgentExecutorTest {
 
-    @SuppressWarnings("unchecked")
-    private ExDomainFsm<AgentContext, AgentState, AgentEvent> agentFsm;
+    private AgentFsmHandler agentFsm;
 
     private ReActAgentExecutor executor;
 
     @BeforeEach
     void setUp() {
-        agentFsm = mock(ExDomainFsm.class, withSettings().mockMaker("mock-maker-inline"));
+        agentFsm = mock(AgentFsmHandler.class);
         executor = new ReActAgentExecutor(agentFsm);
     }
 

@@ -110,11 +110,16 @@ class AgentAutoConfigSmokeIT extends AbstractContainerIT {
     }
 
     @Test
-    @DisplayName("AgentAutoConfig — AgentOrchestrator registered (without persistence)")
-    void agentOrchestrator_registeredWithoutPersistence() {
+    @DisplayName("AgentAutoConfig — AgentOrchestrator registered with persistence when repository is present")
+    void agentOrchestrator_registeredWithPersistence() {
+        // AbstractContainerIT starts Postgres and CoreJpaConfig scans
+        // io.github.ngirchev.opendaimon.common.agent.persistence, so
+        // AgentExecutionRepository is available and the orchestrator is wrapped
+        // in PersistingAgentOrchestrator.
         AgentOrchestrator orchestrator = context.getBean(AgentOrchestrator.class);
         assertThat(orchestrator).isNotNull();
-        assertThat(orchestrator.getClass().getSimpleName()).isEqualTo("DefaultAgentOrchestrator");
+        assertThat(orchestrator.getClass().getSimpleName())
+                .startsWith("PersistingAgentOrchestrator");
     }
 
     @Test

@@ -295,6 +295,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private void generateAgentResponse(MessageHandlerContext ctx) {
         TelegramCommand command = ctx.getCommand();
         Map<String, String> metadata = ctx.getMetadata();
+        AICommand aiCommand = ctx.getAiCommand();
         Long chatId = command.telegramId();
 
         try {
@@ -307,8 +308,15 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
             ensureStatusMessage(ctx);
 
+            // Prefer pipeline-prepared text (RAG-augmented, document-only fallback,
+            // attachment-aware) over the raw Telegram text, so agent mode matches
+            // the normal gateway path for document/RAG follow-up scenarios.
+            String agentTask = aiCommand != null && aiCommand.userRole() != null
+                    ? aiCommand.userRole()
+                    : command.userText();
+
             AgentRequest request = new AgentRequest(
-                    command.userText(),
+                    agentTask,
                     metadata.get(THREAD_KEY_FIELD),
                     metadata,
                     agentMaxIterations,
@@ -980,15 +988,25 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                 aiResponse = aiGateway.generateResponse(aiCommand);
                 extractResponseContext(ctx, aiResponse, command, message);
             } catch (ModelGuardrailException e) {
-                // Guardrail recovery: clear preference, rebuild command, retry
+                // Guardrail recovery: clear preference, rebuild command, retry.
+                // FixedModelChatAICommand stores fixedModelId as an immutable record field,
+                // so simply removing PREFERRED_MODEL_ID_FIELD from metadata does not switch
+                // the gateway to auto-routing — we must ask the pipeline to rebuild the
+                // command, which will produce a ChatAICommand when no preferred model is set.
                 log.warn("FSM generateResponse: guardrail error for model={}, retrying",
                         e.getModelId());
                 messageSender.sendNotification(command.telegramId(),
                         "common.error.model.guardrail", command.languageCode(), e.getModelId());
                 userModelPreferenceService.clearPreference(ctx.getTelegramUser().getId());
-                // Clear preferred model from metadata — gateway will select a different model.
-                // Reuse the existing aiCommand (preserves augmented query + processed attachments).
-                aiCommand.metadata().remove(PREFERRED_MODEL_ID_FIELD);
+                Map<String, String> metadata = aiCommand.metadata();
+                metadata.remove(PREFERRED_MODEL_ID_FIELD);
+                aiCommand = aiRequestPipeline.prepareCommand(command, metadata);
+                ctx.setAiCommand(aiCommand);
+                aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
+                        .stream()
+                        .findFirst()
+                        .orElseThrow(() -> new RuntimeException(AIUtils.NO_SUPPORTED_AI_GATEWAY));
+                ctx.setAiGateway(aiGateway);
                 aiResponse = aiGateway.generateResponse(aiCommand);
                 extractResponseContext(ctx, aiResponse, command, message);
             }

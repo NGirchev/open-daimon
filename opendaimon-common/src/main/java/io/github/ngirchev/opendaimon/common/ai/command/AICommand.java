@@ -28,4 +28,10 @@ public interface AICommand {
 
     Map<String, String> metadata();
     <T extends AICommandOptions> T options();
+
+    /**
+     * Pipeline-prepared user text (RAG-augmented / document-aware).
+     * Returns {@code null} for command types that carry no user-facing text.
+     */
+    default String userRole() { return null; }
 }

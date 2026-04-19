@@ -274,7 +274,13 @@ class XlsRagOllamaManualIT extends AbstractContainerIT {
                         "china",
                         "germany",
                         "indonesia",
-                        "japan"
+                        "japan",
+                        "франц",
+                        "сша",
+                        "соедин",
+                        "великобритан",
+                        "британ",
+                        "америк"
                 );
 
         assertThat(messageRepository.countByThreadAndRole(threadAfterFollowUp, MessageRole.USER))

@@ -6,6 +6,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
@@ -479,10 +480,15 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
     @Timeout(5 * 60)
     @DisplayName("A5: executeStream emits THINKING event with reasoning content from Ollama")
     void admin_agentStream_emitsThinkingContent() {
+        // USER_ID_FIELD must be the internal DB id (TelegramUser.getId()), not the
+        // external Telegram chat id: IUserPriorityService → TelegramWhitelistService
+        // resolves users via telegramUserRepository.findById(userId) which expects the PK.
+        TelegramUser adminUser = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Admin user should exist after setUp"));
         AgentRequest request = new AgentRequest(
                 "Сколько будет 17 * 23? Подумай пошагово.",
                 "test-thinking-" + System.currentTimeMillis(),
-                Map.of(),
+                Map.of(AICommand.USER_ID_FIELD, adminUser.getId().toString()),
                 5,
                 Set.of(),
                 AgentStrategy.SIMPLE

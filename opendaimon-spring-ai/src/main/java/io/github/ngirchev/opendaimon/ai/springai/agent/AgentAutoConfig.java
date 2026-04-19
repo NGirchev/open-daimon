@@ -106,7 +106,7 @@ public class AgentAutoConfig {
     public ReActAgentExecutor reActAgentExecutor(
             @org.springframework.beans.factory.annotation.Qualifier("agentLoopFsm")
             ExDomainFsm<AgentContext, AgentState, AgentEvent> agentFsm) {
-        return new ReActAgentExecutor(agentFsm);
+        return new ReActAgentExecutor(agentFsm::handle);
     }
 
     @Bean
