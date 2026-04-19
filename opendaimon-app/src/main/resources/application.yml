@@ -199,7 +199,12 @@ open-daimon:
       mock: false
       timeouts:
         response-timeout-seconds: 600  # 10 minutes for HTTP requests to AI providers
-        stream-timeout-seconds: 600   # 10 minutes for streaming
+      # Final-answer URL sanitization — strips LLM-hallucinated dead links before they reach the user.
+      url-check:
+        enabled: true
+        timeout-ms: 3000
+        max-urls-per-answer: 10
+        cache-ttl-minutes: 10
       # Unified model list = yml + OpenRouter (free) addition. FREE in capabilities — only for actually free models; do not add for openrouter/auto.
       # Ollama models (run locally: ollama pull qwen3.5:4b).
       models:
@@ -300,6 +305,7 @@ open-daimon:
   agent:
     enabled: true
     max-iterations: 10
+    stream-timeout-seconds: 600   # 10 minutes for streaming
     tools:
       http-api:
         enabled: true

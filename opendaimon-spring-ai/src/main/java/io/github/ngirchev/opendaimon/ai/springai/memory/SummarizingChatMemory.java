@@ -71,6 +71,27 @@ public class SummarizingChatMemory implements ChatMemory {
         // Get messages from delegate (MessageWindowChatMemory)
         List<Message> messages = delegate.get(conversationId);
 
+        // Primary-store recovery: if the delegate cache is empty but the primary
+        // store (ConversationThread + OpenDaimonMessage) has history — rebuild the
+        // window from it. This covers app restarts and cache evictions: without
+        // this fallback the agent would lose all context on every restart.
+        if (messages.isEmpty()) {
+            List<Message> restored = restoreHistoryFromPrimaryStore(conversationId);
+            if (!restored.isEmpty()) {
+                synchronized (conversationId.intern()) {
+                    // Re-check under lock in case a concurrent writer populated it.
+                    if (delegate.get(conversationId).isEmpty()) {
+                        for (Message m : restored) {
+                            delegate.add(conversationId, m);
+                        }
+                    }
+                }
+                messages = delegate.get(conversationId);
+                log.info("Restored ChatMemory from primary store for conversationId {}: {} messages",
+                        conversationId, messages.size());
+            }
+        }
+
         int messageCount = messages.size();
 
         // Check if summarization should be triggered (by messages or tokens)
@@ -110,6 +131,56 @@ public class SummarizingChatMemory implements ChatMemory {
     public void add(@NonNull String conversationId, @NonNull List<Message> messages) {
         // Save messages via delegate
         delegate.add(conversationId, messages);
+    }
+
+    /**
+     * Rebuilds a ChatMemory window from the primary store (ConversationThread +
+     * OpenDaimonMessage) when the cache is empty. Returns the messages to seed
+     * into the delegate — caller owns actually adding them under the shared
+     * per-conversation lock.
+     *
+     * <p>Layout of the restored window (oldest → newest):
+     * <ol>
+     *   <li>{@code SystemMessage(summary + memoryBullets)} if the thread has a summary</li>
+     *   <li>Up to {@code maxMessages - 1} most recent messages from {@code messages_at_last_summarization + 1}</li>
+     * </ol>
+     *
+     * <p>When the primary store has no thread (first-ever interaction) returns an
+     * empty list — the caller keeps the delegate empty and the agent treats the
+     * conversation as fresh.
+     */
+    private List<Message> restoreHistoryFromPrimaryStore(@NonNull String conversationId) {
+        try {
+            Optional<ConversationThread> threadOpt =
+                    conversationThreadRepository.findByThreadKey(conversationId);
+            if (threadOpt.isEmpty()) {
+                return List.of();
+            }
+            ConversationThread thread = threadOpt.get();
+
+            List<Message> restored = new ArrayList<>();
+            if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
+                restored.add(new SystemMessage(buildSummaryContent(thread)));
+            }
+
+            Integer messagesAtLastSummarization = thread.getMessagesAtLastSummarization();
+            int minSequenceNumber = messagesAtLastSummarization != null ? messagesAtLastSummarization : 0;
+
+            List<OpenDaimonMessage> postSummaryMessages = messageRepository
+                    .findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(thread, minSequenceNumber);
+
+            // Reserve one slot in the window for the incoming user message.
+            int windowCapacity = Math.max(0, maxMessages - restored.size() - 1);
+            int startIdx = Math.max(0, postSummaryMessages.size() - windowCapacity);
+            for (int i = startIdx; i < postSummaryMessages.size(); i++) {
+                restored.add(convertToSpringMessage(postSummaryMessages.get(i)));
+            }
+            return restored;
+        } catch (Exception e) {
+            log.warn("Failed to restore ChatMemory from primary store for conversationId {}: {}",
+                    conversationId, e.getMessage());
+            return List.of();
+        }
     }
 
     /**
@@ -167,18 +238,22 @@ public class SummarizingChatMemory implements ChatMemory {
             thread = conversationThreadRepository.findByThreadKey(conversationId)
                 .orElseThrow(() -> new RuntimeException("Thread not found after summarization"));
 
-            // Rebuild ChatMemory: summary + recent messages
-            delegate.clear(conversationId);
+            // Rebuild ChatMemory atomically so that any concurrent get() on the same
+            // conversationId never observes a half-cleared state. conversationId.intern()
+            // gives us one shared monitor per conversation — cheap, and the critical
+            // section does no I/O (summarization LLM call already ran above).
+            synchronized (conversationId.intern()) {
+                delegate.clear(conversationId);
 
-            if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
-                String summaryContent = buildSummaryContent(thread);
-                delegate.add(conversationId, new SystemMessage(summaryContent));
-            }
+                if (thread.getSummary() != null && !thread.getSummary().isEmpty()) {
+                    String summaryContent = buildSummaryContent(thread);
+                    delegate.add(conversationId, new SystemMessage(summaryContent));
+                }
 
-            // Re-add recent messages to ChatMemory
-            for (OpenDaimonMessage msg : toKeep) {
-                Message springMessage = convertToSpringMessage(msg);
-                delegate.add(conversationId, springMessage);
+                for (OpenDaimonMessage msg : toKeep) {
+                    Message springMessage = convertToSpringMessage(msg);
+                    delegate.add(conversationId, springMessage);
+                }
             }
 
             log.info("Successfully summarized and rebuilt ChatMemory for conversationId {}: summary + {} recent messages",

@@ -58,6 +58,7 @@ import static org.mockito.Mockito.mock;
                 "io.github.ngirchev.opendaimon.telegram.config.TelegramAutoConfig",
         "open-daimon.agent.enabled=true",
         "open-daimon.agent.max-iterations=5",
+        "open-daimon.agent.stream-timeout-seconds=60",
         "open-daimon.common.bulkhead.enabled=false",
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"

@@ -29,6 +29,7 @@
 /target/
 *.class
 /.claude/worktrees/*
+/.claude/*.lock
 /scripts/ollama-check-vision.ps1
 /opendaimon.code-workspace
 

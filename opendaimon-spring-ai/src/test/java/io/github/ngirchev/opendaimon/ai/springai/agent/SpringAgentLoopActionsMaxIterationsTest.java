@@ -14,6 +14,7 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingManager;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +42,7 @@ class SpringAgentLoopActionsMaxIterationsTest {
         chatModel = mock(ChatModel.class);
         ToolCallingManager toolCallingManager = mock(ToolCallingManager.class);
         actions = new SpringAgentLoopActions(
-                chatModel, toolCallingManager, List.of(), null);
+                chatModel, toolCallingManager, List.of(), null, Duration.ofSeconds(30));
         ctx = new AgentContext("What's the BTC price?", "conv-1", Map.of(), 5, Set.of());
         ctx.recordStep(new AgentStepResult(
                 0, "I should search", "web_search",

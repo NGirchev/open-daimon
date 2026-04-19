@@ -12,6 +12,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -139,11 +140,11 @@ class WebToolsTest {
     }
 
     @Test
-    void shouldReturnEmptyStringWhenUrlInvalid() {
+    void shouldReturnStructuredInvalidUrlReasonWhenUrlNotHttp() {
         // URL validation is a pre-flight check — no network call is made at all.
         String result = webTools.fetchUrl("ftp://example.com/resource");
 
-        assertEquals("", result);
+        assertThat(result).startsWith("Error: " + WebTools.REASON_INVALID_URL);
         verify(webClient, never()).get();
     }
 
@@ -152,8 +153,8 @@ class WebToolsTest {
         // WebClient.bodyToMono can raise a WebClientResponseException with a 2xx status
         // when the body exceeds the codec memory limit (DataBufferLimitException) or fails
         // to decode. The raw "HTTP error 200 OK" string is absurd and confuses the agent
-        // into retry loops — surface a distinct "Error: fetch_url could not decode …"
-        // instead so observe() classifies it as FAILED and the model tries a different URL.
+        // into retry loops — surface a distinct REASON_UNREADABLE_2XX instead so observe()
+        // classifies it as FAILED and the model tries a different URL.
         WebClientResponseException okButUndecodable = WebClientResponseException.create(
                 HttpStatus.OK.value(), "OK", null, null, null);
         when(webClient.get()).thenReturn(getSpec);
@@ -164,8 +165,27 @@ class WebToolsTest {
 
         String result = webTools.fetchUrl("https://hackernoon.com/huge-article");
 
-        assertEquals(
-                "Error: fetch_url could not decode response body for https://hackernoon.com/huge-article",
-                result);
+        assertThat(result)
+                .startsWith("Error: " + WebTools.REASON_UNREADABLE_2XX)
+                .contains("https://hackernoon.com/huge-article");
+    }
+
+    @Test
+    void shouldReturnStructuredTooLargeReasonWhenBufferLimitExceeded() {
+        // When codec maxInMemorySize is exceeded mid-stream, WebClient propagates a
+        // DataBufferLimitException (sometimes wrapped). Without REASON_TOO_LARGE the
+        // generic "Error: <class>" message pushes the agent into an unhelpful retry
+        // loop on the same URL; structured reason lets observe() fail-fast and the
+        // model pick a smaller page.
+        when(webClient.get()).thenReturn(getSpec);
+        when(getSpec.uri(anyString())).thenReturn(getRequestHeadersSpec);
+        when(getRequestHeadersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.bodyToMono(eq(String.class)))
+                .thenReturn(Mono.error(new org.springframework.core.io.buffer.DataBufferLimitException(
+                        "Exceeded limit of 2097152 bytes")));
+
+        String result = webTools.fetchUrl("https://example.com/10mb.html");
+
+        assertThat(result).startsWith("Error: " + WebTools.REASON_TOO_LARGE);
     }
 }

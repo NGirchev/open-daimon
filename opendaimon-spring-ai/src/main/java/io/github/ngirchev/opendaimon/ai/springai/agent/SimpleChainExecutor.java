@@ -67,7 +67,8 @@ public class SimpleChainExecutor implements AgentExecutor {
             ChatResponse response = chatModel.call(prompt);
             response.getResult();
             String rawText = response.getResult().getOutput().getText();
-            String answer = SpringAgentLoopActions.stripThinkTags(rawText);
+            String answer = SpringAgentLoopActions.stripToolCallTags(
+                    SpringAgentLoopActions.stripThinkTags(rawText));
             String modelName = response.getMetadata().getModel();
 
             saveConversationHistory(request, answer);
@@ -115,7 +116,8 @@ public class SimpleChainExecutor implements AgentExecutor {
                     sink.tryEmitNext(AgentStreamEvent.thinking(reasoning, 0));
                 }
 
-                String answer = SpringAgentLoopActions.stripThinkTags(rawText);
+                String answer = SpringAgentLoopActions.stripToolCallTags(
+                        SpringAgentLoopActions.stripThinkTags(rawText));
                 saveConversationHistory(request, answer);
 
                 if (modelName != null) {

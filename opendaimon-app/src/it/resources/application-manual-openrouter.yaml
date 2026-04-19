@@ -21,6 +21,14 @@ spring:
 
 open-daimon:
   common:
+    # Raise summarization threshold so 3-turn conversation tests do not trigger
+    # SummarizationService — which otherwise calls OpenRouter with a default
+    # max_price=0 and receives HTTP 404 "No endpoints found that satisfy the
+    # max price for this request", causing the turn to error and leaving the
+    # conversation with fewer assistant messages than asserted.
+    summarization:
+      message-window-size: 100
+      max-window-tokens: 200000
     bulkhead:
       enabled: true
       instances:

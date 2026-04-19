@@ -42,6 +42,8 @@ import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelRotationAspect;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UnknownToolFallbackResolver;
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessCheckerImpl;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingManager;
@@ -355,6 +357,27 @@ public class SpringAIAutoConfig {
             properties.getSerper().getApi().getKey(),
             properties.getSerper().getApi().getUrl()
         );
+    }
+
+    /**
+     * Last-mile sanitizer that strips LLM-hallucinated dead URLs from the final
+     * answer. Disabled by setting {@code open-daimon.ai.spring-ai.url-check.enabled=false}.
+     */
+    @Bean
+    @ConditionalOnMissingBean(UrlLivenessChecker.class)
+    @ConditionalOnProperty(
+            name = "open-daimon.ai.spring-ai.url-check.enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    public UrlLivenessChecker urlLivenessChecker(
+            @org.springframework.beans.factory.annotation.Qualifier("webToolsWebClient") WebClient webClient,
+            SpringAIProperties properties) {
+        SpringAIProperties.UrlCheck cfg = properties.getUrlCheck();
+        return new UrlLivenessCheckerImpl(
+                webClient,
+                java.time.Duration.ofMillis(cfg.getTimeoutMs()),
+                cfg.getMaxUrlsPerAnswer(),
+                java.time.Duration.ofMinutes(cfg.getCacheTtlMinutes()));
     }
 
     @Primary

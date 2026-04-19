@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,7 +30,7 @@ class SpringAgentLoopActionsRawToolCallTest {
         ToolCallback httpGetCallback = mockToolCallback("http_get");
         ToolCallback webSearchCallback = mockToolCallback("web_search");
         actions = new SpringAgentLoopActions(
-                null, null, List.of(httpGetCallback, webSearchCallback), null);
+                null, null, List.of(httpGetCallback, webSearchCallback), null, Duration.ofSeconds(30));
     }
 
     // --- tryParseRawToolCall: successful parsing ---
@@ -116,6 +117,22 @@ class SpringAgentLoopActionsRawToolCallTest {
             assertThat(result).isNotNull();
             assertThat(result.name()).isEqualTo("http_get");
             assertThat(result.arguments()).isEqualTo("{\"url\":\"https://example.com\"}");
+        }
+
+        @Test
+        @DisplayName("should parse <tool_name> tag variant (Ollama/Qwen)")
+        void shouldParseToolNameTagVariant() {
+            String text = "<tool_call>\n"
+                    + "<tool_name>web_search</tool_name>\n"
+                    + "<arg_key>query</arg_key>\n"
+                    + "<arg_value>Spring AI docs</arg_value>\n"
+                    + "</tool_call>";
+
+            RawToolCall result = actions.tryParseRawToolCall(text);
+
+            assertThat(result).isNotNull();
+            assertThat(result.name()).isEqualTo("web_search");
+            assertThat(result.arguments()).isEqualTo("{\"query\":\"Spring AI docs\"}");
         }
 
         @Test

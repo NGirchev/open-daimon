@@ -31,8 +31,38 @@ public class SpringAIProperties {
     private HttpLogs httpLogs = new HttpLogs();
     
     private Serper serper = new Serper();
-    
+
     private Models models = new Models();
+
+    private UrlCheck urlCheck = new UrlCheck();
+
+    /**
+     * Configuration for {@link io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker}.
+     * Controls HEAD/ranged-GET timeout, the per-answer URL cap, and the Caffeine cache TTL
+     * used by the final-answer sanitizer that strips LLM-hallucinated dead links.
+     */
+    @Getter
+    @Setter
+    public static class UrlCheck {
+        /** Enables the URL liveness check bean and final-answer sanitization. */
+        @NotNull(message = "url-check.enabled is required")
+        private Boolean enabled = true;
+
+        /** Timeout for the HEAD / ranged-GET probe per URL, in milliseconds. */
+        @NotNull(message = "url-check.timeout-ms is required")
+        @Min(value = 100, message = "url-check.timeout-ms must be >= 100")
+        private Integer timeoutMs = 3000;
+
+        /** Upper bound on how many unique URLs are probed per answer to cap total latency. */
+        @NotNull(message = "url-check.max-urls-per-answer is required")
+        @Min(value = 0, message = "url-check.max-urls-per-answer must be >= 0")
+        private Integer maxUrlsPerAnswer = 10;
+
+        /** TTL for the in-memory liveness cache, in minutes. */
+        @NotNull(message = "url-check.cache-ttl-minutes is required")
+        @Min(value = 1, message = "url-check.cache-ttl-minutes must be >= 1")
+        private Integer cacheTtlMinutes = 10;
+    }
 
     @Getter
     @Setter
@@ -99,13 +129,5 @@ public class SpringAIProperties {
         @NotNull(message = "responseTimeoutSeconds is required")
         @Min(value = 1, message = "responseTimeoutSeconds must be >= 1")
         private Integer responseTimeoutSeconds;
-        
-        /**
-         * Timeout for stream processing (seconds).
-         * Maximum time to wait for stream completion.
-         */
-        @NotNull(message = "streamTimeoutSeconds is required")
-        @Min(value = 1, message = "streamTimeoutSeconds must be >= 1")
-        private Integer streamTimeoutSeconds;
     }
 } 

@@ -59,6 +59,15 @@ public final class AgentContext implements StateContext<AgentState> {
     // --- Per-execution transient state (used by AgentLoopActions implementations) ---
     private final Map<String, Object> extras = new java.util.HashMap<>();
 
+    /**
+     * Cooperative cancellation flag. Set by the transport layer (e.g. Telegram /cancel,
+     * REST DELETE /agent/run/{id}) to signal that the user no longer wants the result.
+     * Streaming loops and long-running FSM actions poll {@link #isCancelled()} and exit
+     * early. Declared {@code volatile} because set/read happens across thread boundaries
+     * (user request thread → reactor scheduler).
+     */
+    private volatile boolean cancelled;
+
     public AgentContext(String task, String conversationId, Map<String, String> metadata,
                         int maxIterations, Set<String> enabledTools) {
         this.task = task;
@@ -260,6 +269,18 @@ public final class AgentContext implements StateContext<AgentState> {
         if (streamSink != null) {
             streamSink.accept(event);
         }
+    }
+
+    // --- Cancellation ---
+
+    /** Signals the agent loop to abort at the next checkpoint. Idempotent. */
+    public void cancel() {
+        this.cancelled = true;
+    }
+
+    /** Returns {@code true} if {@link #cancel()} was invoked on this context. */
+    public boolean isCancelled() {
+        return cancelled;
     }
 
     // --- Extension map for implementation-specific state ---

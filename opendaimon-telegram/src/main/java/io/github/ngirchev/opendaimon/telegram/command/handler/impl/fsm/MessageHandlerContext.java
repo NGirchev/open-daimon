@@ -103,6 +103,13 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private int currentIteration = -1;
     private boolean toolCallSeenThisIteration;
     private AgentRenderMode agentRenderMode = AgentRenderMode.STATUS_ONLY;
+    /**
+     * Offset in {@link #tentativeAnswerBuffer} up to which tool-marker scanning
+     * has already been completed. Incremental scanning starts at
+     * {@code max(0, offset - MAX_MARKER_LEN + 1)} to catch markers that straddle
+     * the previous chunk boundary, bounding the per-chunk work to O(newChunk).
+     */
+    private int toolMarkerScanOffset;
 
     // --- Error handling ---
     private Exception exception;
@@ -382,6 +389,14 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.agentRenderMode = agentRenderMode;
     }
 
+    public int getToolMarkerScanOffset() {
+        return toolMarkerScanOffset;
+    }
+
+    public void setToolMarkerScanOffset(int toolMarkerScanOffset) {
+        this.toolMarkerScanOffset = toolMarkerScanOffset;
+    }
+
     /** Clears tentative-answer state and reverts to STATUS_ONLY. Called on rollback. */
     public void resetTentativeAnswer() {
         this.tentativeAnswerMessageId = null;
@@ -389,6 +404,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.tentativeAnswerActive = false;
         this.lastAnswerEditAtMs = 0L;
         this.agentRenderMode = AgentRenderMode.STATUS_ONLY;
+        this.toolMarkerScanOffset = 0;
     }
 
     // --- Error handling ---

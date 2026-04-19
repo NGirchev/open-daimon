@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentEvent;
@@ -31,6 +32,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -77,9 +79,17 @@ public class AgentAutoConfig {
             DelegatingAgentChatModel agentChatModel,
             ToolCallingManager toolCallingManager,
             List<ToolCallback> agentToolCallbacks,
-            ObjectProvider<ChatMemory> chatMemoryProvider) {
+            ObjectProvider<ChatMemory> chatMemoryProvider,
+            ObjectProvider<UrlLivenessChecker> urlLivenessCheckerProvider,
+            AgentProperties agentProperties) {
+        Duration streamTimeout = Duration.ofSeconds(agentProperties.getStreamTimeoutSeconds());
         return new SpringAgentLoopActions(
-                agentChatModel, toolCallingManager, agentToolCallbacks, chatMemoryProvider.getIfAvailable());
+                agentChatModel,
+                toolCallingManager,
+                agentToolCallbacks,
+                chatMemoryProvider.getIfAvailable(),
+                streamTimeout,
+                urlLivenessCheckerProvider.getIfAvailable());
     }
 
     @Bean("agentLoopFsm")

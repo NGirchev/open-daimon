@@ -13,6 +13,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +36,7 @@ class SpringAgentLoopActionsStreamingTest {
         chatModel = mock(ChatModel.class);
         ToolCallingManager toolCallingManager = mock(ToolCallingManager.class);
         actions = new SpringAgentLoopActions(
-                chatModel, toolCallingManager, List.of(), null);
+                chatModel, toolCallingManager, List.of(), null, Duration.ofSeconds(30));
         ctx = new AgentContext("test task", "conv-1", Map.of(), 5, Set.of());
         events = new ArrayList<>();
         ctx.setStreamSink(events::add);

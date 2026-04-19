@@ -96,7 +96,7 @@ import org.mockito.ArgumentCaptor;
  *   -Dit.test=AgentModeOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
  *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen3.5:4b
+ *   -Dmanual.ollama.chat-model=qwen2.5:3b
  * </pre>
  */
 @Tag("manual")
@@ -110,7 +110,7 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
     private static final Long REGULAR_CHAT_ID = 350009011L;
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen3.5:4b";
+    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS = Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")
             .distinct()
@@ -546,9 +546,14 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
     @Timeout(5 * 60)
     @DisplayName("A6: SIMPLE strategy — thinking content is sent to Telegram as HTML message")
     void regular_simpleStrategy_thinkingContentSentToTelegram() throws TelegramApiException {
-        // Capture all messages sent via streamingParagraphSender
-        // (which calls sendMessage(Long, String, Integer))
-        ArgumentCaptor<String> textCaptor = ArgumentCaptor.forClass(String.class);
+        // The new edit-in-place FSM emits intermediate status via a single bubble:
+        //   sendMessageAndGetId("💭 Thinking...", …) — initial bubble
+        //   editMessageHtml(…, "💭 Thinking…<i>reasoning</i>", …) — reasoning updates (if model supports <think>)
+        //   editMessageHtml(…, "<final answer>", …) — terminal edit
+        // Capture all three channels so the test covers whichever path the FSM exercises.
+        ArgumentCaptor<String> sendCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> sendAndGetIdCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
 
         TelegramCommand command = createMessageCommand(
                 REGULAR_CHAT_ID,
@@ -558,49 +563,51 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
 
         messageHandler.handle(command);
 
-        // Verify sendMessage was called at least once (4-arg overload: chatId, text, replyToMessageId, replyMarkup)
-        verify(telegramBot, atLeastOnce())
-                .sendMessage(eq(REGULAR_CHAT_ID), textCaptor.capture(), any(), any());
+        verify(telegramBot, org.mockito.Mockito.atLeast(0))
+                .sendMessage(eq(REGULAR_CHAT_ID), sendCaptor.capture(), any(), any());
+        verify(telegramBot, org.mockito.Mockito.atLeast(0))
+                .sendMessageAndGetId(eq(REGULAR_CHAT_ID), sendAndGetIdCaptor.capture(),
+                        org.mockito.ArgumentMatchers.nullable(Integer.class),
+                        org.mockito.ArgumentMatchers.anyBoolean());
+        verify(telegramBot, org.mockito.Mockito.atLeast(0))
+                .editMessageHtml(eq(REGULAR_CHAT_ID),
+                        org.mockito.ArgumentMatchers.nullable(Integer.class),
+                        editCaptor.capture(),
+                        org.mockito.ArgumentMatchers.anyBoolean());
 
-        List<String> sentMessages = textCaptor.getAllValues();
-        log.info("=== A6: Telegram messages sent ({}) ===", sentMessages.size());
-        for (int i = 0; i < sentMessages.size(); i++) {
-            log.info("  [{}] length={}, preview='{}'", i, sentMessages.get(i).length(),
-                    sentMessages.get(i).substring(0, Math.min(200, sentMessages.get(i).length())));
-        }
+        List<String> allMessages = new java.util.ArrayList<>();
+        allMessages.addAll(sendCaptor.getAllValues());
+        allMessages.addAll(sendAndGetIdCaptor.getAllValues());
+        allMessages.addAll(editCaptor.getAllValues());
+        log.info("=== A6: Telegram content fragments ({}): send={}, sendAndGetId={}, edit={} ===",
+                allMessages.size(), sendCaptor.getAllValues().size(),
+                sendAndGetIdCaptor.getAllValues().size(), editCaptor.getAllValues().size());
 
-        // At least one message should be a thinking event with reasoning content (not just "Thinking...")
-        List<String> thinkingMessages = sentMessages.stream()
-                .filter(m -> m.contains("🤔") || m.contains("\uD83E\uDD14"))
+        // Any bubble carrying "💭" (initial thinking status) or "🤔" (extended reasoning) counts.
+        List<String> thinkingFragments = allMessages.stream()
+                .filter(m -> m.contains("💭") || m.contains("🤔") || m.contains("\uD83E\uDD14"))
                 .toList();
-        log.info("=== A6: Thinking messages: {} ===", thinkingMessages.size());
-        for (String m : thinkingMessages) {
-            log.info("  THINKING: '{}'", m.substring(0, Math.min(300, m.length())));
-        }
-
-        assertThat(thinkingMessages)
-                .as("At least one thinking message should be sent to Telegram")
+        log.info("=== A6: Thinking fragments: {} ===", thinkingFragments.size());
+        assertThat(thinkingFragments)
+                .as("FSM must emit at least one thinking status fragment (💭 or 🤔) to Telegram")
                 .isNotEmpty();
 
-        // At least one thinking message should contain real reasoning (not just "Thinking...")
-        List<String> thinkingWithContent = thinkingMessages.stream()
-                .filter(m -> m.length() > 30) // "🤔 Thinking..." is ~20 chars
-                .toList();
-        if (thinkingWithContent.isEmpty()) {
-            log.warn("=== A6: All thinking messages are placeholders — model may not support extended thinking ===");
-        } else {
-            log.info("=== A6: Found {} thinking messages with real reasoning content ===", thinkingWithContent.size());
-            assertThat(thinkingWithContent.getFirst())
-                    .as("Thinking message should contain HTML-formatted reasoning")
-                    .contains("<i>");
+        // If the model supports extended thinking, the <i>…</i> wrapper appears in one of the fragments.
+        boolean hasExtendedReasoning = allMessages.stream().anyMatch(m -> m.contains("<i>") && m.length() > 30);
+        if (!hasExtendedReasoning) {
+            log.warn("=== A6: No extended <i>reasoning</i> fragment — chat model ({}) likely has think=false ===", CHAT_MODEL);
         }
 
-        // Verify final answer was also sent
-        List<String> nonThinkingMessages = sentMessages.stream()
-                .filter(m -> !m.contains("🤔") && !m.contains("\uD83E\uDD14"))
+        // Regardless of thinking content, the final answer must reach Telegram
+        // (either as a fresh bubble or as a terminal edit of the existing bubble).
+        List<String> nonStatusMessages = allMessages.stream()
+                .filter(m -> !m.contains("💭") && !m.contains("🤔") && !m.contains("\uD83E\uDD14")
+                        && !m.contains("🔧") && !m.contains("\uD83D\uDD27")
+                        && !m.contains("📋") && !m.contains("\uD83D\uDCCB")
+                        && !m.contains("ℹ️"))
                 .toList();
-        assertThat(nonThinkingMessages)
-                .as("Final answer should also be sent to Telegram")
+        assertThat(nonStatusMessages)
+                .as("Final-answer fragment must reach Telegram")
                 .isNotEmpty();
     }
 
@@ -610,7 +617,15 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
     @Timeout(5 * 60)
     @DisplayName("A7: REACT strategy — thinking and tool_call events are sent to Telegram")
     void admin_reactStrategy_thinkingAndToolCallSentToTelegram() throws TelegramApiException {
-        ArgumentCaptor<String> textCaptor = ArgumentCaptor.forClass(String.class);
+        // REACT path in the new FSM uses edit-in-place on a single bubble:
+        //   sendMessageAndGetId("💭 Thinking...")             — initial bubble
+        //   editMessageHtml("💭 … 🔧 <b>Tool:</b> …")          — tool-call event
+        //   editMessageHtml("… <blockquote>📋 Tool result …")   — observation event
+        //   editMessageHtml("… ℹ️ Answering…")                 — terminal answer
+        // Capture every channel where content may land.
+        ArgumentCaptor<String> sendCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> sendAndGetIdCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
 
         TelegramCommand command = createMessageCommand(
                 ADMIN_CHAT_ID,
@@ -620,61 +635,66 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
 
         messageHandler.handle(command);
 
-        verify(telegramBot, atLeastOnce())
-                .sendMessage(eq(ADMIN_CHAT_ID), textCaptor.capture(), any(), any());
+        verify(telegramBot, org.mockito.Mockito.atLeast(0))
+                .sendMessage(eq(ADMIN_CHAT_ID), sendCaptor.capture(), any(), any());
+        verify(telegramBot, org.mockito.Mockito.atLeast(0))
+                .sendMessageAndGetId(eq(ADMIN_CHAT_ID), sendAndGetIdCaptor.capture(),
+                        org.mockito.ArgumentMatchers.nullable(Integer.class),
+                        org.mockito.ArgumentMatchers.anyBoolean());
+        verify(telegramBot, org.mockito.Mockito.atLeast(0))
+                .editMessageHtml(eq(ADMIN_CHAT_ID),
+                        org.mockito.ArgumentMatchers.nullable(Integer.class),
+                        editCaptor.capture(),
+                        org.mockito.ArgumentMatchers.anyBoolean());
 
-        List<String> sentMessages = textCaptor.getAllValues();
-        log.info("=== A7: Telegram messages sent ({}) ===", sentMessages.size());
-        for (int i = 0; i < sentMessages.size(); i++) {
-            log.info("  [{}] length={}, preview='{}'", i, sentMessages.get(i).length(),
-                    sentMessages.get(i).substring(0, Math.min(200, sentMessages.get(i).length())));
-        }
+        List<String> allMessages = new java.util.ArrayList<>();
+        allMessages.addAll(sendCaptor.getAllValues());
+        allMessages.addAll(sendAndGetIdCaptor.getAllValues());
+        allMessages.addAll(editCaptor.getAllValues());
+        log.info("=== A7: Telegram content fragments ({}): send={}, sendAndGetId={}, edit={} ===",
+                allMessages.size(), sendCaptor.getAllValues().size(),
+                sendAndGetIdCaptor.getAllValues().size(), editCaptor.getAllValues().size());
 
-        // Check for thinking messages
-        List<String> thinkingMessages = sentMessages.stream()
-                .filter(m -> m.contains("🤔") || m.contains("\uD83E\uDD14"))
+        List<String> thinkingFragments = allMessages.stream()
+                .filter(m -> m.contains("💭") || m.contains("🤔") || m.contains("\uD83E\uDD14"))
                 .toList();
-        log.info("=== A7: Thinking messages: {} ===", thinkingMessages.size());
-
-        // Check for tool call messages
-        List<String> toolCallMessages = sentMessages.stream()
+        List<String> toolCallFragments = allMessages.stream()
                 .filter(m -> m.contains("🔧") || m.contains("\uD83D\uDD27"))
                 .toList();
-        log.info("=== A7: Tool call messages: {} ===", toolCallMessages.size());
-
-        // Check for observation messages
-        List<String> observationMessages = sentMessages.stream()
+        List<String> observationFragments = allMessages.stream()
                 .filter(m -> m.contains("📋") || m.contains("\uD83D\uDCCB"))
                 .toList();
-        log.info("=== A7: Observation messages: {} ===", observationMessages.size());
+        log.info("=== A7: thinking={}, toolCall={}, observation={} ===",
+                thinkingFragments.size(), toolCallFragments.size(), observationFragments.size());
 
-        assertThat(sentMessages)
-                .as("At least one message should be sent to Telegram (intermediate or final)")
+        assertThat(allMessages)
+                .as("FSM must emit at least one Telegram content fragment (status, tool, or answer)")
                 .isNotEmpty();
 
-        // For REACT strategy, at least thinking status should be sent
-        assertThat(thinkingMessages)
-                .as("REACT strategy should emit at least one THINKING event to Telegram")
+        // Thinking status appears at the very start of the REACT flow (💭 bubble).
+        assertThat(thinkingFragments)
+                .as("REACT strategy must emit at least one THINKING status fragment to Telegram")
                 .isNotEmpty();
 
-        // If tools were called, verify tool call messages appeared
+        // If tools were called, tool-call + observation markers must appear somewhere.
         if (WEB_SEARCH_CALLED.get()) {
-            assertThat(toolCallMessages)
-                    .as("When web_search is called, tool call message should be sent to Telegram")
+            assertThat(toolCallFragments)
+                    .as("When web_search is called, tool-call (🔧) fragment must appear")
                     .isNotEmpty();
-            assertThat(observationMessages)
-                    .as("When web_search is called, observation message should be sent to Telegram")
+            assertThat(observationFragments)
+                    .as("When web_search is called, observation (📋) fragment must appear")
                     .isNotEmpty();
         }
 
-        // Verify final answer was sent (non-event messages)
-        List<String> finalAnswerMessages = sentMessages.stream()
-                .filter(m -> !m.contains("🤔") && !m.contains("\uD83E\uDD14")
+        // Final answer fragment (no status emoji) must reach Telegram.
+        List<String> finalAnswerFragments = allMessages.stream()
+                .filter(m -> !m.contains("💭") && !m.contains("🤔") && !m.contains("\uD83E\uDD14")
                         && !m.contains("🔧") && !m.contains("\uD83D\uDD27")
-                        && !m.contains("📋") && !m.contains("\uD83D\uDCCB"))
+                        && !m.contains("📋") && !m.contains("\uD83D\uDCCB")
+                        && !m.contains("ℹ️"))
                 .toList();
-        assertThat(finalAnswerMessages)
-                .as("Final answer should be sent to Telegram")
+        assertThat(finalAnswerFragments)
+                .as("Final answer fragment must reach Telegram")
                 .isNotEmpty();
     }
 

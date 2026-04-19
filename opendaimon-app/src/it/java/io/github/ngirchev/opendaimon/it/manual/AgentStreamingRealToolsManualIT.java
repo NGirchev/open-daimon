@@ -258,8 +258,14 @@ class AgentStreamingRealToolsManualIT extends AbstractContainerIT {
                 .orElseThrow(() -> new IllegalStateException("Admin user should exist after setUp"));
         userModelPreferenceService.setPreferredModel(adminUser.getId(), TEST_MODEL);
 
-        doNothing().when(telegramBot).editMessageHtml(anyLong(), any(), anyString());
-        org.mockito.Mockito.when(telegramBot.sendMessageAndGetId(anyLong(), anyString(), any()))
+        // FSM agent-stream path uses the 4-arg overloads (chatId, text/html, replyTo/Id, boolean)
+        // via TelegramMessageSender. Older 3-arg stubs silently returned null / were never
+        // matched on verification, masking real behavior. Match the actual overloads.
+        doNothing().when(telegramBot).editMessageHtml(anyLong(), any(), anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean());
+        org.mockito.Mockito.when(telegramBot.sendMessageAndGetId(
+                        anyLong(), anyString(), org.mockito.ArgumentMatchers.nullable(Integer.class),
+                        org.mockito.ArgumentMatchers.anyBoolean()))
                 .thenReturn(999);
 
         TelegramCommand command = createMessageCommand(
@@ -301,10 +307,13 @@ class AgentStreamingRealToolsManualIT extends AbstractContainerIT {
 
         // Verify edit-in-place: first agent event creates a status message, subsequent events edit it.
         org.mockito.Mockito.verify(telegramBot, org.mockito.Mockito.atLeastOnce())
-                .sendMessageAndGetId(org.mockito.ArgumentMatchers.eq(ADMIN_CHAT_ID), anyString(), any());
+                .sendMessageAndGetId(org.mockito.ArgumentMatchers.eq(ADMIN_CHAT_ID),
+                        anyString(), org.mockito.ArgumentMatchers.nullable(Integer.class),
+                        org.mockito.ArgumentMatchers.anyBoolean());
         org.mockito.Mockito.verify(telegramBot, org.mockito.Mockito.atLeastOnce())
                 .editMessageHtml(org.mockito.ArgumentMatchers.eq(ADMIN_CHAT_ID),
-                        org.mockito.ArgumentMatchers.eq(999), anyString());
+                        org.mockito.ArgumentMatchers.eq(999), anyString(),
+                        org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     // ── R3: SIMPLE strategy with explicit model ──────────────────────────

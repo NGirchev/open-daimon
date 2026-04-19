@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -14,11 +15,23 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 @Slf4j
 @RequiredArgsConstructor
 public class WebTools {
+
+    /**
+     * Structured error reason codes returned to the agent in tool observations.
+     * Agents key off these codes to decide whether to retry, switch to a different
+     * hit, or surface the failure to the user — raw exception messages are unstable
+     * and confuse the downstream LLM.
+     */
+    public static final String REASON_TOO_LARGE = "page_too_large";
+    public static final String REASON_UNREADABLE_2XX = "unreadable_2xx";
+    public static final String REASON_INVALID_URL = "invalid_url";
+    public static final String REASON_TIMEOUT = "timeout";
 
     private final WebClient webClient;
     private final String apiKey;
@@ -101,7 +114,7 @@ public class WebTools {
     public String fetchUrl(String url) {
         if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
             log.warn("WebTools.fetchUrl: url=[{}] is not a valid HTTP(S) URL. Skipping.", url);
-            return "";
+            return "Error: " + REASON_INVALID_URL + " — not an http(s) URL";
         }
         try {
             log.info("WebTools fetchUrl: {}", url);
@@ -128,17 +141,31 @@ public class WebTools {
         } catch (WebClientResponseException e) {
             if (e.getStatusCode().is2xxSuccessful()) {
                 // Body decode failure on a successful status (maxInMemorySize exceeded,
-                // charset mismatch, malformed gzip). Surface a distinct error so the agent
+                // charset mismatch, malformed gzip). Surface a distinct reason so the agent
                 // stops retrying the same URL and can fall back to another search hit
                 // instead of looping on an absurd "HTTP error 200 OK" marker.
                 log.warn("WebTools.fetchUrl: body decode failed on 2xx for url=[{}]: {}",
                         url, e.getMessage());
-                return "Error: fetch_url could not decode response body for " + url;
+                return "Error: " + REASON_UNREADABLE_2XX
+                        + " — could not decode response body for " + url;
             }
             String reason = e.getStatusCode().value() + " " + e.getStatusText();
             log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, e.getMessage());
             return "HTTP error " + reason;
         } catch (Exception e) {
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+            if (root instanceof DataBufferLimitException || e instanceof DataBufferLimitException) {
+                log.warn("WebTools.fetchUrl: response exceeded in-memory buffer for url=[{}]: {}",
+                        url, e.getMessage());
+                return "Error: " + REASON_TOO_LARGE + " — response exceeded buffer limit";
+            }
+            if (e instanceof TimeoutException || root instanceof TimeoutException) {
+                log.warn("WebTools.fetchUrl: request timed out for url=[{}]", url);
+                return "Error: " + REASON_TIMEOUT + " — request exceeded 6s timeout";
+            }
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             log.error("WebTools.fetchUrl failed for url=[{}]: {}. Returning structured error.", url, msg, e);
             return "Error: " + msg;

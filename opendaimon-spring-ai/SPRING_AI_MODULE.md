@@ -437,6 +437,94 @@ platform defaults, so the codec bump is scoped to the tools that actually need i
 With `PriorityRequestExecutor` capping concurrency at `10/5/1` threads, the worst-case
 heap headroom added by the bump is ~20 MiB.
 
+### Final-answer URL sanitization — `UrlLivenessChecker`
+
+LLMs regularly hallucinate plausible-looking citation URLs that return 404. To
+defend the user-visible answer, `SpringAgentLoopActions.answer()` passes the
+final text through `UrlLivenessChecker.stripDeadLinks(...)` when the bean is
+available (wired via `ObjectProvider`, so the loop stays functional when
+URL-check is disabled).
+
+Behavior:
+- HEAD probe per URL with a strict timeout; on `405 Method Not Allowed` fall
+  back to a ranged GET (`Range: bytes=0-0`) because many CDNs block HEAD.
+- Dead markdown links `[anchor](url)` collapse to plain `anchor` text.
+- Dead bare URLs are replaced with a short unavailable marker so the reader is
+  not sent to a broken page.
+- Results are cached in an in-memory Caffeine cache keyed by URL with TTL
+  `open-daimon.ai.spring-ai.url-check.cache-ttl-minutes` (default 10 min), so
+  a single answer mentioning the same URL twice produces one HTTP round-trip.
+- Per-answer cap: `url-check.max-urls-per-answer` (default 10) bounds total
+  added latency on long answers with many citations.
+
+Disable the whole feature by setting
+`open-daimon.ai.spring-ai.url-check.enabled=false` — the bean is then skipped
+and the agent loop returns raw text unchanged. The bean is **not** invoked on
+every `WebTools.fetchUrl` call — only once as the last step before
+`ctx.finalAnswer` is set. Sanitization failures never block answer delivery:
+on any exception the original text is returned and a warning is logged.
+
+### Streaming timeout & fallback — `SpringAgentLoopActions.streamAndAggregate`
+
+The streaming reactor pipeline is now bounded by a hard timeout sourced from
+`open-daimon.agent.stream-timeout-seconds` (required property on `AgentProperties`;
+owned by the agent module because only `SpringAgentLoopActions` consumes it).
+Behavior:
+
+- `.blockLast(streamTimeout)` replaces the previous unbounded block — a stuck
+  upstream (LLM provider never emits `onComplete`) can no longer hang the FSM
+  thread indefinitely.
+- On `Exception` before any chunk arrived, the loop **falls back to the
+  non-streaming** `chatModel.call(prompt)` and emits an `AgentStreamEvent.ERROR`
+  event so UI renderers can surface a "switched to non-streaming" notice.
+- On `Exception` after partial chunks, the partial response is surfaced
+  (warn-logged) rather than lost; also accompanied by an `ERROR` event.
+- Tool calls collected across chunks are deduplicated by `id` (falling back to
+  `name|arguments`) via a `LinkedHashSet` — older implementations would double-
+  count when a provider echoed the same tool call in multiple chunks.
+
+### Cooperative cancellation — `AgentContext.cancel()`
+
+`AgentContext` now exposes `cancel()` / `isCancelled()` as a cooperative
+shutdown channel used by transports (Telegram `/cancel`, REST `DELETE
+/agent/run/{id}`). `SpringAgentLoopActions` checks the flag at two points:
+
+1. Entry of `think(ctx)` — short-circuit before making any LLM call.
+2. Inside `streamAndAggregate` — `.takeWhile(c -> !ctx.isCancelled())` stops
+   consuming reactive chunks as soon as the flag flips; on exit it sets
+   `errorMessage="Agent run cancelled by user during streaming"` and returns
+   `null` so the outer loop terminates cleanly.
+
+The flag is `volatile` — writes from any caller thread are observed on the
+reactor scheduler without additional synchronization.
+
+### Structured reason codes — `WebTools`
+
+`WebTools` returns observation strings prefixed with stable reason codes so
+the agent loop (and `observe()` heuristics) can classify failure modes without
+pattern-matching on raw exception messages:
+
+- `REASON_INVALID_URL` — pre-flight check on non-http(s) URLs.
+- `REASON_UNREADABLE_2XX` — 2xx status but body decode failed (charset, gzip,
+  or `maxInMemorySize`).
+- `REASON_TOO_LARGE` — `DataBufferLimitException` (response larger than the
+  WebClient buffer limit, currently 2 MiB).
+- `REASON_TIMEOUT` — request exceeded the per-tool 6s timeout.
+
+The codes are public constants on `WebTools`; downstream test fixtures and
+`observe()` heuristics should reference them by constant, not literal string.
+
+### History recovery from primary store — `SummarizingChatMemory`
+
+On application restart (or any event that empties the `ChatMemoryRepository`
+cache) `SummarizingChatMemory.get(conversationId)` now rebuilds the window from
+the primary store: if the delegate returns empty but `ConversationThread` has
+a summary and/or post-summarization messages, the memory is re-seeded with
+`SystemMessage(summary) + most-recent N messages` (where N = `maxMessages - 1`
+to reserve a slot for the incoming user turn). This recovery runs under a
+`synchronized (conversationId.intern())` block to keep concurrent reads from
+observing a half-populated window.
+
 ---
 
 ## Responses

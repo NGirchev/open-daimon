@@ -13,6 +13,7 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ class SpringAgentLoopActionsObserveTest {
         ChatModel chatModel = mock(ChatModel.class);
         ToolCallingManager toolCallingManager = mock(ToolCallingManager.class);
         actions = new SpringAgentLoopActions(
-                chatModel, toolCallingManager, List.of(), null);
+                chatModel, toolCallingManager, List.of(), null, Duration.ofSeconds(30));
         ctx = new AgentContext("test task", "conv-1", Map.of(), 5, Set.of());
         events = new ArrayList<>();
         ctx.setStreamSink(events::add);
@@ -186,7 +187,7 @@ class SpringAgentLoopActionsObserveTest {
         ChatModel chatModel = mock(ChatModel.class);
         ToolCallingManager toolCallingManager = mock(ToolCallingManager.class);
         SpringAgentLoopActions actionsWithMockModel = new SpringAgentLoopActions(
-                chatModel, toolCallingManager, List.of(), null);
+                chatModel, toolCallingManager, List.of(), null, Duration.ofSeconds(30));
 
         AssistantMessage.ToolCall call1 = new AssistantMessage.ToolCall(
                 "id1", "function", "web_search", "{\"q\":\"test\"}");

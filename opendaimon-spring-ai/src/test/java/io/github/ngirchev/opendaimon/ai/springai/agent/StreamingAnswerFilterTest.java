@@ -149,4 +149,35 @@ class StreamingAnswerFilterTest {
         String out = filter.feed("type <List<Integer>> for collections") + filter.flush();
         assertThat(out).isEqualTo("type <List<Integer>> for collections");
     }
+
+    @Test
+    void shouldStripOrphanToolCallCloseTagWhenOutside() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String out = filter.feed("some answer text</tool_call> trailing") + filter.flush();
+        assertThat(out).isEqualTo("some answer text trailing");
+    }
+
+    @Test
+    void shouldStripOrphanThinkCloseTagWhenOutside() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String out = filter.feed("answer</think> more") + filter.flush();
+        assertThat(out).isEqualTo("answer more");
+    }
+
+    @Test
+    void shouldNotTreatLoneLessThanFollowedByPlainTextAsTag() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        String out = filter.feed("a < b and c") + filter.flush();
+        assertThat(out).isEqualTo("a < b and c");
+    }
+
+    @Test
+    void shouldHandleOrphanCloseTagSplitAcrossChunks() {
+        StreamingAnswerFilter filter = new StreamingAnswerFilter();
+        StringBuilder out = new StringBuilder();
+        out.append(filter.feed("hello</"));
+        out.append(filter.feed("tool_call> world"));
+        out.append(filter.flush());
+        assertThat(out.toString()).isEqualTo("hello world");
+    }
 }

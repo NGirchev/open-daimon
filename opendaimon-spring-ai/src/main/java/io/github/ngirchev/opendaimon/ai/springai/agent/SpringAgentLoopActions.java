@@ -6,6 +6,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -25,10 +26,13 @@ import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.tool.ToolCallback;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -53,6 +57,9 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final ToolCallingManager toolCallingManager;
     private final List<ToolCallback> toolCallbacks;
     private final ChatMemory chatMemory;
+    private final Duration streamTimeout;
+    /** Optional — when set, final-answer text is passed through to strip dead URLs. */
+    private final UrlLivenessChecker urlLivenessChecker;
 
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
     private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
@@ -88,6 +95,15 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private static final Pattern NAME_TAG_PATTERN =
             Pattern.compile("<name>(\\w+)</name>");
 
+    /**
+     * Matches {@code <tool_name>toolName</tool_name>} — the Ollama/Qwen variant. Kept as a
+     * separate pattern (not combined with {@link #NAME_TAG_PATTERN}) because some models
+     * emit both in the same payload and we want a deterministic priority: {@code <name>}
+     * wins, {@code <tool_name>} is the fallback.
+     */
+    private static final Pattern TOOL_NAME_TAG_PATTERN =
+            Pattern.compile("<tool_name>(\\w+)</tool_name>");
+
     /** Matches {@code <arg_key>key</arg_key>...<arg_value>value</arg_value>} pairs. */
     private static final Pattern ARG_PAIR_PATTERN =
             Pattern.compile("<arg_key>(.*?)</arg_key>\\s*<arg_value>(.*?)</arg_value>", Pattern.DOTALL);
@@ -98,15 +114,31 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     public SpringAgentLoopActions(ChatModel chatModel,
                                   ToolCallingManager toolCallingManager,
                                   List<ToolCallback> toolCallbacks,
-                                  ChatMemory chatMemory) {
+                                  ChatMemory chatMemory,
+                                  Duration streamTimeout) {
+        this(chatModel, toolCallingManager, toolCallbacks, chatMemory, streamTimeout, null);
+    }
+
+    public SpringAgentLoopActions(ChatModel chatModel,
+                                  ToolCallingManager toolCallingManager,
+                                  List<ToolCallback> toolCallbacks,
+                                  ChatMemory chatMemory,
+                                  Duration streamTimeout,
+                                  UrlLivenessChecker urlLivenessChecker) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : List.of();
         this.chatMemory = chatMemory;
+        this.streamTimeout = Objects.requireNonNull(streamTimeout, "streamTimeout must not be null");
+        this.urlLivenessChecker = urlLivenessChecker;
     }
 
     @Override
     public void think(AgentContext ctx) {
+        if (ctx.isCancelled()) {
+            ctx.setErrorMessage("Agent run cancelled by user before think()");
+            return;
+        }
         ctx.emitEvent(AgentStreamEvent.thinking(ctx.getCurrentIteration()));
         try {
             List<Message> messages = getOrCreateHistory(ctx);
@@ -244,40 +276,72 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      * model-name and usage tracking keeps working.
      */
     private ChatResponse streamAndAggregate(AgentContext ctx, Prompt prompt) {
-        Flux<ChatResponse> stream = chatModel.stream(prompt);
         StreamingAnswerFilter filter = new StreamingAnswerFilter();
         int iteration = ctx.getCurrentIteration();
 
         StringBuilder fullText = new StringBuilder();
         List<AssistantMessage.ToolCall> collectedToolCalls = new ArrayList<>();
+        Set<String> seenToolCallIds = new LinkedHashSet<>();
         AtomicReference<ChatResponse> lastChunk = new AtomicReference<>();
 
-        stream
-                .doOnNext(chunk -> {
-                    lastChunk.set(chunk);
-                    if (chunk.getResult() != null && chunk.getResult().getOutput() != null) {
-                        AssistantMessage output = chunk.getResult().getOutput();
-                        if (output.getText() != null) {
-                            String text = output.getText();
-                            String accumulated = fullText.toString();
-                            fullText.append(normalizeDelta(accumulated, text));
+        try {
+            Flux<ChatResponse> stream = chatModel.stream(prompt);
+            if (stream == null) {
+                throw new IllegalStateException("chatModel.stream returned null flux");
+            }
+            stream
+                    .takeWhile(chunk -> !ctx.isCancelled())
+                    .doOnNext(chunk -> {
+                        lastChunk.set(chunk);
+                        if (chunk.getResult() != null && chunk.getResult().getOutput() != null) {
+                            AssistantMessage output = chunk.getResult().getOutput();
+                            if (output.getText() != null) {
+                                String text = output.getText();
+                                String accumulated = fullText.toString();
+                                fullText.append(normalizeDelta(accumulated, text));
+                            }
+                            if (output.getToolCalls() != null && !output.getToolCalls().isEmpty()) {
+                                for (AssistantMessage.ToolCall call : output.getToolCalls()) {
+                                    String dedupKey = call.id() != null && !call.id().isBlank()
+                                            ? call.id()
+                                            : call.name() + "|" + call.arguments();
+                                    if (seenToolCallIds.add(dedupKey)) {
+                                        collectedToolCalls.add(call);
+                                    }
+                                }
+                            }
                         }
-                        if (output.getToolCalls() != null && !output.getToolCalls().isEmpty()) {
-                            collectedToolCalls.addAll(output.getToolCalls());
-                        }
-                    }
-                })
-                .map(AIUtils::extractText)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .map(filter::feed)
-                .filter(s -> !s.isEmpty())
-                .concatWith(Flux.defer(() -> {
-                    String tail = filter.flush();
-                    return tail.isEmpty() ? Flux.empty() : Flux.just(tail);
-                }))
-                .doOnNext(text -> ctx.emitEvent(AgentStreamEvent.partialAnswer(text, iteration)))
-                .blockLast();
+                    })
+                    .map(AIUtils::extractText)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .map(filter::feed)
+                    .filter(s -> !s.isEmpty())
+                    .concatWith(Flux.defer(() -> {
+                        String tail = filter.flush();
+                        return tail.isEmpty() ? Flux.empty() : Flux.just(tail);
+                    }))
+                    .doOnNext(text -> ctx.emitEvent(AgentStreamEvent.partialAnswer(text, iteration)))
+                    .blockLast(streamTimeout);
+        } catch (Exception e) {
+            if (lastChunk.get() == null) {
+                log.warn("Agent think: stream path unavailable (timeout={}), falling back to call(): {}",
+                        streamTimeout, e.getMessage());
+                ctx.emitEvent(AgentStreamEvent.error(
+                        "Streaming unavailable, switched to non-streaming mode", iteration));
+                return chatModel.call(prompt);
+            }
+            log.warn("Agent think: stream failed mid-flight after partial chunks, surfacing partial response: {}",
+                    e.getMessage());
+            ctx.emitEvent(AgentStreamEvent.error(
+                    "Stream interrupted: " + e.getMessage(), iteration));
+        }
+
+        if (ctx.isCancelled()) {
+            ctx.setErrorMessage("Agent run cancelled by user during streaming");
+            log.info("Agent think: stream aborted because context was cancelled");
+            return null;
+        }
 
         ChatResponse last = lastChunk.get();
         if (last == null) {
@@ -396,12 +460,33 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void answer(AgentContext ctx) {
-        ctx.setFinalAnswer(ctx.getCurrentTextResponse());
+        String text = ctx.getCurrentTextResponse();
+        String sanitized = sanitizeDeadUrls(text);
+        ctx.setFinalAnswer(sanitized);
         saveConversationHistory(ctx);
         cleanup(ctx);
         log.info("Agent answer: final answer set, length={}",
                 ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0);
         log.debug("Agent answer: final answer text:\n{}", ctx.getFinalAnswer());
+    }
+
+    /**
+     * Passes the final answer text through {@link UrlLivenessChecker#stripDeadLinks(String)}
+     * when the checker bean is available. Defends against LLM-hallucinated URLs in the
+     * final user-visible answer. Failures in the checker never block answer delivery —
+     * on any exception the original text is returned unchanged.
+     */
+    private String sanitizeDeadUrls(String text) {
+        if (urlLivenessChecker == null || text == null || text.isBlank()) {
+            return text;
+        }
+        try {
+            return urlLivenessChecker.stripDeadLinks(text);
+        } catch (Exception e) {
+            log.warn("Agent answer: url liveness sanitization failed, keeping original text: {}",
+                    e.getMessage());
+            return text;
+        }
     }
 
     @Override
@@ -608,6 +693,13 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         Matcher nameMatcher = NAME_TAG_PATTERN.matcher(text);
         if (nameMatcher.find()) {
             toolName = nameMatcher.group(1).trim();
+        }
+
+        if (toolName == null) {
+            Matcher toolNameMatcher = TOOL_NAME_TAG_PATTERN.matcher(text);
+            if (toolNameMatcher.find()) {
+                toolName = toolNameMatcher.group(1).trim();
+            }
         }
 
         if (toolName == null) {

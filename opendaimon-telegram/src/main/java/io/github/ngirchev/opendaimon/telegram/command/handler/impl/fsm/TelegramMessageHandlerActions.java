@@ -32,8 +32,8 @@ import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.RenderedUpdate;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
-import io.github.ngirchev.opendaimon.telegram.service.TelegramBufferRotator;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramHtmlEscaper;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramProgressBatcher;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
@@ -110,6 +110,17 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             "&lt;arg_key&gt;", "&lt;/arg_key&gt;",
             "&lt;arg_value&gt;", "&lt;/arg_value&gt;"
     };
+
+    /** Longest escaped marker length — bounds the overlap when resuming an incremental scan. */
+    private static final int MAX_ESCAPED_TOOL_MARKER_LEN = maxLength(ESCAPED_TOOL_MARKERS);
+
+    private static int maxLength(String[] arr) {
+        int max = 0;
+        for (String s : arr) {
+            if (s.length() > max) max = s.length();
+        }
+        return max;
+    }
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -441,10 +452,12 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         // open tentative bubble and suppress promotion for the rest of the iteration.
         // Once the flag is set, the iteration already suppresses promotion — skip the
         // scan so we don't re-enter rollback on every subsequent chunk.
-        if (!ctx.isToolCallSeenThisIteration() && containsToolMarker(buf)) {
+        if (!ctx.isToolCallSeenThisIteration()
+                && containsToolMarker(buf, ctx.getToolMarkerScanOffset())) {
             handleEmbeddedToolMarker(ctx, buf);
             return;
         }
+        ctx.setToolMarkerScanOffset(buf.length());
 
         if (ctx.getAgentRenderMode() == MessageHandlerContext.AgentRenderMode.STATUS_ONLY) {
             // Show the streaming tail inline on the status message as reasoning overlay.
@@ -465,16 +478,17 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
      * {@link MessageHandlerContext#setToolCallSeenThisIteration(boolean)} so this scan
      * short-circuits (via the {@code toolCallSeen} flag) for the rest of the iteration.
      */
-    private static boolean containsToolMarker(CharSequence buf) {
+    /**
+     * Incremental marker scan. Starts at {@code max(0, prevScannedOffset - MAX_MARKER_LEN + 1)}
+     * so a marker that straddles the boundary between the previously-scanned prefix and the
+     * newly-appended chunk is still detected, while never re-scanning bytes further back than
+     * necessary.
+     */
+    private static boolean containsToolMarker(StringBuilder buf, int prevScannedOffset) {
+        int start = Math.max(0, prevScannedOffset - MAX_ESCAPED_TOOL_MARKER_LEN + 1);
         for (String marker : ESCAPED_TOOL_MARKERS) {
-            for (int i = 0; i <= buf.length() - marker.length(); i++) {
-                int k = 0;
-                while (k < marker.length() && buf.charAt(i + k) == marker.charAt(k)) {
-                    k++;
-                }
-                if (k == marker.length()) {
-                    return true;
-                }
+            if (buf.indexOf(marker, start) >= 0) {
+                return true;
             }
         }
         return false;
@@ -493,20 +507,26 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             Long chatId = ctx.getCommand().telegramId();
             Integer id = ctx.getTentativeAnswerMessageId();
             String foldedProse = buf.toString();
+            boolean rollbackVisual = false;
             if (id != null) {
                 boolean deleted = messageSender.deleteMessage(chatId, id);
+                rollbackVisual = deleted;
                 if (!deleted) {
                     try {
                         messageSender.editHtml(chatId, id, ROLLBACK_FALLBACK_HTML, true);
+                        rollbackVisual = true;
                     } catch (RuntimeException ex) {
-                        log.warn("FSM agentStream: marker-rollback fallback edit failed for id={}", id, ex);
+                        log.error("FSM agentStream: marker-rollback failed to both delete and edit bubble id={} — "
+                                + "orphaned partial answer will remain visible; reasoning preserved as status overlay",
+                                id, ex);
                     }
                 }
             }
             String foldedOverlay = "<i>" + collapseToSingleLine(foldedProse) + "</i>";
             replaceTrailingThinkingLineWithEscaped(ctx, foldedOverlay, /*forceFlush=*/ true);
             ctx.resetTentativeAnswer();
-            log.info("FSM agentStream: tool marker detected in tentative answer, bubble id={} rolled back", id);
+            log.info("FSM agentStream: tool marker detected in tentative answer, bubble id={} rolled back (visual={})",
+                    id, rollbackVisual);
         } else {
             // Still in STATUS_ONLY — show the collapsed reasoning tail, don't promote.
             replaceTrailingThinkingLineWithEscaped(ctx, tailAsPlainOverlay(buf), /*forceFlush=*/ false);
@@ -716,9 +736,9 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         if (id == null) {
             return;
         }
-        long throttleMs = telegramProperties.getAgentStreamEditMinIntervalMs();
-        long sinceLast = System.currentTimeMillis() - ctx.getLastAnswerEditAtMs();
-        if (!forceFlush && sinceLast < throttleMs) {
+        long debounceMs = telegramProperties.getAgentStreamEditMinIntervalMs();
+        if (!TelegramProgressBatcher.shouldFlush(
+                ctx.getLastAnswerEditAtMs(), System.currentTimeMillis(), debounceMs, forceFlush)) {
             return;
         }
         // Enable link previews only on the terminal edit (forceFlush). During streaming the
@@ -726,7 +746,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         // to resolve or flicker on every edit.
         boolean disablePreview = !forceFlush;
         Long chatId = ctx.getCommand().telegramId();
-        TelegramBufferRotator.rotateIfExceeds(ctx.getTentativeAnswerBuffer(),
+        TelegramProgressBatcher.selectContentToFlush(ctx.getTentativeAnswerBuffer(),
                         telegramProperties.getMaxMessageLength())
                 .ifPresent(head -> {
                     // Finalize the current answer bubble with the head and open a fresh
@@ -739,9 +759,15 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                         ctx.setTentativeAnswerMessageId(next);
                     }
                 });
-        messageSender.editHtml(chatId, ctx.getTentativeAnswerMessageId(),
-                renderTentativeBuffer(ctx), disablePreview);
-        ctx.markAnswerEdited();
+        // After rotation the tail may be empty or whitespace-only; Telegram rejects an
+        // editMessageText with empty body ("Bad Request: text must be non-empty"), so skip
+        // the edit and leave the debounce timer untouched until real content arrives.
+        String currentHtml = renderTentativeBuffer(ctx);
+        if (!currentHtml.isBlank()) {
+            messageSender.editHtml(chatId, ctx.getTentativeAnswerMessageId(),
+                    currentHtml, disablePreview);
+            ctx.markAnswerEdited();
+        }
     }
 
     private void forceFinalAnswerEdit(MessageHandlerContext ctx) {
@@ -824,9 +850,9 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             }
             return;
         }
-        long throttleMs = telegramProperties.getAgentStreamEditMinIntervalMs();
-        long sinceLast = System.currentTimeMillis() - ctx.getLastStatusEditAtMs();
-        if (!forceFlush && sinceLast < throttleMs) {
+        long debounceMs = telegramProperties.getAgentStreamEditMinIntervalMs();
+        if (!TelegramProgressBatcher.shouldFlush(
+                ctx.getLastStatusEditAtMs(), System.currentTimeMillis(), debounceMs, forceFlush)) {
             return;
         }
         messageSender.editHtml(chatId, id, html, true);
@@ -841,7 +867,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
      */
     private void rotateStatusIfNeeded(MessageHandlerContext ctx) {
         int maxLength = telegramProperties.getMaxMessageLength();
-        TelegramBufferRotator.rotateIfExceeds(ctx.getStatusBuffer(), maxLength)
+        TelegramProgressBatcher.selectContentToFlush(ctx.getStatusBuffer(), maxLength)
                 .ifPresent(head -> {
                     Long chatId = ctx.getCommand().telegramId();
                     Integer oldId = ctx.getStatusMessageId();

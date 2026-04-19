@@ -77,7 +77,7 @@ import static org.mockito.Mockito.reset;
  *   -Dit.test=TextPdfRagOllamaManualIT \
  *   -Dfailsafe.failIfNoSpecifiedTests=false \
  *   -Dmanual.ollama.e2e=true \
- *   -Dmanual.ollama.chat-model=qwen3.5:4b
+ *   -Dmanual.ollama.chat-model=qwen2.5:3b
  * </pre>
  */
 @Tag("manual")
@@ -94,7 +94,7 @@ class TextPdfRagOllamaManualIT extends AbstractContainerIT {
     private static final String EXPECTED_FOLLOW_UP_PHRASE =
             "Aenean est erat, tincidunt eget, venenatis quis, commodo at";
     private static final String CHAT_MODEL_PROPERTY = "manual.ollama.chat-model";
-    private static final String DEFAULT_CHAT_MODEL = "qwen3.5:4b";
+    private static final String DEFAULT_CHAT_MODEL = "qwen2.5:3b";
     private static final String CHAT_MODEL = System.getProperty(CHAT_MODEL_PROPERTY, DEFAULT_CHAT_MODEL);
     private static final List<String> REQUIRED_OLLAMA_MODELS =
             Stream.of(CHAT_MODEL, "nomic-embed-text:v1.5")

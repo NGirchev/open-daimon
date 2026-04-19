@@ -61,22 +61,42 @@ final class StreamingAnswerFilter {
     }
 
     /**
-     * Emits text from the buffer up to the next opening tag.
+     * Emits text from the buffer up to the next opening tag, stripping orphan
+     * {@code </think>} and {@code </tool_call>} close tags that appear while outside any block.
+     *
+     * <p>Some models occasionally emit a closing tag without a matching opening one (e.g. when
+     * the model quotes tool-call markup inside reasoning prose but the opening tag was never
+     * streamed). Treating such orphans as plain text leaks raw XML into the user-facing answer,
+     * so we drop them while preserving the surrounding text.
      *
      * @return true if a transition happened (loop should continue), false if the buffer was
      * fully drained for the current state.
      */
     private boolean consumeOutside(StringBuilder out, boolean atEnd) {
-        int idxThink = buffer.indexOf(THINK_OPEN);
-        int idxTool = buffer.indexOf(TOOL_OPEN);
-        int idxOpen = minNonNegative(idxThink, idxTool);
+        int idxThinkOpen = buffer.indexOf(THINK_OPEN);
+        int idxToolOpen = buffer.indexOf(TOOL_OPEN);
+        int idxThinkClose = buffer.indexOf(THINK_CLOSE);
+        int idxToolClose = buffer.indexOf(TOOL_CLOSE);
 
-        if (idxOpen >= 0) {
-            out.append(buffer, 0, idxOpen);
-            boolean isThink = idxOpen == idxThink;
-            int tagLen = isThink ? THINK_OPEN.length() : TOOL_OPEN.length();
-            buffer.delete(0, idxOpen + tagLen);
-            state = isThink ? State.INSIDE_THINK : State.INSIDE_TOOL_CALL;
+        int idxAny = minNonNegative(
+                minNonNegative(idxThinkOpen, idxToolOpen),
+                minNonNegative(idxThinkClose, idxToolClose));
+
+        if (idxAny >= 0) {
+            out.append(buffer, 0, idxAny);
+            if (idxAny == idxThinkOpen) {
+                buffer.delete(0, idxAny + THINK_OPEN.length());
+                state = State.INSIDE_THINK;
+            } else if (idxAny == idxToolOpen) {
+                buffer.delete(0, idxAny + TOOL_OPEN.length());
+                state = State.INSIDE_TOOL_CALL;
+            } else if (idxAny == idxThinkClose) {
+                // Orphan </think> — strip without emitting, remain OUTSIDE.
+                buffer.delete(0, idxAny + THINK_CLOSE.length());
+            } else {
+                // Orphan </tool_call> — strip without emitting, remain OUTSIDE.
+                buffer.delete(0, idxAny + TOOL_CLOSE.length());
+            }
             return true;
         }
 

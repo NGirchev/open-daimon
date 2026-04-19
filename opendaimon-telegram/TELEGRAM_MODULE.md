@@ -788,3 +788,58 @@ On `ApplicationReadyEvent`:
 The control that opens the bot command list in the Telegram client is labeled by **Telegram app language** (for example, different localized labels), not by the bot’s `/language` setting. `setMyCommands` only defines the command list text per locale.
 
 Session cleanup: `TelegramUserActivityService` runs every 10 minutes, closes sessions inactive > 15 minutes.
+
+## Agent Streaming: Throttling & Rollback Internals
+
+### Rate-limited status edits — `TelegramProgressBatcher`
+
+Status-bubble edits during a ReAct stream go through
+`TelegramProgressBatcher.shouldFlush(lastFlushAtMs, nowMs, debounceMs, forceFlush)`
+before reaching `messageSender.editHtml`. The debounce source is the existing
+`open-daimon.telegram.agent-stream-edit-min-interval-ms` property (default
+1000 ms) — a single knob that owns the rate limit across the two call sites
+(`editStatusThrottled`, `editTentativeAnswer`). Structural events (tool call,
+observation, final answer, rollback) pass `forceFlush=true` and bypass the
+window; `PARTIAL_ANSWER` chunks obey the debounce. This prevents runaway
+`editMessage` spam when the LLM emits many short tokens.
+
+Buffer rotation — choosing the cut point when the accumulated HTML exceeds
+Telegram's 4096-char limit — is centralized in
+`TelegramProgressBatcher.selectContentToFlush(buffer, maxLength)`, which
+delegates to `TelegramBufferRotator.rotateIfExceeds` so the heuristic
+(paragraph → sentence → whitespace → hard cut) stays shared between status
+and tentative-answer flushes.
+
+### Incremental tool-marker scan
+
+Pre-4.7 the `containsToolMarker` scan was a naïve O(n·m) loop across every
+marker on every PARTIAL_ANSWER chunk — at tens of chunks per second and
+buffers of several KB the overhead showed up in streaming jitter. The
+context now stores `toolMarkerScanOffset` and the scan resumes from
+`max(0, offset - MAX_MARKER_LEN + 1)`, bounded to the size of the newly
+appended chunk plus one marker-length of overlap (to catch a marker that
+straddles the chunk boundary). `resetTentativeAnswer()` clears the offset so
+the next iteration starts fresh.
+
+### Orphan tentative bubble on double failure
+
+When the tentative-answer bubble needs to be rolled back (tool marker
+detected mid-stream), the first attempt is `deleteMessage`; on failure the
+fallback is `editHtml` to `<i>(folded into reasoning)</i>`. If **both** fail
+— a rare condition usually signalling a Telegram API outage — the folded
+reasoning is still preserved as an overlay on the status message via
+`replaceTrailingThinkingLineWithEscaped(foldedProse, forceFlush=true)`. The
+orphan bubble remains visible, but its content is now stable (no further
+appends) and a log `ERROR` is emitted for ops attention. The rollback event
+reports `visual=false` in logs so it's searchable.
+
+### Cooperative cancellation (hook)
+
+The underlying `AgentContext` now exposes `cancel()` / `isCancelled()`. A
+future `/cancel` command can simply look up the active context for the chat
+and flip the flag — `SpringAgentLoopActions` polls the flag at iteration
+entry and during streaming and exits cleanly with
+`errorMessage="Agent run cancelled by user during streaming"`. The Telegram
+handler then routes to the error terminal and the user sees a standard
+"⚠️ ..." message instead of a silent stop. Wire-up of the command itself is
+out of scope for the current change set.

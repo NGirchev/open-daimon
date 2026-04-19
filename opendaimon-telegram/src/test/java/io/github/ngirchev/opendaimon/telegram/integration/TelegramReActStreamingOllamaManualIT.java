@@ -130,7 +130,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "open-daimon.ai.spring-ai.serper.api.key=test-key",
         "open-daimon.ai.spring-ai.serper.api.url=https://example.com/search",
         "open-daimon.ai.spring-ai.timeouts.response-timeout-seconds=600",
-        "open-daimon.ai.spring-ai.timeouts.stream-timeout-seconds=600",
+        "open-daimon.agent.stream-timeout-seconds=600",
         "open-daimon.ai.spring-ai.web-tools.max-in-memory-bytes=2097152",
         "open-daimon.ai.spring-ai.web-tools.max-fetch-bytes=1048576",
         "open-daimon.ai.spring-ai.web-tools.user-agent=OpenDaimonBot/1.0 (telegram-react-it)",
