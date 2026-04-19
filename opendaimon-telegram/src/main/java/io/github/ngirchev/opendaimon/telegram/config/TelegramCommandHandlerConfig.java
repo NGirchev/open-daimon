@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,6 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
@@ -25,7 +27,9 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHa
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.InMemoryModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
@@ -39,12 +43,12 @@ import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 
 @Configuration
-@ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.TELEGRAM_ENABLED, havingValue = "true")
 public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "bugreport-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.BUGREPORT, havingValue = "true", matchIfMissing = true)
     public BugreportTelegramCommandHandler callbackQueryTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -56,7 +60,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "start-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.START, havingValue = "true", matchIfMissing = true)
     public StartTelegramCommandHandler startTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -77,7 +81,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "role-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.ROLE, havingValue = "true", matchIfMissing = true)
     public RoleTelegramCommandHandler roleTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -90,7 +94,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "language-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.LANGUAGE, havingValue = "true", matchIfMissing = true)
     public LanguageTelegramCommandHandler languageTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -103,7 +107,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "newthread-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.NEW_THREAD, havingValue = "true", matchIfMissing = true)
     public NewThreadTelegramCommandHandler newThreadTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -124,7 +128,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "history-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.HISTORY, havingValue = "true", matchIfMissing = true)
     public HistoryTelegramCommandHandler historyTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -143,7 +147,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "threads-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.THREADS, havingValue = "true", matchIfMissing = true)
     public ThreadsTelegramCommandHandler threadsTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -172,7 +176,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MESSAGE, havingValue = "true", matchIfMissing = true)
     public TelegramMessageSender telegramMessageSender(
             ObjectProvider<TelegramBot> telegramBotProvider,
             MessageLocalizationService messageLocalizationService,
@@ -181,8 +185,14 @@ public class TelegramCommandHandlerConfig {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public TelegramAgentStreamRenderer telegramAgentStreamRenderer(ObjectMapper objectMapper) {
+        return new TelegramAgentStreamRenderer(objectMapper);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(MessageHandlerActions.class)
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MESSAGE, havingValue = "true", matchIfMissing = true)
     public TelegramMessageHandlerActions messageHandlerActions(
             TelegramUserService telegramUserService,
             TelegramUserSessionService telegramUserSessionService,
@@ -196,6 +206,7 @@ public class TelegramCommandHandlerConfig {
             ReplyImageAttachmentService replyImageAttachmentService,
             TelegramMessageSender telegramMessageSender,
             ObjectProvider<AgentExecutor> agentExecutorProvider,
+            TelegramAgentStreamRenderer agentStreamRenderer,
             // No default here — all defaults live in application.yml only (see coding-style.md)
             @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations) {
         return new TelegramMessageHandlerActions(
@@ -203,12 +214,12 @@ public class TelegramCommandHandlerConfig {
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, userModelPreferenceService,
                 persistentKeyboardService, replyImageAttachmentService, telegramMessageSender,
-                agentExecutorProvider.getIfAvailable(), agentMaxIterations);
+                agentExecutorProvider.getIfAvailable(), agentStreamRenderer, agentMaxIterations);
     }
 
     @Bean
     @ConditionalOnMissingBean(name = "messageHandlerFsm")
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MESSAGE, havingValue = "true", matchIfMissing = true)
     public ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> messageHandlerFsm(
             MessageHandlerActions actions) {
         return MessageHandlerFsmFactory.create(actions);
@@ -216,7 +227,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "message-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MESSAGE, havingValue = "true", matchIfMissing = true)
     public MessageTelegramCommandHandler messageTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
@@ -245,7 +256,7 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "model-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MODEL, havingValue = "true", matchIfMissing = true)
     public PersistentKeyboardService persistentKeyboardService(
             UserModelPreferenceService userModelPreferenceService,
             CoreCommonProperties coreCommonProperties,
@@ -260,12 +271,12 @@ public class TelegramCommandHandlerConfig {
     @Bean
     @ConditionalOnMissingBean
     public ModelSelectionSession modelSelectionSession() {
-        return new ModelSelectionSession();
+        return new InMemoryModelSelectionSession();
     }
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "open-daimon.telegram.commands", name = "model-enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MODEL, havingValue = "true", matchIfMissing = true)
     public ModelTelegramCommandHandler modelTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,

@@ -196,6 +196,71 @@ class AgentLoopFsmFactoryTest {
     }
 
     @Test
+    @DisplayName("Empty response: single retry then successful final answer -> COMPLETED")
+    void emptyResponse_retryOnceThenAnswer_completes() {
+        var callCount = new int[]{0};
+        thinkBehavior = ctx -> {
+            callCount[0]++;
+            if (callCount[0] == 1) {
+                ctx.markEmptyResponse();
+            } else {
+                ctx.setCurrentThought("Recovered");
+                ctx.setCurrentTextResponse("Answer after retry");
+            }
+        };
+
+        AgentContext ctx = createContext(10);
+        fsm.handle(ctx, AgentEvent.START);
+
+        assertEquals(AgentState.COMPLETED, ctx.getState());
+        assertEquals("Answer after retry", ctx.getFinalAnswer());
+        assertEquals(1, ctx.getEmptyResponseRetryCount());
+        assertEquals(2, callCount[0]);
+    }
+
+    @Test
+    @DisplayName("Empty response twice in a row -> FAILED (retry budget exhausted)")
+    void emptyResponse_twoInARow_transitionsToFailed() {
+        thinkBehavior = ctx -> ctx.markEmptyResponse();
+
+        AgentContext ctx = createContext(10);
+        fsm.handle(ctx, AgentEvent.START);
+
+        assertEquals(AgentState.FAILED, ctx.getState());
+        assertEquals(1, ctx.getEmptyResponseRetryCount());
+    }
+
+    @Test
+    @DisplayName("Empty retry counter resets after a successful tool cycle")
+    void emptyResponseRetryCounter_resetsAfterObserve() {
+        var callCount = new int[]{0};
+        thinkBehavior = ctx -> {
+            callCount[0]++;
+            switch (callCount[0]) {
+                case 1 -> ctx.markEmptyResponse();
+                case 2 -> {
+                    ctx.setCurrentThought("Need tool");
+                    ctx.setCurrentToolName("search");
+                    ctx.setCurrentToolArguments("{}");
+                }
+                case 3 -> ctx.markEmptyResponse();
+                default -> {
+                    ctx.setCurrentThought("Done");
+                    ctx.setCurrentTextResponse("ok");
+                }
+            }
+        };
+
+        AgentContext ctx = createContext(10);
+        fsm.handle(ctx, AgentEvent.START);
+
+        assertEquals(AgentState.COMPLETED, ctx.getState());
+        assertEquals(1, ctx.getEmptyResponseRetryCount(),
+                "counter should reflect only the empty retry used in the final iteration");
+        assertEquals(4, callCount[0]);
+    }
+
+    @Test
     @DisplayName("Zero max iterations immediately triggers MAX_ITERATIONS on first think")
     void zeroMaxIterations_immediatelyTerminates() {
         thinkBehavior = ctx -> {
@@ -206,6 +271,36 @@ class AgentLoopFsmFactoryTest {
         fsm.handle(ctx, AgentEvent.START);
 
         assertEquals(AgentState.MAX_ITERATIONS, ctx.getState());
+    }
+
+    @Test
+    @DisplayName("Cancellation before answer(): hasError routes ANSWERING to FAILED, not COMPLETED")
+    void answerSetsErrorOnCancel_routesAnsweringToFailed() {
+        thinkBehavior = ctx -> {
+            // think() produced a text response — FSM normally takes THINKING→ANSWERING.
+            ctx.setCurrentThought("Ready to reply");
+            ctx.setCurrentTextResponse("Here is the answer.");
+        };
+
+        // answer() simulates the cancellation window: flag flipped after think() but
+        // before answer() runs. The action sets an error instead of finalAnswer,
+        // mirroring SpringAgentLoopActions.answer()'s cancellation branch.
+        AgentLoopActions cancellingActions = new DelegatingAgentLoopActions(testActions) {
+            @Override
+            public void answer(AgentContext ctx) {
+                ctx.setErrorMessage("Agent run cancelled by user before answer()");
+            }
+        };
+
+        var cancelFsm = AgentLoopFsmFactory.create(cancellingActions);
+        AgentContext ctx = createContext(10);
+        cancelFsm.handle(ctx, AgentEvent.START);
+
+        assertEquals(AgentState.FAILED, ctx.getState(),
+                "ANSWERING with hasError must route to FAILED so isSuccess()=false");
+        assertEquals("Agent run cancelled by user before answer()", ctx.getErrorMessage());
+        assertTrue(ctx.getFinalAnswer() == null || ctx.getFinalAnswer().isEmpty(),
+                "Cancelled run must not expose a successful final answer");
     }
 
     @Test

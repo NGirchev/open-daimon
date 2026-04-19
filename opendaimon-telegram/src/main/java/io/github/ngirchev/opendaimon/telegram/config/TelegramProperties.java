@@ -105,6 +105,20 @@ public class TelegramProperties {
     @Max(value = 10000, message = "maxMessageLength must be <= 10000")
     private Integer maxMessageLength;
 
+    /**
+     * Minimum interval between consecutive {@code editMessageText} calls on the
+     * same chat for agent streaming (milliseconds). Telegram Bot API throttles
+     * edits at roughly 1 per second per chat; bursts trigger 429 "Too Many
+     * Requests" with long retry windows. A chunk arriving within the window
+     * updates the in-memory buffer but skips the network call — the next chunk
+     * after the window expires flushes the accumulated text in one edit. Stream
+     * termination forces a final flush regardless of the window.
+     */
+    @NotNull(message = "agentStreamEditMinIntervalMs is required")
+    @Min(value = 0, message = "agentStreamEditMinIntervalMs must be >= 0")
+    @Max(value = 10000, message = "agentStreamEditMinIntervalMs must be <= 10000")
+    private Integer agentStreamEditMinIntervalMs;
+
     @Getter
     @Setter
     public static class Commands {

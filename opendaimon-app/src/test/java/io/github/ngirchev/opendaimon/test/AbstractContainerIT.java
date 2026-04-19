@@ -4,6 +4,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.wait.strategy.HostPortWaitStrategy;
 import org.testcontainers.containers.wait.strategy.HttpWaitStrategy;
 
 import java.sql.Connection;
@@ -40,9 +41,16 @@ public abstract class AbstractContainerIT {
                     .forPort(9000)
                     .withStartupTimeout(Duration.ofSeconds(30)));
 
+    @SuppressWarnings("resource")
+    static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4-alpine")
+            .withExposedPorts(6379)
+            .waitingFor(new HostPortWaitStrategy()
+                    .withStartupTimeout(Duration.ofSeconds(30)));
+
     static {
         POSTGRES.start();
         MINIO.start();
+        REDIS.start();
     }
 
     @DynamicPropertySource
@@ -59,6 +67,9 @@ public abstract class AbstractContainerIT {
         registry.add("open-daimon.common.storage.minio.endpoint", () -> minioEndpoint);
         registry.add("open-daimon.common.storage.minio.access-key", () -> "minioadmin");
         registry.add("open-daimon.common.storage.minio.secret-key", () -> "minioadmin");
+
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
     }
 
     private static void createDatabase(String dbName) {

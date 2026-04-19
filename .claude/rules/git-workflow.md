@@ -9,8 +9,6 @@
 
 Types: feat, fix, refactor, docs, test, chore, perf, ci
 
-Note: Attribution disabled globally via ~/.claude/settings.json.
-
 ## Pull Request Workflow
 
 When creating PRs:
@@ -19,6 +17,3 @@ When creating PRs:
 3. Draft comprehensive PR summary
 4. Include test plan with TODOs
 5. Push with `-u` flag if new branch
-
-> For the full development process (planning, TDD, code review) before git operations,
-> see [development-workflow.md](./development-workflow.md).

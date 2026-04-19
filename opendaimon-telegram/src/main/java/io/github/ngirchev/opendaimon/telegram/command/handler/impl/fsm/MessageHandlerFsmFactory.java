@@ -50,11 +50,9 @@ public final class MessageHandlerFsmFactory {
                     .end()
 
                 // === USER_RESOLVED → INPUT_VALIDATED (auto) ===
-                .from(USER_RESOLVED).toMultiple()
-                    .to(INPUT_VALIDATED)
-                        .action(action(actions::validateInput))
-                        .end()
-                    .endMultiple()
+                .from(USER_RESOLVED).to(INPUT_VALIDATED)
+                    .action(action(actions::validateInput))
+                    .end()
 
                 // === INPUT_VALIDATED → branch (auto) ===
                 .from(INPUT_VALIDATED).toMultiple()
@@ -67,18 +65,14 @@ public final class MessageHandlerFsmFactory {
                     .endMultiple()
 
                 // === MESSAGE_SAVED → METADATA_PREPARED (auto) ===
-                .from(MESSAGE_SAVED).toMultiple()
-                    .to(METADATA_PREPARED)
-                        .action(action(actions::prepareMetadata))
-                        .end()
-                    .endMultiple()
+                .from(MESSAGE_SAVED).to(METADATA_PREPARED)
+                    .action(action(actions::prepareMetadata))
+                    .end()
 
                 // === METADATA_PREPARED → COMMAND_CREATED (auto) ===
-                .from(METADATA_PREPARED).toMultiple()
-                    .to(COMMAND_CREATED)
-                        .action(action(actions::createCommand))
-                        .end()
-                    .endMultiple()
+                .from(METADATA_PREPARED).to(COMMAND_CREATED)
+                    .action(action(actions::createCommand))
+                    .end()
 
                 // === COMMAND_CREATED → branch: success or error (auto) ===
                 .from(COMMAND_CREATED).toMultiple()
@@ -104,10 +98,8 @@ public final class MessageHandlerFsmFactory {
                     .endMultiple()
 
                 // === RESPONSE_SAVED → COMPLETED (auto, no action — handler sends response) ===
-                .from(RESPONSE_SAVED).toMultiple()
-                    .to(COMPLETED)
-                        .end()
-                    .endMultiple()
+                .from(RESPONSE_SAVED).to(COMPLETED)
+                    .end()
 
                 .build();
 

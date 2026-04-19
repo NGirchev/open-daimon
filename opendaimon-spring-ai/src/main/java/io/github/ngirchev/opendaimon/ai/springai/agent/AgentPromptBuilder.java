@@ -29,6 +29,9 @@ public final class AgentPromptBuilder {
 
             Important rules:
             - Use tools when you need external information or capabilities
+            - Use web_search for discovery; use fetch_url only for a selected URL that is worth opening
+            - If fetch_url returns HTTP error or Error, do not retry the same URL
+            - If one site repeatedly blocks fetch_url, switch to another source or answer from search snippets
             - When you have enough information, provide your final answer directly as text
             - Be concise and focused in your reasoning
             - If a tool returns an error, try an alternative approach

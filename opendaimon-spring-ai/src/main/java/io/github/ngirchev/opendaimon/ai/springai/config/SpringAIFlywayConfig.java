@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.config;
 
 import org.flywaydb.core.Flyway;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.annotation.Bean;
@@ -14,7 +15,7 @@ import javax.sql.DataSource;
  */
 @Configuration
 @DependsOn("coreFlyway")
-@ConditionalOnProperty(name = "open-daimon.ai.spring-ai.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.SPRING_AI_ENABLED, havingValue = "true")
 public class SpringAIFlywayConfig {
 
     private final DataSource dataSource;

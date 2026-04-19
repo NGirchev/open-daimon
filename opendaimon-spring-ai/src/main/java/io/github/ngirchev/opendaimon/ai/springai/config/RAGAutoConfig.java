@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.config;
 
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.ai.springai.embedding.DelegatingEmbeddingModel;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -53,7 +54,7 @@ import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
  */
 @Slf4j
 @AutoConfiguration
-@ConditionalOnProperty(name = "open-daimon.ai.spring-ai.rag.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Feature.RAG_ENABLED, havingValue = "true")
 @EnableConfigurationProperties(RAGProperties.class)
 public class RAGAutoConfig {
 

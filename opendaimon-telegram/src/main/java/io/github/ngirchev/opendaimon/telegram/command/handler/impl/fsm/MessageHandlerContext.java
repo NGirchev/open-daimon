@@ -20,6 +20,7 @@ import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedExcepti
 import io.github.ngirchev.opendaimon.common.exception.UnsupportedModelCapabilityException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -50,6 +51,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
      * text to user in real-time during the generateResponse action.
      */
     private final Consumer<String> streamingParagraphSender;
+    private Integer nextReplyToMessageId;
 
     // --- Intermediate results ---
     private TelegramUser telegramUser;
@@ -72,6 +74,43 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private boolean alreadySentInStream;
     private String responseModel;
 
+    /**
+     * Render mode selects where PARTIAL_ANSWER chunks flow:
+     * <ul>
+     *   <li>{@code STATUS_ONLY} — chunks overlay the trailing {@code 💭 Thinking...} line
+     *       as reasoning (no separate bubble).</li>
+     *   <li>{@code TENTATIVE_ANSWER} — chunks edit a separate answer bubble; the bubble
+     *       may be deleted later if a {@code TOOL_CALL} arrives.</li>
+     * </ul>
+     */
+    public enum AgentRenderMode {
+        STATUS_ONLY,
+        TENTATIVE_ANSWER
+    }
+
+    // --- Status message state ---
+    private Integer statusMessageId;
+    private final StringBuilder statusBuffer = new StringBuilder();
+    private long lastStatusEditAtMs;
+
+    // --- Tentative answer message state ---
+    private Integer tentativeAnswerMessageId;
+    private final StringBuilder tentativeAnswerBuffer = new StringBuilder();
+    private long lastAnswerEditAtMs;
+    private boolean tentativeAnswerActive;
+
+    // --- Iteration tracking (agent stream) ---
+    private int currentIteration = -1;
+    private boolean toolCallSeenThisIteration;
+    private AgentRenderMode agentRenderMode = AgentRenderMode.STATUS_ONLY;
+    /**
+     * Offset in {@link #tentativeAnswerBuffer} up to which tool-marker scanning
+     * has already been completed. Incremental scanning starts at
+     * {@code max(0, offset - MAX_MARKER_LEN + 1)} to catch markers that straddle
+     * the previous chunk boundary, bounding the per-chunk work to O(newChunk).
+     */
+    private int toolMarkerScanOffset;
+
     // --- Error handling ---
     private Exception exception;
     private MessageHandlerErrorType errorType;
@@ -81,6 +120,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
         this.command = command;
         this.message = message;
         this.streamingParagraphSender = streamingParagraphSender;
+        this.nextReplyToMessageId = message != null ? message.getMessageId() : null;
         this.state = MessageHandlerState.RECEIVED;
     }
 
@@ -119,6 +159,16 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
 
     public Consumer<String> getStreamingParagraphSender() {
         return streamingParagraphSender;
+    }
+
+    public Integer consumeNextReplyToMessageId() {
+        Integer value = nextReplyToMessageId;
+        nextReplyToMessageId = null;
+        return value;
+    }
+
+    public void clearNextReplyToMessageId() {
+        nextReplyToMessageId = null;
     }
 
     // --- Intermediate accessors ---
@@ -259,6 +309,102 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
 
     public void setResponseModel(String responseModel) {
         this.responseModel = responseModel;
+    }
+
+    // --- Status message accessors ---
+
+    public Integer getStatusMessageId() {
+        return statusMessageId;
+    }
+
+    public void setStatusMessageId(Integer statusMessageId) {
+        this.statusMessageId = statusMessageId;
+    }
+
+    public StringBuilder getStatusBuffer() {
+        return statusBuffer;
+    }
+
+    public long getLastStatusEditAtMs() {
+        return lastStatusEditAtMs;
+    }
+
+    public void markStatusEdited() {
+        this.lastStatusEditAtMs = System.currentTimeMillis();
+    }
+
+    // --- Tentative answer accessors ---
+
+    public Integer getTentativeAnswerMessageId() {
+        return tentativeAnswerMessageId;
+    }
+
+    public void setTentativeAnswerMessageId(Integer tentativeAnswerMessageId) {
+        this.tentativeAnswerMessageId = tentativeAnswerMessageId;
+    }
+
+    public StringBuilder getTentativeAnswerBuffer() {
+        return tentativeAnswerBuffer;
+    }
+
+    public long getLastAnswerEditAtMs() {
+        return lastAnswerEditAtMs;
+    }
+
+    public void markAnswerEdited() {
+        this.lastAnswerEditAtMs = System.currentTimeMillis();
+    }
+
+    public boolean isTentativeAnswerActive() {
+        return tentativeAnswerActive;
+    }
+
+    public void setTentativeAnswerActive(boolean tentativeAnswerActive) {
+        this.tentativeAnswerActive = tentativeAnswerActive;
+    }
+
+    // --- Iteration tracking ---
+
+    public int getCurrentIteration() {
+        return currentIteration;
+    }
+
+    public void setCurrentIteration(int currentIteration) {
+        this.currentIteration = currentIteration;
+    }
+
+    public boolean isToolCallSeenThisIteration() {
+        return toolCallSeenThisIteration;
+    }
+
+    public void setToolCallSeenThisIteration(boolean toolCallSeenThisIteration) {
+        this.toolCallSeenThisIteration = toolCallSeenThisIteration;
+    }
+
+    public AgentRenderMode getAgentRenderMode() {
+        return agentRenderMode;
+    }
+
+    public void setAgentRenderMode(AgentRenderMode agentRenderMode) {
+        this.agentRenderMode = agentRenderMode;
+    }
+
+    public int getToolMarkerScanOffset() {
+        return toolMarkerScanOffset;
+    }
+
+    public void setToolMarkerScanOffset(int toolMarkerScanOffset) {
+        this.toolMarkerScanOffset = toolMarkerScanOffset;
+    }
+
+    /** Clears tentative-answer state and reverts to STATUS_ONLY. Called on rollback. */
+    public void resetTentativeAnswer() {
+        this.tentativeAnswerMessageId = null;
+        this.tentativeAnswerBuffer.setLength(0);
+        this.tentativeAnswerActive = false;
+        this.lastAnswerEditAtMs = 0L;
+        this.agentRenderMode = AgentRenderMode.STATUS_ONLY;
+        this.toolMarkerScanOffset = 0;
     }
 
     // --- Error handling ---

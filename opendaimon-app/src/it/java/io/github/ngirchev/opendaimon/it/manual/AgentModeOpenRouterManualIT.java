@@ -66,6 +66,12 @@ import static org.mockito.Mockito.reset;
 /**
  * Manual E2E integration test for agent mode with real OpenRouter.
  *
+ * <p><b>TODO:</b> Switch from {@code openrouter/auto} to an explicit model (e.g.
+ * {@code z-ai/glm-4.5v} for tool-calling tests, {@code google/gemini-2.5-flash-preview}
+ * for SIMPLE). {@code openrouter/auto} routes to unpredictable models that may not
+ * support tools or may produce raw XML in responses, making test results non-reproducible.
+ * See {@link AgentStreamingRealToolsManualIT} for the explicit model pattern.
+ *
  * <p>Verifies all agent scenarios using {@code openrouter/auto} model:
  * <ol>
  *   <li>ADMIN (AUTO capability) → REACT strategy with web_search tool</li>

@@ -2,7 +2,7 @@
 # Edit this file to customize models, then restart: docker compose restart opendaimon-app
 #
 # Provider: Ollama running on your machine.
-# Default models: qwen2.5:3b (chat + tool calling) + gemma3:4b (vision) + nomic-embed-text:v1.5 (embeddings).
+# Default models: qwen3.5:4b (chat + tool calling) + gemma3:4b (vision) + nomic-embed-text:v1.5 (embeddings).
 # To use a different model, change the name and run: ollama pull <model-name>
 # See application-simple.yml.example for all available options.
 
@@ -33,7 +33,7 @@ open-daimon:
           enabled: false
       models:
         list:
-          - name: "qwen2.5:3b"
+          - name: "qwen3.5:4b"
             capabilities:
               - AUTO
               - CHAT

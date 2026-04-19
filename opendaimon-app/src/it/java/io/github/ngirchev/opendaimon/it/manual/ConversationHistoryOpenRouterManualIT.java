@@ -63,6 +63,10 @@ import static org.mockito.Mockito.reset;
 /**
  * Manual E2E integration test for conversation history across multiple turns.
  *
+ * <p><b>TODO:</b> Switch from {@code openrouter/auto} to an explicit chat model
+ * (e.g. {@code google/gemini-2.5-flash-preview} or {@code z-ai/glm-4.5v}).
+ * {@code openrouter/auto} routes to unpredictable models, making test results non-reproducible.
+ *
  * <p>Verifies that the LLM receives prior conversation context when the user
  * sends a follow-up message in the same thread. Tests both agent (REACT/SIMPLE)
  * and gateway (non-agent) modes.

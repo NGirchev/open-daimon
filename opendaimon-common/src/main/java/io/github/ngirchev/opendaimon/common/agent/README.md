@@ -96,38 +96,36 @@ User                 TelegramBot     MessageHandler(FSM)    TelegramMessageHandl
 
 ## Memory Architecture
 
+Long-term agent memory is provided by Spring AI's `ChatMemory` bean — specifically
+the project's `SummarizingChatMemory` wrapper (wired by `SpringAIAutoConfig`). No
+separate agent-level fact-extraction layer exists: a single LLM summarization pass
+(triggered by the regular chat flow) already produces a rolling JSON summary and
+`memory_bullets` that are persisted on `ConversationThread` and replayed on the
+next turn.
+
 ```
-                    ┌──────────────────────┐
-                    │  AgentMemory (SPI)   │
-                    │  store / recall /    │
-                    │  forget              │
-                    └──────────┬───────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                 │
-    ┌─────────▼─────────┐  ┌──▼───────────┐  ┌──▼──────────────┐
-    │ SemanticAgentMemory│  │ (future impl)│  │ (future impl)   │
-    │ VectorStore-backed │  │              │  │                  │
-    └─────────┬──────────┘  └──────────────┘  └─────────────────┘
-              │
-              ▼ (if multiple sources)
-    ┌─────────────────────┐
-    │ CompositeAgentMemory│  @Primary
-    │ merges & deduplicates│
-    └─────────────────────┘
-              │
-              ▼ (after execution)
-    ┌─────────────────────┐
-    │   FactExtractor     │  LLM extracts 2-5 facts
-    │   stores in memory  │  from completed conversation
-    └─────────────────────┘
+          ┌──────────────────────────────────────┐
+          │    SummarizingChatMemory (Bean)      │
+          │  add(conversationId, messages)       │
+          │  get(conversationId) → List<Message> │
+          └──────────────────┬───────────────────┘
+                             │ on recall
+                             ▼
+              SystemMessage  = "Conversation summary: …
+                                 Key facts:
+                                 - <bullet 1>
+                                 - <bullet 2>"
+              + prior user / assistant turns
 ```
 
-**Recall**: before the first LLM call, `SpringAgentLoopActions.think()` queries memory
-for relevant facts and appends them to the system prompt.
+**Recall**: on the first iteration `SpringAgentLoopActions.think()` calls
+`chatMemory.get(conversationId)`, merges any `SystemMessage` from memory into the
+active system prompt, and appends the remaining turns.
 
-**Store**: after agent completes, `FactExtractor` summarizes the conversation,
-asks the LLM to extract reusable facts, and stores them in memory.
+**Store**: after the final answer, `SpringAgentLoopActions.answer()` calls
+`chatMemory.add(conversationId, [UserMessage, AssistantMessage])`. The summarization
+pass runs as part of the normal chat pipeline — not as an extra agent step — so the
+final edit of the user-visible message is not blocked by extra LLM calls.
 
 ## Orchestration (Multi-Agent Plans)
 
@@ -155,8 +153,7 @@ ChatModel (OpenAI or Ollama)
   └──> SpringAgentLoopActions
          ├──> ToolCallingManager (Spring AI auto-discovered)
          ├──> List<ToolCallback> (auto-discovered @Tool beans)
-         ├──> AgentMemory (optional: SemanticAgentMemory / CompositeAgentMemory)
-         └──> FactExtractor (optional: if AgentMemory exists)
+         └──> ChatMemory (SummarizingChatMemory from SpringAIAutoConfig)
 
 AgentLoopFsmFactory.create(actions)
   └──> ExDomainFsm<AgentContext, AgentState, AgentEvent> (singleton)
@@ -183,9 +180,6 @@ open-daimon:
   agent:
     enabled: true                  # feature flag
     max-iterations: 10             # safety limit per execution
-    memory:
-      enabled: true                # enable semantic memory
-    memory-similarity-threshold: 0.7
     tools:
       http-api:
         enabled: false             # opt-in (SSRF protection)
@@ -202,8 +196,10 @@ open-daimon:
 3. **Strategy pattern** — `StrategyDelegatingAgentExecutor` selects executor at runtime.
    `AUTO` mode chooses based on available tools.
 
-4. **SPI interfaces in common module** — `AgentExecutor`, `AgentMemory`, `AgentOrchestrator`
-   have zero Spring AI dependency. Swappable implementations.
+4. **SPI interfaces in common module** — `AgentExecutor`, `AgentOrchestrator` have
+   zero Spring AI dependency. Long-term memory is delegated to Spring AI's
+   `ChatMemory` (shared with the chat flow), so no separate agent-memory SPI is
+   required.
 
 5. **Application-level activation** — agent mode is toggled via `open-daimon.agent.enabled=true`.
    `TelegramMessageHandlerActions` checks for `AgentExecutor` presence and delegates directly.
