@@ -360,7 +360,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                         handleStreamError(ctx, err);
                         return reactor.core.publisher.Flux.empty();
                     })
-                    .blockLast(java.time.Duration.ofSeconds(90));
+                    .blockLast();
 
             finalizeAfterStream(ctx, lastEvent);
 

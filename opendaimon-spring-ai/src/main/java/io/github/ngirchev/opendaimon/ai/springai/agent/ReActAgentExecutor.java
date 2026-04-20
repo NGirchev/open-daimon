@@ -60,16 +60,11 @@ public class ReActAgentExecutor implements AgentExecutor {
     @Override
     public Flux<AgentStreamEvent> executeStream(AgentRequest request) {
         Sinks.Many<AgentStreamEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
-        log.info("AGENT_TRACE: sink created");
 
-        Flux<AgentStreamEvent> eventFlux = sink.asFlux()
-                .doOnSubscribe(s -> log.info("AGENT_TRACE: eventFlux subscribed"))
-                .doOnCancel(() -> log.info("AGENT_TRACE: eventFlux cancelled"))
-                .doOnError(e -> log.info("AGENT_TRACE: eventFlux errored: {}", e.toString()));
+        Flux<AgentStreamEvent> eventFlux = sink.asFlux();
 
         // Run FSM in a bounded elastic thread to avoid blocking the caller
         Flux.defer(() -> {
-            log.info("AGENT_TRACE: defer body started on thread={}", Thread.currentThread().getName());
             try {
                 AgentContext ctx = new AgentContext(
                         request.task(),
@@ -78,17 +73,14 @@ public class ReActAgentExecutor implements AgentExecutor {
                         request.maxIterations(),
                         request.enabledTools()
                 );
-                log.info("AGENT_TRACE: AgentContext constructed, conversationId={}", request.conversationId());
 
                 // Install an event listener on the context
                 ctx.setStreamSink(sink::tryEmitNext);
 
-                log.info("AGENT_TRACE: agentFsm.handle START called");
                 agentFsm.handle(ctx, AgentEvent.START);
 
                 // Emit metadata (model name) before terminal event
                 AgentResult result = ctx.toResult();
-                log.info("AGENT_TRACE: agentFsm.handle START returned, result.terminalState={}", result.terminalState());
                 if (result.modelName() != null) {
                     sink.tryEmitNext(AgentStreamEvent.metadata(
                             result.modelName(), result.iterationsUsed()));
@@ -126,9 +118,7 @@ public class ReActAgentExecutor implements AgentExecutor {
                 }
 
                 sink.tryEmitComplete();
-                log.info("AGENT_TRACE: sink tryEmitComplete called");
             } catch (Exception e) {
-                log.info("AGENT_TRACE: defer body threw {}: {}", e.getClass().getName(), e.getMessage());
                 log.error("Agent stream execution failed: {}", e.getMessage(), e);
                 sink.tryEmitNext(AgentStreamEvent.error(e.getMessage(), 0));
                 sink.tryEmitError(e);

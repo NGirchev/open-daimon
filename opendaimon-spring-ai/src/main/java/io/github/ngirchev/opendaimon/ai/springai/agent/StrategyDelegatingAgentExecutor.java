@@ -55,17 +55,11 @@ public class StrategyDelegatingAgentExecutor implements AgentExecutor {
     public Flux<AgentStreamEvent> executeStream(AgentRequest request) {
         AgentStrategy strategy = resolveStrategy(request);
         log.info("Agent stream strategy resolved: requested={}, resolved={}", request.strategy(), strategy);
-        log.info("AGENT_TRACE: StrategyDelegatingAgentExecutor.executeStream entered, strategy={}", strategy);
 
         return switch (strategy) {
             case SIMPLE -> simpleExecutor.executeStream(request);
             case PLAN_AND_EXECUTE -> planAndExecuteExecutor.executeStream(request);
-            case REACT, AUTO -> {
-                log.info("AGENT_TRACE: delegating to reactExecutor");
-                Flux<AgentStreamEvent> flux = reactExecutor.executeStream(request);
-                log.info("AGENT_TRACE: reactExecutor returned Flux");
-                yield flux;
-            }
+            case REACT, AUTO -> reactExecutor.executeStream(request);
         };
     }
 

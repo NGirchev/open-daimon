@@ -138,8 +138,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
     @Override
     public void think(AgentContext ctx) {
-        log.info("AGENT_TRACE: SpringAgentLoopActions.think entered, iteration={}, thread={}",
-                ctx.getCurrentIteration(), Thread.currentThread().getName());
         if (ctx.isCancelled()) {
             ctx.setErrorMessage("Agent run cancelled by user before think()");
             return;
@@ -177,8 +175,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                         .collect(Collectors.joining("\n---\n")));
             }
 
-            log.info("AGENT_TRACE: calling LLM model={}, iteration={}",
-                    preferredModelId != null ? preferredModelId : "default", ctx.getCurrentIteration());
             ChatResponse response = streamAndAggregate(ctx, prompt);
             if (response == null) {
                 ctx.setErrorMessage("LLM returned an empty stream");
@@ -418,7 +414,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             }
 
             log.info("Agent executeTool: tool={}", ctx.getCurrentToolName());
-            log.info("AGENT_TRACE: invoking tool {}", ctx.getCurrentToolName());
 
             ToolExecutionResult toolResult = toolCallingManager.executeToolCalls(prompt, response);
 
@@ -765,7 +760,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         }
 
         log.info("Agent executeTool (fallback): tool={}, args={}", toolName, toolArgs);
-        log.info("AGENT_TRACE: invoking tool {} (fallback path)", toolName);
 
         String result = guardFetchUrlCallback(ctx, callback).call(toolArgs);
         ctx.setToolResult(AgentToolResult.success(toolName, result));
