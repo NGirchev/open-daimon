@@ -100,6 +100,7 @@ public class ModeTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             String updatedMsg = messageLocalizationService.getMessage("telegram.mode.updated", command.languageCode(), label);
             ackCallback(cq.getId(), updatedMsg);
             deleteMenuMessage(command.telegramId(), cq);
+            sendConfirmationMessage(command.telegramId(), updatedMsg);
             return;
         }
         if (CALLBACK_REGULAR.equals(callbackData)) {
@@ -108,6 +109,7 @@ public class ModeTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             String updatedMsg = messageLocalizationService.getMessage("telegram.mode.updated", command.languageCode(), label);
             ackCallback(cq.getId(), updatedMsg);
             deleteMenuMessage(command.telegramId(), cq);
+            sendConfirmationMessage(command.telegramId(), updatedMsg);
             return;
         }
         ackCallback(cq.getId(), "❌");
@@ -158,6 +160,19 @@ public class ModeTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             telegramBotProvider.getObject().execute(ack);
         } catch (Exception e) {
             throw new TelegramCommandHandlerException("Failed to ack callback", e);
+        }
+    }
+
+    /**
+     * Posts a persistent confirmation message into the chat so the user sees the
+     * selected mode in conversation history (not just as a transient toast).
+     */
+    private void sendConfirmationMessage(Long chatId, String text) {
+        try {
+            SendMessage msg = new SendMessage(chatId.toString(), text);
+            telegramBotProvider.getObject().execute(msg);
+        } catch (Exception e) {
+            log.warn("Failed to send mode confirmation message: {}", e.getMessage());
         }
     }
 
