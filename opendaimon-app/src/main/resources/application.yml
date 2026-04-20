@@ -122,6 +122,7 @@ open-daimon:
       threads-enabled: true
       language-enabled: true
       model-enabled: true
+      mode-enabled: true
     cache:
       redis-enabled: false  # FEATURE FLAG - enable distributed Redis cache for session data
     message-coalescing:

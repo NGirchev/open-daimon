@@ -107,6 +107,19 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnBean(AgentExecutor.class)
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MODE, havingValue = "true", matchIfMissing = true)
+    public ModeTelegramCommandHandler modeTelegramCommandHandler(
+            ObjectProvider<TelegramBot> telegramBotProvider,
+            TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
+            TelegramUserService telegramUserService) {
+        return new ModeTelegramCommandHandler(telegramBotProvider,
+                typingIndicatorService, messageLocalizationService, telegramUserService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.NEW_THREAD, havingValue = "true", matchIfMissing = true)
     public NewThreadTelegramCommandHandler newThreadTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
@@ -208,13 +221,15 @@ public class TelegramCommandHandlerConfig {
             ObjectProvider<AgentExecutor> agentExecutorProvider,
             TelegramAgentStreamRenderer agentStreamRenderer,
             // No default here — all defaults live in application.yml only (see coding-style.md)
-            @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations) {
+            @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations,
+            @Value("${open-daimon.agent.enabled:false}") boolean defaultAgentModeEnabled) {
         return new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, userModelPreferenceService,
                 persistentKeyboardService, replyImageAttachmentService, telegramMessageSender,
-                agentExecutorProvider.getIfAvailable(), agentStreamRenderer, agentMaxIterations);
+                agentExecutorProvider.getIfAvailable(), agentStreamRenderer, agentMaxIterations,
+                defaultAgentModeEnabled);
     }
 
     @Bean

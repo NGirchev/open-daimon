@@ -60,6 +60,14 @@ public class User extends AbstractEntity<Long> implements IUserObject {
     private String preferredModelId;
 
     /**
+     * Per-user agent mode flag. {@code null} means "use application default"
+     * ({@code open-daimon.agent.enabled}). Set to {@code true}/{@code false}
+     * explicitly via the {@code /mode} Telegram command.
+     */
+    @Column(name = "agent_mode_enabled")
+    private Boolean agentModeEnabled;
+
+    /**
      * Current active assistant role
      */
     @OneToOne(fetch = FetchType.LAZY)

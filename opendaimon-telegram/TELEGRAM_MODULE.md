@@ -450,6 +450,23 @@ It replaces the paragraph-streaming step of UC-1 (and related text-message UCs) 
 - Resolved `AgentStrategy = REACT` — see `StrategyDelegatingAgentExecutor#resolveStrategy`
   (triggered when the selected model has capability `WEB` or `AUTO` and at least one tool is registered)
 
+### Per-user override
+
+Each user has a `agentModeEnabled` flag on the `User` entity (nullable `Boolean`):
+- `null` — falls back to the application default (`open-daimon.agent.enabled`).
+- `true` / `false` — overrides the default for that user regardless of the global setting.
+
+**Default for new users:** set to the value of `open-daimon.agent.enabled` at user creation time.
+
+**Switching:** users can toggle their mode via the `/mode` Telegram command (inline keyboard: AGENT / REGULAR / Close).
+The `/mode` command bean is only registered when `open-daimon.agent.enabled=true` AND
+`open-daimon.telegram.commands.mode-enabled=true` (default: `true`).
+
+**When `agent.enabled=false`:** `AgentExecutor` bean is absent, `/mode` is not registered, and all users go through
+the AI gateway regardless of their stored preference.
+
+**Routing rule:** The gateway path is taken when `AgentExecutor` bean is absent **or** the user has disabled agent mode via `/mode`; the agent path requires both the bean and the per-user flag to be enabled. This predicate is enforced consistently in both `createCommand` (gateway lookup) and `generateResponse` (branch selection).
+
 The loop is driven by our own FSM (`SpringAgentLoopActions`). Spring AI's built-in tool-execution
 loop is explicitly disabled via `ToolCallingChatOptions.internalToolExecutionEnabled=false` —
 we pass tools to Spring AI but keep iteration control on our side. `SimpleChainExecutor` does not

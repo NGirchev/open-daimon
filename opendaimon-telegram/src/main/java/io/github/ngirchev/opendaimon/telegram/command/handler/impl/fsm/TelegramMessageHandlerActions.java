@@ -145,6 +145,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private final TelegramAgentStreamRenderer agentStreamRenderer;
     /** Agent max iterations — only used when {@code agentExecutor} is non-null. */
     private final int agentMaxIterations;
+    /**
+     * Application-level default for agent mode. Mirrors {@code open-daimon.agent.enabled}.
+     * Used as fallback when {@code TelegramUser.agentModeEnabled} is {@code null}.
+     */
+    private final boolean defaultAgentModeEnabled;
 
     @Override
     public void resolveUser(MessageHandlerContext ctx) {
@@ -259,8 +264,9 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             ctx.setAiCommand(aiCommand);
             ctx.setModelCapabilities(aiCommand.modelCapabilities());
 
-            // Agent mode uses AgentExecutor, not AIGateway — skip gateway lookup
-            if (agentExecutor == null) {
+            // Gateway path is taken when agent bean is absent OR user disabled agent mode —
+            // mirror the predicate used in generateResponse to keep FSM state consistent.
+            if (agentExecutor == null || !isAgentModeEnabledForUser(ctx)) {
                 AIGateway aiGateway = aiGatewayRegistry.getSupportedAiGateways(aiCommand)
                         .stream()
                         .findFirst()
@@ -268,7 +274,9 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                 ctx.setAiGateway(aiGateway);
             }
 
-            log.debug("FSM createCommand: capabilities={}, agentMode={}", aiCommand.modelCapabilities(), agentExecutor != null);
+            log.debug("FSM createCommand: capabilities={}, agentPath={}",
+                    aiCommand.modelCapabilities(),
+                    agentExecutor != null && isAgentModeEnabledForUser(ctx));
         } catch (UserMessageTooLongException e) {
             ctx.setErrorType(MessageHandlerErrorType.MESSAGE_TOO_LONG);
             ctx.setException(e);
@@ -285,11 +293,24 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
     @Override
     public void generateResponse(MessageHandlerContext ctx) {
-        if (agentExecutor != null) {
+        if (agentExecutor != null && isAgentModeEnabledForUser(ctx)) {
             generateAgentResponse(ctx);
         } else {
             generateGatewayResponse(ctx);
         }
+    }
+
+    /**
+     * Returns {@code true} when the user has agent mode enabled.
+     * Uses the per-user flag if set; falls back to {@code defaultAgentModeEnabled}.
+     */
+    private boolean isAgentModeEnabledForUser(MessageHandlerContext ctx) {
+        TelegramUser user = ctx.getTelegramUser();
+        if (user == null) {
+            return defaultAgentModeEnabled;
+        }
+        Boolean flag = user.getAgentModeEnabled();
+        return flag != null ? flag : defaultAgentModeEnabled;
     }
 
     private void generateAgentResponse(MessageHandlerContext ctx) {
@@ -339,7 +360,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                         handleStreamError(ctx, err);
                         return reactor.core.publisher.Flux.empty();
                     })
-                    .blockLast();
+                    .blockLast(java.time.Duration.ofSeconds(90));
 
             finalizeAfterStream(ctx, lastEvent);
 

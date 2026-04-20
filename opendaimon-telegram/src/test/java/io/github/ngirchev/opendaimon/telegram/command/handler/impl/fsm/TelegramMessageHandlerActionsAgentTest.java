@@ -8,8 +8,10 @@ import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
@@ -31,6 +33,7 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import reactor.core.publisher.Flux;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -87,7 +90,7 @@ class TelegramMessageHandlerActionsAgentTest {
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, userModelPreferenceService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, MAX_ITERATIONS);
+                agentExecutor, agentStreamRenderer, MAX_ITERATIONS, true);
     }
 
     @Test
@@ -251,6 +254,39 @@ class TelegramMessageHandlerActionsAgentTest {
 
         assertThat(captor.getValue().strategy()).isEqualTo(AgentStrategy.SIMPLE);
         assertThat(ctx.getResponseText()).hasValue("Reply");
+    }
+
+    @Test
+    @DisplayName("createCommand looks up aiGateway when agentExecutor is present but user disabled agent mode")
+    void shouldLookupAiGatewayInCreateCommandWhenAgentExecutorPresentButUserDisabledAgentMode() {
+        // Arrange: agentExecutor is non-null (wired in @BeforeEach), but user has agent mode OFF
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setAgentModeEnabled(Boolean.FALSE);
+
+        TelegramCommand command = mock(TelegramCommand.class);
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        ctx.setTelegramUser(telegramUser);
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+        ctx.setMetadata(metadata);
+
+        AICommand aiCommand = mock(AICommand.class);
+        when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
+
+        AIGateway aiGateway = mock(AIGateway.class);
+        when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(aiGateway));
+
+        // Act
+        actions.createCommand(ctx);
+
+        // Assert: gateway must be populated even though agentExecutor bean is present
+        assertThat(ctx.getAiGateway()).isNotNull();
+        assertThat(ctx.getAiGateway()).isEqualTo(aiGateway);
+        verify(aiGatewayRegistry).getSupportedAiGateways(any());
+        // The agent executor must not be invoked — the predicate routes to the gateway path
+        verify(agentExecutor, never()).executeStream(any());
     }
 
     // ── Two-message orchestration tests ──────────────────────────────

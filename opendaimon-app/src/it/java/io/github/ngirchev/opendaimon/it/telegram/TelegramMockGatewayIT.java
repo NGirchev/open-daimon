@@ -258,7 +258,7 @@ class TelegramMockGatewayIT extends AbstractContainerIT {
                 TelegramUserSessionService telegramUserSessionService,
                 AssistantRoleService assistantRoleService
         ) {
-            return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService);
+            return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService, false);
         }
 
         @Bean
@@ -370,7 +370,7 @@ class TelegramMockGatewayIT extends AbstractContainerIT {
                     telegramUserService, telegramUserSessionService, telegramMessageService,
                     aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
                     userModelPreferenceService, persistentKeyboardService, replyImageAttachmentService,
-                    messageSender, null, null, 10);
+                    messageSender, null, null, 10, false);
             ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
                     MessageHandlerFsmFactory.create(actions);
             return new MessageTelegramCommandHandler(

@@ -46,9 +46,17 @@ ANSWERING ──[auto]──> COMPLETED (terminal)
 
 ## Sequence: Telegram Message → Agent Execution
 
-Agent mode is activated at the application level via `open-daimon.agent.enabled=true`.
-When enabled, `TelegramMessageHandlerActions.generateResponse()` delegates to `AgentExecutor`
-directly (no separate command/handler layer).
+Agent mode has dual semantics controlled by `open-daimon.agent.enabled`:
+
+1. **Module gate** — when `false`, no `AgentExecutor` bean is created and the entire agent module
+   is inactive. All requests go through `AIGateway`. The `/mode` Telegram command is not registered.
+2. **Default for new users** — when `true`, new `TelegramUser` records are created with
+   `agentModeEnabled=true`. Existing users with `agentModeEnabled=null` also resolve to `true`.
+   Individual users can override this default via the `/mode` Telegram command.
+
+When `open-daimon.agent.enabled=true`, `TelegramMessageHandlerActions.generateResponse()` delegates
+to `AgentExecutor` only when the per-user flag resolves to `true`
+(`user.agentModeEnabled != null ? user.agentModeEnabled : defaultAgentModeEnabled`).
 
 ```
 User                 TelegramBot     MessageHandler(FSM)    TelegramMessageHandlerActions    StrategyDelegating    ReActExecutor      FSM        SpringAgentLoopActions    LLM       ToolCallingManager

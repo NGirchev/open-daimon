@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.telegram.config;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -39,8 +40,10 @@ public class TelegramServiceConfig {
     public TelegramUserService telegramUserService(
             TelegramUserRepository telegramUserRepository,
             TelegramUserSessionService telegramUserSessionService,
-            AssistantRoleService assistantRoleService) {
-        return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService);
+            AssistantRoleService assistantRoleService,
+            @Value("${open-daimon.agent.enabled:false}") boolean defaultAgentModeEnabled) {
+        return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService,
+                defaultAgentModeEnabled);
     }
 
     @Bean

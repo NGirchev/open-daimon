@@ -1,2 +1,5 @@
 - [User Role and Expertise](user_role.md) — senior Java developer on open-daimon, expects clean architecture and proper module boundaries
 - [RAG storage refactor](project_rag_storage_refactor.md) — RAG documentIds moved from thread.memoryBullets to message.metadata; handler update still pending
+- [Migration files live in opendaimon-common](feedback_migration_location.md) — core migrations in opendaimon-common, not opendaimon-app; next free version from glob there
+- [Install updated modules before testing dependents](feedback_test_classpath.md) — mvnw install -pl <module> -DskipTests needed when shared module changed
+- [Agent guard: use @ConditionalOnBean(AgentExecutor.class)](feedback_conditional_on_bean_for_agent_guard.md) — cleaner than stacking @ConditionalOnProperty for agent.enabled in handler beans

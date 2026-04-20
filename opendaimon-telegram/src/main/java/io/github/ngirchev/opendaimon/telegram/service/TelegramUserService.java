@@ -28,6 +28,8 @@ public class TelegramUserService implements IUserService {
     private final TelegramUserRepository telegramUserRepository;
     private final TelegramUserSessionService telegramUserSessionService;
     private final AssistantRoleService assistantRoleService;
+    /** Default value for {@code agentModeEnabled} on new users. Sourced from {@code open-daimon.agent.enabled}. */
+    private final boolean defaultAgentModeEnabled;
 
     @Override
     public Optional<IUserObject> findById(Long id) {
@@ -136,6 +138,23 @@ public class TelegramUserService implements IUserService {
     }
 
     /**
+     * Updates the per-user agent mode flag.
+     *
+     * @param telegramId Telegram user id
+     * @param enabled    {@code true} to enable agent mode, {@code false} for regular (gateway) mode
+     */
+    @Transactional
+    public void updateAgentMode(Long telegramId, boolean enabled) {
+        TelegramUser user = telegramUserRepository.findByTelegramId(telegramId)
+                .orElseThrow(() -> new RuntimeException(USER_NOT_FOUND));
+        user.setAgentModeEnabled(enabled);
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
+        telegramUserRepository.save(user);
+    }
+
+    /**
      * Updates the bot status in the user's current session.
      *
      * @param user      user
@@ -186,6 +205,7 @@ public class TelegramUserService implements IUserService {
         user.setLastActivityAt(now);
         user.setIsBlocked(false);
         user.setIsAdmin(false);
+        user.setAgentModeEnabled(defaultAgentModeEnabled);
         return telegramUserRepository.save(user);
     }
 

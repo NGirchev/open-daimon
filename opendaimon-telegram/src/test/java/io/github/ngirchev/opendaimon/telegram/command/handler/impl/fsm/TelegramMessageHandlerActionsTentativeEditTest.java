@@ -90,7 +90,7 @@ class TelegramMessageHandlerActionsTentativeEditTest {
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, userModelPreferenceService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, MAX_ITERATIONS);
+                agentExecutor, agentStreamRenderer, MAX_ITERATIONS, true);
     }
 
     @Test
