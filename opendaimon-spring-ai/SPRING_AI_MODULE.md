@@ -609,11 +609,32 @@ The codes are public constants on `WebTools`; downstream test fixtures and
 `z-ai/glm-4.5v`) emit a `web_search` `tool_call` with empty arguments — Spring AI
 deserialises this as `query=null` and invokes `WebTools.webSearch(null)`.
 `Map.of("q", query, …)` would then throw NPE, and Spring AI converts the
-exception into the textual `"Exception occurred in tool: web_search (…)"`
-string (now recognised by `isTextualToolFailure`). To avoid even reaching that
-path, `webSearch` returns an empty `SearchResult` early on `query == null` or
-`query.isBlank()`, logging the event at WARN. The result is a valid JSON the
-model handles gracefully.
+exception into the textual `"Exception occurred in tool: web_search (…)"` string.
+
+`webSearch` handles this case explicitly: when `query` is null or blank, it
+returns an **Error-prefixed string** rather than a success-shaped empty
+`SearchResult`. The return signature is `Object` so the method can yield
+either a `SearchResult` (success / API-key not configured) or a `String`
+(structured error for bad input). The error text is:
+
+> `"Error: argument 'query' is required and must not be blank. Retry
+> web_search with a non-empty 'query' field containing the search terms.
+> Example arguments: {"query": "…"}"`
+
+Rationale: a success-shaped `{"query":"","hits":[]}` is indistinguishable
+from "search ran, 0 results" and the model therefore cannot self-correct.
+An Error-prefixed string is matched by
+`ToolObservationClassifier.isTextualToolFailure()` and surfaced to the
+model as a failure observation with explicit retry instructions, which
+lets it self-correct on the next iteration (put a non-empty `query` into
+the tool_call arguments). Aligns with the design decision recorded in
+`docs/agent-evolution-roadmap.md` Step 2 — "treat structural tool-use
+problems as errors worth surfacing, not silent fallbacks".
+
+The `apiKey` not-configured branch (server-side misconfiguration, not a
+model-side mistake) still returns an empty `SearchResult` so we do not
+nudge the model into a retry loop for a problem only the operator can
+fix.
 
 ### History recovery from primary store — `SummarizingChatMemory`
 

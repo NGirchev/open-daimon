@@ -20,6 +20,7 @@ import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.RequestType;
 import io.github.ngirchev.opendaimon.common.model.ResponseStatus;
+import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
@@ -68,6 +69,12 @@ import static io.github.ngirchev.opendaimon.common.service.AIUtils.retrieveMessa
  * <p>Error handling: actions catch expected exceptions and set error info on context
  * rather than throwing. The FSM routes to ERROR terminal state, and the handler
  * dispatches to the appropriate error handling method.
+ *
+ * <p><b>Construction:</b> manually instantiated in ~8 sites (prod auto-config, unit
+ * tests, fixture IT config) because this class is not a Spring-scanned bean. When
+ * changing the constructor signature, search for {@code new TelegramMessageHandlerActions}
+ * across the module and {@code opendaimon-app/src/it/java} to update every site —
+ * missing one produces a compile error only discovered at full build time.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -650,7 +657,15 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             return;
         }
         Long chatId = ctx.getCommand().telegramId();
-        ctx.getStatusBuffer().append(STATUS_THINKING_LINE);
+        TelegramUser user = ctx.getTelegramUser();
+        boolean silent = user != null && user.getThinkingMode() == ThinkingMode.SILENT;
+        log.info("ensureStatusMessage: telegramId={}, thinkingMode={}, silent={}",
+                user != null ? user.getTelegramId() : null,
+                user != null ? user.getThinkingMode() : "null-user",
+                silent);
+        if (!silent) {
+            ctx.getStatusBuffer().append(STATUS_THINKING_LINE);
+        }
         // Seed iteration 0 so the first null-content THINKING event isn't treated as a
         // rollover — otherwise the renderer would duplicate the thinking line. A new
         // AppendFreshThinking still fires when iteration 1 starts.
@@ -705,11 +720,30 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         // before the tool-call block overwrites it. Without that pacing, a model that
         // emits a structured tool call without preceding text would replace "💭 Thinking..."
         // within the same tick and the user would never see the thinking state at all.
+        //
+        // When the per-user thinking-preserve flag is ON (set via /thinking command),
+        // the reasoning line that arrived between `cut` and the current buffer end is
+        // kept above the tool-call block so the user can read
+        // "model thought → called that tool" in the final message.
+        TelegramUser user = ctx.getTelegramUser();
+        boolean preserve = user != null && user.getThinkingMode() == ThinkingMode.SHOW_ALL;
+        log.info("appendToolCallBlock: telegramId={}, thinkingMode={}, preserveReasoningAbove={}",
+                user != null ? user.getTelegramId() : null,
+                user != null ? user.getThinkingMode() : "null-user",
+                preserve);
         StringBuilder buf = ctx.getStatusBuffer();
         int lastBoundary = buf.lastIndexOf("\n\n");
         int cut = lastBoundary >= 0 ? lastBoundary + 2 : 0;
-        buf.setLength(cut);
-        buf.append(blockBody);
+        if (preserve) {
+            // Preserve the reasoning snippet. Ensure the block starts on its own paragraph.
+            if (buf.length() > cut && buf.charAt(buf.length() - 1) != '\n') {
+                buf.append("\n\n");
+            }
+            buf.append(blockBody);
+        } else {
+            buf.setLength(cut);
+            buf.append(blockBody);
+        }
         rotateStatusIfNeeded(ctx);
         return pacedForceFlushStatus(ctx);
     }

@@ -120,6 +120,19 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.THINKING, havingValue = "true", matchIfMissing = true)
+    public ThinkingTelegramCommandHandler thinkingTelegramCommandHandler(
+            ObjectProvider<TelegramBot> telegramBotProvider,
+            TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
+            TelegramUserService telegramUserService,
+            TelegramBotMenuService telegramBotMenuService) {
+        return new ThinkingTelegramCommandHandler(telegramBotProvider,
+                typingIndicatorService, messageLocalizationService, telegramUserService, telegramBotMenuService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.NEW_THREAD, havingValue = "true", matchIfMissing = true)
     public NewThreadTelegramCommandHandler newThreadTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,

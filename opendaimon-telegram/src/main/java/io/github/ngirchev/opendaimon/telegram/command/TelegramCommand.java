@@ -26,6 +26,7 @@ public class TelegramCommand implements IChatCommand<TelegramCommandType> {
     public static final String LANGUAGE = "/language";
     public static final String MODEL = "/model";
     public static final String MODE = "/mode";
+    public static final String THINKING = "/thinking";
     public static final String MODEL_KEYBOARD_PREFIX = "🤖";
     public static final String CONTEXT_KEYBOARD_PREFIX = "💬";
 

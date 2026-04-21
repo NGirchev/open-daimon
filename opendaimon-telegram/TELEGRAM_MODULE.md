@@ -537,11 +537,57 @@ If the model emits `AgentStreamEvent.thinking` with non-empty reasoning:
 
 - Replace the trailing `💭 Thinking...` line (or prior reasoning overlay) with the new
   reasoning text wrapped in `<i>…</i>` — edit throttled to once per second.
-- When the iteration ends with a `toolCall`, the reasoning overlay is replaced by the
-  tool-call block (step 2). Visibility of the reasoning state is guaranteed by the paced
+- When the iteration ends with a `toolCall`, the reasoning overlay is **replaced** by the
+  tool-call block (step 2) by default. Visibility of the reasoning state is guaranteed by the paced
   flush of the tool-call edit — the user sees the reasoning for at least one throttle
   window before the tool-call block overwrites it.
+- **Per-user `/thinking` command**: each user can control reasoning visibility by sending `/thinking`
+  and selecting one of three modes. The mode is persisted in `User.thinkingMode` (DB column
+  `thinking_mode`, enum `ThinkingMode`). Runtime check is in `appendToolCallBlock()` via
+  `ctx.getTelegramUser().getThinkingMode() == ThinkingMode.SHOW_ALL`.
+  See [docs/telegram-thinking-modes.md](../docs/telegram-thinking-modes.md).
 - If the iteration turns into a final answer, see "Final answer transition" below.
+
+#### Thinking rendering modes
+
+The `/thinking` command is the UX switch for **three** reasoning-visibility modes.
+
+**✅ Show reasoning (`SHOW_ALL`)** — `💭 Thinking...` placeholder appears on every
+iteration, reasoning text replaces it, and when the `tool_call` arrives the reasoning
+line is **preserved above** the tool block with a blank-line separator. The final
+transcript carries reasoning + tool blocks + observations for every iteration.
+
+**🔕 Tools only (`HIDE_REASONING`) — current default.** `💭 Thinking...` placeholder
+is shown and reasoning briefly replaces it during the stream, but when the `tool_call`
+arrives the reasoning line is **overwritten** by the tool block. Final transcript
+contains only tool blocks and observations — reasoning was part of the live stream but
+did not survive into the final message.
+
+**🤫 Silent mode (`SILENT`)** — no thinking-related rendering ever. The
+`💭 Thinking...` placeholder is never written, and `THINKING` stream events are
+dropped at the renderer boundary (`TelegramAgentStreamRenderer.renderThinking()`
+returns `NoOp()` for SILENT users). The status message starts accumulating content
+only when the first `tool_call` arrives. Same final transcript as `Tools only`; the
+difference is strictly in the streaming UX (no visible activity between tool calls).
+
+##### Comparison across modes
+
+| Dimension | Show reasoning | Tools only | Silent |
+|---|---|---|---|
+| `💭 Thinking...` placeholder visible during stream | ✅ | ✅ | ❌ |
+| Reasoning text visible during stream | ✅ (persists) | ✅ (briefly, then overwritten) | ❌ (never rendered) |
+| Reasoning text in final transcript | ✅ (above each tool block) | ❌ | ❌ |
+| Tool blocks visible during stream | ✅ | ✅ | ✅ |
+| Tool blocks in final transcript | ✅ | ✅ | ✅ |
+| Observations in final transcript | ✅ | ✅ | ✅ |
+| Final answer | ✅ | ✅ | ✅ |
+
+Key insight: `Tools only` and `Silent` produce **identical final transcripts** —
+they differ only in whether the user sees any thinking-related activity during
+the stream. `Tools only` gives "agent is working" feedback (thinking placeholder
+pulses, reasoning flashes between tool calls). `Silent` removes that feedback
+entirely. The choice is strictly a streaming-UX preference, not an information
+tradeoff.
 
 ### Final answer transition (tentative + rollback)
 

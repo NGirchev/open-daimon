@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
+import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
@@ -15,6 +16,7 @@ import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
@@ -474,6 +476,92 @@ class TelegramMessageHandlerActionsStreamingTest {
                 .as("oversized single paragraph must be split into multiple chunks")
                 .hasSizeGreaterThanOrEqualTo(3)
                 .allSatisfy(html -> assertThat(html.length()).isLessThanOrEqualTo(120));
+    }
+
+    @Test
+    @DisplayName("should preserve thinking line above tool-call block when mode is SHOW_ALL")
+    void shouldPreserveThinkingAboveToolCallWhenShowAll() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        // Per-user thinking mode = SHOW_ALL, set via /thinking command
+        TelegramUser userWithPreserve = new TelegramUser();
+        userWithPreserve.setThinkingMode(ThinkingMode.SHOW_ALL);
+        ctx.setTelegramUser(userWithPreserve);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London weather\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.finalAnswer("It rains in London.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        String statusContent = ctx.getStatusBuffer().toString();
+        // When thinking-preserve is ON, the reasoning content before the tool-call block
+        // must NOT be stripped — the tool block must be appended after it.
+        // Verify the tool block appears in the transcript.
+        assertThat(statusContent).contains("🔧 <b>Tool:</b>");
+        assertThat(statusContent.indexOf("🔧 <b>Tool:</b>"))
+                .as("tool-call block must be present in status content")
+                .isGreaterThanOrEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("should overwrite thinking line with tool-call block when mode is HIDE_REASONING")
+    void shouldOverwriteThinkingWhenToolsOnly() {
+        // Per-user thinking mode = HIDE_REASONING (default)
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser userWithoutPreserve = new TelegramUser();
+        userWithoutPreserve.setThinkingMode(ThinkingMode.HIDE_REASONING);
+        ctx.setTelegramUser(userWithoutPreserve);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // Simulate reasoning arriving then tool call — the thinking content should be gone.
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London weather\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.finalAnswer("It rains in London.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Verify the tool-call block is present (current behaviour preserved).
+        assertThat(ctx.getStatusBuffer().toString()).contains("🔧 <b>Tool:</b>");
+    }
+
+    @Test
+    @DisplayName("should suppress thinking rendering in SILENT mode — no placeholder, renderer returns NoOp")
+    void shouldSuppressThinkingRenderingInSilentMode() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser silentUser = new TelegramUser();
+        silentUser.setThinkingMode(ThinkingMode.SILENT);
+        ctx.setTelegramUser(silentUser);
+
+        // In SILENT mode the status message is sent but should NOT contain the thinking placeholder.
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London weather\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.finalAnswer("It rains in London.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // The status buffer must NOT contain the thinking placeholder.
+        assertThat(ctx.getStatusBuffer().toString())
+                .as("SILENT mode must suppress the 💭 Thinking... placeholder")
+                .doesNotContain(STATUS_THINKING_LINE);
+        // Tool blocks and observations must still be present.
+        assertThat(ctx.getStatusBuffer().toString()).contains("🔧 <b>Tool:</b>");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

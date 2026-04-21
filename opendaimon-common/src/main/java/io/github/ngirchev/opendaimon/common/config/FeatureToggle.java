@@ -76,6 +76,7 @@ public final class FeatureToggle {
         public static final String MESSAGE = "message-enabled";
         public static final String MODEL = "model-enabled";
         public static final String MODE = "mode-enabled";
+        public static final String THINKING = "thinking-enabled";
     }
 
     // ── OpenRouter model rotation toggles (prefix-based) ────────
@@ -125,7 +126,8 @@ public final class FeatureToggle {
         CMD_THREADS(TelegramCommand.PREFIX + "." + TelegramCommand.THREADS),
         CMD_MESSAGE(TelegramCommand.PREFIX + "." + TelegramCommand.MESSAGE),
         CMD_MODEL(TelegramCommand.PREFIX + "." + TelegramCommand.MODEL),
-        CMD_MODE(TelegramCommand.PREFIX + "." + TelegramCommand.MODE);
+        CMD_MODE(TelegramCommand.PREFIX + "." + TelegramCommand.MODE),
+        CMD_THINKING(TelegramCommand.PREFIX + "." + TelegramCommand.THINKING);
 
         private final String propertyKey;
 

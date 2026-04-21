@@ -405,7 +405,7 @@ class GatewayPassthroughOpenRouterManualIT extends AbstractContainerIT {
         }
 
         @Override
-        public SearchResult webSearch(String query) {
+        public Object webSearch(String query) {
             capturedQueries.add(query);
             log.info("SpyWebTools.webSearch captured query=[{}]", query);
             return super.webSearch(query);

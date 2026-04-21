@@ -12,8 +12,9 @@
 
 ## Subagent delegation
 
-- For non-trivial Java changes in `opendaimon-*` modules (>1 file, requires a test, or touches JPA/Spring config), delegate to the `senior-enterprise-java` subagent.
-- Do not spawn a subagent for a one-line fix you can make directly.
+- Delegate to `senior-enterprise-java` only when the task meets one of: >=3 Java files changed, a new service/entity/migration, OR both unit and integration test coverage required. For smaller changes handle them in the main loop.
+- Never delegate: single-file edits <50 lines, log-driven bug fixes (use `root-cause` skill), docs-only or config-only changes, continuation of in-progress work.
+- Before delegating, state in one sentence why the threshold is met.
 
 ## Debugging
 

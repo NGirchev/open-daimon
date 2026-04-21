@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserObject;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserService;
 import io.github.ngirchev.opendaimon.common.model.AssistantRole;
+import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
@@ -135,6 +136,23 @@ public class TelegramUserService implements IUserService {
         user.setLastActivityAt(now);
 
         return telegramUserRepository.save(user);
+    }
+
+    /**
+     * Updates the per-user thinking-visibility mode.
+     *
+     * @param telegramId   Telegram user id
+     * @param thinkingMode new mode — {@code SHOW_ALL}, {@code HIDE_REASONING}, or {@code SILENT}
+     */
+    @Transactional
+    public void updateThinkingMode(Long telegramId, ThinkingMode thinkingMode) {
+        TelegramUser user = telegramUserRepository.findByTelegramId(telegramId)
+                .orElseThrow(() -> new RuntimeException(USER_NOT_FOUND));
+        user.setThinkingMode(thinkingMode);
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
+        telegramUserRepository.save(user);
     }
 
     /**

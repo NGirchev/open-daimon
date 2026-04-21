@@ -68,6 +68,17 @@ public class User extends AbstractEntity<Long> implements IUserObject {
     private Boolean agentModeEnabled;
 
     /**
+     * Per-user thinking-visibility mode. Controls how the model's reasoning is rendered
+     * during and after streaming in the Telegram status transcript.
+     * Set explicitly via the {@code /thinking} Telegram command.
+     *
+     * @see ThinkingMode
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "thinking_mode", nullable = false)
+    private ThinkingMode thinkingMode = ThinkingMode.HIDE_REASONING;
+
+    /**
      * Current active assistant role
      */
     @OneToOne(fetch = FetchType.LAZY)

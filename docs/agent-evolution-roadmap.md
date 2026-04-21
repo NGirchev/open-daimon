@@ -479,6 +479,17 @@ caching-capable provider.
 
 ### Step 2 — Native tool_use first-class
 
+**Status.** In progress — tactical precursor landed separately: `WebTools.webSearch`
+now returns an Error-prefixed string when invoked with null/blank `query`
+(classified as failure by `ToolObservationClassifier`), so the model gets a
+structured retry instruction instead of a success-shaped empty result. This
+covers the "surface bad-input as error" principle of Step 2 for the one
+tool most commonly mis-called by flaky models. The remainder of Step 2
+(`NATIVE_TOOL_USE` capability gate, decommissioning `RawToolCallParser` as
+first-class path, trimming tool discipline from system prompt for capable
+models) is still pending. See `SPRING_AI_MODULE.md` § "Empty-arguments
+guard on web_search" for the landed behaviour.
+
 **Goal.** Remove reliance on `RawToolCallParser` (XML-in-text) for
 models that support structured tool calling; keep it only as a
 fallback for local models that cannot.
