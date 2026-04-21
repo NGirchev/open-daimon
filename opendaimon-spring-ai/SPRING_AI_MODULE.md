@@ -317,6 +317,17 @@ Telegram-specific bot identity is already part of `role` metadata from Telegram 
 ## REACT Agent Loop — Iteration Handling
 
 The REACT loop lives in `SpringAgentLoopActions` (FSM actions) and is driven by `ReActAgentExecutor`.
+
+The system prompt is assembled via `AgentPromptBuilder.buildSystemPrompt(metadata)` and enriched with
+two additional instructions derived from agent metadata:
+- **Tool-calling discipline** — always appended unconditionally, because the agent always operates with
+  `web_search`/`fetch_url` tools available. Prevents empty-argument tool calls observed on some models.
+- **Language instruction** — appended when `LANGUAGE_CODE_FIELD` is present in metadata (e.g. Telegram
+  passes `languageCode = "ru"`). The instruction covers intermediate thoughts and status messages as well
+  as the final answer (`"Respond in Russian (ru), INCLUDING intermediate thoughts and status messages"`),
+  eliminating the bifurcated-language issue where thought tokens appeared in English while the final
+  answer was in Russian. Language name resolution is handled by `LanguageInstructions.displayName()` in
+  `opendaimon-common` (JDK `Locale.getDisplayLanguage`, ~180 ISO 639 / BCP 47 codes — no hardcoded switch).
 Spring AI's built-in tool-execution loop is disabled via
 `ToolCallingChatOptions.internalToolExecutionEnabled = false`; we drive tool invocations
 ourselves so that each `THINKING → TOOL_CALL → OBSERVATION` step can be streamed as

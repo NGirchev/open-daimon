@@ -118,6 +118,20 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
         String updatedMsg = messageLocalizationService.getMessage("telegram.language.updated", normalized, label);
         ackCallback(cq.getId(), updatedMsg);
         deleteMenuMessage(command.telegramId(), cq);
+        sendConfirmationMessage(command.telegramId(), updatedMsg);
+    }
+
+    /**
+     * Posts a persistent confirmation message into the chat so the user sees the
+     * selected language in conversation history (not just as a transient toast).
+     */
+    private void sendConfirmationMessage(Long chatId, String text) {
+        try {
+            SendMessage msg = new SendMessage(chatId.toString(), text);
+            telegramBotProvider.getObject().execute(msg);
+        } catch (Exception e) {
+            log.warn("Failed to send language confirmation message: {}", e.getMessage());
+        }
     }
 
     private void sendLanguageMenu(Long chatId, String languageCode, String currentMsg) {

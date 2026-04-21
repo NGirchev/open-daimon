@@ -460,9 +460,45 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
                 .isFalse();
     }
 
+    // --- B9: Language-aware system prompt — agent responds in Russian ---
+
+    @Test
+    @Timeout(3 * 60)
+    @DisplayName("B9: ADMIN agent responds in Russian when languageCode=ru, including intermediate thoughts")
+    void admin_agentReact_respondsInRussian_whenLanguageCodeIsRu() {
+        TelegramCommand command = createMessageCommand(
+                ADMIN_CHAT_ID,
+                11,
+                "Что такое Spring Boot? Поищи в интернете и ответь кратко.",
+                "ru"
+        );
+
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        String assistantReply = latestAssistantReply(thread);
+
+        assertThat(assistantReply)
+                .as("Agent should produce a non-blank response")
+                .isNotBlank();
+
+        assertThat(assistantReply)
+                .as("Agent response must contain Cyrillic characters — language-aware prompt should make LLM reply in Russian")
+                .matches("(?s).*[\\p{IsCyrillic}]+.*");
+    }
+
     // --- Helpers ---
 
     private TelegramCommand createMessageCommand(Long chatId, int messageId, String text) {
+        return createMessageCommand(chatId, messageId, text, "en");
+    }
+
+    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text, String languageCode) {
         Update update = new Update();
 
         User from = new User();
@@ -470,7 +506,7 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
         from.setUserName("manual-agent-user-" + chatId);
         from.setFirstName("Manual");
         from.setLastName("Agent");
-        from.setLanguageCode("en");
+        from.setLanguageCode(languageCode);
 
         Message message = new Message();
         message.setMessageId(messageId);
@@ -490,7 +526,7 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
                 false,
                 List.of()
         );
-        command.languageCode("en");
+        command.languageCode(languageCode);
         return command;
     }
 

@@ -147,7 +147,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             List<Message> messages = getOrCreateHistory(ctx);
 
             if (messages.isEmpty()) {
-                String systemPrompt = AgentPromptBuilder.buildSystemPrompt();
+                String systemPrompt = AgentPromptBuilder.buildSystemPrompt(ctx.getMetadata());
                 messages.add(new SystemMessage(systemPrompt));
                 loadConversationHistory(ctx, messages);
                 messages.add(new UserMessage(AgentPromptBuilder.buildUserMessage(ctx)));

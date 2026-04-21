@@ -489,6 +489,8 @@ public class TelegramBot extends TelegramLongPollingBot {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.BUGREPORT);
             } else if (callbackData.startsWith("MODEL_")) {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.MODEL);
+            } else if (callbackData.startsWith("MODE_")) {
+                telegramCommandType = new TelegramCommandType(TelegramCommand.MODE);
             }
         }
         if (telegramCommandType == null) {

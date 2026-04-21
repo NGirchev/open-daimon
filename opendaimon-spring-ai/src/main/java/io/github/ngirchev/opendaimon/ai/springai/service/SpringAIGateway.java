@@ -23,6 +23,7 @@ import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
+import io.github.ngirchev.opendaimon.common.ai.lang.LanguageInstructions;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
@@ -457,19 +458,11 @@ public class SpringAIGateway implements AIGateway {
             return systemRole;
         }
         String languageCode = command.metadata().get(AICommand.LANGUAGE_CODE_FIELD);
-        if (languageCode == null || languageCode.isBlank()) {
-            return systemRole;
-        }
-        String languageName = switch (languageCode.toLowerCase()) {
-            case "ru" -> "Russian";
-            case "en" -> "English";
-            case "de" -> "German";
-            case "fr" -> "French";
-            case "es" -> "Spanish";
-            case "zh" -> "Chinese";
-            default -> languageCode;
-        };
-        return systemRole + "\nPrefer responding in " + languageName + " (" + languageCode + "). When quoting text from documents or context, preserve the original language exactly.";
+        return LanguageInstructions.displayName(languageCode)
+                .map(name -> systemRole
+                        + "\nPrefer responding in " + name + " (" + languageCode + ")."
+                        + " When quoting text from documents or context, preserve the original language exactly.")
+                .orElse(systemRole);
     }
 
     /**
