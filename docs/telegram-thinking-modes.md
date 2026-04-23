@@ -37,7 +37,7 @@ final transcript as `Tools only`; the difference is strictly in the streaming UX
 
 ### Comparison table
 
-| Dimension | Show reasoning | Tools only | Silent |
+| Dimension | SHOW_ALL | HIDE_REASONING | SILENT |
 |---|---|---|---|
 | `"💭 Thinking..."` placeholder visible during stream | ✅ | ✅ | ❌ |
 | Reasoning text visible during stream | ✅ (persists) | ✅ (briefly, then overwritten) | ❌ (never rendered) |
