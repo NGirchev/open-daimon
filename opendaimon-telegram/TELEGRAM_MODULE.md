@@ -563,31 +563,39 @@ arrives the reasoning line is **overwritten** by the tool block. Final transcrip
 contains only tool blocks and observations — reasoning was part of the live stream but
 did not survive into the final message.
 
-**🤫 Silent mode (`SILENT`)** — no thinking-related rendering ever. The
-`💭 Thinking...` placeholder is never written, and `THINKING` stream events are
-dropped at the renderer boundary (`TelegramAgentStreamRenderer.renderThinking()`
-returns `NoOp()` for SILENT users). The status message starts accumulating content
-only when the first `tool_call` arrives. Same final transcript as `Tools only`; the
-difference is strictly in the streaming UX (no visible activity between tool calls).
+**🤫 Silent mode (`SILENT`)** — complete silence during the agent loop.
+**No status message is created at all** — `ensureStatusMessage()` returns
+early for SILENT users without invoking `sendHtmlAndGetId`. Every
+buffer-mutating `RenderedUpdate` case (`ReplaceTrailingThinkingLine`,
+`AppendFreshThinking`, `AppendToolCall`, `AppendObservation`,
+`AppendErrorToStatus`, `RollbackAndAppendToolCall`) is gated by
+`isThinkingSilent(ctx)` and no-ops. `PARTIAL_ANSWER` events are suppressed
+too, so the tentative-answer bubble never opens. When the agent reaches
+`FINAL_ANSWER`, `generateAgentResponse()` takes the "no tentative bubble
+opened" branch and sends a **fresh message** with the final answer text
+via `sendTextByParagraphs`. The user sees: their own message → silence
+while the agent works → final answer. Nothing in between.
 
 ##### Comparison across modes
 
 | Dimension | Show reasoning | Tools only | Silent |
 |---|---|---|---|
 | `💭 Thinking...` placeholder visible during stream | ✅ | ✅ | ❌ |
-| Reasoning text visible during stream | ✅ (persists) | ✅ (briefly, then overwritten) | ❌ (never rendered) |
+| Reasoning text visible during stream | ✅ (persists) | ✅ (briefly, then overwritten) | ❌ |
 | Reasoning text in final transcript | ✅ (above each tool block) | ❌ | ❌ |
-| Tool blocks visible during stream | ✅ | ✅ | ✅ |
-| Tool blocks in final transcript | ✅ | ✅ | ✅ |
-| Observations in final transcript | ✅ | ✅ | ✅ |
-| Final answer | ✅ | ✅ | ✅ |
+| Tool blocks visible during stream | ✅ | ✅ | ❌ |
+| Tool blocks in final transcript | ✅ | ✅ | ❌ |
+| Observations in final transcript | ✅ | ✅ | ❌ |
+| Final answer | ✅ | ✅ | ✅ (fresh message) |
 
-Key insight: `Tools only` and `Silent` produce **identical final transcripts** —
-they differ only in whether the user sees any thinking-related activity during
-the stream. `Tools only` gives "agent is working" feedback (thinking placeholder
-pulses, reasoning flashes between tool calls). `Silent` removes that feedback
-entirely. The choice is strictly a streaming-UX preference, not an information
-tradeoff.
+Key insight: `Silent` is **radical silence** — it is not "Tools only minus
+the thinking placeholder". `Tools only` still shows tool-call blocks and
+observations in a running status message (a live log of agent work).
+`Silent` suppresses the status message entirely and delivers only the
+final answer. Tradeoff: `Tools only` keeps the user informed that the
+agent is doing multi-step work; `Silent` hides all intermediate activity
+and may appear non-responsive while long tool calls are running. The
+choice is strictly a product-UX preference for visibility vs cleanliness.
 
 ### Final answer transition (tentative + rollback)
 

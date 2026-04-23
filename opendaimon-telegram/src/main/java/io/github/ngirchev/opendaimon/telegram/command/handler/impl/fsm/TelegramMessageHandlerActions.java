@@ -447,6 +447,12 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
 
         if (event.type() == AgentStreamEvent.EventType.PARTIAL_ANSWER) {
+            // SILENT: suppress the tentative-answer bubble. PARTIAL_ANSWER chunks are
+            // dropped; the final answer is delivered as a fresh message via the
+            // "no tentative bubble opened" branch in generateAgentResponse.
+            if (isThinkingSilent(ctx)) {
+                return Mono.empty();
+            }
             handlePartialAnswer(ctx, event);
             return Mono.empty();
         }
@@ -624,22 +630,51 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
 
     private Mono<Void> applyUpdate(MessageHandlerContext ctx, RenderedUpdate update) {
         return switch (update) {
-            case RenderedUpdate.ReplaceTrailingThinkingLine r -> Mono.fromRunnable(() ->
-                    replaceTrailingThinkingLineWithEscaped(ctx,
-                            "<i>" + collapseToSingleLine(TelegramHtmlEscaper.escape(r.reasoning())) + "</i>",
-                            /*forceFlush=*/ false));
-            case RenderedUpdate.AppendFreshThinking ignored -> Mono.fromRunnable(() ->
-                    appendToStatusBuffer(ctx, "\n\n" + STATUS_THINKING_LINE, /*forceFlush=*/ false));
-            case RenderedUpdate.AppendToolCall tc ->
-                    appendToolCallBlock(ctx, tc.toolName(), tc.args());
-            case RenderedUpdate.AppendObservation obs ->
-                    appendObservationMarker(ctx, obs.kind(), obs.errorSummary());
-            case RenderedUpdate.AppendErrorToStatus err -> Mono.fromRunnable(() ->
-                    appendToStatusBuffer(ctx,
-                            "\n\n❌ Error: " + TelegramHtmlEscaper.escape(err.message()),
-                            /*forceFlush=*/ true));
-            case RenderedUpdate.RollbackAndAppendToolCall rb ->
-                    rollbackAndAppendToolCall(ctx, rb.toolName(), rb.args(), rb.foldedProse());
+            case RenderedUpdate.ReplaceTrailingThinkingLine r -> Mono.fromRunnable(() -> {
+                if (isThinkingSilent(ctx)) {
+                    return;
+                }
+                String reasoningHtml = "<i>"
+                        + collapseToSingleLine(TelegramHtmlEscaper.escape(r.reasoning()))
+                        + "</i>";
+                // Multi-iteration SHOW_ALL path: when the buffer's trailing content is
+                // NOT a thinking placeholder or a prior <i>…</i> overlay (i.e. an
+                // observation `</blockquote>` or a `🔧 Tool:` block ended the previous
+                // iteration), a new iteration's reasoning must be APPENDED as a new
+                // paragraph rather than REPLACE the last paragraph — otherwise the
+                // previous iteration's tool block and observation get erased.
+                String current = ctx.getStatusBuffer().toString();
+                boolean trailingIsOverlay = current.endsWith("</i>")
+                        || current.endsWith(STATUS_THINKING_LINE);
+                if (trailingIsOverlay) {
+                    replaceTrailingThinkingLineWithEscaped(ctx, reasoningHtml, /*forceFlush=*/ false);
+                } else {
+                    appendToStatusBuffer(ctx, "\n\n" + reasoningHtml, /*forceFlush=*/ false);
+                }
+            });
+            case RenderedUpdate.AppendFreshThinking ignored -> Mono.fromRunnable(() -> {
+                if (isThinkingSilent(ctx)) {
+                    return;
+                }
+                appendToStatusBuffer(ctx, "\n\n" + STATUS_THINKING_LINE, /*forceFlush=*/ false);
+            });
+            case RenderedUpdate.AppendToolCall tc -> isThinkingSilent(ctx)
+                    ? Mono.empty()
+                    : appendToolCallBlock(ctx, tc.toolName(), tc.args());
+            case RenderedUpdate.AppendObservation obs -> isThinkingSilent(ctx)
+                    ? Mono.empty()
+                    : appendObservationMarker(ctx, obs.kind(), obs.errorSummary());
+            case RenderedUpdate.AppendErrorToStatus err -> Mono.fromRunnable(() -> {
+                if (isThinkingSilent(ctx)) {
+                    return;
+                }
+                appendToStatusBuffer(ctx,
+                        "\n\n❌ Error: " + TelegramHtmlEscaper.escape(err.message()),
+                        /*forceFlush=*/ true);
+            });
+            case RenderedUpdate.RollbackAndAppendToolCall rb -> isThinkingSilent(ctx)
+                    ? Mono.empty()
+                    : rollbackAndAppendToolCall(ctx, rb.toolName(), rb.args(), rb.foldedProse());
             case RenderedUpdate.NoOp ignored -> Mono.empty();
         };
     }
@@ -652,6 +687,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
      * subsequent edits just overwrite the whole buffer. If the send fails the buffer
      * still carries the text and later edit attempts short-circuit.
      */
+    private boolean isThinkingSilent(MessageHandlerContext ctx) {
+        TelegramUser user = ctx.getTelegramUser();
+        return user != null && user.getThinkingMode() == ThinkingMode.SILENT;
+    }
+
     private void ensureStatusMessage(MessageHandlerContext ctx) {
         if (ctx.getStatusMessageId() != null) {
             return;
@@ -663,9 +703,17 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                 user != null ? user.getTelegramId() : null,
                 user != null ? user.getThinkingMode() : "null-user",
                 silent);
-        if (!silent) {
-            ctx.getStatusBuffer().append(STATUS_THINKING_LINE);
+        // SILENT: do NOT create a status message at all. The user's intent is radical
+        // silence — no thinking placeholder, no tool blocks, no observations in a
+        // running log. The final answer is delivered as a fresh message through the
+        // "no tentative bubble opened" branch in generateAgentResponse. All applyUpdate
+        // cases that mutate the status buffer also no-op for SILENT users, so nothing
+        // ever tries to edit this non-existent status message.
+        if (silent) {
+            ctx.setCurrentIteration(0);
+            return;
         }
+        ctx.getStatusBuffer().append(STATUS_THINKING_LINE);
         // Seed iteration 0 so the first null-content THINKING event isn't treated as a
         // rollover — otherwise the renderer would duplicate the thinking line. A new
         // AppendFreshThinking still fires when iteration 1 starts.

@@ -55,6 +55,7 @@ import static org.mockito.Mockito.when;
  * and existing rollback triggers (text-marker scan and TOOL_CALL event) still fire.
  */
 @ExtendWith(MockitoExtension.class)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 class TelegramMessageHandlerActionsStreamingTest {
 
     private static final int MAX_ITERATIONS = 5;
@@ -556,12 +557,106 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        // The status buffer must NOT contain the thinking placeholder.
+        // Version B: SILENT suppresses EVERYTHING during the agent loop — no placeholder,
+        // no tool blocks, no observations. Status buffer stays empty; final answer is
+        // sent as a fresh message via the "no tentative bubble opened" branch.
         assertThat(ctx.getStatusBuffer().toString())
-                .as("SILENT mode must suppress the 💭 Thinking... placeholder")
-                .doesNotContain(STATUS_THINKING_LINE);
-        // Tool blocks and observations must still be present.
-        assertThat(ctx.getStatusBuffer().toString()).contains("🔧 <b>Tool:</b>");
+                .as("SILENT mode must produce an empty status buffer (no placeholder, no tool blocks)")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("SILENT: should suppress placeholder across iteration boundaries (AppendFreshThinking path)")
+    void shouldSuppressThinkingAcrossIterationsInSilentMode() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser silentUser = new TelegramUser();
+        silentUser.setThinkingMode(ThinkingMode.SILENT);
+        ctx.setTelegramUser(silentUser);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // Simulate 2 iterations. iteration=1 crosses boundary → renderThinking would return
+        // AppendFreshThinking without SILENT guard. Defense-in-depth guard in applyUpdate
+        // must also drop it.
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.thinking(1),   // ← iteration boundary
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"Manchester\"}", 1),
+                AgentStreamEvent.observation("rain", false, 1),
+                AgentStreamEvent.finalAnswer("Rains everywhere.", 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Version B: SILENT across 2+ iterations still produces an empty buffer —
+        // no iteration-boundary placeholders, no tool blocks, no observations.
+        assertThat(ctx.getStatusBuffer().toString())
+                .as("SILENT mode must suppress ALL status rendering across iteration boundaries")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("SILENT: should suppress reasoning text overlay (ReplaceTrailingThinkingLine path)")
+    void shouldSuppressReasoningOverlayInSilentMode() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser silentUser = new TelegramUser();
+        silentUser.setThinkingMode(ThinkingMode.SILENT);
+        ctx.setTelegramUser(silentUser);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // thinking event WITH content (reasoning text) would normally produce
+        // ReplaceTrailingThinkingLine. For SILENT, buffer must stay clean of that content.
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking("I need to check the weather first.", 0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.finalAnswer("Rain.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Version B: SILENT mode buffer stays empty even when reasoning text events arrive.
+        assertThat(ctx.getStatusBuffer().toString())
+                .as("SILENT mode must not render reasoning text (or anything) into the buffer")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("SHOW_ALL: reasoning text must survive across iterations (reasoning visible before each tool block)")
+    void shouldPreserveReasoningAcrossIterationsInShowAllMode() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser user = new TelegramUser();
+        user.setThinkingMode(ThinkingMode.SHOW_ALL);
+        ctx.setTelegramUser(user);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking("First I check London.", 0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.thinking("Now Manchester.", 1),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"Manchester\"}", 1),
+                AgentStreamEvent.observation("rain", false, 1),
+                AgentStreamEvent.finalAnswer("Rains everywhere.", 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        String content = ctx.getStatusBuffer().toString();
+        assertThat(content)
+                .as("SHOW_ALL must retain both reasoning snippets in the final buffer")
+                .contains("First I check London")
+                .contains("Now Manchester");
+        // Both tool blocks must be present
+        long toolBlockCount = content.lines().filter(l -> l.contains("🔧 <b>Tool:</b>")).count();
+        assertThat(toolBlockCount).as("two tool-call blocks expected").isEqualTo(2);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
