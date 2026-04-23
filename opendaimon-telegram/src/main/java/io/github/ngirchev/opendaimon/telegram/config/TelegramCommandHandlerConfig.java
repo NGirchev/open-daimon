@@ -33,6 +33,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRendere
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.UserRecentModelService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
@@ -315,7 +316,8 @@ public class TelegramCommandHandlerConfig {
             IUserPriorityService userPriorityService,
             PersistentKeyboardService persistentKeyboardService,
             ConversationThreadService conversationThreadService,
-            ModelSelectionSession modelSelectionSession) {
+            ModelSelectionSession modelSelectionSession,
+            UserRecentModelService userRecentModelService) {
         return new ModelTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
@@ -326,7 +328,8 @@ public class TelegramCommandHandlerConfig {
                 userPriorityService,
                 persistentKeyboardService,
                 conversationThreadService,
-                modelSelectionSession
+                modelSelectionSession,
+                userRecentModelService
         );
     }
 }

@@ -45,6 +45,7 @@ import io.github.ngirchev.opendaimon.telegram.config.FileUploadProperties;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageCoalescingService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
@@ -68,11 +69,12 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final ObjectProvider<TelegramFileService> fileServiceProvider;
     private final ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider;
     private final ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider;
+    private final ObjectProvider<TelegramBotMenuService> menuServiceProvider;
 
     public TelegramBot(TelegramProperties config,
                        CommandSyncService commandSyncService,
                        TelegramUserService userService) {
-        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null, null, null);
+        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null, null, null, null);
     }
 
     /**
@@ -86,7 +88,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                        ObjectProvider<TelegramFileService> fileServiceProvider,
                        ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
         this(config, botOptions, commandSyncService, userService, messageLocalizationService,
-                fileServiceProvider, fileUploadPropertiesProvider, null);
+                fileServiceProvider, fileUploadPropertiesProvider, null, null);
     }
 
     public TelegramBot(TelegramProperties config,
@@ -97,6 +99,19 @@ public class TelegramBot extends TelegramLongPollingBot {
                        ObjectProvider<TelegramFileService> fileServiceProvider,
                        ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
                        ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider) {
+        this(config, botOptions, commandSyncService, userService, messageLocalizationService,
+                fileServiceProvider, fileUploadPropertiesProvider, messageCoalescingServiceProvider, null);
+    }
+
+    public TelegramBot(TelegramProperties config,
+                       DefaultBotOptions botOptions,
+                       CommandSyncService commandSyncService,
+                       TelegramUserService userService,
+                       MessageLocalizationService messageLocalizationService,
+                       ObjectProvider<TelegramFileService> fileServiceProvider,
+                       ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
+                       ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider,
+                       ObjectProvider<TelegramBotMenuService> menuServiceProvider) {
         super(botOptions, config.getToken());
         this.config = config;
         this.commandSyncService = commandSyncService;
@@ -105,6 +120,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         this.fileServiceProvider = fileServiceProvider;
         this.fileUploadPropertiesProvider = fileUploadPropertiesProvider;
         this.messageCoalescingServiceProvider = messageCoalescingServiceProvider;
+        this.menuServiceProvider = menuServiceProvider;
     }
 
     @Override
@@ -462,6 +478,35 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     /**
+     * Lazy per-chat command menu reconciliation.
+     * <p>
+     * Called from the slash-command and callback-query paths so the first chat-scoped
+     * interaction after a deployment repairs a stale {@code BotCommandScopeChat} snapshot
+     * whose command set diverges from the current build. Must not block or throw — any
+     * Telegram API failure is swallowed at the call site and the command processing continues.
+     *
+     * @param user resolved Telegram user (never {@code null})
+     */
+    private void reconcileMenuIfStale(TelegramUser user) {
+        if (menuServiceProvider == null) {
+            return;
+        }
+        TelegramBotMenuService menuService = menuServiceProvider.getIfAvailable();
+        if (menuService == null) {
+            return;
+        }
+        try {
+            boolean changed = menuService.reconcileMenuIfStale(user);
+            if (changed) {
+                userService.updateMenuVersionHash(user.getTelegramId(), user.getMenuVersionHash());
+            }
+        } catch (Exception e) {
+            log.warn("Lazy menu reconciliation failed for chatId={}: {}",
+                    user != null ? user.getTelegramId() : null, e.getMessage());
+        }
+    }
+
+    /**
      * Returns whether file upload is enabled.
      */
     private boolean isFileUploadEnabled() {
@@ -476,6 +521,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         CallbackQuery cq = update.getCallbackQuery();
         var message = cq.getMessage();
         TelegramUser telegramUser = userService.getOrCreateUser(cq.getFrom());
+        reconcileMenuIfStale(telegramUser);
         Long userId = telegramUser.getId();
 
         TelegramCommandType telegramCommandType = null;
@@ -520,6 +566,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             userText = enrichWithForwardContext(stripped, forwardInfo, telegramUser.getLanguageCode());
         } else if (stripped.startsWith("/")) {
             clearStatus(telegramUser.getTelegramId());
+            reconcileMenuIfStale(telegramUser);
             int spaceIndex = stripped.indexOf(' ');
             String commandToken = stripped.substring(0, spaceIndex == -1 ? stripped.length() : spaceIndex);
             String normalizedCommand = normalizeBotCommand(commandToken);

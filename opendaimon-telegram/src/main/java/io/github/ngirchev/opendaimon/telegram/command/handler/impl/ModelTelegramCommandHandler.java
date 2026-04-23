@@ -25,6 +25,7 @@ import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.UserRecentModelService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -65,19 +67,6 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             ModelCapabilities.FREE
     );
 
-    private static final List<ModelCategory> CATEGORY_DEFINITIONS = List.of(
-            new ModelCategory("LOCAL", "telegram.model.cat.local",
-                    model -> "Ollama".equalsIgnoreCase(model.provider())),
-            new ModelCategory("VISION", "telegram.model.cat.vision",
-                    model -> model.capabilities().contains(ModelCapabilities.VISION)
-                            && !"Ollama".equalsIgnoreCase(model.provider())),
-            new ModelCategory("FREE", "telegram.model.cat.free",
-                    model -> model.capabilities().contains(ModelCapabilities.FREE)
-                            && !model.capabilities().contains(ModelCapabilities.VISION)
-                            && !"Ollama".equalsIgnoreCase(model.provider())),
-            new ModelCategory("ALL", "telegram.model.cat.all", model -> true)
-    );
-
     private final TelegramUserService telegramUserService;
     private final UserModelPreferenceService userModelPreferenceService;
     private final AIGatewayRegistry aiGatewayRegistry;
@@ -85,6 +74,14 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
     private final PersistentKeyboardService persistentKeyboardService;
     private final ConversationThreadService conversationThreadService;
     private final ModelSelectionSession modelSelectionSession;
+    private final UserRecentModelService userRecentModelService;
+
+    /**
+     * Ordered category catalogue shown in the Level-1 menu. RECENT captures
+     * {@link #userRecentModelService} so it has to be an instance field rather
+     * than a {@code static final} list.
+     */
+    private final List<ModelCategory> categoryDefinitions;
 
     public ModelTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                        TypingIndicatorService typingIndicatorService,
@@ -95,7 +92,8 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                                        IUserPriorityService userPriorityService,
                                        PersistentKeyboardService persistentKeyboardService,
                                        ConversationThreadService conversationThreadService,
-                                       ModelSelectionSession modelSelectionSession) {
+                                       ModelSelectionSession modelSelectionSession,
+                                       UserRecentModelService userRecentModelService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.userModelPreferenceService = userModelPreferenceService;
@@ -104,6 +102,44 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         this.persistentKeyboardService = persistentKeyboardService;
         this.conversationThreadService = conversationThreadService;
         this.modelSelectionSession = modelSelectionSession;
+        this.userRecentModelService = userRecentModelService;
+        this.categoryDefinitions = buildCategoryDefinitions();
+    }
+
+    private List<ModelCategory> buildCategoryDefinitions() {
+        return List.of(
+                ModelCategory.dynamic("RECENT", "telegram.model.cat.recent",
+                        (allModels, userId) -> {
+                            List<String> recent = userRecentModelService
+                                    .getRecentModels(userId, PAGE_SIZE);
+                            if (recent.isEmpty()) {
+                                return List.of();
+                            }
+                            Map<String, Integer> nameToIdx = indexByName(allModels);
+                            return recent.stream()
+                                    .map(nameToIdx::get)
+                                    .filter(Objects::nonNull)
+                                    .toList();
+                        }),
+                ModelCategory.filtered("LOCAL", "telegram.model.cat.local",
+                        model -> "Ollama".equalsIgnoreCase(model.provider())),
+                ModelCategory.filtered("VISION", "telegram.model.cat.vision",
+                        model -> model.capabilities().contains(ModelCapabilities.VISION)
+                                && !"Ollama".equalsIgnoreCase(model.provider())),
+                ModelCategory.filtered("FREE", "telegram.model.cat.free",
+                        model -> model.capabilities().contains(ModelCapabilities.FREE)
+                                && !model.capabilities().contains(ModelCapabilities.VISION)
+                                && !"Ollama".equalsIgnoreCase(model.provider())),
+                ModelCategory.filtered("ALL", "telegram.model.cat.all", model -> true)
+        );
+    }
+
+    private static Map<String, Integer> indexByName(List<ModelInfo> models) {
+        Map<String, Integer> map = new HashMap<>(models.size() * 2);
+        for (int i = 0; i < models.size(); i++) {
+            map.put(models.get(i).name(), i);
+        }
+        return map;
     }
 
     @Override
@@ -158,7 +194,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                 return;
             }
 
-            MenuContent menu = buildCategoryMenuContent(models, lang);
+            MenuContent menu = buildCategoryMenuContent(models, lang, user.getId());
             SendMessage msg = new SendMessage(chatId.toString(), menu.text());
             msg.setReplyMarkup(menu.markup());
             telegramBotProvider.getObject().execute(msg);
@@ -202,15 +238,17 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
 
     /**
      * Builds category menu content reused by both send and edit flows.
+     * Categories with an empty resolver result (e.g. {@code RECENT} for a new
+     * user) are omitted automatically.
      */
-    private MenuContent buildCategoryMenuContent(List<ModelInfo> models, String lang) {
+    private MenuContent buildCategoryMenuContent(List<ModelInfo> models, String lang, Long userId) {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
         keyboard.add(List.of(createButton(
                 messageLocalizationService.getMessage("telegram.model.auto", lang), CALLBACK_AUTO)));
 
-        for (ModelCategory category : CATEGORY_DEFINITIONS) {
-            long count = models.stream().filter(category.filter()).count();
+        for (ModelCategory category : categoryDefinitions) {
+            int count = category.resolver().resolve(models, userId).size();
             if (count == 0) {
                 continue;
             }
@@ -240,10 +278,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                 return;
             }
 
-            List<Integer> matchingIndices = IntStream.range(0, allModels.size())
-                    .filter(i -> category.filter().test(allModels.get(i)))
-                    .boxed()
-                    .toList();
+            List<Integer> matchingIndices = category.resolver().resolve(allModels, user.getId());
 
             if (matchingIndices.isEmpty()) {
                 log.warn("Empty category '{}' for chat={}", categoryKey, chatId);
@@ -378,6 +413,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         // Model selection: MODEL_<idx>
         String modelName = resolveModelName(callbackData, user);
         userModelPreferenceService.setPreferredModel(userId, modelName);
+        userRecentModelService.recordUsage(userId, modelName);
         ackCallback(cq.getId(), "✅ " + modelName);
         deleteMenuMessage(command.telegramId(), cq);
         modelSelectionSession.evict(userId);
@@ -387,7 +423,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
     private void editToCategoryMenu(Long chatId, Integer messageId, TelegramUser user) {
         try {
             List<ModelInfo> models = fetchModels(user);
-            MenuContent menu = buildCategoryMenuContent(models, user.getLanguageCode());
+            MenuContent menu = buildCategoryMenuContent(models, user.getLanguageCode(), user.getId());
             editMenuMessage(chatId, messageId, menu.text(), menu.markup());
         } catch (Exception e) {
             log.error("Failed to edit category menu: {}", e.getMessage(), e);
@@ -454,7 +490,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
     }
 
     private ModelCategory findCategory(String key) {
-        return CATEGORY_DEFINITIONS.stream()
+        return categoryDefinitions.stream()
                 .filter(c -> c.key().equals(key))
                 .findFirst()
                 .orElse(null);
@@ -524,7 +560,36 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         return messageLocalizationService.getMessage("telegram.command.model.desc", languageCode);
     }
 
-    private record ModelCategory(String key, String labelKey, Predicate<ModelInfo> filter) {}
+    /**
+     * Resolves the ordered list of model indices that belong to a category,
+     * given the full model list and the user viewing the menu.
+     */
+    @FunctionalInterface
+    interface IndexResolver {
+        List<Integer> resolve(List<ModelInfo> allModels, Long userId);
+    }
+
+    private record ModelCategory(String key, String labelKey, IndexResolver resolver) {
+
+        /**
+         * Category whose members are fully determined by a per-model predicate;
+         * order follows the natural order of {@code allModels}.
+         */
+        static ModelCategory filtered(String key, String labelKey, Predicate<ModelInfo> filter) {
+            return new ModelCategory(key, labelKey,
+                    (allModels, userId) -> IntStream.range(0, allModels.size())
+                            .filter(i -> filter.test(allModels.get(i)))
+                            .boxed()
+                            .toList());
+        }
+
+        /**
+         * Category with custom resolver (e.g. user-specific history).
+         */
+        static ModelCategory dynamic(String key, String labelKey, IndexResolver resolver) {
+            return new ModelCategory(key, labelKey, resolver);
+        }
+    }
 
     private record MenuContent(String text, InlineKeyboardMarkup markup) {}
 }

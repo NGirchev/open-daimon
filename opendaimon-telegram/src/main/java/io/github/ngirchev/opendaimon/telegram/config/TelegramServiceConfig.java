@@ -15,6 +15,8 @@ import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.meter.OpenDaimonMeterRegistry;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.common.repository.UserRecentModelRepository;
+import io.github.ngirchev.opendaimon.common.repository.UserRepository;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
@@ -27,6 +29,7 @@ import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramWhitelistRepository;
 import io.github.ngirchev.opendaimon.telegram.service.*;
+import io.github.ngirchev.opendaimon.telegram.service.impl.UserRecentModelServiceImpl;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -186,5 +189,13 @@ public class TelegramServiceConfig {
             ObjectProvider<FileStorageService> fileStorageServiceProvider,
             FileUploadProperties fileUploadProperties) {
         return new TelegramFileService(telegramBotProvider, fileStorageServiceProvider, fileUploadProperties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public UserRecentModelService userRecentModelService(
+            UserRecentModelRepository userRecentModelRepository,
+            UserRepository userRepository) {
+        return new UserRecentModelServiceImpl(userRecentModelRepository, userRepository);
     }
 }

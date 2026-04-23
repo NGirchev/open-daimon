@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.telegram.config.FileUploadProperties;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageCoalescingService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
@@ -997,4 +998,166 @@ class TelegramBotTest {
         assertEquals("Analyze this document and provide a brief summary.", command.userText());
     }
 
+    // ── Lazy menu reconciliation wire-in ─────────────────────────────────
+
+    @Test
+    void shouldReconcileMenuAndPersistHashWhenSlashCommandArrivesAndReconcileReturnsTrue() {
+        TelegramBotMenuService menuService = mock(TelegramBotMenuService.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<TelegramBotMenuService> menuServiceProvider = mock(ObjectProvider.class);
+        when(menuServiceProvider.getIfAvailable()).thenReturn(menuService);
+
+        TelegramBot reconcilingBot = new TelegramBot(
+                config, new DefaultBotOptions(), commandSyncService, userService,
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider,
+                coalescingServiceProvider, menuServiceProvider);
+
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        Chat chat = new Chat();
+        chat.setId(100L);
+        message.setChat(chat);
+        User from = new User(200L, "u", false);
+        message.setFrom(from);
+        message.setText("/start");
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setId(1L);
+        telegramUser.setTelegramId(200L);
+        telegramUser.setLanguageCode("en");
+        when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
+        when(menuService.reconcileMenuIfStale(any(TelegramUser.class))).thenAnswer(inv -> {
+            TelegramUser u = inv.getArgument(0);
+            u.setMenuVersionHash("fresh-hash");
+            return true;
+        });
+
+        reconcilingBot.mapToTelegramTextCommand(update);
+
+        verify(menuService).reconcileMenuIfStale(telegramUser);
+        verify(userService).updateMenuVersionHash(200L, "fresh-hash");
+    }
+
+    @Test
+    void shouldNotPersistHashWhenSlashCommandArrivesAndReconcileReturnsFalse() {
+        TelegramBotMenuService menuService = mock(TelegramBotMenuService.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<TelegramBotMenuService> menuServiceProvider = mock(ObjectProvider.class);
+        when(menuServiceProvider.getIfAvailable()).thenReturn(menuService);
+
+        TelegramBot reconcilingBot = new TelegramBot(
+                config, new DefaultBotOptions(), commandSyncService, userService,
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider,
+                coalescingServiceProvider, menuServiceProvider);
+
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        Chat chat = new Chat();
+        chat.setId(100L);
+        message.setChat(chat);
+        User from = new User(200L, "u", false);
+        message.setFrom(from);
+        message.setText("/start");
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setId(1L);
+        telegramUser.setTelegramId(200L);
+        telegramUser.setLanguageCode("en");
+        when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
+        when(menuService.reconcileMenuIfStale(any(TelegramUser.class))).thenReturn(false);
+
+        reconcilingBot.mapToTelegramTextCommand(update);
+
+        verify(menuService).reconcileMenuIfStale(telegramUser);
+        verify(userService, never()).updateMenuVersionHash(anyLong(), anyString());
+    }
+
+    @Test
+    void shouldReconcileMenuAndPersistHashOnCallbackQueryWhenReconcileReturnsTrue() {
+        TelegramBotMenuService menuService = mock(TelegramBotMenuService.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<TelegramBotMenuService> menuServiceProvider = mock(ObjectProvider.class);
+        when(menuServiceProvider.getIfAvailable()).thenReturn(menuService);
+
+        TelegramBot reconcilingBot = new TelegramBot(
+                config, new DefaultBotOptions(), commandSyncService, userService,
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider,
+                coalescingServiceProvider, menuServiceProvider);
+
+        Update update = new Update();
+        org.telegram.telegrambots.meta.api.objects.CallbackQuery cq =
+                new org.telegram.telegrambots.meta.api.objects.CallbackQuery();
+        cq.setId("cq1");
+        cq.setData("ROLE_DEFAULT");
+        User from = new User(200L, "u", false);
+        cq.setFrom(from);
+        Message msg = new Message();
+        msg.setMessageId(1);
+        Chat chat = new Chat();
+        chat.setId(100L);
+        msg.setChat(chat);
+        cq.setMessage(msg);
+        update.setCallbackQuery(cq);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setId(1L);
+        telegramUser.setTelegramId(200L);
+        telegramUser.setLanguageCode("en");
+        when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
+        TelegramUserSession session = new TelegramUserSession();
+        session.setBotStatus(null);
+        when(userService.getOrCreateSession(any(User.class))).thenReturn(session);
+        when(menuService.reconcileMenuIfStale(any(TelegramUser.class))).thenAnswer(inv -> {
+            TelegramUser u = inv.getArgument(0);
+            u.setMenuVersionHash("fresh-hash");
+            return true;
+        });
+
+        reconcilingBot.mapToTelegramCommand(update);
+
+        verify(menuService).reconcileMenuIfStale(telegramUser);
+        verify(userService).updateMenuVersionHash(200L, "fresh-hash");
+    }
+
+    @Test
+    void shouldSwallowReconcileExceptionAndContinueProcessingSlashCommand() {
+        TelegramBotMenuService menuService = mock(TelegramBotMenuService.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<TelegramBotMenuService> menuServiceProvider = mock(ObjectProvider.class);
+        when(menuServiceProvider.getIfAvailable()).thenReturn(menuService);
+
+        TelegramBot reconcilingBot = new TelegramBot(
+                config, new DefaultBotOptions(), commandSyncService, userService,
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider,
+                coalescingServiceProvider, menuServiceProvider);
+
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        Chat chat = new Chat();
+        chat.setId(100L);
+        message.setChat(chat);
+        User from = new User(200L, "u", false);
+        message.setFrom(from);
+        message.setText("/start");
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setId(1L);
+        telegramUser.setTelegramId(200L);
+        telegramUser.setLanguageCode("en");
+        when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
+        when(menuService.reconcileMenuIfStale(any(TelegramUser.class)))
+                .thenThrow(new RuntimeException("reconcile blew up"));
+
+        TelegramCommand cmd = reconcilingBot.mapToTelegramTextCommand(update);
+
+        assertNotNull(cmd);
+        assertEquals("/start", cmd.commandType().command());
+        verify(userService, never()).updateMenuVersionHash(anyLong(), anyString());
+    }
 }

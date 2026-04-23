@@ -47,7 +47,8 @@ public class TelegramAutoConfig {
                                    MessageLocalizationService messageLocalizationService,
                                    ObjectProvider<TelegramFileService> fileServiceProvider,
                                    ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
-                                   ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider) {
+                                   ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider,
+                                   ObjectProvider<TelegramBotMenuService> menuServiceProvider) {
         Integer socketTimeoutSec = properties.getLongPollingSocketTimeoutSeconds();
         Integer getUpdatesTimeoutSec = properties.getGetUpdatesTimeoutSeconds();
         DefaultBotOptions options = new DefaultBotOptions();
@@ -62,7 +63,8 @@ public class TelegramAutoConfig {
             options.setRequestConfig(requestConfig);
         }
         return new TelegramBot(properties, options, commandSyncService, userService,
-                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider, messageCoalescingServiceProvider);
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider,
+                messageCoalescingServiceProvider, menuServiceProvider);
     }
 
     @Bean

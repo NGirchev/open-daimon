@@ -292,16 +292,24 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 **Trigger:** `/model` or pressing `🤖 ModelName` keyboard button
 **Handler:** `ModelTelegramCommandHandler`
 1. Creates `ModelListAICommand` → `AIGatewayRegistry` resolves gateway → returns available model list
-2. Builds inline keyboard: `AUTO` button + one button per model with capability tags (Vision, Web, Tools, Summary, Free)
-3. Button text capped at 64 bytes (Telegram limit); uses index instead of model name in callback data
+2. When the model count exceeds page size, builds a two-level menu: `AUTO` + one row per category, with counts.
+   Category order: `RECENT`, `LOCAL`, `VISION`, `FREE`, `ALL`.
+   - `RECENT` is populated from `UserRecentModelService.getRecentModels()` (up to 8 most recently picked
+     models, ordered by `last_used_at DESC`). Hidden when the user has no history yet or when all recent
+     entries have disappeared from the current gateway model list.
+   - The remaining four categories use static predicates over `ModelInfo`.
+3. For small model counts (≤ page size), shows the flat legacy list with all models plus capability tags.
+4. Button text capped at 64 bytes (Telegram limit); uses index instead of model name in callback data.
 
 ---
 
 ### UC-16: `/model` — select model via callback
 **Trigger:** `MODEL_<index>` callback
-**Handler:** resolves index → model name → `UserModelPreferenceService.setPreferredModel()`
+**Handler:** resolves index → model name → `UserModelPreferenceService.setPreferredModel()` →
+`UserRecentModelService.recordUsage()` (upsert + prune to top 8)
 - Sends confirmation with model name
 - `PersistentKeyboardService.sendKeyboard()` updated with new model
+- The just-picked model appears first in the `RECENT` category on the next `/model` invocation.
 
 ---
 
@@ -310,6 +318,7 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 **Handler:** `UserModelPreferenceService.clearPreference()`
 - Callback ack uses `telegram.model.ack.auto` (user language)
 - Persistent keyboard left button uses `telegram.model.auto` when no fixed model is stored
+- Does NOT update `user_recent_model` — the Recent list reflects explicit picks only.
 
 ---
 
@@ -844,6 +853,7 @@ Table: `telegram_user` (JPA JOINED inheritance, discriminator `TELEGRAM`)
 |-------|------|-------|
 | `telegramId` | `Long` | Unique, maps to Telegram chat ID |
 | `preferredModelId` | `String` | Set by `/model`, null = auto |
+| `menuVersionHash` | `String(64)` | SHA-256 of the command set last pushed to Telegram for this chat via `BotCommandScopeChat`. Null when no chat-scoped menu has been set — user falls back to Default scope. See "Lazy per-chat command menu reconciliation". |
 | Inherited from `User` | | id, languageCode, isPremium, isBlocked, isAdmin, currentAssistantRole, lastActivityAt, … |
 
 ### TelegramUserSession
@@ -871,6 +881,45 @@ On `ApplicationReadyEvent`:
 The control that opens the bot command list in the Telegram client is labeled by **Telegram app language** (for example, different localized labels), not by the bot’s `/language` setting. `setMyCommands` only defines the command list text per locale.
 
 Session cleanup: `TelegramUserActivityService` runs every 10 minutes, closes sessions inactive > 15 minutes.
+
+### Lazy per-chat command menu reconciliation
+
+Once a user interacts with `/language`, the bot calls `setMyCommands(..., chatId)` — a
+`BotCommandScopeChat` snapshot that overrides the Default-scope menu refreshed at startup.
+Because the Default-scope refresh never touches chat-scoped snapshots, a deployment that
+adds or removes commands (e.g. new `/mode`, `/thinking`) leaves those users frozen on the
+old menu.
+
+`TelegramBotMenuService#reconcileMenuIfStale(TelegramUser)` repairs this lazily, on the
+user's first chat interaction after the deployment:
+
+| Check | Outcome |
+|-------|---------|
+| `user.languageCode == null` | skip — user is still on the Default scope, already covered by startup refresh |
+| `user.menuVersionHash` equals `currentMenuVersionHash` | skip — nothing to do |
+| otherwise | call `setupBotMenuForUser(chatId, languageCode)`, then stamp `user.menuVersionHash = currentMenuVersionHash` |
+
+`currentMenuVersionHash` is a SHA-256 hex over the deterministic concatenation of
+`<lang>:<commandText>\n` lines across every entry in `SupportedLanguages.SUPPORTED_LANGUAGES`
+(sorted) and every handler-provided command text (sorted alphabetically within the language).
+It is computed lazily on first access and cached for the lifetime of the bean — command
+handlers are Spring-managed beans that may not be fully available at service construction time.
+
+**Wire-in points in `TelegramBot`:**
+- `mapToTelegramTextCommand` — inside the `stripped.startsWith("/")` branch, immediately
+  after `clearStatus(...)`.
+- `mapToTelegramCommand` — callback-query path, immediately after `getOrCreateUser(...)`.
+
+Plain-text messages (UC-1 and friends) do NOT trigger reconciliation — only slash commands
+and callback clicks do. This keeps the hot text-message path free of extra DB work.
+
+Telegram API failures and any unexpected exception inside the reconcile call are swallowed
+by `TelegramBot` (logged at `warn`) — the command processing continues. When reconcile
+returns `true`, `TelegramBot` persists the new hash via
+`TelegramUserService#updateMenuVersionHash(telegramId, hash)`.
+
+Column: `telegram_user.menu_version_hash VARCHAR(64)`, nullable. Migration
+`V2__Add_menu_version_hash_to_telegram_user.sql`.
 
 ## Agent Streaming: Throttling & Rollback Internals
 

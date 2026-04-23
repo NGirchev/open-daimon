@@ -183,6 +183,23 @@ public class TelegramUserService implements IUserService {
         telegramUserSessionService.updateSessionStatus(user, botStatus);
     }
 
+    /**
+     * Persists the chat-scoped command menu version marker for the user.
+     * Used by lazy per-chat menu reconciliation after a deployment changes the enabled command set.
+     *
+     * @param telegramId Telegram user id
+     * @param hash       new menu version hash, or {@code null} to reset
+     */
+    @Transactional
+    public void updateMenuVersionHash(Long telegramId, String hash) {
+        TelegramUser user = telegramUserRepository.findByTelegramId(telegramId)
+                .orElseThrow(() -> new RuntimeException(USER_NOT_FOUND));
+        user.setMenuVersionHash(hash);
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        telegramUserRepository.save(user);
+    }
+
     @Transactional
     public TelegramUserSession getOrCreateSession(User telegramUser) {
         TelegramUser user = getOrCreateUserInner(telegramUser);

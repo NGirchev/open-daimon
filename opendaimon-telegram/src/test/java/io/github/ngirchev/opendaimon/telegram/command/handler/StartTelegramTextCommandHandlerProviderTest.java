@@ -37,6 +37,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
+import io.github.ngirchev.opendaimon.telegram.service.UserRecentModelService;
 
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
@@ -300,6 +301,11 @@ class StartTelegramTextCommandHandlerProviderTest {
         @Bean
         public TelegramBotMenuService telegramBotMenuService() {
             return mock(TelegramBotMenuService.class);
+        }
+
+        @Bean
+        public UserRecentModelService userRecentModelService() {
+            return mock(UserRecentModelService.class);
         }
     }
 }
