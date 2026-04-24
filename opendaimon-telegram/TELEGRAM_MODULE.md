@@ -43,6 +43,18 @@ onUpdateReceived(Update)
 | message/caption contains explicit self mention | processed |
 | any other group message | skipped (no command dispatch, no AI call) |
 
+### Group Chat Conceptual Model
+
+A group (or supergroup) is treated as a **single logical participant**, not as a set of individuals. All chat-scoped state — conversation history, current model preference, language selected for the command menu, per-chat menu snapshot — is attached to the `chat_id` and **shared by every member** of the group. There is no per-user-inside-group isolation.
+
+Implications:
+
+- The **scope key for Telegram API calls is always `chat_id`**, never `user.telegramId`. In a private chat the two values coincide because Telegram uses the user id as the chat id; in a group they diverge (group `chat_id` is negative, e.g. `-1001234567890`).
+- `TelegramCommand` has a field named `telegramId`, but it actually stores the **chat id** (see its constructors: `this.telegramId = chatId`). The name is historical and misleading — treat it as `chatId` when reasoning about scope.
+- `/language` and `/model` invoked in a group are **last-writer-wins** for the group. The most recent invoker sets the value for everyone in that group. This is intentional — do not add per-user-inside-group state.
+- `BotCommandScopeChat(chat_id)` with the group id overrides Default scope for the group. `BotCommandScopeChatMember` (per-user-in-chat) is deliberately unused; it would contradict the shared-chat model.
+- Per-chat runtime caches (e.g. an in-memory "which chats we already pushed the current command menu to") must be keyed on `chat_id`, not `user.telegramId`, otherwise they silently miss groups.
+
 ### Inline Query Policy
 | Condition | Result |
 |-----------|--------|
