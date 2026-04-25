@@ -82,6 +82,11 @@ public class PlanAndExecuteAgentExecutor implements AgentExecutor {
 
                 int stepMaxIterations = Math.max(3, request.maxIterations() / plan.size());
 
+                // TODO(vision-plan): plan sub-steps currently inherit no attachments (the
+                // 6-arg AgentRequest overload resolves to List.of()). If a future product
+                // requirement needs an image to flow into a specific plan step (e.g. "compare
+                // regions of the attached image"), forward request.attachments() selectively
+                // here — out of scope for the agent-path image fix.
                 AgentRequest stepRequest = new AgentRequest(
                         enrichedTask,
                         request.conversationId(),

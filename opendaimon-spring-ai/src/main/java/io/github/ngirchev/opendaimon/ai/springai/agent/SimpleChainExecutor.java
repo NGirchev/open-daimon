@@ -7,6 +7,8 @@ import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentState;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
+import io.github.ngirchev.opendaimon.common.model.Attachment;
+import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -18,7 +20,10 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.content.Media;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.util.MimeTypeUtils;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -68,7 +73,7 @@ public class SimpleChainExecutor implements AgentExecutor {
             List<Message> messages = new ArrayList<>();
             messages.add(new SystemMessage(SYSTEM_PROMPT));
             loadConversationHistory(request, messages);
-            messages.add(new UserMessage(request.task()));
+            messages.add(buildUserMessage(request));
 
             ChatOptions options = buildOptions(request);
             Prompt prompt = new Prompt(messages, options);
@@ -105,7 +110,7 @@ public class SimpleChainExecutor implements AgentExecutor {
                 List<Message> messages = new ArrayList<>();
                 messages.add(new SystemMessage(SYSTEM_PROMPT));
                 loadConversationHistory(request, messages);
-                messages.add(new UserMessage(request.task()));
+                messages.add(buildUserMessage(request));
 
                 ChatOptions options = buildOptions(request);
                 ChatResponse response = callWithPriority(request, new Prompt(messages, options));
@@ -175,6 +180,42 @@ public class SimpleChainExecutor implements AgentExecutor {
             return null;
         }
         return ToolCallingChatOptions.builder().model(preferredModelId).build();
+    }
+
+    /**
+     * Builds the user message of the simple-chain prompt, attaching image
+     * {@link Media} when {@link AgentRequest#attachments()} contains image-typed
+     * entries. Mirrors {@code SpringAgentLoopActions.buildInitialUserMessage} so
+     * vision-capable models routed through the simple-chain path also receive
+     * the original image bytes (without this, captioned photos in non-ReAct
+     * strategies degrade to text-only prompts and the model hallucinates that
+     * "no image was attached").
+     */
+    private static UserMessage buildUserMessage(AgentRequest request) {
+        String text = request.task();
+        List<Media> mediaList = toImageMedia(request.attachments());
+        if (mediaList.isEmpty()) {
+            return new UserMessage(text);
+        }
+        log.debug("SimpleChain: attaching {} image media to user message", mediaList.size());
+        return UserMessage.builder()
+                .text(text)
+                .media(mediaList)
+                .build();
+    }
+
+    private static List<Media> toImageMedia(List<Attachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return List.of();
+        }
+        return attachments.stream()
+                .filter(a -> a.type() == AttachmentType.IMAGE)
+                .filter(a -> a.data() != null && a.data().length > 0)
+                .filter(a -> a.mimeType() != null && !a.mimeType().isBlank())
+                .map(a -> new Media(
+                        MimeTypeUtils.parseMimeType(a.mimeType()),
+                        new ByteArrayResource(a.data())))
+                .toList();
     }
 
     private void loadConversationHistory(AgentRequest request, List<Message> messages) {

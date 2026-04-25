@@ -7,6 +7,7 @@ import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
+import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
@@ -360,13 +361,32 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     ? aiCommand.userRole()
                     : command.userText();
 
+            // Forward image attachments into the agent path so the first user message
+            // in the agent prompt carries Media — without this, vision-capable models
+            // are selected (capabilities=[CHAT, VISION]) but receive only the caption
+            // text and answer "are there any images?" (see SPRING_AI_MODULE.md, agent
+            // path media propagation). Source must be aiCommand.attachments() (the
+            // pipeline-processed list, mirroring SpringAIGateway:384), not the raw
+            // command.attachments(): for an image-only PDF the pipeline rendered each
+            // page into an IMAGE attachment in mutableAttachments, and the agent path
+            // must see those rendered pages — not the original PDF bytes that
+            // toImageMedia() then discards as non-IMAGE.
+            List<Attachment> agentAttachments;
+            if (aiCommand instanceof ChatAICommand chat && chat.attachments() != null) {
+                agentAttachments = chat.attachments();
+            } else if (command.attachments() != null) {
+                agentAttachments = command.attachments();
+            } else {
+                agentAttachments = List.of();
+            }
             AgentRequest request = new AgentRequest(
                     agentTask,
                     metadata.get(THREAD_KEY_FIELD),
                     metadata,
                     agentMaxIterations,
                     Set.of(),
-                    strategy
+                    strategy,
+                    agentAttachments
             );
 
             // Stream agent events — two-message UX:

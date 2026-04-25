@@ -238,6 +238,19 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 
 ---
 
+### UC-3A: Photo attachment in agent mode (REACT, thinking enabled)
+**Trigger:** user sends a photo while the chat is in agent mode (`open-daimon.agent.enabled=true`, agent mode toggled on for the chat)
+**Mapping:** identical to UC-3 (`mapToTelegramPhotoCommand` → `Attachment(type=IMAGE)`)
+**Command:** `MESSAGE`, `attachments=[Attachment]`, `userText` = caption (e.g. «что тут?»)
+**Handler:** `TelegramMessageHandlerActions.generateResponse` — agent path
+4. Factory → `ChatAICommand(capabilities={CHAT, VISION})`; `DefaultAICommandFactory` resolves `requiredCaps=[AUTO, VISION]`
+5. `TelegramMessageHandlerActions` builds `AgentRequest(..., attachments=command.attachments())` and routes to `AgentExecutor.executeStream(...)`
+6. `ReActAgentExecutor` carries attachments into `AgentContext`; `SpringAgentLoopActions.think()` builds the first `UserMessage` with `Media` (see `SPRING_AI_MODULE.md#image-attachments--agent-path`)
+**Output:** vision-capable model describes the image, agent loop terminates on the first `FINAL_ANSWER` (no tool call needed for a pure description)
+**Regression guarded by:** `TelegramAgentImageFixtureIT`, `SpringAgentLoopActionsAttachmentsTest`, `TelegramMessageHandlerActionsAgentTest#shouldPassAttachmentsToAgentRequestWhenCommandHasImage`
+
+---
+
 ### UC-4: Photo, fixed model that supports VISION
 **Trigger:** photo + user has preferred model with VISION capability
 4. Factory → `FixedModelChatAICommand(capabilities={CHAT, VISION}, fixedModelId=...)`
