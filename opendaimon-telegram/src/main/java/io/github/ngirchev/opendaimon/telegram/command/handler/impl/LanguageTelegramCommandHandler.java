@@ -10,6 +10,7 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
@@ -17,6 +18,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
@@ -36,15 +38,18 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
 
     private final TelegramUserService telegramUserService;
     private final TelegramBotMenuService menuService;
+    private final ChatSettingsService chatSettingsService;
 
     public LanguageTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                           TypingIndicatorService typingIndicatorService,
                                           MessageLocalizationService messageLocalizationService,
                                           TelegramUserService telegramUserService,
-                                          TelegramBotMenuService menuService) {
+                                          TelegramBotMenuService menuService,
+                                          ChatSettingsService chatSettingsService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.menuService = menuService;
+        this.chatSettingsService = chatSettingsService;
     }
 
     @Override
@@ -83,7 +88,8 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for language command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
-        String currentLang = user.getLanguageCode() != null ? user.getLanguageCode() : DEFAULT_LANGUAGE;
+        User owner = TelegramCommand.resolveOwner(command,user);
+        String currentLang = owner.getLanguageCode() != null ? owner.getLanguageCode() : DEFAULT_LANGUAGE;
         String currentLabel = languageLabel(currentLang, command.languageCode());
         String currentMsg = messageLocalizationService.getMessage("telegram.language.current", command.languageCode(), currentLabel);
         sendLanguageMenu(command.telegramId(), command.languageCode(), currentMsg);
@@ -112,7 +118,8 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
             sendErrorMessage(command.telegramId(), messageLocalizationService.getMessage("telegram.language.unknown", command.languageCode()));
             return;
         }
-        telegramUserService.updateLanguageCode(cq.getFrom().getId(), normalized);
+        User owner = TelegramCommand.resolveOwner(command,telegramUserService.getOrCreateUser(cq.getFrom()));
+        chatSettingsService.updateLanguageCode(owner, normalized);
         menuService.setupBotMenuForUser(command.telegramId(), normalized);
         String label = languageLabel(normalized, normalized);
         String updatedMsg = messageLocalizationService.getMessage("telegram.language.updated", normalized, label);

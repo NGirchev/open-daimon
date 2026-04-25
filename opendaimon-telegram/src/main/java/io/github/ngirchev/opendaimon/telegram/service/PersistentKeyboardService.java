@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.telegram.service;
 
 import io.github.ngirchev.opendaimon.common.model.User;
+import io.github.ngirchev.opendaimon.common.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -13,32 +14,29 @@ import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
-import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 public class PersistentKeyboardService {
 
-    private final UserModelPreferenceService userModelPreferenceService;
     private final CoreCommonProperties coreCommonProperties;
     private final ObjectProvider<TelegramBot> telegramBotProvider;
     private final TelegramProperties telegramProperties;
     private final MessageLocalizationService messageLocalizationService;
-    private final TelegramUserRepository telegramUserRepository;
+    private final UserRepository userRepository;
 
-    public PersistentKeyboardService(UserModelPreferenceService userModelPreferenceService,
-                                     CoreCommonProperties coreCommonProperties,
+    public PersistentKeyboardService(CoreCommonProperties coreCommonProperties,
                                      ObjectProvider<TelegramBot> telegramBotProvider,
                                      TelegramProperties telegramProperties,
                                      MessageLocalizationService messageLocalizationService,
-                                     TelegramUserRepository telegramUserRepository) {
-        this.userModelPreferenceService = userModelPreferenceService;
+                                     UserRepository userRepository) {
         this.coreCommonProperties = coreCommonProperties;
         this.telegramBotProvider = telegramBotProvider;
         this.telegramProperties = telegramProperties;
         this.messageLocalizationService = messageLocalizationService;
-        this.telegramUserRepository = telegramUserRepository;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -107,10 +105,10 @@ public class PersistentKeyboardService {
     }
 
     private String buildModelLabel(Long userId) {
-        String lang = telegramUserRepository.findById(userId)
-                .map(User::getLanguageCode)
-                .orElse(null);
-        return userModelPreferenceService.getPreferredModel(userId)
+        Optional<User> owner = userRepository.findById(userId);
+        String lang = owner.map(User::getLanguageCode).orElse(null);
+        return owner.map(User::getPreferredModelId)
+                .filter(m -> m != null && !m.isBlank())
                 .map(m -> TelegramCommand.MODEL_KEYBOARD_PREFIX + " " + m)
                 .orElse(TelegramCommand.MODEL_KEYBOARD_PREFIX + " "
                         + messageLocalizationService.getMessage("telegram.model.auto", lang));

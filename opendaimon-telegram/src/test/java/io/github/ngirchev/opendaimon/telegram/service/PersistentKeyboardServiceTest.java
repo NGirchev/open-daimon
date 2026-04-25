@@ -6,7 +6,7 @@ import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
-import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
+import io.github.ngirchev.opendaimon.common.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,13 +29,11 @@ class PersistentKeyboardServiceTest {
     private static final long USER_ID = 1L;
 
     @Mock
-    private UserModelPreferenceService userModelPreferenceService;
-    @Mock
     private CoreCommonProperties coreCommonProperties;
     @Mock
     private CoreCommonProperties.SummarizationProperties summarizationProperties;
     @Mock
-    private TelegramUserRepository telegramUserRepository;
+    private UserRepository userRepository;
 
     private PersistentKeyboardService service;
 
@@ -59,16 +57,15 @@ class PersistentKeyboardServiceTest {
 
         TelegramUser user = new TelegramUser();
         user.setLanguageCode("en");
-        when(telegramUserRepository.findById(USER_ID)).thenReturn(Optional.of(user));
-        when(userModelPreferenceService.getPreferredModel(USER_ID)).thenReturn(Optional.empty());
+        user.setPreferredModelId(null);
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
 
         service = new PersistentKeyboardService(
-                userModelPreferenceService,
                 coreCommonProperties,
                 botProvider,
                 telegramProperties,
                 messageLocalizationService,
-                telegramUserRepository);
+                userRepository);
     }
 
     /**

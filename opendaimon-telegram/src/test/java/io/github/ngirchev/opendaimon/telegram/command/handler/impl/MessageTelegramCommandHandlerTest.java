@@ -51,7 +51,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 
 import java.util.List;
 import java.util.Map;
@@ -90,7 +90,7 @@ class MessageTelegramCommandHandlerTest {
     @Mock
     private AIRequestPipeline aiRequestPipeline;
     @Mock
-    private UserModelPreferenceService userModelPreferenceService;
+    private ChatSettingsService chatSettingsService;
     @Mock
     private PersistentKeyboardService persistentKeyboardService;
     @Mock
@@ -124,7 +124,7 @@ class MessageTelegramCommandHandlerTest {
         TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
-                aiRequestPipeline, telegramProperties, userModelPreferenceService,
+                aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
                 null, null, 10, false);
 

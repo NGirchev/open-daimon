@@ -1,3 +1,12 @@
+> **SUPERSEDED** — The work described below was implemented in Stages 1–6 of the
+> TelegramGroup migration. The authoritative behavior reference is now
+> `opendaimon-telegram/TELEGRAM_MODULE.md` § *Group Chat Conceptual Model*
+> (section "Settings Owner Resolution"). The rule file
+> `.claude/rules/java/telegram-module.md` was also corrected — its earlier
+> "last-writer-wins" framing was wrong and has been replaced with the
+> settings-owner model. Keep this plan doc for historical context only;
+> do not use it as a spec.
+
 # Handoff: TelegramGroup entity + groups menu fix
 
 This document is a self-contained handoff prompt for a fresh session / agent.

@@ -45,15 +45,45 @@ onUpdateReceived(Update)
 
 ### Group Chat Conceptual Model
 
-A group (or supergroup) is treated as a **single logical participant**, not as a set of individuals. All chat-scoped state — conversation history, current model preference, language selected for the command menu, per-chat menu snapshot — is attached to the `chat_id` and **shared by every member** of the group. There is no per-user-inside-group isolation.
+A group (or supergroup) is treated as a **single logical participant**, not as a set of individuals. All chat-scoped state — conversation history, preferred model, bot-menu language, command-menu snapshot, agent mode, thinking mode, assistant role, recent models — belongs to a dedicated `TelegramGroup` row (a JOINED-inheritance subclass of `User` with `@DiscriminatorValue("TELEGRAM_GROUP")`) and is **shared by every member** of the group. There is no per-user-inside-group isolation.
 
-Implications:
+#### Settings Owner Resolution
+
+Every incoming `Update` resolves to exactly one *settings owner* — a polymorphic `User` that owns chat-scoped state for that chat:
+
+- **Private chat** → the invoker's `TelegramUser` (the chat *is* that person).
+- **Group / supergroup chat** → the `TelegramGroup` row keyed on the group `chat_id`.
+
+Resolution happens once in `TelegramBot.mapToTelegram*` via `ChatSettingsOwnerResolver.resolveForChat(chat, invoker)`. The result is stamped on `TelegramCommand.settingsOwner` and consumed by handlers through `ChatSettingsService`:
+
+```java
+// Language handler — writes go to the owner (group in groups, user in privates)
+chatSettingsService.updateLanguageCode(command.settingsOwner(), "ru");
+
+// Agent-mode handler — same pattern
+chatSettingsService.updateAgentMode(command.settingsOwner(), true);
+
+// Assistant role — same pattern
+chatSettingsService.updateAssistantRole(command.settingsOwner(), customRoleText);
+```
+
+The facade dispatches by subtype (`instanceof TelegramGroup` → write to `telegram_group`; `instanceof TelegramUser` → write to `telegram_user`).
+
+#### Implications
 
 - The **scope key for Telegram API calls is always `chat_id`**, never `user.telegramId`. In a private chat the two values coincide because Telegram uses the user id as the chat id; in a group they diverge (group `chat_id` is negative, e.g. `-1001234567890`).
 - `TelegramCommand` has a field named `telegramId`, but it actually stores the **chat id** (see its constructors: `this.telegramId = chatId`). The name is historical and misleading — treat it as `chatId` when reasoning about scope.
-- `/language` and `/model` invoked in a group are **last-writer-wins** for the group. The most recent invoker sets the value for everyone in that group. This is intentional — do not add per-user-inside-group state.
-- `BotCommandScopeChat(chat_id)` with the group id overrides Default scope for the group. `BotCommandScopeChatMember` (per-user-in-chat) is deliberately unused; it would contradict the shared-chat model.
-- Per-chat runtime caches (e.g. an in-memory "which chats we already pushed the current command menu to") must be keyed on `chat_id`, not `user.telegramId`, otherwise they silently miss groups.
+- Adding a new chat-scoped setting? Add the field to `User` (inherited by both subclasses) and route reads/writes through `ChatSettingsService` over a `User owner`. Never introduce a code path that keys on `cq.getFrom().getId()` or `user.telegramId` — that reintroduces per-invoker leakage.
+- `BotCommandScopeChat(chat_id)` with the group id overrides Default scope for the group. `BotCommandScopeChatMember` (per-user-in-chat) is deliberately unused; it would contradict the shared-chat model. Menu-version hash lives on whichever owner resolved for the chat (`TelegramGroup.menuVersionHash` for groups, `TelegramUser.menuVersionHash` for privates); `TelegramBotMenuService.reconcileMenuIfStale(User owner, Long chatId)` dispatches by subtype and persists via `ChatSettingsService`.
+- Summarization (`SummarizationService` in `opendaimon-common`) reads the chat's `preferredModelId` via the `ChatOwnerLookup` SPI (`TelegramChatOwnerLookup` implementation) keyed on `thread.scopeId`. This ensures group chats summarize with their picked model and prevents the "HTTP 400 model is required" regression from empty AUTO-routing bodies.
+- Per-chat runtime caches (e.g. in-memory "which chats we already pushed the current command menu to") must be keyed on `chat_id`, not `user.telegramId`, otherwise they silently miss groups.
+
+#### What is NOT chat-scoped
+
+Two things stay **per-invoker** even in groups — this is intentional and must not be migrated:
+
+- **FSM input state** `TelegramUserSession.botStatus` (e.g. "awaiting custom role text"). If Alice starts `/role custom` in a group and Bob sends text first, Alice's FSM must not consume Bob's text.
+- **Whitelist / access level** (admin / vip / regular / blocked). Groups have no access level; their members do. `TelegramUserPriorityService` always receives the invoker's id, never the group's.
 
 ### Inline Query Policy
 | Condition | Result |

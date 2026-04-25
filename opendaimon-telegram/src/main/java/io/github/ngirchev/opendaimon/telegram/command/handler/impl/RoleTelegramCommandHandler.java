@@ -11,6 +11,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.AssistantRole;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
@@ -18,6 +19,7 @@ import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
@@ -35,15 +37,18 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
 
     private final TelegramUserService telegramUserService;
     private final CoreCommonProperties coreCommonProperties;
+    private final ChatSettingsService chatSettingsService;
 
     public RoleTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                       TypingIndicatorService typingIndicatorService,
                                       MessageLocalizationService messageLocalizationService,
                                       TelegramUserService telegramUserService,
-                                      CoreCommonProperties coreCommonProperties) {
+                                      CoreCommonProperties coreCommonProperties,
+                                      ChatSettingsService chatSettingsService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.coreCommonProperties = coreCommonProperties;
+        this.chatSettingsService = chatSettingsService;
     }
 
     @Override
@@ -82,13 +87,14 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for role command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
+        User owner = TelegramCommand.resolveOwner(command,user);
         String userText = command.userText() != null ? command.userText().trim() : null;
-        
+
         String lang = command.languageCode();
         if (userText == null || userText.isEmpty()) {
-            // Show current role
-            AssistantRole currentRole = telegramUserService.getOrCreateAssistantRole(
-                    user,
+            // Show current role (owner-scoped: group in groups, user in privates)
+            AssistantRole currentRole = chatSettingsService.getOrCreateAssistantRole(
+                    owner,
                     messageLocalizationService.getMessage(coreCommonProperties.getAssistantRole(), lang)
             );
 
@@ -109,8 +115,8 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             // Return null as messages already sent
             return null;
         } else {
-            // Update role
-            telegramUserService.updateAssistantRole(message.getFrom(), userText);
+            // Update role on the settings owner (group in groups, user in privates)
+            chatSettingsService.updateAssistantRole(owner, userText);
             telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
 
             // Send confirmation replying to user message
@@ -152,7 +158,8 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             return;
         }
 
-        telegramUserService.updateAssistantRole(cq.getFrom(), preset.get().content());
+        User owner = TelegramCommand.resolveOwner(command,telegramUserService.getOrCreateUser(cq.getFrom()));
+        chatSettingsService.updateAssistantRole(owner, preset.get().content());
         telegramBotProvider.getObject().clearStatus(cq.getFrom().getId());
         ackCallback(cq.getId(), messageLocalizationService.getMessage("telegram.role.ack.updated", lang));
         deleteMenuMessage(command.telegramId(), cq);

@@ -11,6 +11,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
@@ -18,6 +19,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
@@ -35,15 +37,18 @@ public class ThinkingTelegramCommandHandler extends AbstractTelegramCommandHandl
 
     private final TelegramUserService telegramUserService;
     private final TelegramBotMenuService menuService;
+    private final ChatSettingsService chatSettingsService;
 
     public ThinkingTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                           TypingIndicatorService typingIndicatorService,
                                           MessageLocalizationService messageLocalizationService,
                                           TelegramUserService telegramUserService,
-                                          TelegramBotMenuService menuService) {
+                                          TelegramBotMenuService menuService,
+                                          ChatSettingsService chatSettingsService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.menuService = menuService;
+        this.chatSettingsService = chatSettingsService;
     }
 
     @Override
@@ -82,7 +87,8 @@ public class ThinkingTelegramCommandHandler extends AbstractTelegramCommandHandl
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for thinking command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
-        ThinkingMode currentMode = user.getThinkingMode() != null ? user.getThinkingMode() : ThinkingMode.HIDE_REASONING;
+        User owner = TelegramCommand.resolveOwner(command,user);
+        ThinkingMode currentMode = owner.getThinkingMode() != null ? owner.getThinkingMode() : ThinkingMode.HIDE_REASONING;
         String currentLabel = thinkingModeLabel(currentMode, command.languageCode());
         String currentMsg = messageLocalizationService.getMessage("telegram.thinking.current", command.languageCode(), currentLabel);
         sendThinkingMenu(command.telegramId(), command.languageCode(), currentMsg);
@@ -102,8 +108,9 @@ public class ThinkingTelegramCommandHandler extends AbstractTelegramCommandHandl
             deleteMenuMessage(command.telegramId(), cq);
             return;
         }
+        User owner = TelegramCommand.resolveOwner(command,telegramUserService.getOrCreateUser(cq.getFrom()));
         if (CALLBACK_SHOW_ALL.equals(callbackData)) {
-            telegramUserService.updateThinkingMode(cq.getFrom().getId(), ThinkingMode.SHOW_ALL);
+            chatSettingsService.updateThinkingMode(owner, ThinkingMode.SHOW_ALL);
             String label = messageLocalizationService.getMessage("telegram.thinking.label.show_all", command.languageCode());
             String updatedMsg = messageLocalizationService.getMessage("telegram.thinking.updated", command.languageCode(), label);
             ackCallback(cq.getId(), updatedMsg);
@@ -112,7 +119,7 @@ public class ThinkingTelegramCommandHandler extends AbstractTelegramCommandHandl
             return;
         }
         if (CALLBACK_HIDE_REASONING.equals(callbackData)) {
-            telegramUserService.updateThinkingMode(cq.getFrom().getId(), ThinkingMode.HIDE_REASONING);
+            chatSettingsService.updateThinkingMode(owner, ThinkingMode.HIDE_REASONING);
             String label = messageLocalizationService.getMessage("telegram.thinking.label.tools_only", command.languageCode());
             String updatedMsg = messageLocalizationService.getMessage("telegram.thinking.updated", command.languageCode(), label);
             ackCallback(cq.getId(), updatedMsg);
@@ -121,7 +128,7 @@ public class ThinkingTelegramCommandHandler extends AbstractTelegramCommandHandl
             return;
         }
         if (CALLBACK_SILENT.equals(callbackData)) {
-            telegramUserService.updateThinkingMode(cq.getFrom().getId(), ThinkingMode.SILENT);
+            chatSettingsService.updateThinkingMode(owner, ThinkingMode.SILENT);
             String label = messageLocalizationService.getMessage("telegram.thinking.label.silent", command.languageCode());
             String updatedMsg = messageLocalizationService.getMessage("telegram.thinking.updated", command.languageCode(), label);
             ackCallback(cq.getId(), updatedMsg);

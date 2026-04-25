@@ -17,7 +17,7 @@ import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.UserRecentModelService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,7 +62,7 @@ class ModelTelegramCommandHandlerTest {
     @Mock private TypingIndicatorService typingIndicatorService;
     @Mock private MessageLocalizationService messageLocalizationService;
     @Mock private TelegramUserService telegramUserService;
-    @Mock private UserModelPreferenceService userModelPreferenceService;
+    @Mock private ChatSettingsService chatSettingsService;
     @Mock private AIGatewayRegistry aiGatewayRegistry;
     @Mock private IUserPriorityService userPriorityService;
     @Mock private PersistentKeyboardService persistentKeyboardService;
@@ -89,7 +89,7 @@ class ModelTelegramCommandHandlerTest {
                 typingIndicatorService,
                 messageLocalizationService,
                 telegramUserService,
-                userModelPreferenceService,
+                chatSettingsService,
                 aiGatewayRegistry,
                 userPriorityService,
                 persistentKeyboardService,
@@ -178,7 +178,7 @@ class ModelTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(userModelPreferenceService).setPreferredModel(USER_ID, "model-2");
+        verify(chatSettingsService).setPreferredModel(any(), eq("model-2"));
         verify(userRecentModelService).recordUsage(USER_ID, "model-2");
     }
 
@@ -207,7 +207,7 @@ class ModelTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(userModelPreferenceService).clearPreference(USER_ID);
+        verify(chatSettingsService).clearPreferredModel(any());
         verify(userRecentModelService, never()).recordUsage(any(), anyString());
     }
 

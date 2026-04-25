@@ -36,12 +36,14 @@ class TelegramBotMenuServiceTest {
     private ObjectProvider<TelegramBot> telegramBotProvider;
     @Mock
     private ObjectProvider<TelegramSupportedCommandProvider> commandHandlersProvider;
+    @Mock
+    private ObjectProvider<io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService> chatSettingsServiceProvider;
 
     private TelegramBotMenuService service;
 
     @BeforeEach
     void setUp() {
-        service = new TelegramBotMenuService(telegramBotProvider, commandHandlersProvider);
+        service = new TelegramBotMenuService(telegramBotProvider, commandHandlersProvider, chatSettingsServiceProvider);
     }
 
     @Test
@@ -146,7 +148,7 @@ class TelegramBotMenuServiceTest {
         user.setLanguageCode("en");
         user.setMenuVersionHash(null);
 
-        boolean changed = service.reconcileMenuIfStale(user);
+        boolean changed = service.reconcileMenuIfStale(user, user.getTelegramId());
 
         assertThat(changed).isTrue();
         verify(telegramBot).setMyCommands(anyList(), eq(4242L));
@@ -164,7 +166,7 @@ class TelegramBotMenuServiceTest {
         user.setLanguageCode("en");
         user.setMenuVersionHash("stale-hash-from-an-older-deployment");
 
-        boolean changed = service.reconcileMenuIfStale(user);
+        boolean changed = service.reconcileMenuIfStale(user, user.getTelegramId());
 
         assertThat(changed).isTrue();
         verify(telegramBot).setMyCommands(anyList(), eq(4242L));
@@ -185,7 +187,7 @@ class TelegramBotMenuServiceTest {
         user.setLanguageCode("en");
         user.setMenuVersionHash(currentHash);
 
-        boolean changed = service.reconcileMenuIfStale(user);
+        boolean changed = service.reconcileMenuIfStale(user, user.getTelegramId());
 
         assertThat(changed).isFalse();
         verify(telegramBot, never()).setMyCommands(anyList(), any(Long.class));
@@ -199,7 +201,7 @@ class TelegramBotMenuServiceTest {
         user.setLanguageCode(null);
         user.setMenuVersionHash(null);
 
-        boolean changed = service.reconcileMenuIfStale(user);
+        boolean changed = service.reconcileMenuIfStale(user, user.getTelegramId());
 
         assertThat(changed).isFalse();
         verify(telegramBot, never()).setMyCommands(anyList(), any(Long.class));

@@ -14,6 +14,7 @@ import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsOwnerResolver;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramCommandSyncService;
@@ -48,7 +49,8 @@ public class TelegramAutoConfig {
                                    ObjectProvider<TelegramFileService> fileServiceProvider,
                                    ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
                                    ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider,
-                                   ObjectProvider<TelegramBotMenuService> menuServiceProvider) {
+                                   ObjectProvider<TelegramBotMenuService> menuServiceProvider,
+                                   ObjectProvider<ChatSettingsOwnerResolver> ownerResolverProvider) {
         Integer socketTimeoutSec = properties.getLongPollingSocketTimeoutSeconds();
         Integer getUpdatesTimeoutSec = properties.getGetUpdatesTimeoutSeconds();
         DefaultBotOptions options = new DefaultBotOptions();
@@ -64,7 +66,7 @@ public class TelegramAutoConfig {
         }
         return new TelegramBot(properties, options, commandSyncService, userService,
                 messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider,
-                messageCoalescingServiceProvider, menuServiceProvider);
+                messageCoalescingServiceProvider, menuServiceProvider, ownerResolverProvider);
     }
 
     @Bean

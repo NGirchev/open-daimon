@@ -1028,16 +1028,11 @@ class TelegramBotTest {
         telegramUser.setTelegramId(200L);
         telegramUser.setLanguageCode("en");
         when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
-        when(menuService.reconcileMenuIfStale(any(TelegramUser.class))).thenAnswer(inv -> {
-            TelegramUser u = inv.getArgument(0);
-            u.setMenuVersionHash("fresh-hash");
-            return true;
-        });
+        when(menuService.reconcileMenuIfStale(any(io.github.ngirchev.opendaimon.common.model.User.class), anyLong())).thenReturn(true);
 
         reconcilingBot.mapToTelegramTextCommand(update);
 
-        verify(menuService).reconcileMenuIfStale(telegramUser);
-        verify(userService).updateMenuVersionHash(200L, "fresh-hash");
+        verify(menuService).reconcileMenuIfStale(eq(telegramUser), eq(100L));
     }
 
     @Test
@@ -1068,12 +1063,11 @@ class TelegramBotTest {
         telegramUser.setTelegramId(200L);
         telegramUser.setLanguageCode("en");
         when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
-        when(menuService.reconcileMenuIfStale(any(TelegramUser.class))).thenReturn(false);
+        when(menuService.reconcileMenuIfStale(any(io.github.ngirchev.opendaimon.common.model.User.class), anyLong())).thenReturn(false);
 
         reconcilingBot.mapToTelegramTextCommand(update);
 
-        verify(menuService).reconcileMenuIfStale(telegramUser);
-        verify(userService, never()).updateMenuVersionHash(anyLong(), anyString());
+        verify(menuService).reconcileMenuIfStale(eq(telegramUser), eq(100L));
     }
 
     @Test
@@ -1111,16 +1105,11 @@ class TelegramBotTest {
         TelegramUserSession session = new TelegramUserSession();
         session.setBotStatus(null);
         when(userService.getOrCreateSession(any(User.class))).thenReturn(session);
-        when(menuService.reconcileMenuIfStale(any(TelegramUser.class))).thenAnswer(inv -> {
-            TelegramUser u = inv.getArgument(0);
-            u.setMenuVersionHash("fresh-hash");
-            return true;
-        });
+        when(menuService.reconcileMenuIfStale(any(io.github.ngirchev.opendaimon.common.model.User.class), anyLong())).thenReturn(true);
 
         reconcilingBot.mapToTelegramCommand(update);
 
-        verify(menuService).reconcileMenuIfStale(telegramUser);
-        verify(userService).updateMenuVersionHash(200L, "fresh-hash");
+        verify(menuService).reconcileMenuIfStale(eq(telegramUser), eq(100L));
     }
 
     @Test
@@ -1151,13 +1140,12 @@ class TelegramBotTest {
         telegramUser.setTelegramId(200L);
         telegramUser.setLanguageCode("en");
         when(userService.getOrCreateUser(any(User.class))).thenReturn(telegramUser);
-        when(menuService.reconcileMenuIfStale(any(TelegramUser.class)))
+        when(menuService.reconcileMenuIfStale(any(io.github.ngirchev.opendaimon.common.model.User.class), anyLong()))
                 .thenThrow(new RuntimeException("reconcile blew up"));
 
         TelegramCommand cmd = reconcilingBot.mapToTelegramTextCommand(update);
 
         assertNotNull(cmd);
         assertEquals("/start", cmd.commandType().command());
-        verify(userService, never()).updateMenuVersionHash(anyLong(), anyString());
     }
 }

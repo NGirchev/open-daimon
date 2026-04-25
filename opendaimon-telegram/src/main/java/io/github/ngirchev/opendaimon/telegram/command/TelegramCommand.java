@@ -6,6 +6,7 @@ import lombok.experimental.Accessors;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import io.github.ngirchev.opendaimon.common.command.IChatCommand;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
+import io.github.ngirchev.opendaimon.common.model.User;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +42,13 @@ public class TelegramCommand implements IChatCommand<TelegramCommandType> {
     private String languageCode;
     /** Source description for forwarded messages (e.g. user name, channel title). Null if not forwarded. */
     private String forwardedFrom;
+    /**
+     * Resolved owner of chat-scoped settings (language, preferred model, agent mode, thinking mode,
+     * assistant role, menu version hash). {@code TelegramUser} for private chats,
+     * {@code TelegramGroup} for group/supergroup chats. Populated once per update in
+     * {@code TelegramBot.mapToTelegram*} via {@code ChatSettingsOwnerResolver}.
+     */
+    private User settingsOwner;
 
     public TelegramCommand(Long userId, Long chatId, TelegramCommandType telegramCommandType, Update update) {
         this.userId = userId;
@@ -92,6 +100,29 @@ public class TelegramCommand implements IChatCommand<TelegramCommandType> {
      */
     public boolean hasAttachments() {
         return attachments != null && !attachments.isEmpty();
+    }
+
+    /**
+     * Returns the settings owner or the given fallback when not populated. Fallback path is used
+     * by legacy unit tests that construct commands without going through
+     * {@code TelegramBot.mapToTelegram*}; production call-sites always see a non-null owner.
+     */
+    public User settingsOwnerOr(User fallback) {
+        User resolved = settingsOwner;
+        return resolved != null ? resolved : fallback;
+    }
+
+    /**
+     * Null-safe owner resolver for call-sites that may receive a mocked command
+     * (Mockito returns {@code null} from non-stubbed methods). Reads the
+     * {@code settingsOwner} getter directly — whatever that getter returns
+     * (real field or Mockito default {@code null}) is what the caller sees,
+     * with the given {@code fallback} applied if it is {@code null}.
+     */
+    public static User resolveOwner(TelegramCommand command, User fallback) {
+        if (command == null) return fallback;
+        User owner = command.settingsOwner();
+        return owner != null ? owner : fallback;
     }
 
     /**

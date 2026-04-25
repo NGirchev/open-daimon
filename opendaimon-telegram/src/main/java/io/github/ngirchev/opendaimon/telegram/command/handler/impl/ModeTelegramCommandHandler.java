@@ -10,6 +10,7 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
@@ -17,6 +18,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 
@@ -31,13 +33,16 @@ public class ModeTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
     private static final String CALLBACK_REGULAR = CALLBACK_PREFIX + "REGULAR";
 
     private final TelegramUserService telegramUserService;
+    private final ChatSettingsService chatSettingsService;
 
     public ModeTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                       TypingIndicatorService typingIndicatorService,
                                       MessageLocalizationService messageLocalizationService,
-                                      TelegramUserService telegramUserService) {
+                                      TelegramUserService telegramUserService,
+                                      ChatSettingsService chatSettingsService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
+        this.chatSettingsService = chatSettingsService;
     }
 
     @Override
@@ -76,7 +81,8 @@ public class ModeTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for mode command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
-        Boolean currentMode = user.getAgentModeEnabled();
+        User owner = TelegramCommand.resolveOwner(command,user);
+        Boolean currentMode = owner.getAgentModeEnabled();
         String currentLabel = modeLabel(currentMode, command.languageCode());
         String currentMsg = messageLocalizationService.getMessage("telegram.mode.current", command.languageCode(), currentLabel);
         sendModeMenu(command.telegramId(), command.languageCode(), currentMsg);
@@ -94,8 +100,9 @@ public class ModeTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             deleteMenuMessage(command.telegramId(), cq);
             return;
         }
+        User owner = TelegramCommand.resolveOwner(command,telegramUserService.getOrCreateUser(cq.getFrom()));
         if (CALLBACK_AGENT.equals(callbackData)) {
-            telegramUserService.updateAgentMode(cq.getFrom().getId(), true);
+            chatSettingsService.updateAgentMode(owner, true);
             String label = messageLocalizationService.getMessage("telegram.mode.label.agent", command.languageCode());
             String updatedMsg = messageLocalizationService.getMessage("telegram.mode.updated", command.languageCode(), label);
             ackCallback(cq.getId(), updatedMsg);
@@ -104,7 +111,7 @@ public class ModeTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             return;
         }
         if (CALLBACK_REGULAR.equals(callbackData)) {
-            telegramUserService.updateAgentMode(cq.getFrom().getId(), false);
+            chatSettingsService.updateAgentMode(owner, false);
             String label = messageLocalizationService.getMessage("telegram.mode.label.regular", command.languageCode());
             String updatedMsg = messageLocalizationService.getMessage("telegram.mode.updated", command.languageCode(), label);
             ackCallback(cq.getId(), updatedMsg);

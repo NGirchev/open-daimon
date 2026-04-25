@@ -5,8 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramGroup;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 
 import io.github.ngirchev.opendaimon.common.SupportedLanguages;
@@ -28,6 +30,7 @@ public class TelegramBotMenuService {
 
     private final ObjectProvider<TelegramBot> telegramBotProvider;
     private final ObjectProvider<TelegramSupportedCommandProvider> commandHandlersProvider;
+    private final ObjectProvider<ChatSettingsService> chatSettingsServiceProvider;
 
     /**
      * Cached hash of the current enabled-commands set. Computed lazily on first access
@@ -125,37 +128,59 @@ public class TelegramBotMenuService {
     }
 
     /**
-     * Reconciles the chat-scoped command menu for the given user if it differs from the
-     * current menu version. No-op when the user has no language code (they rely on the
-     * Default-scope menu refreshed at startup) or when the stored hash already matches.
+     * Reconciles the chat-scoped command menu for the given settings owner if it differs
+     * from the current menu version. The owner is polymorphic: a {@link TelegramGroup} for
+     * group chats and a {@link TelegramUser} for private chats. {@code chatId} is the
+     * Telegram {@code chat_id} to which the menu is pushed via {@code BotCommandScopeChat}.
      * <p>
-     * Caller is responsible for persisting {@code user} after this method returns {@code true}.
-     * Telegram API failures are swallowed internally (already handled in {@code setupBotMenuForUser})
-     * and surfaced only via logs — this method never propagates a checked exception to callers.
+     * No-op when the owner has no language code (they rely on the Default-scope menu refreshed
+     * at startup) or when the stored hash already matches.
+     * <p>
+     * <b>Side effects:</b> on refresh this method writes {@code currentHash} into the owner's
+     * {@code menuVersionHash} field in memory AND persists it via the repository (by subtype).
+     * Telegram API failures are swallowed internally (already handled in
+     * {@code setupBotMenuForUser}) and surfaced only via logs — this method never propagates
+     * a checked exception to callers.
      *
-     * @param user telegram user whose chat menu may need refreshing
-     * @return {@code true} if the menu was refreshed and {@code user.menuVersionHash} was updated;
-     *         {@code false} if no work was needed
+     * @param owner  settings owner whose chat menu may need refreshing
+     * @param chatId Telegram chat id (private-chat userId for users, negative group id for groups)
+     * @return {@code true} if the menu was refreshed and the owner's hash was updated
      */
-    public boolean reconcileMenuIfStale(TelegramUser user) {
-        if (user == null) {
+    public boolean reconcileMenuIfStale(User owner, Long chatId) {
+        if (owner == null || chatId == null) {
             return false;
         }
-        String languageCode = user.getLanguageCode();
+        String languageCode = owner.getLanguageCode();
         if (languageCode == null) {
-            // User is still on Default-scope menu; startup refresh already covers them.
+            // Owner is still on Default-scope menu; startup refresh already covers them.
             return false;
         }
         String currentHash = getCurrentMenuVersionHash();
-        String storedHash = user.getMenuVersionHash();
+        String storedHash = menuVersionHashOf(owner);
         if (storedHash != null && storedHash.equals(currentHash)) {
             return false;
         }
-        setupBotMenuForUser(user.getTelegramId(), languageCode);
-        user.setMenuVersionHash(currentHash);
-        log.info("Reconciled menu for chatId={}: versionHash updated from {} to {}",
-                user.getTelegramId(), storedHash, currentHash);
+        setupBotMenuForUser(chatId, languageCode);
+        setMenuVersionHashOn(owner, currentHash);
+        ChatSettingsService chatSettingsService = chatSettingsServiceProvider != null
+                ? chatSettingsServiceProvider.getIfAvailable() : null;
+        if (chatSettingsService != null) {
+            chatSettingsService.updateMenuVersionHash(owner, currentHash);
+        }
+        log.info("Reconciled menu for chatId={} ownerType={}: versionHash updated from {} to {}",
+                chatId, owner.getClass().getSimpleName(), storedHash, currentHash);
         return true;
+    }
+
+    private static String menuVersionHashOf(User owner) {
+        if (owner instanceof TelegramGroup group) return group.getMenuVersionHash();
+        if (owner instanceof TelegramUser user) return user.getMenuVersionHash();
+        return null;
+    }
+
+    private static void setMenuVersionHashOn(User owner, String hash) {
+        if (owner instanceof TelegramGroup group) group.setMenuVersionHash(hash);
+        else if (owner instanceof TelegramUser user) user.setMenuVersionHash(hash);
     }
 
     /**

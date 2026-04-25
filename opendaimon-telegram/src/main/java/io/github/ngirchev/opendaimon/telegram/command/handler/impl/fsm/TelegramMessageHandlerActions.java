@@ -39,7 +39,8 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.ToolLabels;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.common.model.User;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -139,7 +140,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private final OpenDaimonMessageService messageService;
     private final AIRequestPipeline aiRequestPipeline;
     private final TelegramProperties telegramProperties;
-    private final UserModelPreferenceService userModelPreferenceService;
+    private final ChatSettingsService chatSettingsService;
     private final PersistentKeyboardService persistentKeyboardService;
     private final ReplyImageAttachmentService replyImageAttachmentService;
 
@@ -243,10 +244,13 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         metadata.put(ASSISTANT_ROLE_ID_FIELD, ctx.getAssistantRole().getId().toString());
         metadata.put(USER_ID_FIELD, telegramUser.getId().toString());
         metadata.put(ROLE_FIELD, withTelegramBotIdentity(ctx.getAssistantRole().getContent()));
-        if (telegramUser.getLanguageCode() != null) {
-            metadata.put(LANGUAGE_CODE_FIELD, telegramUser.getLanguageCode());
+        User settingsOwner = resolveOwner(ctx, telegramUser);
+        String ownerLanguage = settingsOwner.getLanguageCode() != null
+                ? settingsOwner.getLanguageCode() : telegramUser.getLanguageCode();
+        if (ownerLanguage != null) {
+            metadata.put(LANGUAGE_CODE_FIELD, ownerLanguage);
         }
-        userModelPreferenceService.getPreferredModel(telegramUser.getId())
+        chatSettingsService.getPreferredModel(settingsOwner)
                 .ifPresent(modelId -> metadata.put(PREFERRED_MODEL_ID_FIELD, modelId));
 
         // Add RAG document IDs from previous turns
@@ -316,8 +320,21 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         if (user == null) {
             return defaultAgentModeEnabled;
         }
-        Boolean flag = user.getAgentModeEnabled();
+        User owner = resolveOwner(ctx, user);
+        Boolean flag = owner.getAgentModeEnabled();
         return flag != null ? flag : defaultAgentModeEnabled;
+    }
+
+    /**
+     * Safe owner resolution: returns {@code ctx.getCommand().settingsOwnerOr(fallback)} if the
+     * command exposes a non-null owner, otherwise falls back to {@code fallback} (the invoker).
+     * Guards against test mocks that return {@code null} from {@code settingsOwnerOr}.
+     */
+    private static User resolveOwner(MessageHandlerContext ctx, TelegramUser fallback) {
+        TelegramCommand cmd = ctx.getCommand();
+        if (cmd == null) return fallback;
+        User owner = cmd.settingsOwnerOr(fallback);
+        return owner != null ? owner : fallback;
     }
 
     private void generateAgentResponse(MessageHandlerContext ctx) {
@@ -689,7 +706,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
      */
     private boolean isThinkingSilent(MessageHandlerContext ctx) {
         TelegramUser user = ctx.getTelegramUser();
-        return user != null && user.getThinkingMode() == ThinkingMode.SILENT;
+        if (user == null) {
+            return false;
+        }
+        User owner = resolveOwner(ctx, user);
+        return owner.getThinkingMode() == ThinkingMode.SILENT;
     }
 
     private void ensureStatusMessage(MessageHandlerContext ctx) {
@@ -698,10 +719,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
         Long chatId = ctx.getCommand().telegramId();
         TelegramUser user = ctx.getTelegramUser();
-        boolean silent = user != null && user.getThinkingMode() == ThinkingMode.SILENT;
+        User owner = user != null ? resolveOwner(ctx, user) : null;
+        boolean silent = owner != null && owner.getThinkingMode() == ThinkingMode.SILENT;
         log.info("ensureStatusMessage: telegramId={}, thinkingMode={}, silent={}",
                 user != null ? user.getTelegramId() : null,
-                user != null ? user.getThinkingMode() : "null-user",
+                owner != null ? owner.getThinkingMode() : "null-owner",
                 silent);
         // SILENT: do NOT create a status message at all. The user's intent is radical
         // silence — no thinking placeholder, no tool blocks, no observations in a
@@ -774,10 +796,11 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         // kept above the tool-call block so the user can read
         // "model thought → called that tool" in the final message.
         TelegramUser user = ctx.getTelegramUser();
-        boolean preserve = user != null && user.getThinkingMode() == ThinkingMode.SHOW_ALL;
+        User preserveOwner = user != null ? resolveOwner(ctx, user) : null;
+        boolean preserve = preserveOwner != null && preserveOwner.getThinkingMode() == ThinkingMode.SHOW_ALL;
         log.info("appendToolCallBlock: telegramId={}, thinkingMode={}, preserveReasoningAbove={}",
                 user != null ? user.getTelegramId() : null,
-                user != null ? user.getThinkingMode() : "null-user",
+                preserveOwner != null ? preserveOwner.getThinkingMode() : "null-owner",
                 preserve);
         StringBuilder buf = ctx.getStatusBuffer();
         int lastBoundary = buf.lastIndexOf("\n\n");
@@ -1100,7 +1123,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                         e.getModelId());
                 messageSender.sendNotification(command.telegramId(),
                         "common.error.model.guardrail", command.languageCode(), e.getModelId());
-                userModelPreferenceService.clearPreference(ctx.getTelegramUser().getId());
+                User guardrailOwner = resolveOwner(ctx, ctx.getTelegramUser());
+                chatSettingsService.clearPreferredModel(guardrailOwner);
                 Map<String, String> metadata = aiCommand.metadata();
                 metadata.remove(PREFERRED_MODEL_ID_FIELD);
                 aiCommand = aiRequestPipeline.prepareCommand(command, metadata);

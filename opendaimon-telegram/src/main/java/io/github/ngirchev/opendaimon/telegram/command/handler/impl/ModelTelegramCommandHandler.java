@@ -10,6 +10,7 @@ import io.github.ngirchev.opendaimon.common.ai.response.ModelListAIResponse;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
@@ -20,11 +21,11 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
 import io.github.ngirchev.opendaimon.telegram.service.UserRecentModelService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -68,7 +69,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
     );
 
     private final TelegramUserService telegramUserService;
-    private final UserModelPreferenceService userModelPreferenceService;
+    private final ChatSettingsService chatSettingsService;
     private final AIGatewayRegistry aiGatewayRegistry;
     private final IUserPriorityService userPriorityService;
     private final PersistentKeyboardService persistentKeyboardService;
@@ -87,7 +88,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                                        TypingIndicatorService typingIndicatorService,
                                        MessageLocalizationService messageLocalizationService,
                                        TelegramUserService telegramUserService,
-                                       UserModelPreferenceService userModelPreferenceService,
+                                       ChatSettingsService chatSettingsService,
                                        AIGatewayRegistry aiGatewayRegistry,
                                        IUserPriorityService userPriorityService,
                                        PersistentKeyboardService persistentKeyboardService,
@@ -96,7 +97,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                                        UserRecentModelService userRecentModelService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
-        this.userModelPreferenceService = userModelPreferenceService;
+        this.chatSettingsService = chatSettingsService;
         this.aiGatewayRegistry = aiGatewayRegistry;
         this.userPriorityService = userPriorityService;
         this.persistentKeyboardService = persistentKeyboardService;
@@ -173,28 +174,35 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for model command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
-        sendCategoryMenu(command.telegramId(), user);
+        User owner = TelegramCommand.resolveOwner(command, user);
+        sendCategoryMenu(command.telegramId(), user, owner.getId(), command.languageCode());
         return null;
     }
 
     // ==================== Category Menu (Level 1) ====================
 
-    private void sendCategoryMenu(Long chatId, TelegramUser user) {
+    /**
+     * @param ownerId id of the settings owner (TelegramGroup in groups, TelegramUser in
+     *                private chats) — used as the key for per-chat recent-model lookups so
+     *                group members see the group's recent models, not the invoker's private ones.
+     * @param lang    language code resolved from the settings owner (populated on
+     *                {@code command.languageCode()} in {@code TelegramBot.mapToTelegram*}).
+     */
+    private void sendCategoryMenu(Long chatId, TelegramUser user, Long ownerId, String lang) {
         try {
             List<ModelInfo> models = fetchModels(user);
             if (models.isEmpty()) {
                 sendMessage(chatId, messageLocalizationService.getMessage(
-                        "telegram.model.unavailable", user.getLanguageCode()));
+                        "telegram.model.unavailable", lang));
                 return;
             }
 
-            String lang = user.getLanguageCode();
             if (models.size() <= PAGE_SIZE) {
                 sendFlatModelList(chatId, models, lang);
                 return;
             }
 
-            MenuContent menu = buildCategoryMenuContent(models, lang, user.getId());
+            MenuContent menu = buildCategoryMenuContent(models, lang, ownerId);
             SendMessage msg = new SendMessage(chatId.toString(), menu.text());
             msg.setReplyMarkup(menu.markup());
             telegramBotProvider.getObject().execute(msg);
@@ -239,16 +247,19 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
     /**
      * Builds category menu content reused by both send and edit flows.
      * Categories with an empty resolver result (e.g. {@code RECENT} for a new
-     * user) are omitted automatically.
+     * chat) are omitted automatically. {@code ownerId} is the settings-owner id
+     * used by dynamic categories (like RECENT) to look up chat-scoped state —
+     * passing the invoker's id instead would leak their private recent models
+     * into the group view.
      */
-    private MenuContent buildCategoryMenuContent(List<ModelInfo> models, String lang, Long userId) {
+    private MenuContent buildCategoryMenuContent(List<ModelInfo> models, String lang, Long ownerId) {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
         keyboard.add(List.of(createButton(
                 messageLocalizationService.getMessage("telegram.model.auto", lang), CALLBACK_AUTO)));
 
         for (ModelCategory category : categoryDefinitions) {
-            int count = category.resolver().resolve(models, userId).size();
+            int count = category.resolver().resolve(models, ownerId).size();
             if (count == 0) {
                 continue;
             }
@@ -266,11 +277,10 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
 
     // ==================== Model List within Category (Level 2) ====================
 
-    private void showCategoryPage(Long chatId, Integer messageId, TelegramUser user,
-                                  String categoryKey, int page) {
+    private void showCategoryPage(Long chatId, Integer messageId, TelegramUser user, Long ownerId,
+                                  String lang, String categoryKey, int page) {
         try {
             List<ModelInfo> allModels = fetchModels(user);
-            String lang = user.getLanguageCode();
 
             ModelCategory category = findCategory(categoryKey);
             if (category == null) {
@@ -278,7 +288,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
                 return;
             }
 
-            List<Integer> matchingIndices = category.resolver().resolve(allModels, user.getId());
+            List<Integer> matchingIndices = category.resolver().resolve(allModels, ownerId);
 
             if (matchingIndices.isEmpty()) {
                 log.warn("Empty category '{}' for chat={}", categoryKey, chatId);
@@ -355,6 +365,8 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
 
         TelegramUser user = telegramUserService.getOrCreateUser(cq.getFrom());
         Long userId = user.getId();
+        User owner = TelegramCommand.resolveOwner(command, user);
+        Long ownerId = owner.getId();
         Integer messageId = extractMessageId(cq);
 
         // Cancel — delete, evict cache, return
@@ -374,7 +386,7 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
         // Back to categories
         if (CALLBACK_BACK.equals(callbackData)) {
             ackCallback(cq.getId(), "");
-            editToCategoryMenu(command.telegramId(), messageId, user);
+            editToCategoryMenu(command.telegramId(), messageId, user, ownerId, command.languageCode());
             return;
         }
 
@@ -395,35 +407,37 @@ public class ModelTelegramCommandHandler extends AbstractTelegramCommandHandlerW
             } else {
                 categoryKey = catPart;
             }
-            showCategoryPage(command.telegramId(), messageId, user, categoryKey, page);
+            showCategoryPage(command.telegramId(), messageId, user, ownerId, command.languageCode(),
+                    categoryKey, page);
             return;
         }
 
         // Auto selection
         if (CALLBACK_AUTO.equals(callbackData)) {
-            userModelPreferenceService.clearPreference(userId);
+            chatSettingsService.clearPreferredModel(owner);
             ackCallback(cq.getId(), messageLocalizationService.getMessage(
-                    "telegram.model.ack.auto", user.getLanguageCode()));
+                    "telegram.model.ack.auto", command.languageCode()));
             deleteMenuMessage(command.telegramId(), cq);
             modelSelectionSession.evict(userId);
-            sendPersistentKeyboard(command.telegramId(), userId);
+            sendPersistentKeyboard(command.telegramId(), ownerId);
             return;
         }
 
         // Model selection: MODEL_<idx>
         String modelName = resolveModelName(callbackData, user);
-        userModelPreferenceService.setPreferredModel(userId, modelName);
-        userRecentModelService.recordUsage(userId, modelName);
+        chatSettingsService.setPreferredModel(owner, modelName);
+        userRecentModelService.recordUsage(ownerId, modelName);
         ackCallback(cq.getId(), "✅ " + modelName);
         deleteMenuMessage(command.telegramId(), cq);
         modelSelectionSession.evict(userId);
-        sendPersistentKeyboard(command.telegramId(), userId);
+        sendPersistentKeyboard(command.telegramId(), ownerId);
     }
 
-    private void editToCategoryMenu(Long chatId, Integer messageId, TelegramUser user) {
+    private void editToCategoryMenu(Long chatId, Integer messageId, TelegramUser user, Long ownerId,
+                                    String lang) {
         try {
             List<ModelInfo> models = fetchModels(user);
-            MenuContent menu = buildCategoryMenuContent(models, user.getLanguageCode(), user.getId());
+            MenuContent menu = buildCategoryMenuContent(models, lang, ownerId);
             editMenuMessage(chatId, messageId, menu.text(), menu.markup());
         } catch (Exception e) {
             log.error("Failed to edit category menu: {}", e.getMessage(), e);

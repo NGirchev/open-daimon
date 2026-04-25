@@ -38,6 +38,8 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.UserRecentModelService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
+import io.github.ngirchev.opendaimon.common.repository.UserRepository;
 
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
@@ -306,6 +308,16 @@ class StartTelegramTextCommandHandlerProviderTest {
         @Bean
         public UserRecentModelService userRecentModelService() {
             return mock(UserRecentModelService.class);
+        }
+
+        @Bean
+        public ChatSettingsService chatSettingsService() {
+            return mock(ChatSettingsService.class);
+        }
+
+        @Bean
+        public UserRepository userRepository() {
+            return mock(UserRepository.class);
         }
     }
 }

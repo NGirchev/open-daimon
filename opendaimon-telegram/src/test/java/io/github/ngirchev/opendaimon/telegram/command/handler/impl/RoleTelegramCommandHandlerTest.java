@@ -44,6 +44,8 @@ class RoleTelegramCommandHandlerTest {
     private TypingIndicatorService typingIndicatorService;
     @Mock
     private TelegramUserService telegramUserService;
+    @Mock
+    private io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService chatSettingsService;
 
     private MessageLocalizationService messageLocalizationService;
     private CoreCommonProperties coreCommonProperties;
@@ -64,7 +66,7 @@ class RoleTelegramCommandHandlerTest {
         when(botProvider.getObject()).thenReturn(telegramBot);
 
         handler = new RoleTelegramCommandHandler(botProvider, typingIndicatorService, messageLocalizationService,
-                telegramUserService, coreCommonProperties);
+                telegramUserService, coreCommonProperties, chatSettingsService);
     }
 
     @Test
@@ -144,7 +146,7 @@ class RoleTelegramCommandHandlerTest {
         role.setContent("Default role content");
         telegramUser.setCurrentAssistantRole(role);
 
-        when(telegramUserService.getOrCreateAssistantRole(any(TelegramUser.class), eq("You are a helpful assistant.")))
+        when(chatSettingsService.getOrCreateAssistantRole(any(), eq("You are a helpful assistant.")))
                 .thenReturn(role);
 
         when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
@@ -154,7 +156,7 @@ class RoleTelegramCommandHandlerTest {
         assertNull(handler.handleInner(command));
 
         verify(telegramUserService).getOrCreateUser(from);
-        verify(telegramUserService).getOrCreateAssistantRole(any(TelegramUser.class), eq("You are a helpful assistant."));
+        verify(chatSettingsService).getOrCreateAssistantRole(any(), eq("You are a helpful assistant."));
         verify(telegramBot, atLeast(1)).sendMessage(eq(CHAT_ID), anyString(), any(), any());
     }
 
@@ -178,7 +180,7 @@ class RoleTelegramCommandHandlerTest {
         assertNull(handler.handleInner(command));
 
         verify(telegramUserService).getOrCreateUser(from);
-        verify(telegramUserService).updateAssistantRole(from, "New role text");
+        verify(chatSettingsService).updateAssistantRole(any(), eq("New role text"));
         verify(telegramBot).clearStatus(200L);
         verify(telegramBot).sendMessage(eq(CHAT_ID), contains("Assistant role updated successfully"), any(), any());
     }
@@ -231,7 +233,7 @@ class RoleTelegramCommandHandlerTest {
 
         assertNull(handler.handleInner(command));
 
-        verify(telegramUserService).updateAssistantRole(from, "You are a helpful assistant.");
+        verify(chatSettingsService).updateAssistantRole(any(), eq("You are a helpful assistant."));
         verify(telegramBot).clearStatus(200L);
         verify(telegramBot, atLeast(1)).execute(any(org.telegram.telegrambots.meta.api.methods.BotApiMethod.class));
         verify(telegramBot).execute(any(DeleteMessage.class));

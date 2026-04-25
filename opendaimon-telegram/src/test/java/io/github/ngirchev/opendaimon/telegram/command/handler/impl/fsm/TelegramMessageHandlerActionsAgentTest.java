@@ -20,7 +20,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRendere
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -65,7 +65,7 @@ class TelegramMessageHandlerActionsAgentTest {
     @Mock private AIGatewayRegistry aiGatewayRegistry;
     @Mock private OpenDaimonMessageService messageService;
     @Mock private AIRequestPipeline aiRequestPipeline;
-    @Mock private UserModelPreferenceService userModelPreferenceService;
+    @Mock private ChatSettingsService chatSettingsService;
     @Mock private PersistentKeyboardService persistentKeyboardService;
     @Mock private ReplyImageAttachmentService replyImageAttachmentService;
     @Mock private TelegramMessageSender messageSender;
@@ -88,7 +88,7 @@ class TelegramMessageHandlerActionsAgentTest {
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
-                aiRequestPipeline, telegramProperties, userModelPreferenceService,
+                aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
                 agentExecutor, agentStreamRenderer, MAX_ITERATIONS, true);
     }

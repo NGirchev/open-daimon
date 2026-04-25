@@ -48,6 +48,8 @@ class ModeTelegramCommandHandlerTest {
     private MessageLocalizationService messageLocalizationService;
     @Mock
     private TelegramUserService telegramUserService;
+    @Mock
+    private io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService chatSettingsService;
 
     private ModeTelegramCommandHandler handler;
 
@@ -71,7 +73,8 @@ class ModeTelegramCommandHandlerTest {
         when(messageLocalizationService.getMessage(eq("telegram.mode.unknown"), anyString()))
             .thenReturn("Unknown mode");
         handler = new ModeTelegramCommandHandler(
-            telegramBotProvider, typingIndicatorService, messageLocalizationService, telegramUserService);
+            telegramBotProvider, typingIndicatorService, messageLocalizationService, telegramUserService,
+            chatSettingsService);
     }
 
     @Test
@@ -203,7 +206,7 @@ class ModeTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(telegramUserService).updateAgentMode(USER_ID, true);
+        verify(chatSettingsService).updateAgentMode(any(), eq(true));
         verify(telegramBot).execute(any(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.class));
         verify(telegramBot).execute(any(DeleteMessage.class));
     }
@@ -228,7 +231,7 @@ class ModeTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(telegramUserService).updateAgentMode(USER_ID, false);
+        verify(chatSettingsService).updateAgentMode(any(), eq(false));
         verify(telegramBot).execute(any(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.class));
         verify(telegramBot).execute(any(DeleteMessage.class));
     }

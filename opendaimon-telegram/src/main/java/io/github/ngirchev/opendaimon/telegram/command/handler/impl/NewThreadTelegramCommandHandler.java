@@ -67,24 +67,29 @@ public class NewThreadTelegramCommandHandler extends AbstractTelegramCommandHand
         }
         
         TelegramUser user = userService.getOrCreateUser(message.getFrom());
+        io.github.ngirchev.opendaimon.common.model.User owner =
+                io.github.ngirchev.opendaimon.telegram.command.TelegramCommand.resolveOwner(command, user);
         Long chatId = command.telegramId();
-        
+
         // Close current thread (if any active)
         Optional<ConversationThread> currentThread = threadRepository.findMostRecentActiveThread(
                 ThreadScopeKind.TELEGRAM_CHAT, chatId);
         boolean hadPreviousThread = currentThread.isPresent();
         currentThread.ifPresent(threadService::closeThread);
-        
-        // Create new thread
+
+        // Create new thread — thread.user is the invoker (audit), scope is per-chat.
         ConversationThread newThread = threadService.createNewThread(user, ThreadScopeKind.TELEGRAM_CHAT, chatId);
 
-        // Reset the context-usage button to 0% immediately
+        // Reset the context-usage button to 0% immediately. Keyboard label reads from the
+        // settings owner's row (group row in groups) so it shows the group's current model,
+        // not the invoker's private-chat model.
         PersistentKeyboardService keyboardService = persistentKeyboardServiceProvider.getIfAvailable();
         if (keyboardService != null) {
-            keyboardService.sendKeyboard(command.telegramId(), user.getId(), newThread);
+            keyboardService.sendKeyboard(command.telegramId(), owner.getId(), newThread);
         }
 
-        String lang = user.getLanguageCode();
+        // Localise the response in the owner's language (group language in groups, user in privates).
+        String lang = owner.getLanguageCode() != null ? owner.getLanguageCode() : user.getLanguageCode();
         String threadPreview = newThread.getThreadKey().substring(0, 8) + "...";
         String responseMessage = messageLocalizationService.getMessage(
                 "telegram.newthread.body", lang, threadPreview);

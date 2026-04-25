@@ -47,6 +47,7 @@ class ThinkingTelegramCommandHandlerTest {
     @Mock private MessageLocalizationService messageLocalizationService;
     @Mock private TelegramUserService telegramUserService;
     @Mock private TelegramBotMenuService telegramBotMenuService;
+    @Mock private io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService chatSettingsService;
 
     private ThinkingTelegramCommandHandler handler;
 
@@ -72,7 +73,8 @@ class ThinkingTelegramCommandHandlerTest {
         when(messageLocalizationService.getMessage(eq("telegram.thinking.unknown"), anyString()))
             .thenReturn("Unknown option");
         handler = new ThinkingTelegramCommandHandler(
-            telegramBotProvider, typingIndicatorService, messageLocalizationService, telegramUserService, telegramBotMenuService);
+            telegramBotProvider, typingIndicatorService, messageLocalizationService, telegramUserService, telegramBotMenuService,
+            chatSettingsService);
     }
 
     @Test
@@ -272,7 +274,7 @@ class ThinkingTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(telegramUserService).updateThinkingMode(eq(USER_ID), eq(ThinkingMode.SHOW_ALL));
+        verify(chatSettingsService).updateThinkingMode(any(), eq(ThinkingMode.SHOW_ALL));
         verify(telegramBot).execute(any(AnswerCallbackQuery.class));
         verify(telegramBot).execute(any(DeleteMessage.class));
     }
@@ -297,7 +299,7 @@ class ThinkingTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(telegramUserService).updateThinkingMode(eq(USER_ID), eq(ThinkingMode.HIDE_REASONING));
+        verify(chatSettingsService).updateThinkingMode(any(), eq(ThinkingMode.HIDE_REASONING));
         verify(telegramBot).execute(any(AnswerCallbackQuery.class));
         verify(telegramBot).execute(any(DeleteMessage.class));
     }
@@ -322,7 +324,7 @@ class ThinkingTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(telegramUserService).updateThinkingMode(eq(USER_ID), eq(ThinkingMode.SILENT));
+        verify(chatSettingsService).updateThinkingMode(any(), eq(ThinkingMode.SILENT));
         verify(telegramBot).execute(any(AnswerCallbackQuery.class));
         verify(telegramBot).execute(any(DeleteMessage.class));
     }
