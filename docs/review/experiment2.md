@@ -1,5 +1,20 @@
 # Experiment 2 — Сравнение моделей: 5-3 vs 5-5
 
+## TL;DR
+
+- **5-3** имеет реальную интеграцию: `TelegramMessageHandlerActions` переписан,
+  новые beans (`TelegramAgentStreamModel`, `View`, `ChatPacer`, reliable `Sender`)
+  подключены к pipeline. Юзер видит per-chat pacing + retry-after auto-recovery.
+  Ветка содержит CRITICAL race в singleton view и около 600 строк мёртвого кода —
+  оба дефекта исправимы в существующих файлах.
+- **5-5** имеет более чистый design (`AssistantTurn` как domain-объект,
+  `TelegramRateLimitedBot` как блокирующий фасад by construction), **но не
+  интегрирован**: `git diff fsm-5..fsm-5-5` показывает 0 строк в `command/`,
+  в auto-config'ах и в `application*.yml`. Production-flow от Telegram update
+  до ответа юзеру в 5-5 идентичен `fsm-5`. Вклад в решение задачи 429 — нулевой.
+- **Для merge брать 5-3.** Идеи 5-5 (`AssistantTurn`, blocking facade, virtual-clock
+  тесты) подбирать в следующую итерацию архитектуры как отдельную работу.
+
 Сравнение двух архитектурных подходов к решению одной задачи: устранения ошибок
 HTTP 429 (Too Many Requests) при отправке сообщений в Telegram во время агентского
 streaming-цикла, плюс корректное отображение статуса/частичного ответа/финального
@@ -90,7 +105,41 @@ reliable-методы парсят retry_after и повторяют. Глоба
 Идея: «тот, кто шлёт в Telegram, не должен знать про rate limit; bot-фасад блокирует
 caller'а до доступного слота, поэтому 429 не может произойти by construction».
 
-### Компоненты
+### Решающий факт: 5-5 не интегрирован в production pipeline
+
+Это главное, что нужно понимать про 5-5 при оценке вклада. Все три новых класса
+существуют только как изолированные файлы. Проверка по `git diff fsm-5..fsm-5-5`:
+
+| Что должно быть изменено для интеграции | Что фактически изменено |
+|---|---|
+| `TelegramMessageHandlerActions.java` (центр pipeline) | 0 строк |
+| `TelegramAutoConfig.java` / `TelegramCommandHandlerConfig.java` / `TelegramServiceConfig.java` | 0 строк |
+| `application.yml` / `application-test.yml` / `application-integration-test.yaml` | 0 строк |
+| `TelegramProperties.java` | +35 строк (новый nested класс `RateLimit`) |
+| Новые классы (`AssistantTurn`, `TelegramAssistantTurnView`, `TelegramRateLimitedBot`) | +628 строк |
+| Тесты | +751 строка |
+
+`TelegramRateLimitedBot` ни в одном `@Bean` не создаётся, `AssistantTurn` нигде не
+инстанцируется в горячем пути, `TelegramAssistantTurnView` не подключён к
+`onChange` ни одного реального `AssistantTurn`. Production-flow от Telegram update
+до ответа юзеру в 5-5 идентичен `fsm-5`: всё ещё работают `handleAgentStreamEvent`,
+tentative-bubble логика, старый `TelegramMessageSender` без rate-limit.
+
+Юзер, отправивший сообщение боту на 5-5, увидит ровно то же поведение и получит
+429 при тех же условиях, что на базе `fsm-5`. Фактический вклад 5-5 в решение
+исходной задачи — **нулевой**.
+
+Маркер от автора: в `TODO.md` на ветке 5-5 явная заметка
+*«Out of scope. Telegram outbound-queue refactor (`fsm-5-5-assistant-turn-view`)
+— orthogonal, do not mix the two in one PR»* — то есть автор сам классифицирует
+эту ветку как незавершённый refactor, а не как готовый PR.
+
+Регрессионный риск ненулевой: `TelegramProperties.RateLimit` помечен `@Validated`
+с `@Min/@Max`, поэтому если оператор пропишет в `application.yml`
+`globalPerSecond: 99`, приложение упадёт на старте — несмотря на то, что лимит
+никем не используется в runtime.
+
+### Компоненты (как написаны, не как подключены)
 
 | Компонент | Роль |
 |---|---|
@@ -98,74 +147,110 @@ caller'а до доступного слота, поэтому 429 не може
 | `TelegramAssistantTurnView` (251 стр.) | реконсилит `AssistantTurn` в status bubble + answer bubble[s] на каждый `onChange` |
 | `TelegramRateLimitedBot` (238 стр.) | синхронный блокирующий фасад над `TelegramBot`. Каждый `sendMessage`/`editMessage`/`deleteMessage` ждёт per-chat + global slot, потом делает сетевой вызов |
 
-Защита 429: by construction. Путь, который мог бы выпустить burst, не существует —
-caller блокируется до тех пор, пока оба окна (per-chat и global) не свободны.
-Если ждать дольше `maxAcquireWaitMs` (по умолчанию 60с) — fail-stop, метод
-возвращает `null` / `false`, чтобы зависание не корраптило Reactor pipeline.
+Задуманная защита 429: by construction. Путь, который мог бы выпустить burst, не
+существует — caller блокируется до тех пор, пока оба окна (per-chat и global) не
+свободны. Если ждать дольше `maxAcquireWaitMs` (по умолчанию 60с) — fail-stop,
+метод возвращает `null` / `false`, чтобы зависание не корраптило Reactor pipeline.
 
-Квоты:
+Квоты (валидируются при старте, не используются в runtime):
 - private chat (`chatId > 0`) — `privateChatPerSecond`, дефолт 1/s
 - group/supergroup (`chatId < 0`) — `groupChatPerMinute`, дефолт 20/min
 - per-bot global cap — `globalPerSecond`, дефолт 30/s
 
-### Сильные стороны школы 5-5
+### Сильные стороны (только как design)
 
 - Domain-driven: `AssistantTurn` отражает бизнес-понятие «один ход агента», а не транспортный stream.
 - Простота защиты 429: один блокирующий фасад с двумя квотами — нечего собирать из четырёх слоёв.
-- Тестируемость на уровне дизайна: `TelegramRateLimitedBot` принимает `LongSupplier clock` + `Sleeper sleeper`, что позволяет virtual time в unit-тестах rate-limit поведения. Это правильный паттерн для time-sensitive кода.
-- `TelegramAssistantTurnEndToEndTest` (250 строк) проверяет полный цикл, а не отдельные слои.
-- Завершённость: один коммит, без legacy-хвостов в `TelegramMessageHandlerActions`.
+- Тестируемость на уровне дизайна: `TelegramRateLimitedBot` принимает `LongSupplier clock` + `Sleeper sleeper`, что позволяет virtual time в unit-тестах rate-limit поведения. Переиспользуемый паттерн.
+- `TelegramAssistantTurnEndToEndTest` (250 строк) драйвит реальный стек View+RateLimitedBot+AssistantTurn на mocked `TelegramBot`. «End-to-end» здесь — относительно стека из трёх классов, а не относительно production pipeline.
 
-### Слабые стороны школы 5-5 (по `docs/review/experiment2_claude.md`)
+### Слабые стороны школы 5-5
 
-- **P1 — race в порядке резервации.** `TelegramRateLimitedBot:179`. Per-chat slot бронируется до ожидания глобального; пока caller спит на global queue, per-chat-окно успевает истечь, и следующий вызов снова получает per-chat slot, а потом два реальных вызова уходят back-to-back и могут вызвать тот самый 429, который фасад должен предотвращать. Фикс: резервировать per-chat slot ПОСЛЕ выхода из global wait.
-- **P2 — stale answer chunks.** `TelegramAssistantTurnView:180-194`. Если streamed partial answer уже открыл несколько answer-сообщений, а финальный layout короче, цикл редактирует только нужный префикс и не удаляет лишние Telegram-сообщения — оставшиеся куски частичного ответа продолжают висеть в чате после reconcile.
-- **P2 — превышение лимита 4096 символов в status bubble.** `TelegramAssistantTurnView:147`. В SHOW_ALL режиме с большим количеством tool-call'ов `renderStatus()` возвращает весь накопленный transcript одним сообщением; финальные ответы режутся по `maxMessageLength`, а статус — нет. По достижении 4096 символов `sendMessage` / `editMessage` фейлятся, и live-status либо никогда не появляется, либо перестаёт обновляться на длинных ходах.
+- **Главное:** ничего из перечисленного не подключено в `TelegramMessageHandlerActions`. Не «дефект кода», а «PR не сделан до конца».
+- **P1 — race в порядке резервации** (`TelegramRateLimitedBot:179`, по `experiment2_claude.md`). Per-chat slot бронируется до ожидания глобального; пока caller спит на global queue, per-chat-окно успевает истечь, и следующий вызов снова получает per-chat slot — два реальных вызова уходят back-to-back и могут вызвать 429. Фикс: резервировать per-chat slot ПОСЛЕ выхода из global wait. Дефект существует только в задуманном пути, в production не проявляется (потому что путь не подключён).
+- **P2 — stale answer chunks** (`TelegramAssistantTurnView:180-194`). Если streamed partial answer уже открыл несколько answer-сообщений, а финальный layout короче, цикл редактирует только нужный префикс и не удаляет лишние Telegram-сообщения. В production не проявляется (view не используется).
+- **P2 — превышение лимита 4096 символов в status bubble** (`TelegramAssistantTurnView:147`). В SHOW_ALL режиме `renderStatus()` возвращает весь transcript одним сообщением. Финальные ответы режутся по `maxMessageLength`, статус — нет. В production не проявляется.
 - Блокировка caller'а может задушить event loop, если бот работает в reactive-контексте.
 
 ## Сравнение по критериям
 
+Сравнение разделено на два измерения: «как design» (если бы оба PR были одинаково
+интегрированы) и «как PR» (фактический вклад в продукт). Это разделение
+существенно — потому что у 5-5 design без интеграции, и победители в двух
+таблицах разные.
+
+### A. Design (концептуальный)
+
 | Критерий | 5-3 (v1 + v2) | 5-5 | Победитель |
 |---|---|---|---|
 | Концептуальная простота | 4 слоя (Model+View+Pacer+Sender) или async-dispatcher с coalescing | 2 узла (`AssistantTurn` + `RateLimitedBot`) | 5-5 |
-| Защита от 429 | оптимистическая, через интервалы + retry-after | by-construction блокировка | 5-5 |
+| Защита от 429 (как задумано) | оптимистическая, через интервалы + retry-after | by-construction блокировка | 5-5 |
 | Domain-driven дизайн | Model названа по транспорту (Stream) | `AssistantTurn` — domain-понятие | 5-5 |
-| Тестируемость | unit-тесты модели/пейсера ОК, но есть race и dead code | virtual clock+sleeper + E2E test, но есть свои баги | 5-5 |
-| Глобальная квота Telegram | нет в v2 / есть в v1 | есть | 5-5 (с v1 наравне) |
-| Чистота миграции | v2 оставляет ~600 строк dead code | один коммит, без хвостов | 5-5 |
-| Реактивность / non-blocking | v1: async через `CompletableFuture` | блокирующий sync | 5-3 v1 (за счёт сложности) |
-| Тяжесть найденных дефектов | CRITICAL race на singleton bean (v2) + dead code | один P1 в reservation order + два P2 | 5-5 (исправимее) |
+| Глобальная квота Telegram (как задумано) | нет в v2 / есть в v1 | есть | 5-5 (с v1 наравне) |
+| Тест-паттерны | стандартные unit-тесты | virtual clock+sleeper в `TelegramRateLimitedBot` | 5-5 |
+| Реактивность / non-blocking | v1: async через `CompletableFuture` | блокирующий sync | 5-3 v1 |
+
+В измерении «design» 5-5 действительно сильнее. Но это не закрывает задачу.
+
+### B. PR (фактический вклад)
+
+| Критерий | 5-3 | 5-5 | Победитель |
+|---|---|---|---|
+| **Интеграция в production pipeline** | **есть** (`TelegramMessageHandlerActions` переписан, новые beans подключены) | **нет** (новые классы изолированы, 0 изменений в `command/` и autoconfig) | **5-3** |
+| Реальная защита от 429 у юзера | ChatPacer per-chat + retry-after | как в `fsm-5`: только debounce, без global quota и retry-after | 5-3 |
+| Что увидит юзер после merge | новый pipeline (status / candidate / confirmed) | то же поведение, что в `fsm-5` | 5-3 |
+| Тяжесть оставшейся работы до merge | удалить ~600 строк dead code + зафиксить race в singleton view | реализовать интеграцию с нуля + зафиксить P1/P2 + переписать существующие тесты на новую модель | 5-3 |
+| Регрессионный риск | мёртвые ветви в `TelegramMessageHandlerActions` могут сломать компиляцию при правках контекста | `TelegramProperties.RateLimit` валидируется при старте без потребителя — невалидный конфиг роняет приложение | сравнимо |
+| Тяжесть найденных дефектов в активном пути | CRITICAL race в singleton view (`statusRenderedOffset`) | дефекты P1/P2 существуют только в неподключённом коде, в проде не проявляются | 5-3 (CRITICAL живой), 5-5 (всё дремлет) |
+
+В измерении «PR» 5-5 даёт нулевой вклад в решение задачи. 5-3 — реальный, но
+дефектный.
 
 ## Вердикт
 
-**Модель 5-5 лучше.** Это более правильное направление по трём причинам.
+**Для merge брать 5-3.** Решение исходной задачи (429) у пользователя
+улучшается только на этой ветке. У 5-5 — концептуально более чистый дизайн,
+но как вклад в продукт это spike: 1623 строки лежат на полке, юзер не видит
+никаких изменений по сравнению с `fsm-5`.
 
-1. **Решение цели (429) чище.** Блокирующий фасад с per-chat + global квотами —
-   правильная декомпозиция: один компонент знает про лимиты Telegram, остальной
-   код просто вызывает методы. В 5-3 эту ответственность размазали между Pacer'ом
-   и Sender'ом, а в v2 ещё и от глобальной квоты отказались.
-2. **Domain-объект вместо stream-модели.** `AssistantTurn` с lifecycle
-   `STREAMING → SETTLED / ERROR` отражает суть задачи. `TelegramAgentStreamModel` —
-   абстракция над транспортом, а не над domain.
-3. **Завершённость и testability.** Один коммит, virtual-time тесты, end-to-end
-   проверка. У 5-3 даже в v2 ещё около 600 строк нужно убрать, чтобы PR стал
-   mergeable.
+Если оценивать по критерию «вклад в решение исходной задачи»:
 
-Дефекты 5-5 (P1 race в reservation order, два P2 в view) — точечные, исправляются
-в пределах своих файлов и не требуют пересмотра архитектуры. Дефекты 5-3
-(выбор архитектуры, dead code в `TelegramMessageHandlerActions`, CRITICAL race в
-singleton view) — структурные и требуют больше работы.
+- 5-3: дефектная, но реально работающая интеграция с per-chat pacing и retry-after.
+- 5-5: design без подключения. Балл за вклад — ноль; балл за дизайн — высокий, но
+  его нельзя обналичить, не сделав отдельную работу по интеграции.
+
+Это не отменяет того, что концептуально 5-5 правильнее. Но «правильнее как идея»
+не равно «полезнее как PR». При следующей итерации архитектуры стоит подобрать
+из 5-5 концепции (`AssistantTurn` как domain-объект, блокирующий бот by
+construction, virtual-clock-тесты) и применить их в новой ветке поверх вычищенного
+5-3 — но это уже отдельная работа, не часть merge-окна для текущего фикса 429.
 
 ### Рекомендация
 
-Если бы стоял выбор «довести до merge», следует продолжать на ветке 5-5:
+Двигаться на 5-3 в следующем порядке.
 
-1. Зафиксить P1 в `TelegramRateLimitedBot:179` — резервировать per-chat slot
-   только ПОСЛЕ выхода из ожидания global slot.
-2. В `TelegramAssistantTurnView:180-194` удалять или очищать Telegram-сообщения,
-   когда `desiredAnswers.size() < answerMessageIds.size()` после reconcile.
-3. В `TelegramAssistantTurnView:147` резать status HTML по `maxMessageLength`
-   так же, как режутся финальные ответы (с продолжением в дополнительные
-   bubble-сообщения или с обрезкой по приоритету).
+1. **Удалить dead code** в `TelegramMessageHandlerActions`: старое дерево
+   `handleAgentStreamEvent`, `handlePartialAnswer`, `promoteTentativeAnswer`,
+   `editTentativeAnswer`, `rollbackAndAppendToolCall`, `forceFinalAnswerEdit`
+   и связанные. Удалить тесты, которые их валидируют через reflection
+   (`TelegramMessageHandlerActionsTentativeEditTest`).
+2. **Зафиксить CRITICAL race** в `TelegramAgentStreamView.statusRenderedOffset`:
+   вынести поле из singleton-bean в `MessageHandlerContext` (request-scoped) или
+   в саму `TelegramAgentStreamModel`. View должен стать stateless.
+3. **Удалить misleading-настройку** `agent-stream-edit-min-interval-ms` из
+   `TelegramProperties` и всех `application*.yml` после удаления dead-code,
+   потому что её consumer'ы живут только в удаляемых ветках.
+4. **Решить судьбу** `MessageHandlerErrorType.TELEGRAM_DELIVERY_FAILED`: либо
+   связать его с FSM-переходом и локализованным сообщением, либо удалить.
+5. **Прокинуть `ObjectMapper`** через конструктор `TelegramAgentStreamModel`
+   вместо `new ObjectMapper()` per-request.
 
-Это меньше работы и более ценный результат, чем вычистка 5-3.
+5-5 на этом этапе можно либо удалить как `spike` (если идеи будут реализованы
+в новой ветке), либо оставить как reference для следующей итерации архитектуры.
+Самостоятельной merge-ценности у неё нет.
+
+5-3 после этих фиксов закрывает исходную задачу 429 на уровне per-chat pacing
++ retry-after, что заметно лучше базы `fsm-5`. Глобальная квота Telegram
+(≈30 msg/s на бот) при этом остаётся незакрытой — это отдельный TODO,
+кандидат на следующую итерацию (где как раз можно подобрать `TelegramRateLimitedBot`
+из 5-5 как готовый компонент).
