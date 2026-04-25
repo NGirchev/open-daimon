@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.it.telegram;
 
+import io.github.ngirchev.opendaimon.common.SupportedLanguages;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
 import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
@@ -170,7 +171,8 @@ class TelegramGroupEntityIT extends AbstractContainerIT {
         assertEquals(chatId, groupOwner.getTelegramId());
         assertEquals("Fresh team", groupOwner.getTitle());
         assertEquals("supergroup", groupOwner.getType());
-        assertNull(groupOwner.getLanguageCode(), "language is unset until /language runs");
+        assertEquals(SupportedLanguages.DEFAULT_LANGUAGE, groupOwner.getLanguageCode(),
+                "language defaults to DEFAULT_LANGUAGE on creation; /language can override later");
         assertNull(groupOwner.getPreferredModelId(), "model is unset until /model runs");
 
         Optional<TelegramGroup> found = telegramGroupRepository.findByTelegramId(chatId);

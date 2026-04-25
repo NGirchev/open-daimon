@@ -8,7 +8,6 @@ import io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup;
 import io.github.ngirchev.opendaimon.common.repository.UserRepository;
 import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsOwnerResolver;
 import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
-import io.github.ngirchev.opendaimon.telegram.service.TelegramChatOwnerLookup;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramGroupService;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramGroupRepository;
 import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
@@ -304,10 +303,10 @@ class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
             return new ChatSettingsOwnerResolver(telegramUserService, telegramGroupService);
         }
 
-        @Bean
-        public ChatOwnerLookup chatOwnerLookup(ChatSettingsOwnerResolver resolver) {
-            return new TelegramChatOwnerLookup(resolver);
-        }
+        // ChatOwnerLookup intentionally not overridden here — NOOP fallback from
+        // CoreAutoConfig is used. Overriding would cause BeanDefinitionOverrideException
+        // because @Import-loaded @Configuration is not subject to auto-config ordering
+        // that makes @ConditionalOnMissingBean defer to user-defined beans.
 
         @Bean
         @Primary
