@@ -41,6 +41,8 @@ import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepository;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacerImpl;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
@@ -322,7 +324,8 @@ public class TelegramFixtureConfig {
             UserRepository userRepository) {
         return new PersistentKeyboardService(
                 coreCommonProperties, telegramBotProvider,
-                telegramProperties, messageLocalizationService, userRepository);
+                telegramProperties, messageLocalizationService, userRepository,
+                new TelegramChatPacerImpl(telegramProperties));
     }
 
     @Bean
@@ -349,13 +352,16 @@ public class TelegramFixtureConfig {
             ChatSettingsService chatSettingsService,
             PersistentKeyboardService persistentKeyboardService,
             ReplyImageAttachmentService replyImageAttachmentService) {
+        var telegramChatPacer = new TelegramChatPacerImpl(telegramProperties);
         TelegramMessageSender messageSender = new TelegramMessageSender(
-                telegramBotProvider, messageLocalizationService, persistentKeyboardService);
+                telegramBotProvider, messageLocalizationService, persistentKeyboardService, telegramChatPacer);
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
         TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService, telegramMessageService,
                 aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
                 chatSettingsService, persistentKeyboardService, replyImageAttachmentService,
-                messageSender, null, null, 10, false);
+                messageSender, null, null, agentStreamView, 10, false);
         ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
                 MessageHandlerFsmFactory.create(actions);
         return new MessageTelegramCommandHandler(

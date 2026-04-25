@@ -3,6 +3,8 @@ package io.github.ngirchev.opendaimon.it.telegram.command.handler;
 import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacerImpl;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup;
 import io.github.ngirchev.opendaimon.common.repository.UserRepository;
@@ -319,7 +321,8 @@ class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
         ) {
             return new PersistentKeyboardService(
                     coreCommonProperties, telegramBotProvider, telegramProperties,
-                    messageLocalizationService, userRepository);
+                    messageLocalizationService, userRepository,
+                    new TelegramChatPacerImpl(telegramProperties));
         }
 
         @Bean
@@ -347,13 +350,16 @@ class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
                 ChatSettingsService chatSettingsService,
                 PersistentKeyboardService persistentKeyboardService,
                 ReplyImageAttachmentService replyImageAttachmentService) {
+            var telegramChatPacer = new TelegramChatPacerImpl(telegramProperties);
             TelegramMessageSender messageSender = new TelegramMessageSender(
-                    telegramBotProvider, messageLocalizationService, persistentKeyboardService);
+                    telegramBotProvider, messageLocalizationService, persistentKeyboardService, telegramChatPacer);
+            TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                    messageSender, telegramChatPacer, telegramProperties);
             TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
                     telegramUserService, telegramUserSessionService, telegramMessageService,
                     aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
                     chatSettingsService, persistentKeyboardService, replyImageAttachmentService,
-                    messageSender, null, null, 10, false);
+                    messageSender, null, null, agentStreamView, 10, false);
             ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
                     MessageHandlerFsmFactory.create(actions);
             return new MessageTelegramCommandHandler(
