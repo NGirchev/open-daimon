@@ -152,8 +152,7 @@ public class TelegramBotMenuService {
         }
         String languageCode = owner.getLanguageCode();
         if (languageCode == null) {
-            // Owner is still on Default-scope menu; startup refresh already covers them.
-            return false;
+            languageCode = SupportedLanguages.DEFAULT_LANGUAGE;
         }
         String currentHash = getCurrentMenuVersionHash();
         String storedHash = menuVersionHashOf(owner);

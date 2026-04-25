@@ -195,7 +195,11 @@ class TelegramBotMenuServiceTest {
     }
 
     @Test
-    void shouldSkipReconcileWhenLanguageCodeIsNull() throws TelegramApiException {
+    void shouldReconcileWithDefaultLanguageWhenLanguageCodeIsNull() throws TelegramApiException {
+        when(telegramBotProvider.getObject()).thenReturn(telegramBot);
+        TelegramSupportedCommandProvider h1 = lang -> "/start - Start";
+        when(commandHandlersProvider.orderedStream()).thenAnswer(inv -> Stream.of(h1));
+
         TelegramUser user = new TelegramUser();
         user.setTelegramId(4242L);
         user.setLanguageCode(null);
@@ -203,9 +207,8 @@ class TelegramBotMenuServiceTest {
 
         boolean changed = service.reconcileMenuIfStale(user, user.getTelegramId());
 
-        assertThat(changed).isFalse();
-        verify(telegramBot, never()).setMyCommands(anyList(), any(Long.class));
-        verify(telegramBot, never()).setMyCommands(anyList(), any(String.class));
-        assertThat(user.getMenuVersionHash()).isNull();
+        assertThat(changed).isTrue();
+        verify(telegramBot).setMyCommands(anyList(), eq(4242L));
+        assertThat(user.getMenuVersionHash()).isNotNull();
     }
 }

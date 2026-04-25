@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.objects.Chat;
+import io.github.ngirchev.opendaimon.common.SupportedLanguages;
 import io.github.ngirchev.opendaimon.common.model.AssistantRole;
 import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
@@ -136,7 +137,7 @@ public class TelegramGroupService {
         group.setIsBlocked(false);
         group.setIsAdmin(false);
         group.setIsPremium(false);
-        group.setLanguageCode(null);
+        group.setLanguageCode(SupportedLanguages.DEFAULT_LANGUAGE);
         group.setAgentModeEnabled(defaultAgentModeEnabled);
         TelegramGroup saved = telegramGroupRepository.save(group);
         log.info("Telegram group created: id={}, chatId={}, title='{}', type={}",

@@ -55,7 +55,7 @@ class TelegramGroupServiceTest {
         assertThat(result.getIsAdmin()).isFalse();
         assertThat(result.getAgentModeEnabled()).isEqualTo(DEFAULT_AGENT_MODE_ENABLED);
         assertThat(result.getCreatedAt()).isNotNull();
-        assertThat(result.getLanguageCode()).isNull(); // set lazily via /language
+        assertThat(result.getLanguageCode()).isEqualTo("en"); // default language on creation
     }
 
     @Test
