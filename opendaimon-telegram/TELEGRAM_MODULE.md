@@ -244,7 +244,7 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 **Command:** `MESSAGE`, `attachments=[Attachment]`, `userText` = caption (e.g. «что тут?»)
 **Handler:** `TelegramMessageHandlerActions.generateResponse` — agent path
 4. Factory → `ChatAICommand(capabilities={CHAT, VISION})`; `DefaultAICommandFactory` resolves `requiredCaps=[AUTO, VISION]`
-5. `TelegramMessageHandlerActions` builds `AgentRequest(..., attachments=command.attachments())` and routes to `AgentExecutor.executeStream(...)`
+5. `TelegramMessageHandlerActions` builds `AgentRequest(..., attachments=...)` and routes to `AgentExecutor.executeStream(...)`. The attachment source is the pipeline-processed list on the AI command — `ChatAICommand.attachments()` for the default path, `FixedModelChatAICommand.attachments()` when the chat has a preferred model fixed (mirrors `SpringAIGateway:383-387`). `TelegramCommand.attachments()` is used only as a fallback when the AI command carries no processed list, so image-only PDFs that `AIRequestPipeline` rendered page-by-page into IMAGE attachments are not silently dropped.
 6. `ReActAgentExecutor` carries attachments into `AgentContext`; `SpringAgentLoopActions.think()` builds the first `UserMessage` with `Media` (see `SPRING_AI_MODULE.md#image-attachments--agent-path`)
 **Output:** vision-capable model describes the image, agent loop terminates on the first `FINAL_ANSWER` (no tool call needed for a pure description)
 **Regression guarded by:** `TelegramAgentImageFixtureIT`, `SpringAgentLoopActionsAttachmentsTest`, `TelegramMessageHandlerActionsAgentTest#shouldPassAttachmentsToAgentRequestWhenCommandHasImage`

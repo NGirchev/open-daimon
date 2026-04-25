@@ -70,16 +70,22 @@ sequenceDiagram
 ## Invariants
 
 1. **Image attachments propagate end-to-end.** Source of attachments at the
-   Telegram → agent boundary is `aiCommand.attachments()` (the
-   pipeline-processed list inside `ChatAICommand`), with a fallback to
-   `command.attachments()` only when `aiCommand` is not a `ChatAICommand`.
-   Mirrors `SpringAIGateway.java:384`. This matters for image-only PDFs:
-   `AIRequestPipeline` renders each PDF page into an IMAGE attachment in
-   `mutableAttachments`, and the agent path must read those rendered pages —
-   not the raw PDF that `toImageMedia()` would discard as non-IMAGE.
-   Chain: `aiCommand.attachments()` → `AgentRequest.attachments()` →
-   `AgentContext.getAttachments()` → first `UserMessage.media` in the prompt.
-   Any link broken silently degrades vision queries to text-only.
+   Telegram → agent boundary is the pipeline-processed list on the AI command —
+   `ChatAICommand.attachments()` on the default path, or
+   `FixedModelChatAICommand.attachments()` when the chat has a preferred model
+   fixed (`DefaultAICommandFactory` returns the latter shape in that case).
+   Fallback to `TelegramCommand.attachments()` is used **only** when the AI
+   command does not carry a processed list. Mirrors `SpringAIGateway.java:383-387`.
+   This matters for image-only PDFs: `AIRequestPipeline` renders each PDF page
+   into an IMAGE attachment in `mutableAttachments`, and the agent path must
+   read those rendered pages — not the raw PDF that `toImageMedia()` would
+   discard as non-IMAGE. The fixed-model case is the same flow with a different
+   command shape: skipping the `FixedModelChatAICommand` branch silently regresses
+   to raw PDF bytes whenever the user has a preferred model selected.
+   Chain: `ChatAICommand.attachments()` / `FixedModelChatAICommand.attachments()`
+   → `AgentRequest.attachments()` → `AgentContext.getAttachments()` → first
+   `UserMessage.media` in the prompt. Any link broken silently degrades vision
+   queries to text-only.
 2. **Only IMAGE-typed attachments cross the boundary.** PDFs and other documents
    go through the gateway RAG path (`SpringDocumentPreprocessor`); they are
    intentionally filtered out of the agent prompt.

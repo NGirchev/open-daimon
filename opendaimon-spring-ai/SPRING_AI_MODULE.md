@@ -365,12 +365,22 @@ When a Telegram message carrying a photo + caption (or a multimodal REST payload
 is routed to the agent path, the image bytes propagate through:
 
 ```
-TelegramCommand.attachments()
+ChatAICommand.attachments() / FixedModelChatAICommand.attachments()  // pipeline-processed list
+  └─ fallback: TelegramCommand.attachments()                          // only when the AI command carries no processed list
   → AgentRequest.attachments()              // 7-arg canonical record ctor; null → List.of()
   → AgentContext.getAttachments()           // populated by ReActAgentExecutor.execute/executeStream
   → SpringAgentLoopActions.buildInitialUserMessage(ctx)
   → UserMessage.builder().text(...).media(toImageMedia(attachments)).build()
 ```
+
+The agent path inspects **both** AI-command shapes (mirroring `SpringAIGateway:383-387`):
+`DefaultAICommandFactory` returns a `FixedModelChatAICommand` when the chat has a
+preferred model fixed and a `ChatAICommand` otherwise; in both cases the pipeline
+parks the processed attachment list on the AI command itself, not on
+`TelegramCommand`. For an image-only PDF `AIRequestPipeline` renders each page into
+an IMAGE attachment in `mutableAttachments`, and the agent must consume those
+rendered pages — the raw PDF on `TelegramCommand.attachments()` would be discarded
+by `toImageMedia()` as non-IMAGE.
 
 `toImageMedia` filters by `AttachmentType.IMAGE`, validates non-null/non-blank
 mime + non-empty data, and constructs `org.springframework.ai.content.Media` from
