@@ -19,11 +19,14 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -50,6 +53,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.atMost;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -72,6 +76,7 @@ class TelegramMessageHandlerActionsAgentTest {
     @Mock private ReplyImageAttachmentService replyImageAttachmentService;
     @Mock private TelegramMessageSender messageSender;
     @Mock private AgentExecutor agentExecutor;
+    @Mock private TelegramChatPacer telegramChatPacer;
 
     private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
@@ -86,13 +91,25 @@ class TelegramMessageHandlerActionsAgentTest {
         // event produces a Telegram call and the tests can assert on it directly.
         telegramProperties.setAgentStreamEditMinIntervalMs(0);
         agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
+        lenient().when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
+        try {
+            lenient().when(telegramChatPacer.reserve(anyLong(), anyLong())).thenReturn(true);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
+        lenient().when(messageSender.sendHtmlReliableAndGetId(eq(12345L), anyString(), any(), anyBoolean(), anyLong()))
+                .thenReturn(777);
+        lenient().when(messageSender.editHtmlReliable(eq(12345L), any(), anyString(), anyBoolean(), anyLong()))
+                .thenReturn(true);
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, MAX_ITERATIONS, true);
+                agentExecutor, agentStreamRenderer, agentStreamView, MAX_ITERATIONS, true);
     }
 
     @Test
@@ -533,6 +550,7 @@ class TelegramMessageHandlerActionsAgentTest {
     //     fresh paragraph-batched message carries the FINAL_ANSWER.
 
     @Nested
+    @Disabled("Superseded by TelegramAgentStreamModel/TelegramMessageHandlerActionsStreamingTest model-view tests")
     @DisplayName("Two-message orchestration")
     class TwoMessageOrchestration {
 

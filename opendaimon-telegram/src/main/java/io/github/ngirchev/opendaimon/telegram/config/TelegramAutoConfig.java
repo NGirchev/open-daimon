@@ -75,4 +75,5 @@ public class TelegramAutoConfig {
                                                      ObjectProvider<TelegramBotMenuService> menuServiceProvider) {
         return new TelegramBotRegistrar(telegramBot, menuServiceProvider);
     }
+
 }

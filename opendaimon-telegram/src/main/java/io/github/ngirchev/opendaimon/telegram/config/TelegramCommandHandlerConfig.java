@@ -31,6 +31,9 @@ import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.InMemoryModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacerImpl;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
@@ -215,14 +218,31 @@ public class TelegramCommandHandlerConfig {
     public TelegramMessageSender telegramMessageSender(
             ObjectProvider<TelegramBot> telegramBotProvider,
             MessageLocalizationService messageLocalizationService,
-            PersistentKeyboardService persistentKeyboardService) {
-        return new TelegramMessageSender(telegramBotProvider, messageLocalizationService, persistentKeyboardService);
+            PersistentKeyboardService persistentKeyboardService,
+            TelegramChatPacer telegramChatPacer) {
+        return new TelegramMessageSender(telegramBotProvider, messageLocalizationService,
+                persistentKeyboardService, telegramChatPacer);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TelegramChatPacer telegramChatPacer(TelegramProperties telegramProperties) {
+        return new TelegramChatPacerImpl(telegramProperties);
     }
 
     @Bean
     @ConditionalOnMissingBean
     public TelegramAgentStreamRenderer telegramAgentStreamRenderer(ObjectMapper objectMapper) {
         return new TelegramAgentStreamRenderer(objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TelegramAgentStreamView telegramAgentStreamView(
+            TelegramMessageSender telegramMessageSender,
+            TelegramChatPacer telegramChatPacer,
+            TelegramProperties telegramProperties) {
+        return new TelegramAgentStreamView(telegramMessageSender, telegramChatPacer, telegramProperties);
     }
 
     @Bean
@@ -242,6 +262,7 @@ public class TelegramCommandHandlerConfig {
             TelegramMessageSender telegramMessageSender,
             ObjectProvider<AgentExecutor> agentExecutorProvider,
             TelegramAgentStreamRenderer agentStreamRenderer,
+            TelegramAgentStreamView agentStreamView,
             // No default here — all defaults live in application.yml only (see coding-style.md)
             @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations,
             @Value("${open-daimon.agent.enabled:false}") boolean defaultAgentModeEnabled) {
@@ -250,7 +271,7 @@ public class TelegramCommandHandlerConfig {
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, telegramMessageSender,
-                agentExecutorProvider.getIfAvailable(), agentStreamRenderer, agentMaxIterations,
+                agentExecutorProvider.getIfAvailable(), agentStreamRenderer, agentStreamView, agentMaxIterations,
                 defaultAgentModeEnabled);
     }
 
@@ -299,9 +320,10 @@ public class TelegramCommandHandlerConfig {
             ObjectProvider<TelegramBot> telegramBotProvider,
             TelegramProperties telegramProperties,
             MessageLocalizationService messageLocalizationService,
-            io.github.ngirchev.opendaimon.common.repository.UserRepository userRepository) {
+            io.github.ngirchev.opendaimon.common.repository.UserRepository userRepository,
+            TelegramChatPacer telegramChatPacer) {
         return new PersistentKeyboardService(coreCommonProperties, telegramBotProvider,
-                telegramProperties, messageLocalizationService, userRepository);
+                telegramProperties, messageLocalizationService, userRepository, telegramChatPacer);
     }
 
     @Bean

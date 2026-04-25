@@ -24,6 +24,8 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHa
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -103,7 +105,7 @@ class MessageTelegramCommandHandlerTest {
     private MessageTelegramCommandHandler handler;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
         messageSource.setBasenames("classpath:messages/common", "classpath:messages/telegram");
         messageSource.setDefaultEncoding("UTF-8");
@@ -117,16 +119,21 @@ class MessageTelegramCommandHandlerTest {
         ObjectProvider<TelegramBot> botProvider = mock(ObjectProvider.class);
         when(botProvider.getObject()).thenReturn(telegramBot);
         when(botProvider.getIfAvailable()).thenReturn(telegramBot);
+        TelegramChatPacer telegramChatPacer = mock(TelegramChatPacer.class);
+        when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
+        when(telegramChatPacer.reserve(anyLong(), anyLong())).thenReturn(true);
 
         TelegramMessageSender messageSender = new TelegramMessageSender(
-                botProvider, messageLocalizationService, persistentKeyboardService);
+                botProvider, messageLocalizationService, persistentKeyboardService, telegramChatPacer);
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
 
         TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                null, null, 10, false);
+                null, null, agentStreamView, 10, false);
 
         ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
                 MessageHandlerFsmFactory.create(actions);

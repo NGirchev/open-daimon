@@ -10,6 +10,8 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
@@ -26,6 +28,7 @@ import java.lang.reflect.Method;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -71,6 +74,7 @@ class TelegramMessageHandlerActionsTentativeEditTest {
     @Mock private ReplyImageAttachmentService replyImageAttachmentService;
     @Mock private TelegramMessageSender messageSender;
     @Mock private AgentExecutor agentExecutor;
+    @Mock private TelegramChatPacer telegramChatPacer;
 
     private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
@@ -84,13 +88,21 @@ class TelegramMessageHandlerActionsTentativeEditTest {
         // every test invokes forceFlush=true so the debounce is bypassed regardless.
         telegramProperties.setAgentStreamEditMinIntervalMs(0);
         agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
+        lenient().when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
+        try {
+            lenient().when(telegramChatPacer.reserve(anyLong(), anyLong())).thenReturn(true);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, MAX_ITERATIONS, true);
+                agentExecutor, agentStreamRenderer, agentStreamView, MAX_ITERATIONS, true);
     }
 
     @Test

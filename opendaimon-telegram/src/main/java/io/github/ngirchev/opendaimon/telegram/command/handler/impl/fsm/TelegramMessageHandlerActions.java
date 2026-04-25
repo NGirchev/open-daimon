@@ -34,7 +34,9 @@ import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.RenderedUpdate;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamModel;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramHtmlEscaper;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramProgressBatcher;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
@@ -153,6 +155,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     private final AgentExecutor agentExecutor;
     /** Renderer for agent stream events — null when {@code agentExecutor} is null. */
     private final TelegramAgentStreamRenderer agentStreamRenderer;
+    /** Telegram stream view — sends snapshots of the provider-neutral stream model. */
+    private final TelegramAgentStreamView agentStreamView;
     /** Agent max iterations — only used when {@code agentExecutor} is non-null. */
     private final int agentMaxIterations;
     /**
@@ -353,8 +357,6 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             AgentStrategy strategy = hasToolAccess ? AgentStrategy.AUTO : AgentStrategy.SIMPLE;
             log.info("FSM generateAgentResponse: capabilities={}, strategy={}", capabilities, strategy);
 
-            ensureStatusMessage(ctx);
-
             // Prefer pipeline-prepared text (RAG-augmented, document-only fallback,
             // attachment-aware) over the raw Telegram text, so agent mode matches
             // the normal gateway path for document/RAG follow-up scenarios.
@@ -395,56 +397,45 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     agentAttachments
             );
 
-            // Stream agent events — two-message UX:
-            //   status  ← iteration log (thinking / tool-call / observation / error)
-            //   answer  ← tentative final answer bubble (may be rolled back on TOOL_CALL)
-            // concatMap (not flatMap) preserves event order: tool_call/observation sequences
-            // must not interleave. handleAgentStreamEvent returns Mono<Void>, whose completion
-            // (including any Mono.delay throttle wait) is awaited before the next event is
-            // processed. thenReturn(event) re-emits the original event so blockLast() can
-            // capture the terminal event (FINAL_ANSWER / MAX_ITERATIONS / ERROR).
+            TelegramAgentStreamModel streamModel = new TelegramAgentStreamModel(
+                    isThinkingSilent(ctx), isThinkingPreserved(ctx));
+            syncAgentStreamContext(ctx, streamModel);
+            agentStreamView.flush(ctx, streamModel, true);
+
+            // Stream agent events through a provider-neutral model first. PARTIAL_ANSWER
+            // chunks are candidates inside that model until the terminal event confirms
+            // that the current iteration is the user-visible answer. Telegram receives
+            // periodic snapshots of message1 (status) and only gets message2 after the
+            // final answer is known.
             AgentStreamEvent lastEvent = agentExecutor.executeStream(request)
-                    .concatMap(event -> handleAgentStreamEvent(ctx, event).thenReturn(event))
+                    .concatMap(event -> handleAgentStreamModelEvent(ctx, streamModel, event).thenReturn(event))
                     .onErrorResume(err -> {
-                        log.warn("FSM agentStreamEvent: stream errored — finalizing buffers", err);
-                        handleStreamError(ctx, err);
+                        log.warn("FSM agentStreamEvent: stream errored — finalizing model", err);
+                        String msg = err.getMessage() != null ? err.getMessage() : err.getClass().getSimpleName();
+                        streamModel.apply(AgentStreamEvent.error(msg, streamModel.currentIteration()));
+                        syncAgentStreamContext(ctx, streamModel);
+                        agentStreamView.flush(ctx, streamModel, true);
                         return reactor.core.publisher.Flux.empty();
                     })
                     .blockLast();
 
-            finalizeAfterStream(ctx, lastEvent);
+            agentStreamView.flush(ctx, streamModel, true);
 
             extractAgentResult(ctx, lastEvent);
 
             if (ctx.hasResponse()) {
                 String answerText = ctx.getResponseText().orElse("");
-                if (ctx.isTentativeAnswerActive()) {
-                    // Drain-replace-drain: the streamed tentative-answer buffer holds raw model
-                    // output, but `answerText` is the sanitized final text (e.g. dead links
-                    // stripped by UrlLivenessChecker upstream). First drain any pending rotation
-                    // of the streamed buffer, then replace the buffer's content with the
-                    // sanitized text so the final bubble edit renders the clean version.
-                    forceFinalAnswerEdit(ctx);
-                    if (!answerText.isEmpty()) {
-                        StringBuilder buf = ctx.getTentativeAnswerBuffer();
-                        buf.setLength(0);
-                        buf.append(TelegramHtmlEscaper.escape(answerText));
-                        forceFinalAnswerEdit(ctx);
+                if (!answerText.isEmpty()) {
+                    streamModel.confirmAnswer(answerText);
+                    if (!agentStreamView.flushFinal(ctx, streamModel)) {
+                        ctx.setErrorType(MessageHandlerErrorType.TELEGRAM_DELIVERY_FAILED);
+                        ctx.setException(new TelegramDeliveryFailedException(
+                                "Final answer could not be delivered to Telegram"));
+                        log.error("FSM generateAgentResponse: final answer delivery failed for chatId={}", chatId);
+                        return;
                     }
-                    ctx.setTentativeAnswerActive(false);
-                    log.info("FSM generateAgentResponse: final answer streamed via tentative bubble, textLength={}",
+                    log.info("FSM generateAgentResponse: final answer delivered via Telegram stream view, textLength={}",
                             answerText.length());
-                } else if (ctx.getTentativeAnswerMessageId() != null
-                        && ctx.getTentativeAnswerBuffer().length() > 0) {
-                    // Tentative bubble exists but was never promoted to active (shouldn't happen)
-                    // — still force a final edit so nothing is lost.
-                    forceFinalAnswerEdit(ctx);
-                } else if (!answerText.isEmpty()) {
-                    // No PARTIAL_ANSWER chunks ever opened a tentative bubble — send the
-                    // final answer now as a fresh, paragraph-split message.
-                    log.info("FSM generateAgentResponse: sending final answer as fresh message, textLength={}",
-                            answerText.length());
-                    sendTextByParagraphs(answerText, html -> messageSender.sendHtml(chatId, html, null));
                 }
                 ctx.setAlreadySentInStream(true);
             } else {
@@ -453,6 +444,35 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         } catch (Exception e) {
             handleGeneralException(ctx, e);
         }
+    }
+
+    private Mono<Void> handleAgentStreamModelEvent(MessageHandlerContext ctx,
+                                                   TelegramAgentStreamModel streamModel,
+                                                   AgentStreamEvent event) {
+        if (event.type() == AgentStreamEvent.EventType.PARTIAL_ANSWER) {
+            log.debug("FSM agentStreamEvent: type={}, iteration={}, contentLength={}",
+                    event.type(), event.iteration(),
+                    event.content() != null ? event.content().length() : 0);
+        } else {
+            log.info("FSM agentStreamEvent: type={}, iteration={}, contentLength={}",
+                    event.type(), event.iteration(),
+                    event.content() != null ? event.content().length() : 0);
+        }
+        if (event.type() == AgentStreamEvent.EventType.METADATA && event.content() != null) {
+            ctx.setResponseModel(event.content());
+            return Mono.empty();
+        }
+        streamModel.apply(event);
+        syncAgentStreamContext(ctx, streamModel);
+        agentStreamView.flush(ctx, streamModel);
+        return Mono.empty();
+    }
+
+    private void syncAgentStreamContext(MessageHandlerContext ctx, TelegramAgentStreamModel streamModel) {
+        ctx.setCurrentIteration(streamModel.currentIteration());
+        ctx.setToolCallSeenThisIteration(streamModel.isToolCallSeenThisIteration());
+        ctx.getStatusBuffer().setLength(0);
+        ctx.getStatusBuffer().append(streamModel.statusHtml());
     }
 
     /**
@@ -737,6 +757,15 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
         User owner = resolveOwner(ctx, user);
         return owner.getThinkingMode() == ThinkingMode.SILENT;
+    }
+
+    private boolean isThinkingPreserved(MessageHandlerContext ctx) {
+        TelegramUser user = ctx.getTelegramUser();
+        if (user == null) {
+            return false;
+        }
+        User owner = resolveOwner(ctx, user);
+        return owner.getThinkingMode() == ThinkingMode.SHOW_ALL;
     }
 
     private void ensureStatusMessage(MessageHandlerContext ctx) {
