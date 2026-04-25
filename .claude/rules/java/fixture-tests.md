@@ -11,6 +11,7 @@ paths:
 - `auto-mode-model-selection.md` -> `AutoModeModelSelectionFixtureIT`
 - `text-pdf-rag.md` -> `TextPdfRagFixtureIT`
 - `image-pdf-vision-cache.md` -> `ImagePdfVisionCacheFixtureIT`
+- `agent-image-attachment.md` -> `TelegramAgentImageFixtureIT`
 
 Before modifying fixture tests, read the corresponding use case doc from `docs/usecases/`.
 

@@ -13,6 +13,8 @@ import io.github.ngirchev.opendaimon.common.agent.AgentLoopActions;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
+import io.github.ngirchev.opendaimon.common.model.Attachment;
+import io.github.ngirchev.opendaimon.common.model.AttachmentType;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -27,12 +29,15 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.content.Media;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.util.MimeTypeUtils;
 import reactor.core.publisher.Flux;
 
 import java.net.URI;
@@ -150,7 +155,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                 String systemPrompt = AgentPromptBuilder.buildSystemPrompt(ctx.getMetadata());
                 messages.add(new SystemMessage(systemPrompt));
                 loadConversationHistory(ctx, messages);
-                messages.add(new UserMessage(AgentPromptBuilder.buildUserMessage(ctx)));
+                messages.add(buildInitialUserMessage(ctx));
             }
 
             List<ToolCallback> effectiveCallbacks = resolveEffectiveTools(ctx);
@@ -838,5 +843,50 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             ctx.putExtra(KEY_CONVERSATION_HISTORY, history);
         }
         return history;
+    }
+
+    /**
+     * Builds the first {@link UserMessage} of the agent prompt, attaching image
+     * {@link Media} from {@link AgentContext#getAttachments()} when the user uploaded
+     * any image-typed attachment (caption + photo flow in Telegram, multimodal REST
+     * payloads, etc.). The list lives in {@code KEY_CONVERSATION_HISTORY} for the
+     * lifetime of one execution, so attaching media once on the first iteration is
+     * sufficient — subsequent iterations append assistant / tool messages but the
+     * original first user message (with media) stays in place for every prompt
+     * rebuild within {@link #think(AgentContext)}.
+     *
+     * <p>Document/non-image attachments are intentionally ignored here; document RAG
+     * processing happens upstream in the gateway path and produces text-only context.
+     */
+    private static UserMessage buildInitialUserMessage(AgentContext ctx) {
+        String text = AgentPromptBuilder.buildUserMessage(ctx);
+        List<Media> mediaList = toImageMedia(ctx.getAttachments());
+        if (mediaList.isEmpty()) {
+            return new UserMessage(text);
+        }
+        log.debug("Attaching {} image media to first user message in agent prompt", mediaList.size());
+        return UserMessage.builder()
+                .text(text)
+                .media(mediaList)
+                .build();
+    }
+
+    /**
+     * Converts image-typed {@link Attachment}s to Spring AI {@link Media}. Mirrors the
+     * helper used by {@code SpringDocumentPreprocessor} / {@code SpringAIGateway} so
+     * the agent path produces media in the exact same shape the gateway path does.
+     */
+    private static List<Media> toImageMedia(List<Attachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return List.of();
+        }
+        return attachments.stream()
+                .filter(a -> a.type() == AttachmentType.IMAGE)
+                .filter(a -> a.data() != null && a.data().length > 0)
+                .filter(a -> a.mimeType() != null && !a.mimeType().isBlank())
+                .map(a -> new Media(
+                        MimeTypeUtils.parseMimeType(a.mimeType()),
+                        new ByteArrayResource(a.data())))
+                .toList();
     }
 }

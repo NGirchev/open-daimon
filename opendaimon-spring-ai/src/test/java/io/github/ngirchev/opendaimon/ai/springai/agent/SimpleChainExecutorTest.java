@@ -168,8 +168,60 @@ class SimpleChainExecutorTest {
                 .executeRequest(anyLong(), any(Callable.class));
     }
 
+    @Test
+    void shouldAttachImageMediaToUserMessageWhenAttachmentsHasImage() {
+        // Regression guard: SimpleChainExecutor must mirror SpringAgentLoopActions and pass
+        // image attachments as Media on the user message. Otherwise vision-capable models
+        // routed through the SIMPLE strategy (e.g. caption-only photo with no tools) reach
+        // the LLM with text-only prompt and answer "no image was attached".
+        when(chatModel.call(any(org.springframework.ai.chat.prompt.Prompt.class)))
+                .thenReturn(chatResponse("Looks like a cat."));
+
+        executor.execute(requestWithImage("what is this?", "image/png", new byte[]{1, 2, 3}));
+
+        org.mockito.ArgumentCaptor<org.springframework.ai.chat.prompt.Prompt> captor =
+                org.mockito.ArgumentCaptor.forClass(org.springframework.ai.chat.prompt.Prompt.class);
+        verify(chatModel).call(captor.capture());
+        org.springframework.ai.chat.messages.UserMessage userMsg =
+                captor.getValue().getInstructions().stream()
+                        .filter(m -> m.getMessageType() == org.springframework.ai.chat.messages.MessageType.USER)
+                        .map(org.springframework.ai.chat.messages.UserMessage.class::cast)
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(userMsg.getMedia()).hasSize(1);
+        assertThat(userMsg.getMedia().getFirst().getMimeType().toString()).isEqualTo("image/png");
+    }
+
+    @Test
+    void shouldFallBackToPlainUserMessageWhenAttachmentsEmpty() {
+        when(chatModel.call(any(org.springframework.ai.chat.prompt.Prompt.class)))
+                .thenReturn(chatResponse("Hi."));
+
+        executor.execute(request("ping"));
+
+        org.mockito.ArgumentCaptor<org.springframework.ai.chat.prompt.Prompt> captor =
+                org.mockito.ArgumentCaptor.forClass(org.springframework.ai.chat.prompt.Prompt.class);
+        verify(chatModel).call(captor.capture());
+        org.springframework.ai.chat.messages.UserMessage userMsg =
+                captor.getValue().getInstructions().stream()
+                        .filter(m -> m.getMessageType() == org.springframework.ai.chat.messages.MessageType.USER)
+                        .map(org.springframework.ai.chat.messages.UserMessage.class::cast)
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(userMsg.getMedia()).isEmpty();
+    }
+
     private static AgentRequest request(String task) {
         return new AgentRequest(task, "conv-1", Map.of(), 5, Set.of(), AgentStrategy.SIMPLE);
+    }
+
+    private static AgentRequest requestWithImage(String task, String mime, byte[] data) {
+        io.github.ngirchev.opendaimon.common.model.Attachment attachment =
+                new io.github.ngirchev.opendaimon.common.model.Attachment(
+                        "photo/1", mime, "photo.png", data.length,
+                        io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE, data);
+        return new AgentRequest(task, "conv-1", Map.of(), 5, Set.of(),
+                AgentStrategy.SIMPLE, List.of(attachment));
     }
 
     private static ChatResponse chatResponse(String text) {

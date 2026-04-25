@@ -359,6 +359,61 @@ tentative-answer bubble is rolled back when leaked tool markup appears. Do not t
 `StreamingAnswerFilter` as the sole defense against tool-call leakage into the user
 answer — downstream consumers that render model text to users must scan too.
 
+### Image attachments — agent path
+
+When a Telegram message carrying a photo + caption (or a multimodal REST payload)
+is routed to the agent path, the image bytes propagate through:
+
+```
+ChatAICommand.attachments() / FixedModelChatAICommand.attachments()  // pipeline-processed list
+  └─ fallback: TelegramCommand.attachments()                          // only when the AI command carries no processed list
+  → AgentRequest.attachments()              // 7-arg canonical record ctor; null → List.of()
+  → AgentContext.getAttachments()           // populated by ReActAgentExecutor.execute/executeStream
+  → SpringAgentLoopActions.buildInitialUserMessage(ctx)
+  → UserMessage.builder().text(...).media(toImageMedia(attachments)).build()
+```
+
+The agent path inspects **both** AI-command shapes (mirroring `SpringAIGateway:383-387`):
+`DefaultAICommandFactory` returns a `FixedModelChatAICommand` when the chat has a
+preferred model fixed and a `ChatAICommand` otherwise; in both cases the pipeline
+parks the processed attachment list on the AI command itself, not on
+`TelegramCommand`. For an image-only PDF `AIRequestPipeline` renders each page into
+an IMAGE attachment in `mutableAttachments`, and the agent must consume those
+rendered pages — the raw PDF on `TelegramCommand.attachments()` would be discarded
+by `toImageMedia()` as non-IMAGE.
+
+`toImageMedia` filters by `AttachmentType.IMAGE`, validates non-null/non-blank
+mime + non-empty data, and constructs `org.springframework.ai.content.Media` from
+a `ByteArrayResource` — the exact same shape `SpringDocumentPreprocessor` produces on
+the gateway path, so vision-capable models receive identical multimodal prompts
+regardless of which path was chosen. Document-typed attachments (PDF, DOCX, …) are
+intentionally filtered out here; their RAG processing happens upstream on the
+gateway path and arrives at the agent — when it arrives — as text-only context.
+
+**Multi-iteration invariant.** The ReAct loop reuses one `messages` list across
+`think()` iterations via the `KEY_CONVERSATION_HISTORY` extras key. The first
+`UserMessage(media)` is appended once when `messages.isEmpty()`; subsequent
+iterations append assistant + tool messages without rebuilding from scratch, so
+the original media survives every subsequent prompt rebuild. If a future refactor
+reloads `messages` from a persisted store on each iteration, media must be
+re-attached from `ctx.getAttachments()` — otherwise the model loses image context
+after the first tool call (which was the original prod bug shape: VISION model
+selected, but `Agent think: raw prompt messages` showed text only).
+
+**Tool-result UserMessages stay plain-text.** The follow-up `UserMessage` created
+to deliver `ToolResponseMessage` content is built without media; the image is
+already in the conversation context above it.
+
+`SimpleChainExecutor` (strategy=SIMPLE, single LLM call without tools) mirrors the
+same `buildUserMessage`-with-media helper so caption-only photos in non-ReAct
+flows also work. `PlanAndExecuteAgentExecutor` does **not** propagate attachments
+to plan sub-tasks by default (sub-steps are textual decompositions); a TODO marks
+where to revisit if a future product requirement needs an image to flow into a
+specific step.
+
+See `docs/usecases/agent-image-attachment.md` and the use-case fixture
+`TelegramAgentImageFixtureIT`.
+
 ### Tool failure detection
 
 Spring AI's `@Tool` contract is **string-typed**: tool methods return a plain `String`

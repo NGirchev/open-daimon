@@ -97,6 +97,9 @@ public class DefaultAgentOrchestrator implements AgentOrchestrator {
                     ? step.maxIterations()
                     : defaultMaxIterations;
 
+            // Orchestration steps are textual plan decompositions — they do not inherit user
+            // image attachments (mirrors the PlanAndExecuteAgentExecutor decision). The 5-arg
+            // ctor resolves attachments to List.of(); see docs/usecases/agent-image-attachment.md.
             AgentRequest request = new AgentRequest(
                     enrichedTask,
                     conversationId,
