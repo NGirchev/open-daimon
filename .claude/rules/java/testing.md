@@ -10,6 +10,14 @@ paths:
 2. Target 80%+ line coverage (JaCoCo)
 3. Focus on service and domain logic — skip trivial getters/config classes
 
+## Mandatory Test Coverage
+
+Every bug fix and every new feature is incomplete without a test that pins the new behavior:
+
+- **Bug fix** — add a regression test that fails on the original code and passes after the fix. Place it next to the existing tests of the modified service, name it `shouldDoXWhenY` describing the corrected behavior, and reference the originating review comment / issue in a brief comment so the intent survives future refactors.
+- **New feature** — add unit tests for each new public method on the service layer. If the feature carries data into an LLM (vision, RAG, tool-calling, conversation memory), follow the layering rule below: unit + fixture IT minimum, plus a manual IT when an LLM round-trip is the only proof the wiring works.
+- **No test, no merge.** A change that only edits production code without test coverage is not finished — even if it compiles and the manual smoke check passes. The test is the artifact that prevents the same bug from coming back six months later when the surrounding code has shifted.
+
 ## Project Conventions
 
 - **JUnit 5** + **AssertJ** + **Mockito** + **Testcontainers**

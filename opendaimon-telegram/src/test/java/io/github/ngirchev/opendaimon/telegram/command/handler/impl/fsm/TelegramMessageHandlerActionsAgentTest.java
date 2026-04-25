@@ -8,6 +8,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
+import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
@@ -338,6 +339,64 @@ class TelegramMessageHandlerActionsAgentTest {
         AgentRequest request = captor.getValue();
         assertThat(request.attachments())
                 .as("agent path must use the pipeline-processed image pages, not the raw PDF")
+                .hasSize(1)
+                .first()
+                .satisfies(a -> {
+                    assertThat(a.type()).isEqualTo(
+                            io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE);
+                    assertThat(a.mimeType()).isEqualTo("image/png");
+                    assertThat(a.filename()).isEqualTo("scan-page-1.png");
+                });
+    }
+
+    @Test
+    @DisplayName("generateResponse prefers FixedModelChatAICommand processed attachments over raw command attachments")
+    void shouldPreferAiCommandAttachmentsOverRawCommandAttachmentsWhenAiCommandIsFixedModelChatAICommand() {
+        // Regression guard mirroring the ChatAICommand case for the fixed-model branch:
+        // when a user pinned a preferred model, DefaultAICommandFactory returns a
+        // FixedModelChatAICommand instead of a ChatAICommand. AIRequestPipeline still
+        // renders an image-only PDF page-by-page into IMAGE attachments and parks the
+        // result on the AI command — but on FixedModelChatAICommand.attachments(), not
+        // on TelegramCommand.attachments(). The agent path must inspect this branch
+        // (mirroring SpringAIGateway:383-387), otherwise fixed-model agent runs drop
+        // the rendered pages and pass the original PDF that toImageMedia() discards.
+        TelegramCommand command = mock(TelegramCommand.class);
+        // Intentionally no command.userText() / telegramId() / attachments() stubs:
+        // when the AI command carries the processed payload, the agent path uses
+        // aiCommand.userRole() and aiCommand.attachments() exclusively.
+        io.github.ngirchev.opendaimon.common.model.Attachment renderedPage =
+                new io.github.ngirchev.opendaimon.common.model.Attachment(
+                        "doc/scan-page-1", "image/png", "scan-page-1.png", 2048L,
+                        io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE,
+                        new byte[]{9, 9, 9});
+        FixedModelChatAICommand processedAiCommand = new FixedModelChatAICommand(
+                "openrouter/google/gemini-2.5-flash-preview",
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
+                0.7, 1024, null, "system", "опиши документ", false,
+                new HashMap<>(Map.of(AICommand.THREAD_KEY_FIELD, "test-thread-key",
+                        AICommand.USER_ID_FIELD, "42")),
+                new HashMap<>(),
+                List.of(renderedPage));
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+        metadata.put(AICommand.USER_ID_FIELD, "42");
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        ctx.setMetadata(metadata);
+        ctx.setAiCommand(processedAiCommand);
+        ctx.setModelCapabilities(processedAiCommand.modelCapabilities());
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.finalAnswer("Документ описан", 1));
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        AgentRequest request = captor.getValue();
+        assertThat(request.attachments())
+                .as("agent path must use the pipeline-processed image pages from "
+                        + "FixedModelChatAICommand, not the raw PDF on TelegramCommand")
                 .hasSize(1)
                 .first()
                 .satisfies(a -> {
