@@ -108,10 +108,21 @@ open-daimon:
     get-updates-timeout-seconds: 50
     # Max message length for Telegram (chars). Default 4096 (Telegram Bot API limit). When exceeded, message is split at paragraph boundaries.
     max-message-length: 4096
-    # Minimum interval between editMessageText calls on the same chat during agent streaming (milliseconds).
-    # Prevents Telegram 429 "Too Many Requests" (retry-after up to several minutes) from bursts of edits.
-    # Chunks arriving inside the window update the buffer only; the next chunk after the window flushes in one edit.
+    # UX-only phase pacing between paced flushes on the same MessageHandlerContext (milliseconds).
+    # NOT a Telegram-quota throttle — that role belongs to rate-limit (chat-scoped + global) below.
     agent-stream-edit-min-interval-ms: 1000
+    # Outbound rate limiting against Telegram-side quotas. Defaults reflect Telegram FAQ
+    # (1 msg/sec in private chat, 20/min in group, 30/sec global per bot) plus a field-observed
+    # 3.5 sec floor between consecutive edits in a group/supergroup (smaller bursts trigger 429
+    # even before the 20/min quota fires).
+    rate-limit:
+      private-chat-per-second: 1
+      group-chat-per-minute: 20
+      group-chat-min-edit-interval-ms: 3500
+      global-per-second: 30
+      new-bubble-acquire-timeout-ms: 1500
+      default-acquire-timeout-ms: 1000
+      final-edit-max-wait-ms: 5000
     commands:
       start-enabled: true
       role-enabled: true

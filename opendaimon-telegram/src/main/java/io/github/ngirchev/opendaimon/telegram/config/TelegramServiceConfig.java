@@ -32,6 +32,7 @@ import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepo
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramWhitelistRepository;
 import io.github.ngirchev.opendaimon.telegram.service.*;
 import io.github.ngirchev.opendaimon.telegram.service.impl.UserRecentModelServiceImpl;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.context.annotation.Primary;
 
 import java.util.concurrent.Executors;
@@ -236,5 +237,13 @@ public class TelegramServiceConfig {
             UserRecentModelRepository userRecentModelRepository,
             UserRepository userRepository) {
         return new UserRecentModelServiceImpl(userRecentModelRepository, userRepository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TelegramChatRateLimiter telegramChatRateLimiter(
+            TelegramProperties telegramProperties,
+            MeterRegistry meterRegistry) {
+        return new TelegramChatRateLimiterImpl(telegramProperties.getRateLimit(), meterRegistry);
     }
 }

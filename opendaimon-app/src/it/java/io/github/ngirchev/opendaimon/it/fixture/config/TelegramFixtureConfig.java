@@ -314,15 +314,24 @@ public class TelegramFixtureConfig {
     }
 
     @Bean
+    public io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiter telegramChatRateLimiter(
+            TelegramProperties telegramProperties,
+            io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        return new io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiterImpl(
+                telegramProperties.getRateLimit(), meterRegistry);
+    }
+
+    @Bean
     public PersistentKeyboardService persistentKeyboardService(
             CoreCommonProperties coreCommonProperties,
             ObjectProvider<TelegramBot> telegramBotProvider,
             TelegramProperties telegramProperties,
             MessageLocalizationService messageLocalizationService,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiter rateLimiter) {
         return new PersistentKeyboardService(
                 coreCommonProperties, telegramBotProvider,
-                telegramProperties, messageLocalizationService, userRepository);
+                telegramProperties, messageLocalizationService, userRepository, rateLimiter);
     }
 
     @Bean
@@ -348,9 +357,12 @@ public class TelegramFixtureConfig {
             TelegramProperties telegramProperties,
             ChatSettingsService chatSettingsService,
             PersistentKeyboardService persistentKeyboardService,
-            ReplyImageAttachmentService replyImageAttachmentService) {
+            ReplyImageAttachmentService replyImageAttachmentService,
+            io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiter rateLimiter,
+            io.micrometer.core.instrument.MeterRegistry meterRegistry) {
         TelegramMessageSender messageSender = new TelegramMessageSender(
-                telegramBotProvider, messageLocalizationService, persistentKeyboardService);
+                telegramBotProvider, messageLocalizationService, persistentKeyboardService,
+                telegramProperties, rateLimiter);
         TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService, telegramMessageService,
                 aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
@@ -365,7 +377,8 @@ public class TelegramFixtureConfig {
                 handlerFsm,
                 telegramMessageService,
                 telegramProperties,
-                persistentKeyboardService);
+                persistentKeyboardService,
+                meterRegistry);
     }
 
     /**

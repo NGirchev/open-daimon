@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.telegram.config;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -106,18 +107,30 @@ public class TelegramProperties {
     private Integer maxMessageLength;
 
     /**
-     * Minimum interval between consecutive {@code editMessageText} calls on the
-     * same chat for agent streaming (milliseconds). Telegram Bot API throttles
-     * edits at roughly 1 per second per chat; bursts trigger 429 "Too Many
-     * Requests" with long retry windows. A chunk arriving within the window
-     * updates the in-memory buffer but skips the network call — the next chunk
-     * after the window expires flushes the accumulated text in one edit. Stream
-     * termination forces a final flush regardless of the window.
+     * Minimum interval between consecutive paced phase-transition flushes on the
+     * same {@code MessageHandlerContext} for agent streaming (milliseconds).
+     *
+     * <p><strong>UX phase pacing, not Telegram quota enforcement.</strong> Real
+     * Telegram-quota rate limiting is delegated to {@code TelegramChatRateLimiter}
+     * (chat-scoped + global). This per-context throttle just smooths visual
+     * "jumps" between phases (think → tool call → observation) so the user has
+     * time to register each state — bypassing it does not produce a 429, but the
+     * stream looks jittery.
      */
     @NotNull(message = "agentStreamEditMinIntervalMs is required")
     @Min(value = 0, message = "agentStreamEditMinIntervalMs must be >= 0")
     @Max(value = 10000, message = "agentStreamEditMinIntervalMs must be <= 10000")
     private Integer agentStreamEditMinIntervalMs;
+
+    /**
+     * Outbound rate limiting against Telegram-side quotas. Applied to every
+     * outgoing operation by {@code TelegramChatRateLimiter}. See
+     * {@code TELEGRAM_MODULE.md} §"Outbound rate limiting" for the source of
+     * the numerical defaults (Telegram FAQ + field observations).
+     */
+    @NotNull(message = "rateLimit is required")
+    @Valid
+    private RateLimit rateLimit;
 
     @Getter
     @Setter
@@ -201,6 +214,79 @@ public class TelegramProperties {
         private boolean requireExplicitLink = true;
     }
     
+    @Getter
+    @Setter
+    @Validated
+    public static class RateLimit {
+
+        /**
+         * Per-chat capacity for private chats per second (Telegram FAQ:
+         * "avoid sending more than one message per second" in a single chat).
+         */
+        @NotNull(message = "privateChatPerSecond is required")
+        @Min(value = 1, message = "privateChatPerSecond must be >= 1")
+        @Max(value = 10, message = "privateChatPerSecond must be <= 10")
+        private Integer privateChatPerSecond;
+
+        /**
+         * Per-chat capacity for group/supergroup chats per minute (Telegram FAQ:
+         * "bots are not be able to send more than 20 messages per minute" in a group).
+         */
+        @NotNull(message = "groupChatPerMinute is required")
+        @Min(value = 1, message = "groupChatPerMinute must be >= 1")
+        @Max(value = 60, message = "groupChatPerMinute must be <= 60")
+        private Integer groupChatPerMinute;
+
+        /**
+         * Practical floor between consecutive edits in a group/supergroup
+         * (milliseconds). Field observation: even below 20/min, edits at less
+         * than ~3 sec apart trigger 429 with long retry windows.
+         */
+        @NotNull(message = "groupChatMinEditIntervalMs is required")
+        @Min(value = 0, message = "groupChatMinEditIntervalMs must be >= 0")
+        @Max(value = 30000, message = "groupChatMinEditIntervalMs must be <= 30000")
+        private Integer groupChatMinEditIntervalMs;
+
+        /**
+         * Global per-bot ceiling (Telegram FAQ: "30 messages per second" total
+         * across all chats). Applied as a sliding window of 1 second.
+         */
+        @NotNull(message = "globalPerSecond is required")
+        @Min(value = 1, message = "globalPerSecond must be >= 1")
+        @Max(value = 30, message = "globalPerSecond must be <= 30")
+        private Integer globalPerSecond;
+
+        /**
+         * Maximum time {@code acquire} blocks while waiting for a slot when
+         * opening a new bubble (sendMessage that returns a message id we want
+         * to keep editing). Past this window the call returns {@code null}.
+         */
+        @NotNull(message = "newBubbleAcquireTimeoutMs is required")
+        @Min(value = 0, message = "newBubbleAcquireTimeoutMs must be >= 0")
+        @Max(value = 10000, message = "newBubbleAcquireTimeoutMs must be <= 10000")
+        private Integer newBubbleAcquireTimeoutMs;
+
+        /**
+         * Default blocking-acquire timeout for non-streaming notifications and
+         * keyboard sends. Past this window the call gives up and logs.
+         */
+        @NotNull(message = "defaultAcquireTimeoutMs is required")
+        @Min(value = 0, message = "defaultAcquireTimeoutMs must be >= 0")
+        @Max(value = 10000, message = "defaultAcquireTimeoutMs must be <= 10000")
+        private Integer defaultAcquireTimeoutMs;
+
+        /**
+         * Total budget {@code editHtmlReliable} / {@code sendHtmlReliableAndGetId}
+         * may spend across acquire+retry to deliver the final agent answer.
+         * On exhaustion the FSM marks the context with
+         * {@code TELEGRAM_DELIVERY_FAILED} so the handler can route to ERROR.
+         */
+        @NotNull(message = "finalEditMaxWaitMs is required")
+        @Min(value = 0, message = "finalEditMaxWaitMs must be >= 0")
+        @Max(value = 60000, message = "finalEditMaxWaitMs must be <= 60000")
+        private Integer finalEditMaxWaitMs;
+    }
+
     @PostConstruct
     public void parseWhitelistExceptions() {
         parseAccessConfig();

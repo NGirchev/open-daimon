@@ -416,14 +416,17 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     // Drain-replace-drain: the streamed tentative-answer buffer holds raw model
                     // output, but `answerText` is the sanitized final text (e.g. dead links
                     // stripped by UrlLivenessChecker upstream). First drain any pending rotation
-                    // of the streamed buffer, then replace the buffer's content with the
-                    // sanitized text so the final bubble edit renders the clean version.
+                    // of the streamed buffer (best-effort — line below will retry with the
+                    // sanitized text), then replace the buffer's content with the sanitized
+                    // text so the final bubble edit renders the clean version.
                     forceFinalAnswerEdit(ctx);
                     if (!answerText.isEmpty()) {
                         StringBuilder buf = ctx.getTentativeAnswerBuffer();
                         buf.setLength(0);
                         buf.append(TelegramHtmlEscaper.escape(answerText));
-                        forceFinalAnswerEdit(ctx);
+                        if (!forceFinalAnswerEdit(ctx)) {
+                            setFinalDeliveryError(ctx);
+                        }
                     }
                     ctx.setTentativeAnswerActive(false);
                     log.info("FSM generateAgentResponse: final answer streamed via tentative bubble, textLength={}",
@@ -432,7 +435,9 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                         && ctx.getTentativeAnswerBuffer().length() > 0) {
                     // Tentative bubble exists but was never promoted to active (shouldn't happen)
                     // — still force a final edit so nothing is lost.
-                    forceFinalAnswerEdit(ctx);
+                    if (!forceFinalAnswerEdit(ctx)) {
+                        setFinalDeliveryError(ctx);
+                    }
                 } else if (!answerText.isEmpty()) {
                     // No PARTIAL_ANSWER chunks ever opened a tentative bubble — send the
                     // final answer now as a fresh, paragraph-split message.
@@ -949,8 +954,82 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
     }
 
-    private void forceFinalAnswerEdit(MessageHandlerContext ctx) {
-        editTentativeAnswer(ctx, /*forceFlush=*/ true);
+    /**
+     * Final flush of the tentative answer bubble. Uses
+     * {@link TelegramMessageSender#editHtmlReliable} (acquire + 429-aware single
+     * retry); on failure falls back to {@link TelegramMessageSender#sendHtmlReliableAndGetId}
+     * to deliver a fresh bubble even if the existing one is blocked.
+     *
+     * <p>Returns {@code true} when content was delivered (or there was nothing
+     * to flush). Returns {@code false} ONLY when there was content but neither
+     * the reliable edit nor the sendMessage fallback delivered it. Callers
+     * decide whether the failure is terminal (set
+     * {@link MessageHandlerErrorType#TELEGRAM_DELIVERY_FAILED} via
+     * {@link #setFinalDeliveryError}) or just a best-effort drain to be
+     * retried by a follow-up call.
+     */
+    private boolean forceFinalAnswerEdit(MessageHandlerContext ctx) {
+        Integer id = ctx.getTentativeAnswerMessageId();
+        if (id == null) {
+            return true;
+        }
+        String renderedHtml = renderTentativeBuffer(ctx);
+        if (renderedHtml.isBlank()) {
+            return true;
+        }
+        Long chatId = ctx.getCommand().telegramId();
+        long maxWaitMs = telegramProperties.getRateLimit().getFinalEditMaxWaitMs();
+
+        // Rotation: buffer would exceed max length. Edit the head into the prev bubble
+        // (best-effort — failure leaves it at its last partial-edit state), open a fresh
+        // bubble for the tail. The tail carries the closing content and MUST be delivered.
+        Optional<String> headOpt = TelegramProgressBatcher.selectContentToFlush(
+                ctx.getTentativeAnswerBuffer(), telegramProperties.getMaxMessageLength());
+        if (headOpt.isPresent()) {
+            messageSender.editHtmlReliable(chatId, id,
+                    AIUtils.convertEscapedMarkdownToHtml(headOpt.get()), false, maxWaitMs);
+            Integer next = messageSender.sendHtmlReliableAndGetId(chatId,
+                    renderTentativeBuffer(ctx), null, false, maxWaitMs);
+            if (next == null) {
+                return false;
+            }
+            ctx.setTentativeAnswerMessageId(next);
+            ctx.markAnswerEdited();
+            return true;
+        }
+
+        // No rotation: edit the current bubble in place.
+        boolean delivered = messageSender.editHtmlReliable(chatId, id, renderedHtml, false, maxWaitMs);
+        if (delivered) {
+            ctx.markAnswerEdited();
+            return true;
+        }
+        // Edit failed — try fresh sendMessage so the user still sees the answer.
+        Integer fallbackId = messageSender.sendHtmlReliableAndGetId(
+                chatId, renderedHtml, null, false, maxWaitMs);
+        if (fallbackId == null) {
+            return false;
+        }
+        log.warn("FSM agentStream: final answer delivered via sendMessage fallback, newId={}", fallbackId);
+        ctx.setTentativeAnswerMessageId(fallbackId);
+        ctx.markAnswerEdited();
+        return true;
+    }
+
+    /**
+     * Marks the FSM context with {@link MessageHandlerErrorType#TELEGRAM_DELIVERY_FAILED}
+     * so the {@code RESPONSE_GENERATED → ERROR} guard fires after the action returns.
+     * Callers invoke this only when {@link #forceFinalAnswerEdit} returns {@code false}
+     * on a path with no follow-up retry (i.e. the user would otherwise see a truncated
+     * bubble or no answer at all).
+     */
+    private void setFinalDeliveryError(MessageHandlerContext ctx) {
+        Long chatId = ctx.getCommand().telegramId();
+        log.error("FSM agentStream: final answer delivery failed for chatId={} after retry+fallback",
+                chatId);
+        ctx.setErrorType(MessageHandlerErrorType.TELEGRAM_DELIVERY_FAILED);
+        ctx.setException(new TelegramDeliveryFailedException(
+                "Final answer could not be delivered after rate-limited retry and sendMessage fallback"));
     }
 
     /**

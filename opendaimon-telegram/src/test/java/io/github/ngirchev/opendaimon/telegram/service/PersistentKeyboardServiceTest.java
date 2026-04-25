@@ -7,6 +7,7 @@ import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.common.repository.UserRepository;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,12 +61,27 @@ class PersistentKeyboardServiceTest {
         user.setPreferredModelId(null);
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user));
 
+        TelegramProperties.RateLimit rl = new TelegramProperties.RateLimit();
+        rl.setPrivateChatPerSecond(10);
+        rl.setGroupChatPerMinute(60);
+        rl.setGroupChatMinEditIntervalMs(0);
+        rl.setGlobalPerSecond(30);
+        rl.setNewBubbleAcquireTimeoutMs(0);
+        rl.setDefaultAcquireTimeoutMs(0);
+        rl.setFinalEditMaxWaitMs(0);
+        telegramProperties.setRateLimit(rl);
+
+        // sendKeyboard is not exercised by this class — buildKeyboardMarkup never calls
+        // the limiter, so no stubbing required (strict-stubs would reject an unused stub).
+        TelegramChatRateLimiter rateLimiter = mock(TelegramChatRateLimiter.class);
+
         service = new PersistentKeyboardService(
                 coreCommonProperties,
                 botProvider,
                 telegramProperties,
                 messageLocalizationService,
-                userRepository);
+                userRepository,
+                rateLimiter);
     }
 
     /**

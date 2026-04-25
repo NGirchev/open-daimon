@@ -28,6 +28,8 @@ import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.util.Map;
 import java.util.Set;
@@ -50,6 +52,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     private final TelegramMessageService telegramMessageService;
     private final TelegramProperties telegramProperties;
     private final PersistentKeyboardService persistentKeyboardService;
+    private final MeterRegistry meterRegistry;
 
     @SuppressWarnings("java:S107")
     public MessageTelegramCommandHandler(
@@ -59,12 +62,14 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm,
             TelegramMessageService telegramMessageService,
             TelegramProperties telegramProperties,
-            PersistentKeyboardService persistentKeyboardService) {
+            PersistentKeyboardService persistentKeyboardService,
+            MeterRegistry meterRegistry) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.handlerFsm = handlerFsm;
         this.telegramMessageService = telegramMessageService;
         this.telegramProperties = telegramProperties;
         this.persistentKeyboardService = persistentKeyboardService;
+        this.meterRegistry = meterRegistry;
     }
 
     @Override
@@ -147,8 +152,23 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             case UNSUPPORTED_CAPABILITY -> handleCapabilityError(ctx, command, message);
             case SUMMARIZATION_FAILED -> handleSummarizationFailed(command, message);
             case EMPTY_RESPONSE -> handleEmptyResponse(ctx, command, message);
+            case TELEGRAM_DELIVERY_FAILED -> handleTelegramDeliveryFailed(ctx, command);
             case GENERAL -> handleGeneralError(ctx, command, message);
         }
+    }
+
+    /**
+     * No user-facing notification: the same chat is rate-limited / unreachable, so a
+     * notification would just compound the 429. Increments a metric so dashboards can
+     * track how often final-answer delivery actually fails after retry+fallback.
+     */
+    private void handleTelegramDeliveryFailed(MessageHandlerContext ctx, TelegramCommand command) {
+        Exception ex = ctx.getException();
+        log.error("FSM agentStream: TELEGRAM_DELIVERY_FAILED for chatId={} — no user notification sent (chat itself is rate-limited)",
+                command.telegramId(), ex);
+        Counter.builder("telegram.delivery.final.failed.count")
+                .register(meterRegistry)
+                .increment();
     }
 
     private void handleEmptyInput(MessageHandlerContext ctx, TelegramCommand command, Message message) {

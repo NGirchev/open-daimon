@@ -215,8 +215,11 @@ public class TelegramCommandHandlerConfig {
     public TelegramMessageSender telegramMessageSender(
             ObjectProvider<TelegramBot> telegramBotProvider,
             MessageLocalizationService messageLocalizationService,
-            PersistentKeyboardService persistentKeyboardService) {
-        return new TelegramMessageSender(telegramBotProvider, messageLocalizationService, persistentKeyboardService);
+            PersistentKeyboardService persistentKeyboardService,
+            TelegramProperties telegramProperties,
+            io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiter rateLimiter) {
+        return new TelegramMessageSender(telegramBotProvider, messageLocalizationService,
+                persistentKeyboardService, telegramProperties, rateLimiter);
     }
 
     @Bean
@@ -272,7 +275,8 @@ public class TelegramCommandHandlerConfig {
             ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm,
             TelegramMessageService telegramMessageService,
             TelegramProperties telegramProperties,
-            PersistentKeyboardService persistentKeyboardService) {
+            PersistentKeyboardService persistentKeyboardService,
+            io.micrometer.core.instrument.MeterRegistry meterRegistry) {
         return new MessageTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
@@ -280,7 +284,8 @@ public class TelegramCommandHandlerConfig {
                 handlerFsm,
                 telegramMessageService,
                 telegramProperties,
-                persistentKeyboardService
+                persistentKeyboardService,
+                meterRegistry
         );
     }
 
@@ -299,9 +304,10 @@ public class TelegramCommandHandlerConfig {
             ObjectProvider<TelegramBot> telegramBotProvider,
             TelegramProperties telegramProperties,
             MessageLocalizationService messageLocalizationService,
-            io.github.ngirchev.opendaimon.common.repository.UserRepository userRepository) {
+            io.github.ngirchev.opendaimon.common.repository.UserRepository userRepository,
+            io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiter rateLimiter) {
         return new PersistentKeyboardService(coreCommonProperties, telegramBotProvider,
-                telegramProperties, messageLocalizationService, userRepository);
+                telegramProperties, messageLocalizationService, userRepository, rateLimiter);
     }
 
     @Bean

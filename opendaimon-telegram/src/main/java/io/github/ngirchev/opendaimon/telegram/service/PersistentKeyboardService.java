@@ -26,17 +26,20 @@ public class PersistentKeyboardService {
     private final TelegramProperties telegramProperties;
     private final MessageLocalizationService messageLocalizationService;
     private final UserRepository userRepository;
+    private final TelegramChatRateLimiter rateLimiter;
 
     public PersistentKeyboardService(CoreCommonProperties coreCommonProperties,
                                      ObjectProvider<TelegramBot> telegramBotProvider,
                                      TelegramProperties telegramProperties,
                                      MessageLocalizationService messageLocalizationService,
-                                     UserRepository userRepository) {
+                                     UserRepository userRepository,
+                                     TelegramChatRateLimiter rateLimiter) {
         this.coreCommonProperties = coreCommonProperties;
         this.telegramBotProvider = telegramBotProvider;
         this.telegramProperties = telegramProperties;
         this.messageLocalizationService = messageLocalizationService;
         this.userRepository = userRepository;
+        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -62,6 +65,11 @@ public class PersistentKeyboardService {
             return;
         }
         try {
+            long timeoutMs = telegramProperties.getRateLimit().getDefaultAcquireTimeoutMs();
+            if (!rateLimiter.acquire(chatId, timeoutMs)) {
+                log.warn("Rate limiter denied keyboard slot for chat {} within default timeout", chatId);
+                return;
+            }
             ReplyKeyboardMarkup markup = buildKeyboardMarkup(userId, thread);
             String statusModelLabel = actualModelName != null
                     ? TelegramCommand.MODEL_KEYBOARD_PREFIX + " " + actualModelName
@@ -74,6 +82,9 @@ public class PersistentKeyboardService {
             markup.setOneTimeKeyboard(false);
             msg.setReplyMarkup(markup);
             telegramBotProvider.getObject().execute(msg);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while waiting for keyboard slot in chat {}", chatId);
         } catch (Exception e) {
             log.warn("Failed to send persistent keyboard to chat {}: {}", chatId, e.getMessage());
         }

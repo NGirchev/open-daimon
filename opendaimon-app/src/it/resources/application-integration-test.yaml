@@ -29,6 +29,14 @@ open-daimon:
     start-message: Hello from integration test
     max-message-length: 4096
     agent-stream-edit-min-interval-ms: 0
+    rate-limit:
+      private-chat-per-second: 10
+      group-chat-per-minute: 60
+      group-chat-min-edit-interval-ms: 0
+      global-per-second: 30
+      new-bubble-acquire-timeout-ms: 0
+      default-acquire-timeout-ms: 0
+      final-edit-max-wait-ms: 0
     file-upload:
       enabled: false
   agent:

@@ -48,6 +48,8 @@
 - [ ] Add balance loader
 - [x] WebTools need to parse result — JSoup-based HTML parsing in `WebTools.java:5,173` strips markup and returns clean text to the model
 - [ ] Arch unit
+- [ ] Add trial free requests
+- [ ] Add calculation for price
 
 ## Agent Framework Pivot
 

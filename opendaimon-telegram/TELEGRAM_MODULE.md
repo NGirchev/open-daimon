@@ -976,19 +976,91 @@ returns `true`, `TelegramBot` persists the new hash via
 Column: `telegram_user.menu_version_hash VARCHAR(64)`, nullable. Migration
 `V2__Add_menu_version_hash_to_telegram_user.sql`.
 
+## Outbound rate limiting — `TelegramChatRateLimiter`
+
+Every outgoing call to Telegram (`sendMessage`, `editMessageText`,
+`deleteMessage`, persistent-keyboard send) is gated by
+`TelegramChatRateLimiter` so the bot stays under Telegram's quotas across
+all chats and call sites. The limiter is chat-scoped (keyed on `chatId`,
+inferred to private vs group/supergroup by sign) plus a global ceiling.
+Configured via `open-daimon.telegram.rate-limit.*`.
+
+### Rules enforced
+
+| Scope | Default | Source |
+|---|---|---|
+| Private chat capacity | 1 message / 1 sec | Telegram FAQ ("avoid sending more than one message per second" in a single chat) |
+| Group chat capacity | 20 messages / 60 sec | Telegram FAQ ("not be able to send more than 20 messages per minute" in a group) |
+| Group chat min interval | 3.5 sec between consecutive edits | Field observation — bursts faster than ~3 sec trigger 429 even before the 20/min quota |
+| Global per-bot ceiling | 30 messages / 1 sec | Telegram FAQ ("up to 30 messages per second" total across all chats) |
+
+Channel operations (admin-broadcast posts where the bot is NOT a member) are
+out of scope — this bot does not write to channels. Adding channel write
+support would require a separate channel rule (Telegram allows ~30 messages
+per minute per channel, lower than groups).
+
+### Two semantics: `tryAcquire` vs `acquire(timeoutMs)`
+
+- **`tryAcquire(chatId)`** — non-blocking. Used for best-effort calls
+  (`editHtml` for partial-answer/status flushes, `deleteMessage` for the
+  rollback-bubble cleanup). On rejection the call is silently dropped; the
+  user just sees the next allowed edit replace it.
+- **`acquire(chatId, timeoutMs)`** — blocking with a wall-clock timeout.
+  Used for critical calls (`sendMessage` for opening new bubbles or sending
+  notifications, `sendKeyboard` for the persistent keyboard). Internally
+  polls (50 ms slices) — the calling thread is blocked via `Thread.sleep`,
+  so callers MUST run on a thread pool that tolerates blocking
+  (`priority-request-executor-N`); never call from a Reactor scheduler thread.
+
+### Reliable final delivery — `TelegramMessageSender.editHtmlReliable` / `sendHtmlReliableAndGetId`
+
+These two methods sit on top of the limiter and add a 429-aware single
+retry. They are used only in `TelegramMessageHandlerActions.forceFinalAnswerEdit`
+(called from terminal sync FSM callbacks `finalizeAfterStream` and
+`handleStreamError`, NOT from the Reactor pipeline that drives the stream
+itself). On a 429 reply they parse `retry_after` (first from
+`ResponseParameters.getRetryAfter()`, falling back to a regex match on the
+exception message because the library sometimes leaves parameters unset),
+sleep that long if it fits within the remaining `final-edit-max-wait-ms`
+budget, re-acquire, and retry once. If both edit and retry fail the action
+falls back to a fresh `sendMessage` so the user still receives the answer
+(even though the previous bubble stays visible with its truncated content).
+Only when both `editMessage` AND `sendMessage` fail does the FSM context
+get stamped with `TELEGRAM_DELIVERY_FAILED`, routing the run to the ERROR
+terminal state (and `MessageTelegramCommandHandler` skips user notification
+because the same chat is the one that's rate-limited or unreachable —
+notifying it would just compound the 429).
+
+### Memory and eviction
+
+Per-chat buckets live in a `ConcurrentHashMap` with no TTL. Sizing budget:
+~200 bytes per chat (deque header + ~20 longs), 10k active chats ≈ 3 MB.
+If memory pressure shows up in production, add a periodic prune of buckets
+whose deque is empty and last access was >N minutes ago — there is no
+correctness requirement for eviction (a fresh bucket starts empty either
+way), only a memory hygiene concern.
+
+### Metrics
+
+- `telegram.rate_limiter.acquire.success.count{chat_type}` — happy path counter.
+- `telegram.rate_limiter.acquire.skipped.count{chat_type, reason}` — rejections by reason. Distinct reasons matter for tuning: `chat_capacity` means a chat is hitting its window quota, `chat_min_interval` means edits in a single group are too tight, `global_capacity` means the bot itself is the bottleneck (consider sharding), `timeout` means a blocking acquire gave up.
+- `telegram.delivery.final.failed.count` — incremented when the FSM dispatches `TELEGRAM_DELIVERY_FAILED`. Should stay near zero in production.
+
 ## Agent Streaming: Throttling & Rollback Internals
 
-### Rate-limited status edits — `TelegramProgressBatcher`
+### UX-only phase pacing — `TelegramProgressBatcher`
 
-Status-bubble edits during a ReAct stream go through
 `TelegramProgressBatcher.shouldFlush(lastFlushAtMs, nowMs, debounceMs, forceFlush)`
-before reaching `messageSender.editHtml`. The debounce source is the existing
-`open-daimon.telegram.agent-stream-edit-min-interval-ms` property (default
-1000 ms) — a single knob that owns the rate limit across the two call sites
-(`editStatusThrottled`, `editTentativeAnswer`). Structural events (tool call,
-observation, final answer, rollback) pass `forceFlush=true` and bypass the
-window; `PARTIAL_ANSWER` chunks obey the debounce. This prevents runaway
-`editMessage` spam when the LLM emits many short tokens.
+runs **per-context** before a status/tentative-answer edit reaches the sender.
+This is **not** a Telegram-quota throttle — that role belongs to
+`TelegramChatRateLimiter` (above). The per-context throttle source is
+`open-daimon.telegram.agent-stream-edit-min-interval-ms` (default 1000 ms)
+and exists to smooth visual "jumps" between phases (think → tool call →
+observation) so the user has time to register each state. Structural events
+(tool call, observation, final answer, rollback) pass `forceFlush=true` and
+bypass the per-context window; `PARTIAL_ANSWER` chunks obey the debounce.
+Bypassing this throttle does not produce a 429 — the limiter still gates the
+network call — but the stream looks jittery.
 
 Buffer rotation — choosing the cut point when the accumulated HTML exceeds
 Telegram's 4096-char limit — is centralized in

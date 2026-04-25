@@ -176,7 +176,29 @@ class StartTelegramTextCommandHandlerProviderTest {
             TelegramProperties props = new TelegramProperties();
             props.setToken("test-token");
             props.setUsername("test-bot");
+            TelegramProperties.RateLimit rl = new TelegramProperties.RateLimit();
+            rl.setPrivateChatPerSecond(10);
+            rl.setGroupChatPerMinute(60);
+            rl.setGroupChatMinEditIntervalMs(0);
+            rl.setGlobalPerSecond(30);
+            rl.setNewBubbleAcquireTimeoutMs(0);
+            rl.setDefaultAcquireTimeoutMs(0);
+            rl.setFinalEditMaxWaitMs(0);
+            props.setRateLimit(rl);
             return props;
+        }
+
+        @Bean
+        public io.micrometer.core.instrument.MeterRegistry meterRegistry() {
+            return new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        }
+
+        @Bean
+        public io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiter telegramChatRateLimiter(
+                TelegramProperties props,
+                io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+            return new io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiterImpl(
+                    props.getRateLimit(), meterRegistry);
         }
 
         @Bean

@@ -84,7 +84,25 @@ class TelegramMessageHandlerActionsAgentTest {
         // Unit tests run the stream synchronously — disable throttling so every
         // event produces a Telegram call and the tests can assert on it directly.
         telegramProperties.setAgentStreamEditMinIntervalMs(0);
+        TelegramProperties.RateLimit rl = new TelegramProperties.RateLimit();
+        rl.setPrivateChatPerSecond(10);
+        rl.setGroupChatPerMinute(60);
+        rl.setGroupChatMinEditIntervalMs(0);
+        rl.setGlobalPerSecond(30);
+        rl.setNewBubbleAcquireTimeoutMs(0);
+        rl.setDefaultAcquireTimeoutMs(0);
+        rl.setFinalEditMaxWaitMs(0);
+        telegramProperties.setRateLimit(rl);
         agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
+
+        // Default: forceFinalAnswerEdit's reliable path succeeds — tests that exercise
+        // delivery failure override this stub.
+        org.mockito.Mockito.lenient().when(messageSender.editHtmlReliable(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(true);
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
@@ -1001,9 +1019,10 @@ class TelegramMessageHandlerActionsAgentTest {
             actions.generateResponse(ctx);
 
             // Answer bubble received at least one edit (the final flush forced by the
-            // stream-error handler). Preview flag varies across streaming vs. final edits.
+            // stream-error handler) — final flush goes through the reliable variant.
             verify(messageSender, atLeastOnce())
-                    .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), anyString(), anyBoolean());
+                    .editHtmlReliable(eq(CHAT_ID), eq(ANSWER_MSG_ID), anyString(),
+                            anyBoolean(), org.mockito.ArgumentMatchers.anyLong());
 
             // Status buffer has the ❌ Error marker.
             ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
@@ -1177,18 +1196,29 @@ class TelegramMessageHandlerActionsAgentTest {
 
             // The answer bubble was opened and edited — collect every version that hit the wire.
             // Preview flag varies across streaming vs. final edits, so we match any boolean.
+            // The final edit goes through the reliable variant, intermediate streaming edits
+            // through plain editHtml — capture both for the leak check below.
             ArgumentCaptor<String> answerCaptor = ArgumentCaptor.forClass(String.class);
             verify(messageSender, atLeastOnce())
                     .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), answerCaptor.capture(), anyBoolean());
-            String lastAnswerHtml = answerCaptor.getValue();
+            ArgumentCaptor<String> finalAnswerCaptor = ArgumentCaptor.forClass(String.class);
+            verify(messageSender, atLeastOnce())
+                    .editHtmlReliable(eq(CHAT_ID), eq(ANSWER_MSG_ID), finalAnswerCaptor.capture(),
+                            anyBoolean(), org.mockito.ArgumentMatchers.anyLong());
+            String lastFinalEdit = finalAnswerCaptor.getValue();
 
-            // The real final answer must be present; the pre-tool reasoning text must NOT
-            // appear in the final answer bubble in ANY edit.
-            assertThat(lastAnswerHtml).contains("Here is the real answer.");
-            assertThat(lastAnswerHtml).contains("Second paragraph.");
+            // The real final answer must be present in the terminal (reliable) edit.
+            assertThat(lastFinalEdit).contains("Here is the real answer.");
+            assertThat(lastFinalEdit).contains("Second paragraph.");
+            // The pre-tool reasoning text must NOT appear in ANY edit (streaming or final).
             for (String html : answerCaptor.getAllValues()) {
                 assertThat(html)
-                        .as("pre-tool reasoning must not leak into the answer bubble")
+                        .as("pre-tool reasoning must not leak into the answer bubble (streaming edit)")
+                        .doesNotContain("fresh benchmarks first");
+            }
+            for (String html : finalAnswerCaptor.getAllValues()) {
+                assertThat(html)
+                        .as("pre-tool reasoning must not leak into the answer bubble (final edit)")
                         .doesNotContain("fresh benchmarks first");
             }
         }
@@ -1224,9 +1254,10 @@ class TelegramMessageHandlerActionsAgentTest {
             actions.generateResponse(ctx);
 
             // At least one edit of the answer bubble was made with disableWebPagePreview=false
-            // (preview enabled) — that's the terminal force-flush.
+            // (preview enabled) — that's the terminal force-flush via the reliable variant.
             verify(messageSender, atLeastOnce())
-                    .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), anyString(), eq(false));
+                    .editHtmlReliable(eq(CHAT_ID), eq(ANSWER_MSG_ID), anyString(), eq(false),
+                            org.mockito.ArgumentMatchers.anyLong());
         }
 
         private MessageHandlerContext createContextWithMessage(String userText,

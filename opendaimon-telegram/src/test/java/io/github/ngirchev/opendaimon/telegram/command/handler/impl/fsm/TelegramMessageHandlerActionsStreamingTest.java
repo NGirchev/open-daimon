@@ -87,7 +87,25 @@ class TelegramMessageHandlerActionsStreamingTest {
         telegramProperties.setMaxMessageLength(4096);
         // Disable throttling so every event produces a Telegram call we can assert on.
         telegramProperties.setAgentStreamEditMinIntervalMs(0);
+        TelegramProperties.RateLimit rl = new TelegramProperties.RateLimit();
+        rl.setPrivateChatPerSecond(10);
+        rl.setGroupChatPerMinute(60);
+        rl.setGroupChatMinEditIntervalMs(0);
+        rl.setGlobalPerSecond(30);
+        rl.setNewBubbleAcquireTimeoutMs(0);
+        rl.setDefaultAcquireTimeoutMs(0);
+        rl.setFinalEditMaxWaitMs(0);
+        telegramProperties.setRateLimit(rl);
         agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
+
+        // Default: forceFinalAnswerEdit's reliable path succeeds — tests that exercise
+        // delivery failure override this stub.
+        org.mockito.Mockito.lenient().when(messageSender.editHtmlReliable(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(true);
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
@@ -428,10 +446,12 @@ class TelegramMessageHandlerActionsStreamingTest {
         actions.generateResponse(ctx);
 
         // Collect all edit bodies applied to the answer bubble; the last one must contain
-        // the sanitized text and not the dead URL.
+        // the sanitized text and not the dead URL. The final flush goes through the
+        // reliable variant — capture it via editHtmlReliable.
         ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
         verify(messageSender, atLeastOnce())
-                .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), editCaptor.capture(), anyBoolean());
+                .editHtmlReliable(eq(CHAT_ID), eq(ANSWER_MSG_ID), editCaptor.capture(),
+                        anyBoolean(), org.mockito.ArgumentMatchers.anyLong());
 
         String finalEdit = editCaptor.getAllValues().get(editCaptor.getAllValues().size() - 1);
         assertThat(finalEdit)

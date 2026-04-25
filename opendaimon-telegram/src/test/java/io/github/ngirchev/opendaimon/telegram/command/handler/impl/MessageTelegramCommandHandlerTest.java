@@ -46,8 +46,11 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiter;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatRateLimiterImpl;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
@@ -113,13 +116,26 @@ class MessageTelegramCommandHandlerTest {
         telegramProperties.setToken("test-token");
         telegramProperties.setUsername("test-bot");
         telegramProperties.setMaxMessageLength(4096);
+        telegramProperties.setAgentStreamEditMinIntervalMs(0);
+        TelegramProperties.RateLimit rl = new TelegramProperties.RateLimit();
+        rl.setPrivateChatPerSecond(10);
+        rl.setGroupChatPerMinute(60);
+        rl.setGroupChatMinEditIntervalMs(0);
+        rl.setGlobalPerSecond(30);
+        rl.setNewBubbleAcquireTimeoutMs(0);
+        rl.setDefaultAcquireTimeoutMs(0);
+        rl.setFinalEditMaxWaitMs(0);
+        telegramProperties.setRateLimit(rl);
 
         ObjectProvider<TelegramBot> botProvider = mock(ObjectProvider.class);
         when(botProvider.getObject()).thenReturn(telegramBot);
         when(botProvider.getIfAvailable()).thenReturn(telegramBot);
 
+        TelegramChatRateLimiter rateLimiter = new TelegramChatRateLimiterImpl(rl, new SimpleMeterRegistry());
+
         TelegramMessageSender messageSender = new TelegramMessageSender(
-                botProvider, messageLocalizationService, persistentKeyboardService);
+                botProvider, messageLocalizationService, persistentKeyboardService,
+                telegramProperties, rateLimiter);
 
         TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
@@ -133,7 +149,8 @@ class MessageTelegramCommandHandlerTest {
 
         handler = new MessageTelegramCommandHandler(
                 botProvider, typingIndicatorService, messageLocalizationService,
-                handlerFsm, telegramMessageService, telegramProperties, persistentKeyboardService);
+                handlerFsm, telegramMessageService, telegramProperties, persistentKeyboardService,
+                new SimpleMeterRegistry());
     }
 
     @Test
