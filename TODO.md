@@ -191,6 +191,27 @@
   - **Fix 1 LANDED**: `maxInMemorySize(2 * 1024 * 1024)` set on the WebClient builder (`SpringAIAutoConfig.java:254`, comment at line 231 explaining the 2 MB cap).
   - Fix 2 (open follow-up): why language instruction is lost after a tool-call failure — separate from the buffer issue and not addressed here.
   - Log: `WebTools.fetchUrl failed for url=[https://github.com/anthropics/claude-code/issues/42796]: DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144`
+- [ ] Bug 2026-04-25: Agent loops on `web_search` with empty `query` — guard returns self-correction observation but the model keeps emitting empty args
+  - **Symptom.** User sees the following text rendered as a Tool-result observation inside the Telegram status bubble:
+    `⚠️ Tool failed: Error: argument 'query' is required and must not be blank. Retry web_search with a non-empty 'query' field containing the search terms. Example arguments: {"query": "russian theater cyprus 2026"}`
+  - **History — this case has been "fixed" at least twice already, do not search again.**
+    - `19b6782 fsm-2 (#20)` (2026-04-19) — initial guard in `WebTools.webSearch` (`opendaimon-spring-ai/.../tool/WebTools.java:61-68`): if `query == null || query.isBlank()` it returns a structured error string instead of calling Serper with an empty `q`.
+    - `87c71f0 "Added mode thinking"` (2026-04-22) — extended `log.warn` message and added an example argument to the returned error so the model has a concrete sample to mimic.
+    - System prompt already contains the explicit rule: *"When calling any tool, you MUST provide all required parameters with concrete non-empty values. Never emit a tool call with empty or null arguments. For web_search, always include a non-empty `query` string describing what to search."*.
+  - **Why it keeps reappearing.** Self-correction is a *recommendation* the model can ignore. Small/quantized routes (some `:free` OpenRouter models, certain Ollama setups) re-emit `web_search({"query":""})` for several iterations until `agent.max-iterations` aborts. There is currently:
+    - no hard cap on **consecutive** empty-args tool calls;
+    - no fallback that derives a usable query from the user task text (`AgentRequest.task`);
+    - no metric — only a `log.warn`, so operators don't see which model is misbehaving until a user complains.
+  - **Proposed fix — combine (a) cap + (b) fallback, and add a metric.**
+    - **(a) Hard cap.** Add `emptyArgsRetryCount` (or a more general `consecutiveToolGuardCount`) to `AgentContext`. Increment in the tool-guard self-correction path (callable from `WebTools` and any future tool with the same shape). After N=2 consecutive empty calls, set `ctx.errorMessage` to a user-friendly localized message (something like "Не получилось выполнить запрос — модель не справилась с инструментами. Попробуйте ещё раз или переключите модель через `/model`.") and abort the loop early instead of burning all `max-iterations`.
+    - **(b) Fallback.** When `query` is null/blank, take the agent's current task (`AgentContext.task` / `AgentRequest.task`) — i.e. the original user message — and use it as the query for the *first* empty-args call. This gives one useful real attempt instead of two wasted self-correction round-trips. Log at WARN so the dashboard captures the misbehaving model.
+    - **Metric.** `Counter.builder("agent.tool.empty_args.count").tag("tool","web_search").tag("model", currentModel).register(meterRegistry).increment()` so we can see in Grafana which model needs to be removed from the whitelist.
+  - **Files (anticipated, ortogonal to outbound-queue refactor).**
+    - `opendaimon-common/.../agent/AgentContext.java` — new field + getter/incrementer.
+    - `opendaimon-spring-ai/.../tool/WebTools.java` — fallback (b) + counter increment + metric.
+    - `opendaimon-spring-ai/.../agent/SpringAgentLoopActions.java` — abort path when counter exceeds N.
+    - Tests: `WebToolsTest` (guard returns error → fallback uses user task → counter increments), `SpringAgentLoopActionsTest` (loop aborts after N consecutive empty-args).
+  - **Out of scope.** Telegram outbound-queue refactor (`fsm-5-5-assistant-turn-view`) — orthogonal, do **not** mix the two in one PR.
 
 ## Tech Debt
 

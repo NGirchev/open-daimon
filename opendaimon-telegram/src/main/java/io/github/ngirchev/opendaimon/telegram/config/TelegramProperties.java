@@ -119,6 +119,41 @@ public class TelegramProperties {
     @Max(value = 10000, message = "agentStreamEditMinIntervalMs must be <= 10000")
     private Integer agentStreamEditMinIntervalMs;
 
+    /**
+     * Telegram outbound rate limits enforced before each bot.send/edit/delete call.
+     * The caller is blocked until the per-chat and global quotas open — by construction
+     * we never exceed Telegram's published per-chat (1/sec private, 20/min group) and
+     * global (30/sec) ceilings, so we never observe HTTP 429.
+     */
+    @NotNull(message = "rateLimit is required")
+    @jakarta.validation.Valid
+    private RateLimit rateLimit = new RateLimit();
+
+    @Getter
+    @Setter
+    @Validated
+    public static class RateLimit {
+        @NotNull(message = "privateChatPerSecond is required")
+        @Min(value = 1, message = "privateChatPerSecond must be >= 1")
+        @Max(value = 10, message = "privateChatPerSecond must be <= 10")
+        private Integer privateChatPerSecond = 1;
+
+        @NotNull(message = "groupChatPerMinute is required")
+        @Min(value = 1, message = "groupChatPerMinute must be >= 1")
+        @Max(value = 60, message = "groupChatPerMinute must be <= 60")
+        private Integer groupChatPerMinute = 20;
+
+        @NotNull(message = "globalPerSecond is required")
+        @Min(value = 1, message = "globalPerSecond must be >= 1")
+        @Max(value = 30, message = "globalPerSecond must be <= 30")
+        private Integer globalPerSecond = 30;
+
+        @NotNull(message = "maxAcquireWaitMs is required")
+        @Min(value = 1000, message = "maxAcquireWaitMs must be >= 1000")
+        @Max(value = 120000, message = "maxAcquireWaitMs must be <= 120000")
+        private Integer maxAcquireWaitMs = 60_000;
+    }
+
     @Getter
     @Setter
     public static class Commands {
