@@ -729,6 +729,8 @@ Column: `telegram_user.menu_version_hash VARCHAR(64)`, nullable. Migration
 
 ## Agent Streaming Internals
 
+`TelegramAgentStreamView` is a **stateless** singleton — all per-stream render state (including the progressive rendered offset) lives on `MessageHandlerContext`, alongside `statusMessageId`, `statusBuffer`, and `lastStatusEditAtMs`.
+
 ### Model-first buffering
 
 `TelegramMessageHandlerActions` consumes stream events into `TelegramAgentStreamModel`.

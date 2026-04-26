@@ -12,6 +12,10 @@ import lombok.extern.slf4j.Slf4j;
  * <p>The view sends/edit snapshots. It does not own model state and it does not queue
  * historical operations; skipped partial flushes are fine because the next flush renders
  * the latest model contents.
+ *
+ * <p><b>Stateless singleton</b> — all per-request render state (including the progressive
+ * rendered offset) lives on {@link MessageHandlerContext}. Adding mutable instance fields
+ * here would re-introduce TD-1 race condition between concurrent agent streams.
  */
 @Slf4j
 public final class TelegramAgentStreamView {
@@ -19,7 +23,6 @@ public final class TelegramAgentStreamView {
     private final TelegramMessageSender messageSender;
     private final TelegramChatPacer telegramChatPacer;
     private final TelegramProperties telegramProperties;
-    private int statusRenderedOffset;
 
     public TelegramAgentStreamView(TelegramMessageSender messageSender,
                                    TelegramChatPacer telegramChatPacer,
@@ -52,10 +55,10 @@ public final class TelegramAgentStreamView {
             return !force;
         }
         String fullHtml = model.statusHtml();
-        if (statusRenderedOffset > fullHtml.length()) {
-            statusRenderedOffset = 0;
+        if (ctx.getStatusRenderedOffset() > fullHtml.length()) {
+            ctx.setStatusRenderedOffset(0);
         }
-        String html = fullHtml.substring(statusRenderedOffset);
+        String html = fullHtml.substring(ctx.getStatusRenderedOffset());
         Integer statusId = ctx.getStatusMessageId();
         if (statusId == null) {
             Integer sentId = messageSender.sendHtmlAndGetId(
@@ -71,7 +74,7 @@ public final class TelegramAgentStreamView {
                     current, telegramProperties.getMaxMessageLength());
             if (rotated.isPresent()) {
                 messageSender.editHtml(chatId, statusId, rotated.get(), true);
-                statusRenderedOffset = fullHtml.length() - current.length();
+                ctx.setStatusRenderedOffset(fullHtml.length() - current.length());
                 Integer nextId = messageSender.sendHtmlAndGetId(chatId, current.toString(), null, true);
                 if (nextId != null) {
                     ctx.setStatusMessageId(nextId);
