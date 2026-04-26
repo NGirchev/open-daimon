@@ -555,7 +555,7 @@ Both messages are sent as replies to the original user message.
    - `<blockquote>📋 No result</blockquote>`
    - `<blockquote>⚠️ Tool failed: ...</blockquote>`
 5. `MAX_ITERATIONS`: status appends `⚠️ reached iteration limit`, then answer is still delivered from terminal output.
-6. `FINAL_ANSWER` (or terminal max-iterations fallback): model confirms final answer and the view creates/edits answer message.
+6. `FINAL_ANSWER` (or terminal max-iterations fallback): model confirms final answer and the view creates/edits answer message. The trailing partial-answer overlay (when a candidate was actually rendered as the status tail) is stripped from `statusHtml` so the status message does not freeze with a stale fragment (e.g. `<i>На ос</i>`) next to the freshly delivered answer. If the overlay was the only status content, it is replaced with a `✅` marker because Telegram rejects empty edits.
 
 ### Thinking modes
 

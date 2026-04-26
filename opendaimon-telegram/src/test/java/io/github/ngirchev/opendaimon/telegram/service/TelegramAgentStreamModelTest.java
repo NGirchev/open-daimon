@@ -44,6 +44,93 @@ class TelegramAgentStreamModelTest {
     }
 
     @Test
+    @DisplayName("should clear trailing partial overlay from status when answer is confirmed")
+    void shouldClearTrailingPartialOverlayFromStatusWhenAnswerIsConfirmed() {
+        // Reproduces the "На ос" duplication bug: agent finishes a tool round, streams a
+        // partial of the final answer into the status overlay, then FINAL_ANSWER arrives.
+        // The status must not retain the partial fragment alongside the new answer message.
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+        model.apply(AgentStreamEvent.thinking(0));
+        model.apply(AgentStreamEvent.toolCall("web_search", "{\"query\":\"tickets\"}", 0));
+        model.apply(AgentStreamEvent.observation("ok", 0));
+        model.apply(AgentStreamEvent.thinking(1));
+        model.apply(AgentStreamEvent.partialAnswer("На ос", 1));
+
+        assertThat(model.statusHtml()).contains("<i>На ос</i>");
+
+        model.apply(AgentStreamEvent.finalAnswer("На основе поиска…", 1));
+
+        assertThat(model.statusHtml())
+                .as("partial overlay must be stripped once the answer is confirmed")
+                .doesNotContain("На ос")
+                .doesNotContain("<i></i>");
+        assertThat(model.isStatusDirty())
+                .as("flushFinal must re-render the cleaned status to Telegram")
+                .isTrue();
+        assertThat(model.answerHtml()).contains("На основе поиска");
+    }
+
+    @Test
+    @DisplayName("should keep history intact when only an overlay-free terminal arrives")
+    void shouldKeepHistoryIntactWhenOnlyAnOverlayFreeTerminalArrives() {
+        // No partial chunks were ever streamed in the final iteration — the trailing line
+        // is the "💭 Thinking..." marker, not an overlay. confirmAnswer must NOT touch it.
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+        model.apply(AgentStreamEvent.thinking(0));
+        model.apply(AgentStreamEvent.toolCall("web_search", "{\"query\":\"x\"}", 0));
+        model.apply(AgentStreamEvent.observation("ok", 0));
+        model.apply(AgentStreamEvent.thinking(1));
+
+        String beforeConfirm = model.statusHtml();
+        model.apply(AgentStreamEvent.finalAnswer("Final answer", 1));
+
+        assertThat(model.statusHtml())
+                .as("status without partial overlay must survive confirmation untouched")
+                .isEqualTo(beforeConfirm);
+    }
+
+    @Test
+    @DisplayName("should not clear status when post-tool partial was never rendered as overlay")
+    void shouldNotClearStatusWhenPostToolPartialWasNeverRenderedAsOverlay() {
+        // Once a tool call was seen in the iteration, partial chunks are no longer
+        // rendered as a status overlay. The terminal cleanup must therefore keep the
+        // completed tool and observation transcript intact.
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+        model.apply(AgentStreamEvent.toolCall("web_search", "{\"query\":\"x\"}", 0));
+        model.apply(AgentStreamEvent.observation("ok", 0));
+        model.apply(AgentStreamEvent.partialAnswer("Final after tool", 0));
+
+        String beforeConfirm = model.statusHtml();
+        assertThat(beforeConfirm)
+                .contains("🔧 <b>Tool:</b>")
+                .contains("📋 Tool result received")
+                .doesNotContain("Final after tool");
+
+        model.apply(AgentStreamEvent.finalAnswer("Final after tool", 0));
+
+        assertThat(model.statusHtml()).isEqualTo(beforeConfirm);
+        assertThat(model.answerHtml()).contains("Final after tool");
+    }
+
+    @Test
+    @DisplayName("should leave completion marker when status was entirely overlay")
+    void shouldLeaveCompletionMarkerWhenStatusWasEntirelyOverlay() {
+        // First-iteration straight-to-answer: partial chunk overwrites the initial
+        // "💭 Thinking..." line, then FINAL arrives. Stripping leaves an empty status —
+        // Telegram rejects empty edits, so the model substitutes a "✅" marker.
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+        model.apply(AgentStreamEvent.partialAnswer("Quick", 0));
+
+        assertThat(model.statusHtml()).contains("<i>Quick</i>");
+
+        model.apply(AgentStreamEvent.finalAnswer("Quick reply", 0));
+
+        assertThat(model.statusHtml())
+                .doesNotContain("Quick")
+                .isEqualTo("✅");
+    }
+
+    @Test
     @DisplayName("should treat same event sequence provider-neutrally for OpenRouter and Ollama")
     void shouldTreatSameEventSequenceProviderNeutrallyForOpenRouterAndOllama() {
         TelegramAgentStreamModel openRouter = replayProviderNeutralSequence();

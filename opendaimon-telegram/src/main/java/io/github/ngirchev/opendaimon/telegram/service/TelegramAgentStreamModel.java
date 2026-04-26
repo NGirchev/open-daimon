@@ -201,8 +201,37 @@ public final class TelegramAgentStreamModel {
             return;
         }
         confirmedAnswer = content;
+        clearTrailingPartialOverlay();
         candidateEscaped.setLength(0);
         answerDirty = true;
+    }
+
+    /**
+     * Drop the trailing partial-answer overlay from {@link #statusHtml} once the answer is
+     * confirmed. {@link #applyPartialAnswer} renders streamed chunks as an "<i>...</i>"
+     * overlay on the trailing status line; if we don't strip it here, the status message
+     * stays frozen with a stale fragment (e.g. "На ос") next to the freshly delivered
+     * final answer message. Only acts when the rendered status actually ends with the
+     * current candidate overlay so we don't clobber an unrelated trailing line such as a
+     * tool-block or the initial "💭 Thinking..." marker.
+     */
+    private void clearTrailingPartialOverlay() {
+        if (silent || candidateEscaped.isEmpty()) {
+            return;
+        }
+        if (!statusHtml.toString().endsWith(candidateTailOverlay())) {
+            return;
+        }
+        int lastBoundary = statusHtml.lastIndexOf("\n\n");
+        if (lastBoundary >= 0) {
+            statusHtml.setLength(lastBoundary);
+        } else {
+            // Overlay was the only content; Telegram rejects empty edits, so leave a
+            // minimal completion marker.
+            statusHtml.setLength(0);
+            statusHtml.append("✅");
+        }
+        statusDirty = true;
     }
 
     private void updateIteration(int iteration) {
