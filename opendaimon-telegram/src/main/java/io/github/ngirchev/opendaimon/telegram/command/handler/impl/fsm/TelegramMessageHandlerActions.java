@@ -96,6 +96,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
      * deleting it. Standalone {@code <i>…</i>} is safe in parse_mode=HTML.
      */
     private static final String ROLLBACK_FALLBACK_HTML = "<i>(folded into reasoning)</i>";
+    private static final String MISSING_TOOL_ARGUMENT = "missing";
 
     private final TelegramUserService telegramUserService;
     private final TelegramUserSessionService telegramUserSessionService;
@@ -595,7 +596,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                 ? ""
                 : TelegramHtmlEscaper.escape(ToolLabels.truncateArg(args));
         String blockBody = escapedArgs.isEmpty()
-                ? "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> …"
+                ? "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> " + MISSING_TOOL_ARGUMENT
                 : "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> " + escapedArgs;
         // Per spec §"Iteration flow": the tool call replaces the trailing thinking/reasoning
         // line — visual chronology "thinking → tool call → result" comes from TIME, not space.

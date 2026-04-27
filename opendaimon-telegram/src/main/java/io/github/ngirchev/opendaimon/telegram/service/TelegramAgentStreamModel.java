@@ -22,6 +22,7 @@ public final class TelegramAgentStreamModel {
     public static final String STATUS_MAX_ITER_LINE = "⚠️ reached iteration limit";
 
     private static final int CANDIDATE_TAIL_LIMIT = 400;
+    private static final String MISSING_TOOL_ARGUMENT = "missing";
 
     private final boolean silent;
     private final boolean preserveReasoning;
@@ -187,10 +188,10 @@ public final class TelegramAgentStreamModel {
     }
 
     private void applyMaxIterations(String content) {
+        confirmAnswer(content);
         if (!silent) {
             appendStatus("\n\n" + STATUS_MAX_ITER_LINE);
         }
-        confirmAnswer(content);
     }
 
     public void confirmAnswer(String content) {
@@ -201,28 +202,33 @@ public final class TelegramAgentStreamModel {
             return;
         }
         confirmedAnswer = content;
-        clearTrailingPartialOverlay();
+        clearTrailingStatusOverlay();
         candidateEscaped.setLength(0);
         answerDirty = true;
     }
 
     /**
-     * Drop the trailing partial-answer overlay from {@link #statusHtml} once the answer is
-     * confirmed. {@link #applyPartialAnswer} renders streamed chunks as an "<i>...</i>"
-     * overlay on the trailing status line; if we don't strip it here, the status message
-     * stays frozen with a stale fragment (e.g. "На ос") next to the freshly delivered
-     * final answer message. Only acts when the rendered status actually ends with the
-     * current candidate overlay so we don't clobber an unrelated trailing line such as a
-     * tool-block or the initial "💭 Thinking..." marker.
+     * Drops the trailing italic status line after answer confirmation when it is either
+     * a streamed answer candidate or hidden reasoning. SHOW_ALL keeps pure reasoning
+     * overlays, but still removes candidate overlays to avoid duplicating the answer.
      */
-    private void clearTrailingPartialOverlay() {
-        if (silent || candidateEscaped.isEmpty()) {
+    private void clearTrailingStatusOverlay() {
+        if (silent) {
             return;
         }
-        if (!statusHtml.toString().endsWith(candidateTailOverlay())) {
+        boolean candidateOverlayRendered = candidateEscaped.length() > 0;
+        if (preserveReasoning && !candidateOverlayRendered) {
             return;
         }
-        int lastBoundary = statusHtml.lastIndexOf("\n\n");
+        String html = statusHtml.toString();
+        if (!html.endsWith("</i>")) {
+            return;
+        }
+        int lastBoundary = html.lastIndexOf("\n\n");
+        int trailingLineStart = lastBoundary >= 0 ? lastBoundary + 2 : 0;
+        if (!html.startsWith("<i>", trailingLineStart)) {
+            return;
+        }
         if (lastBoundary >= 0) {
             statusHtml.setLength(lastBoundary);
         } else {
@@ -284,7 +290,7 @@ public final class TelegramAgentStreamModel {
                 ? ""
                 : TelegramHtmlEscaper.escape(ToolLabels.truncateArg(args));
         return escapedArgs.isEmpty()
-                ? "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> …"
+                ? "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> " + MISSING_TOOL_ARGUMENT
                 : "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> " + escapedArgs;
     }
 

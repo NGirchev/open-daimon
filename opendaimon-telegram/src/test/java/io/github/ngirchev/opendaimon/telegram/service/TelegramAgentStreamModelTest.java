@@ -183,6 +183,88 @@ class TelegramAgentStreamModelTest {
     }
 
     @Test
+    @DisplayName("should strip stuck overlay even when partial chunk left orphan markdown at the tail")
+    void shouldStripStuckOverlayWhenLastChunkLeftOrphanMarkdown() {
+        // Reproducer for the screenshot bug at 23:24: PARTIAL_ANSWER chunks accumulated past
+        // CANDIDATE_TAIL_LIMIT and ended mid-`**bold` pair, so the overlay's recomputation
+        // could diverge from what was last written to statusHtml. Under the old strict
+        // endsWith check this caused clearTrailingPartialOverlay to skip — leaving the
+        // italic bubble frozen next to the polished final answer. Strip must run regardless.
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+        model.apply(AgentStreamEvent.thinking(0));
+        model.apply(AgentStreamEvent.toolCall("web_search", "{\"query\":\"x\"}", 0));
+        model.apply(AgentStreamEvent.observation("ok", 0));
+        model.apply(AgentStreamEvent.thinking(1));
+        String filler = "слово ".repeat(80);
+        model.apply(AgentStreamEvent.partialAnswer(
+                filler + "Партнерская платформа - **Другие способы", 1));
+
+        assertThat(model.statusHtml()).contains("<i>");
+
+        model.apply(AgentStreamEvent.finalAnswer("Final cleaned answer", 1));
+
+        assertThat(model.statusHtml())
+                .as("partial overlay must be stripped from the status bubble even when the tail had orphan markdown")
+                .doesNotContain("<i>")
+                .doesNotContain("Другие способы");
+    }
+
+    @Test
+    @DisplayName("should strip final partial overlay before appending max-iterations marker")
+    void shouldStripFinalPartialOverlayBeforeMaxIterationsMarker() {
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+        model.apply(AgentStreamEvent.toolCall("web_search", "{\"query\":\"x\"}", 0));
+        model.apply(AgentStreamEvent.observation("ok", 0));
+        model.apply(AgentStreamEvent.thinking(1));
+        model.apply(AgentStreamEvent.partialAnswer("Final answer leaked into status", 1));
+
+        assertThat(model.statusHtml()).contains("Final answer leaked into status");
+
+        model.apply(AgentStreamEvent.maxIterations("Final answer leaked into status", 1));
+
+        assertThat(model.statusHtml())
+                .contains(TelegramAgentStreamModel.STATUS_MAX_ITER_LINE)
+                .doesNotContain("Final answer leaked into status");
+        assertThat(model.answerHtml()).contains("Final answer leaked into status");
+    }
+
+    @Test
+    @DisplayName("should remove trailing reasoning overlay on final answer when reasoning is hidden")
+    void shouldRemoveTrailingReasoningOverlayOnFinalAnswerWhenReasoningIsHidden() {
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+
+        model.apply(AgentStreamEvent.thinking("Final text emitted as reasoning", 0));
+        model.apply(AgentStreamEvent.finalAnswer("Final text emitted as reasoning", 0));
+
+        assertThat(model.statusHtml()).doesNotContain("Final text emitted as reasoning");
+        assertThat(model.answerHtml()).contains("Final text emitted as reasoning");
+    }
+
+    @Test
+    @DisplayName("should preserve trailing reasoning overlay on final answer when SHOW_ALL is enabled")
+    void shouldPreserveTrailingReasoningOverlayOnFinalAnswerWhenShowAllIsEnabled() {
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, true);
+
+        model.apply(AgentStreamEvent.thinking("I checked sources before answering.", 0));
+        model.apply(AgentStreamEvent.finalAnswer("Final answer.", 0));
+
+        assertThat(model.statusHtml()).contains("I checked sources before answering.");
+        assertThat(model.answerHtml()).contains("Final answer.");
+    }
+
+    @Test
+    @DisplayName("should render empty tool arguments as missing query")
+    void shouldRenderEmptyToolArgumentsAsMissingQuery() {
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+
+        model.apply(AgentStreamEvent.toolCall("web_search", "{}", 0));
+
+        assertThat(model.statusHtml())
+                .contains("<b>Query:</b> missing")
+                .doesNotContain("<b>Query:</b> …");
+    }
+
+    @Test
     @DisplayName("should start overlay tail on a word boundary, not in the middle of a word")
     void shouldStartOverlayTailOnWordBoundary() {
         // Reproducer for the visible "ае платформа..." regression: the raw byte cut at
