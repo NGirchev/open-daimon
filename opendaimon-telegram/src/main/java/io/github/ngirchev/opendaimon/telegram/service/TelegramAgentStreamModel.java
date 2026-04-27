@@ -259,8 +259,23 @@ public final class TelegramAgentStreamModel {
     }
 
     private String candidateTailOverlay() {
-        int start = Math.max(0, candidateEscaped.length() - CANDIDATE_TAIL_LIMIT);
-        return "<i>" + collapseToSingleLine(candidateEscaped.substring(start)) + "</i>";
+        int rawStart = Math.max(0, candidateEscaped.length() - CANDIDATE_TAIL_LIMIT);
+        int wordStart = rawStart;
+        if (rawStart > 0) {
+            // Skip forward to the next whitespace so the tail starts on a word boundary.
+            // Without this, a `**bold**` pair can be sliced mid-marker and the regex in
+            // AIUtils.applyMarkdownReplacements leaves the orphan `**` visible in chat.
+            for (int i = rawStart; i < candidateEscaped.length(); i++) {
+                char c = candidateEscaped.charAt(i);
+                if (c == ' ' || c == '\n' || c == '\t') {
+                    wordStart = i + 1;
+                    break;
+                }
+            }
+        }
+        String tailEscaped = candidateEscaped.substring(wordStart);
+        String tailHtml = AIUtils.convertEscapedMarkdownToHtml(collapseToSingleLine(tailEscaped));
+        return "<i>" + tailHtml + "</i>";
     }
 
     private String renderToolCallBlock(String toolName, String args) {
