@@ -133,7 +133,7 @@ class MessageTelegramCommandHandlerTest {
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                null, null, agentStreamView, 10, false);
+                null, agentStreamView, 10, false);
 
         ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
                 MessageHandlerFsmFactory.create(actions);

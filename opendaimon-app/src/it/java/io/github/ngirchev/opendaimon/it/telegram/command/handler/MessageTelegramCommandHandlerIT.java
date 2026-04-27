@@ -47,6 +47,7 @@ import io.github.ngirchev.opendaimon.common.ai.response.MapResponse;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
+import io.github.ngirchev.opendaimon.it.TelegramMessageHandlerActionsTestWiring;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
@@ -350,26 +351,11 @@ class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
                 ChatSettingsService chatSettingsService,
                 PersistentKeyboardService persistentKeyboardService,
                 ReplyImageAttachmentService replyImageAttachmentService) {
-            var telegramChatPacer = new TelegramChatPacerImpl(telegramProperties);
-            TelegramMessageSender messageSender = new TelegramMessageSender(
-                    telegramBotProvider, messageLocalizationService, persistentKeyboardService, telegramChatPacer);
-            TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
-                    messageSender, telegramChatPacer, telegramProperties);
-            TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
+            return TelegramMessageHandlerActionsTestWiring.create(
+                    telegramBotProvider, typingIndicatorService, messageLocalizationService,
                     telegramUserService, telegramUserSessionService, telegramMessageService,
                     aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
-                    chatSettingsService, persistentKeyboardService, replyImageAttachmentService,
-                    messageSender, null, null, agentStreamView, 10, false);
-            ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
-                    MessageHandlerFsmFactory.create(actions);
-            return new MessageTelegramCommandHandler(
-                    telegramBotProvider,
-                    typingIndicatorService,
-                    messageLocalizationService,
-                    handlerFsm,
-                    telegramMessageService,
-                    telegramProperties,
-                    persistentKeyboardService);
+                    chatSettingsService, persistentKeyboardService, replyImageAttachmentService);
         }
     }
 
