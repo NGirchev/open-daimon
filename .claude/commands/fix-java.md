@@ -1,3 +1,8 @@
+---
+description: Targeted Java bug-fix loop on a single service with a TDD-style failing-test gate; never commits.
+argument-hint: <ServiceClass> <module>
+---
+
 # Fix Java Bug
 
 Fix a bug in the Java service specified in: $ARGUMENTS

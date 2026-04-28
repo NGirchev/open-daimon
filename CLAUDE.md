@@ -2,6 +2,8 @@
 
 @AGENTS.md
 @.claude/rules/webfetch-workarounds.md
+@.claude/rules/task-hygiene.md
+@.claude/rules/verify-conventions-before-writing.md
 
 ## Critical Rules
 

@@ -33,11 +33,11 @@
 - [ ] Show simple description for the models
 - [ ] Clearing RAG + File
 - [ ] FSM pipeline resilience
-  - Make `extractText` and `runVisionOcr` idempotent (check VectorStore for existing chunks before writing)
-  - Persist FSM intermediate states to DB for crash recovery and retry
-  - Eliminate response loss window between AI call completion and DB save
+  - [ ] Make `extractText` and `runVisionOcr` idempotent (check VectorStore for existing chunks before writing)
+  - [ ] Persist FSM intermediate states to DB for crash recovery and retry
+  - [ ] Eliminate response loss window between AI call completion and DB save
 - [x] Cancel button for model selection + grouping
-- [ ] Show thinking + smooth text display in telegram
+- [x] Show thinking + smooth text display in telegram
   - [x] Agent observability: intermediate events (thinking, tool_call, observation) shown in Telegram
   - [x] Agent final answer: stream by paragraphs (like gateway path) instead of single message
   - [x] Ollama thinking: parse `<think>...</think>` tags from getText() and show as reasoning content
@@ -47,7 +47,13 @@
 - [ ] Different models in the flow
 - [ ] Add balance loader
 - [x] WebTools need to parse result — JSoup-based HTML parsing in `WebTools.java:5,173` strips markup and returns clean text to the model
-- [ ] Arch unit
+- [ ] **opendaimon-spring-boot-starter** — auto-configuration starter for easy integration 
+  - [ ] New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
+  - [ ] Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
+  - [ ] **Module hygiene & ArchUnit** — enforce clean module boundaries before publishing to Maven Central (see `AGENTS.md` § Project Nature)
+  - [ ] **`./mvnw dependency:analyze` reactor-wide** — fix every `Used undeclared dependencies` and `Unused declared dependencies` finding, then wire `maven-dependency-plugin:analyze-only` into the `verify` phase with `failOnWarning=true` so future undeclared / unused deps break CI. First known cases: `opendaimon-telegram` uses Caffeine in `TelegramChatPacerImpl` without declaring it (transitively via `opendaimon-common`); `opendaimon-spring-ai` re-declares Caffeine that already comes through `opendaimon-common` — keep the declaration (per "declare what you use") and verify nothing else falls in the same trap.
+  - [ ] **ArchUnit test module** — inter-module boundary rules (`opendaimon-telegram` ↛ `opendaimon-rest`, `opendaimon-rest` ↛ `opendaimon-telegram`, only `opendaimon-app` may depend on multiple delivery-channel modules), per-module layering (`config` → `service` → `repository`, never the reverse), and a "no `@Service`/`@Component`/`@Repository` outside test sources" guard that codifies the explicit-`@Bean` rule from `AGENTS.md` § Spring Bean Configuration.
+  - [ ] **`maven-enforcer-plugin` rules** — `dependencyConvergence` (single resolved version per transitive dep), `requireUpperBoundDeps`, `bannedDependencies` (no `commons-logging`, no `*-spring-boot-starter` in non-`opendaimon-app` modules to keep delivery-channel modules embeddable in third-party Spring Boot apps).
 
 ## Agent Framework Pivot
 
@@ -78,10 +84,6 @@
 - [x] **Telegram Integration** — agent mode via application property
   - `TelegramMessageHandlerActions` delegates to `AgentExecutor` when `open-daimon.agent.enabled=true`
   - Agent mode is transparent — no `/agent` command, all messages go through agent pipeline
-
-- [ ] **opendaimon-spring-boot-starter** — auto-configuration starter for easy integration
-  - New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
-  - Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
 
 - [x] **Fact extraction (removed — superseded)**
   - Previously a synchronous `FactExtractor.extractAndStore(ctx)` in

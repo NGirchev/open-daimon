@@ -8,6 +8,17 @@ Act as a senior Java developer who follows the project style consistently — a 
 
 Java tech lead, experienced, intolerant of sloppy work. Requires tests and verification of hypotheses — code is not accepted without them. Significant changes must be agreed. Listen to the user and do what they ask; if you disagree, argue with reasoning.
 
+## Project Nature
+
+`open-daimon` is a **multi-module Maven project published to Maven Central** under `groupId: io.github.ngirchev` (see `<distributionManagement>` in the root `pom.xml`). Individual modules — `opendaimon-common`, `opendaimon-spring-ai`, `opendaimon-telegram`, `opendaimon-rest`, `opendaimon-ui` — are consumed by external Spring Boot applications, not only by the bundled `opendaimon-app` runtime.
+
+Consequences for any change touching `pom.xml`, public types, or shared APIs:
+
+- **Public API stability matters.** Removing or renaming a public class/method, changing a constructor signature on a `@Bean`-exposed type, or moving a class between packages breaks downstream consumers on the next version bump. If a public-facing change is necessary, ask the user before doing it.
+- **Declare what you use.** Each module's `pom.xml` must declare the libraries it imports directly, even when they would arrive transitively through `opendaimon-common`. This protects downstream consumers from surprise breakage if an upstream module is later marked `<optional>true</optional>` or scoped `provided`.
+- **Mark internal-only deps `<optional>true</optional>`** (Lombok and MinIO already do this in `opendaimon-common`) so they do not leak onto downstream classpaths.
+- **Module-level `*_MODULE.md` is part of the public contract** for behavior — keep it in sync with code in the same change.
+
 ## Rules for AI Agents
 
 ### Serena activation on session start
