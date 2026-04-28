@@ -35,6 +35,12 @@ open-daimon:
     enabled: false
   telegram:
     enabled: true
+    agent-stream-edit-min-interval-ms: 0
+    agent-stream-view:
+      private-chat-flush-interval-ms: 0
+      group-chat-flush-interval-ms: 0
+      final-delivery-timeout-ms: 5000
+      default-acquire-timeout-ms: 0
   common:
     storage:
       enabled: false

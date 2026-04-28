@@ -37,6 +37,9 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
+import io.github.ngirchev.opendaimon.telegram.service.UserRecentModelService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
+import io.github.ngirchev.opendaimon.common.repository.UserRepository;
 
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
@@ -65,7 +68,8 @@ import static org.mockito.Mockito.mock;
         "open-daimon.telegram.token=test-token",
         "open-daimon.telegram.username=test-bot",
         "open-daimon.telegram.commands.model-enabled=true",
-        "open-daimon.telegram.commands.language-enabled=true"
+        "open-daimon.telegram.commands.language-enabled=true",
+        "open-daimon.agent.max-iterations=10"
 })
 class StartTelegramTextCommandHandlerProviderTest {
 
@@ -299,6 +303,21 @@ class StartTelegramTextCommandHandlerProviderTest {
         @Bean
         public TelegramBotMenuService telegramBotMenuService() {
             return mock(TelegramBotMenuService.class);
+        }
+
+        @Bean
+        public UserRecentModelService userRecentModelService() {
+            return mock(UserRecentModelService.class);
+        }
+
+        @Bean
+        public ChatSettingsService chatSettingsService() {
+            return mock(ChatSettingsService.class);
+        }
+
+        @Bean
+        public UserRepository userRepository() {
+            return mock(UserRepository.class);
         }
     }
 }

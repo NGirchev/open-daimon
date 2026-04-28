@@ -17,7 +17,7 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegr
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,11 +26,9 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import io.github.ngirchev.opendaimon.it.manual.config.OllamaSimpleManualTestConfig;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -85,12 +83,12 @@ import static org.mockito.Mockito.reset;
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = DocRagOllamaManualIT.TestConfig.class)
+@SpringBootTest(
+        classes = OllamaSimpleManualTestConfig.class,
+        properties = "open-daimon.agent.enabled=false"
+)
 @ActiveProfiles({"integration-test", "manual-ollama"})
-@Import({
-        TestDatabaseConfiguration.class
-})
-class DocRagOllamaManualIT {
+class DocRagOllamaManualIT extends AbstractContainerIT {
     private static final Long TEST_CHAT_ID = 350009006L;
     private static final String DOC_RESOURCE = "attachments/file-sample_500kB.doc";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
@@ -340,10 +338,5 @@ class DocRagOllamaManualIT {
             return baseUrl.substring(0, baseUrl.length() - 1);
         }
         return baseUrl;
-    }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestConfig {
     }
 }

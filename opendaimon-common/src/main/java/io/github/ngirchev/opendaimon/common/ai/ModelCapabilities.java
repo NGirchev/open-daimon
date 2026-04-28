@@ -72,5 +72,13 @@ public enum ModelCapabilities {
      * Free-tier models (OpenRouter free, etc.).
      * Used for ranking and retry; add in yml only for actually free models.
      */
-    FREE
+    FREE,
+
+    /**
+     * Extended thinking / reasoning mode.
+     * Models that support a dedicated reasoning budget before generating the answer
+     * (e.g. GLM-4.5V, DeepSeek-R1, Qwen3, o1/o3).
+     * When present, agent streaming will show thinking events to the user.
+     */
+    THINKING
 }

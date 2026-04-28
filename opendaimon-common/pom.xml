@@ -110,6 +110,12 @@
             <artifactId>vavr</artifactId>
         </dependency>
 
+        <!-- FSM (finite state machine) for document processing pipeline -->
+        <dependency>
+            <groupId>io.github.ngirchev</groupId>
+            <artifactId>fsm</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>

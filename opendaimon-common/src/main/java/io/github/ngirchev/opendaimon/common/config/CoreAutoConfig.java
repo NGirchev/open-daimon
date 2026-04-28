@@ -3,6 +3,8 @@ package io.github.ngirchev.opendaimon.common.config;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,17 +15,27 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
 import org.springframework.web.client.RestTemplate;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.service.NoOpPriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.bulkhead.service.impl.NoOpUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;
 import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentOrchestrator;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.DefaultAIRequestPipelineActions;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.IRagQueryAugmenter;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestEvent;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestPipelineActions;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestPipelineFsmFactory;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestState;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentEvent;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentProcessingContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentState;
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactory;
-import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
 import io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory;
 import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
@@ -38,10 +50,13 @@ import io.github.ngirchev.opendaimon.common.service.*;
 import io.github.ngirchev.opendaimon.common.service.impl.AssistantRoleServiceImpl;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 
+@Slf4j
 @AutoConfiguration
+@AutoConfigureAfter(name = "io.github.ngirchev.opendaimon.ai.springai.config.RAGAutoConfig")
 @EnableConfigurationProperties(CoreCommonProperties.class)
 @Import({
         CoreJpaConfig.class,
@@ -54,6 +69,12 @@ public class CoreAutoConfig {
     @ConditionalOnMissingBean(RestTemplate.class)
     public RestTemplate restTemplate(RestTemplateBuilder builder) {
         return builder.build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ChatOwnerLookup chatOwnerLookup() {
+        return ChatOwnerLookup.NOOP;
     }
 
     @Bean
@@ -155,7 +176,7 @@ public class CoreAutoConfig {
      */
     @Bean
     @ConditionalOnMissingBean(IUserPriorityService.class)
-    @ConditionalOnProperty(name = "open-daimon.common.bulkhead.enabled", havingValue = "false", matchIfMissing = true)
+    @ConditionalOnProperty(name = FeatureToggle.Feature.BULKHEAD_ENABLED, havingValue = "false", matchIfMissing = true)
     public IUserPriorityService noOpUserPriorityService() {
         return new NoOpUserPriorityService();
     }
@@ -167,7 +188,7 @@ public class CoreAutoConfig {
      */
     @Bean
     @ConditionalOnMissingBean(PriorityRequestExecutor.class)
-    @ConditionalOnProperty(name = "open-daimon.common.bulkhead.enabled", havingValue = "false", matchIfMissing = true)
+    @ConditionalOnProperty(name = FeatureToggle.Feature.BULKHEAD_ENABLED, havingValue = "false", matchIfMissing = true)
     public PriorityRequestExecutor noOpPriorityRequestExecutor() {
         return new NoOpPriorityRequestExecutor();
     }
@@ -188,13 +209,44 @@ public class CoreAutoConfig {
                 coreCommonProperties);
     }
 
+    /**
+     * AI request pipeline actions — default implementation using document FSM and RAG augmenter.
+     * Only created when document FSM is available (RAG enabled).
+     * Ordering guaranteed by @AutoConfigureAfter(RAGAutoConfig).
+     */
+    @Bean
+    @ConditionalOnMissingBean(AIRequestPipelineActions.class)
+    @ConditionalOnBean(name = "documentPipelineFsm")
+    public DefaultAIRequestPipelineActions aiRequestPipelineActions(
+            ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentPipelineFsm,
+            ObjectProvider<IRagQueryAugmenter> ragQueryAugmenterProvider,
+            AICommandFactoryRegistry aiCommandFactoryRegistry) {
+        return new DefaultAIRequestPipelineActions(
+                documentPipelineFsm,
+                ragQueryAugmenterProvider.getIfAvailable(),
+                aiCommandFactoryRegistry);
+    }
+
+    /**
+     * AI request pipeline FSM — processes incoming commands through validate/classify/process states.
+     * Only created when pipeline actions are available (RAG enabled).
+     */
+    @Bean
+    @ConditionalOnMissingBean(name = "aiRequestPipelineFsm")
+    @ConditionalOnBean(AIRequestPipelineActions.class)
+    public ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent> aiRequestPipelineFsm(
+            AIRequestPipelineActions actions) {
+        log.info("Creating AI request pipeline FSM");
+        return AIRequestPipelineFsmFactory.create(actions);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public AIRequestPipeline aiRequestPipeline(
-            ObjectProvider<IDocumentOrchestrator> documentOrchestratorProvider,
+            ObjectProvider<ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent>> requestFsmProvider,
             AICommandFactoryRegistry aiCommandFactoryRegistry) {
         return new AIRequestPipeline(
-                documentOrchestratorProvider.getIfAvailable(),
+                requestFsmProvider.getIfAvailable(),
                 aiCommandFactoryRegistry);
     }
 
@@ -213,12 +265,14 @@ public class CoreAutoConfig {
             ConversationThreadService threadService,
             AIGatewayRegistry aiGatewayRegistry,
             CoreCommonProperties coreCommonProperties,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ChatOwnerLookup chatOwnerLookup) {
         return new SummarizationService(
                 threadService,
                 aiGatewayRegistry,
                 coreCommonProperties,
-                objectMapper
+                objectMapper,
+                chatOwnerLookup
         );
     }
 

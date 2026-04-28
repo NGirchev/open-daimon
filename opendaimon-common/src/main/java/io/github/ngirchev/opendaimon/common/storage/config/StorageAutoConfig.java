@@ -6,6 +6,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.github.ngirchev.opendaimon.common.storage.service.MinioFileStorageService;
 
@@ -16,7 +17,7 @@ import io.github.ngirchev.opendaimon.common.storage.service.MinioFileStorageServ
  */
 @Slf4j
 @AutoConfiguration
-@ConditionalOnProperty(name = "open-daimon.common.storage.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Feature.STORAGE_ENABLED, havingValue = "true")
 @EnableConfigurationProperties(StorageProperties.class)
 public class StorageAutoConfig {
 

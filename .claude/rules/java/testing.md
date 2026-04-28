@@ -2,130 +2,76 @@
 paths:
   - "**/*.java"
 ---
-# Java Testing
+# Java Testing Rules
 
-> This file extends [common/testing.md](../common/testing.md) with Java-specific content.
+## TDD Workflow
 
-## Test Framework
+1. Write test first (RED) -> Implement (GREEN) -> Refactor (IMPROVE)
+2. Target 80%+ line coverage (JaCoCo)
+3. Focus on service and domain logic — skip trivial getters/config classes
 
-- **JUnit 5** (`@Test`, `@ParameterizedTest`, `@Nested`, `@DisplayName`)
-- **AssertJ** for fluent assertions (`assertThat(result).isEqualTo(expected)`)
-- **Mockito** for mocking dependencies
-- **Testcontainers** for integration tests requiring databases or services
+## Mandatory Test Coverage
 
-## Test Organization
+Every bug fix and every new feature is incomplete without a test that pins the new behavior:
 
-```
-src/test/java/com/example/app/
-  service/           # Unit tests for service layer
-  controller/        # Web layer / API tests
-  repository/        # Data access tests
-  integration/       # Cross-layer integration tests
-```
+- **Bug fix** — add a regression test that fails on the original code and passes after the fix. Place it next to the existing tests of the modified service, name it `shouldDoXWhenY` describing the corrected behavior, and reference the originating review comment / issue in a brief comment so the intent survives future refactors.
+- **New feature** — add unit tests for each new public method on the service layer. If the feature carries data into an LLM (vision, RAG, tool-calling, conversation memory), follow the layering rule below: unit + fixture IT minimum, plus a manual IT when an LLM round-trip is the only proof the wiring works.
+- **No test, no merge.** A change that only edits production code without test coverage is not finished — even if it compiles and the manual smoke check passes. The test is the artifact that prevents the same bug from coming back six months later when the surrounding code has shifted.
 
-Mirror the `src/main/java` package structure in `src/test/java`.
+## Project Conventions
 
-## Unit Test Pattern
+- **JUnit 5** + **AssertJ** + **Mockito** + **Testcontainers**
+- Test naming: `shouldDoSomethingWhenCondition`
+- Mirror `src/main/java` package structure in `src/test/java`
+- Fix implementation, not tests (unless tests are wrong)
 
-```java
-@ExtendWith(MockitoExtension.class)
-class OrderServiceTest {
+## Maven multi-module gotcha
 
-    @Mock
-    private OrderRepository orderRepository;
+When you change a class in a shared module (e.g. `opendaimon-common`) and run
+tests in a downstream module, **always pass `-am` (also-make)**:
 
-    private OrderService orderService;
-
-    @BeforeEach
-    void setUp() {
-        orderService = new OrderService(orderRepository);
-    }
-
-    @Test
-    @DisplayName("findById returns order when exists")
-    void findById_existingOrder_returnsOrder() {
-        var order = new Order(1L, "Alice", BigDecimal.TEN);
-        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
-
-        var result = orderService.findById(1L);
-
-        assertThat(result.customerName()).isEqualTo("Alice");
-        verify(orderRepository).findById(1L);
-    }
-
-    @Test
-    @DisplayName("findById throws when order not found")
-    void findById_missingOrder_throws() {
-        when(orderRepository.findById(99L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> orderService.findById(99L))
-            .isInstanceOf(OrderNotFoundException.class)
-            .hasMessageContaining("99");
-    }
-}
+```sh
+./mvnw test -pl opendaimon-spring-ai -am -Dtest=MyTest
 ```
 
-## Parameterized Tests
+Without `-am`, Maven uses the previously-installed JAR / `target/classes` of
+the upstream module and silently runs tests against the **stale** version of
+the changed class. Symptom: compile errors like
 
-```java
-@ParameterizedTest
-@CsvSource({
-    "100.00, 10, 90.00",
-    "50.00, 0, 50.00",
-    "200.00, 25, 150.00"
-})
-@DisplayName("discount applied correctly")
-void applyDiscount(BigDecimal price, int pct, BigDecimal expected) {
-    assertThat(PricingUtils.discount(price, pct)).isEqualByComparingTo(expected);
-}
+```
+constructor MyClass cannot be applied to given types;
+  required: 5 args; found: 6 args
 ```
 
-## Integration Tests
+even though the source file in the upstream module clearly has the 6-arg
+constructor — Maven just hasn't recompiled it.
 
-Use Testcontainers for real database integration:
+When in doubt, run `./mvnw clean compile` over the whole reactor first, then
+the targeted `test -pl ... -am` run.
 
-```java
-@Testcontainers
-class OrderRepositoryIT {
+Also, when targeting a single test in a multi-module build, surefire fails on
+sibling modules where that test name does not exist. Add
+`-Dsurefire.failIfNoSpecifiedTests=false` to make surefire skip those modules
+quietly instead of failing the build.
 
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
+## Test layers — when to use what
 
-    private OrderRepository repository;
+The project keeps three layers of tests; pick the right one before you start
+writing.
 
-    @BeforeEach
-    void setUp() {
-        var dataSource = new PGSimpleDataSource();
-        dataSource.setUrl(postgres.getJdbcUrl());
-        dataSource.setUser(postgres.getUsername());
-        dataSource.setPassword(postgres.getPassword());
-        repository = new JdbcOrderRepository(dataSource);
-    }
+| Layer | Path | Models | When |
+|---|---|---|---|
+| **Unit** | `*/src/test/java/**` | mocks (`when(chatModel.stream(...))`) | Every public method on a service. Fast, deterministic, runs on every commit. |
+| **Fixture IT** | `opendaimon-app/src/it/java/**/fixture/` (`@Tag("fixture")`) | mocks or deterministic stubs | One per use case in `docs/usecases/`. Wires real Spring components together but never calls a real LLM — keeps `-Pfixture` fast and reliable. |
+| **Manual IT** | `opendaimon-app/src/it/java/**/manual/` (`@Tag("manual")` + `@EnabledIfSystemProperty(...)`) | **real Ollama** (local) and/or **real OpenRouter** | End-to-end behavior of the same use case against a real LLM. Both flavors are usually present in pairs (`*OllamaManualIT`, `*OpenRouterManualIT`). Not in CI. |
 
-    @Test
-    void save_and_findById() {
-        var saved = repository.save(new Order(null, "Bob", BigDecimal.ONE));
-        var found = repository.findById(saved.getId());
-        assertThat(found).isPresent();
-    }
-}
-```
+Rule of thumb: if a use case carries data through to an LLM (vision, RAG,
+tool-calling, conversation memory), it needs a manual IT in addition to the
+unit + fixture coverage. Mocks pass the test even when the production wiring
+silently drops the data; only a real LLM proves the model actually received it.
 
-For Spring Boot integration tests, see skill: `springboot-tdd`.
-
-## Test Naming
-
-Use descriptive names with `@DisplayName`:
-- `methodName_scenario_expectedBehavior()` for method names
-- `@DisplayName("human-readable description")` for reports
-
-## Coverage
-
-- Target 80%+ line coverage
-- Use JaCoCo for coverage reporting
-- Focus on service and domain logic — skip trivial getters/config classes
-
-## References
-
-See skill: `springboot-tdd` for Spring Boot TDD patterns with MockMvc and Testcontainers.
-See skill: `java-coding-standards` for testing expectations.
+When the use case targets a vision-capable code path, prefer **OpenRouter**
+with an explicit vision model (`z-ai/glm-4.5v`, `google/gemini-2.5-flash-preview`)
+over `openrouter/auto` — auto-routing picks unpredictable models and produces
+flaky test results. The Ollama variant should use a small local vision model
+(`gemma3:4b`) and gate on `manual.ollama.e2e=true`.

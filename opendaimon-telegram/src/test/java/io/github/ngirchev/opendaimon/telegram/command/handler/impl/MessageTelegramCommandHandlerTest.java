@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -17,6 +18,14 @@ import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerFsmFactory;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
+import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,7 +53,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 
 import java.util.List;
 import java.util.Map;
@@ -83,7 +92,7 @@ class MessageTelegramCommandHandlerTest {
     @Mock
     private AIRequestPipeline aiRequestPipeline;
     @Mock
-    private UserModelPreferenceService userModelPreferenceService;
+    private ChatSettingsService chatSettingsService;
     @Mock
     private PersistentKeyboardService persistentKeyboardService;
     @Mock
@@ -96,7 +105,7 @@ class MessageTelegramCommandHandlerTest {
     private MessageTelegramCommandHandler handler;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
         messageSource.setBasenames("classpath:messages/common", "classpath:messages/telegram");
         messageSource.setDefaultEncoding("UTF-8");
@@ -109,11 +118,29 @@ class MessageTelegramCommandHandlerTest {
 
         ObjectProvider<TelegramBot> botProvider = mock(ObjectProvider.class);
         when(botProvider.getObject()).thenReturn(telegramBot);
+        when(botProvider.getIfAvailable()).thenReturn(telegramBot);
+        TelegramChatPacer telegramChatPacer = mock(TelegramChatPacer.class);
+        when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
+        when(telegramChatPacer.reserve(anyLong(), anyLong())).thenReturn(true);
 
-        handler = new MessageTelegramCommandHandler(botProvider, typingIndicatorService, messageLocalizationService,
-                telegramUserService, telegramUserSessionService, telegramMessageService, aiGatewayRegistry,
-                messageService, aiRequestPipeline, telegramProperties, userModelPreferenceService,
-                persistentKeyboardService, replyImageAttachmentService);
+        TelegramMessageSender messageSender = new TelegramMessageSender(
+                botProvider, messageLocalizationService, persistentKeyboardService, telegramChatPacer);
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
+
+        TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
+                telegramUserService, telegramUserSessionService,
+                telegramMessageService, aiGatewayRegistry, messageService,
+                aiRequestPipeline, telegramProperties, chatSettingsService,
+                persistentKeyboardService, replyImageAttachmentService, messageSender,
+                null, agentStreamView, 10, false);
+
+        ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
+                MessageHandlerFsmFactory.create(actions);
+
+        handler = new MessageTelegramCommandHandler(
+                botProvider, typingIndicatorService, messageLocalizationService,
+                handlerFsm, telegramMessageService, telegramProperties, persistentKeyboardService);
     }
 
     @Test

@@ -60,7 +60,7 @@ class TextPdfRagFixtureIT {
 
         @Bean
         public EmbeddingModel embeddingModel() {
-            return new DeterministicEmbeddingModel();
+            return new DeterministicEmbeddingModel(EMBEDDING_DIMENSIONS);
         }
 
         @Bean
@@ -184,30 +184,4 @@ class TextPdfRagFixtureIT {
         }
     }
 
-    /**
-     * Mock embedding model that returns deterministic unit vectors.
-     * All embeddings are identical, so cosine similarity is always 1.0 —
-     * this tests the pipeline mechanics without real semantic matching.
-     */
-    static class DeterministicEmbeddingModel implements EmbeddingModel {
-
-        @Override
-        public EmbeddingResponse call(EmbeddingRequest request) {
-            var embeddings = IntStream.range(0, request.getInstructions().size())
-                    .mapToObj(i -> new Embedding(unitVector(), i))
-                    .toList();
-            return new EmbeddingResponse(embeddings);
-        }
-
-        @Override
-        public float[] embed(Document document) {
-            return unitVector();
-        }
-
-        private float[] unitVector() {
-            float[] vector = new float[EMBEDDING_DIMENSIONS];
-            Arrays.fill(vector, 1.0f / (float) Math.sqrt(EMBEDDING_DIMENSIONS));
-            return vector;
-        }
-    }
 }

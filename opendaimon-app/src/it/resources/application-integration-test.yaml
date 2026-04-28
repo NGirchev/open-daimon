@@ -10,7 +10,11 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
   autoconfigure:
     exclude:
-      - org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration
+      # Keep ChatMemoryAutoConfiguration ENABLED so Spring AI provides
+      # InMemoryChatMemoryRepository as a fallback (JDBC variant is excluded
+      # below to avoid hitting the shared Postgres instance during ITs).
+      # SpringAIAutoConfig#chatMemoryOnPostgresDb is @Primary so our
+      # SummarizingChatMemory still wins as the default ChatMemory bean.
       - org.springframework.ai.model.chat.memory.repository.jdbc.autoconfigure.JdbcChatMemoryRepositoryAutoConfiguration
 
 open-daimon:
@@ -19,11 +23,21 @@ open-daimon:
   ui:
     enabled: false
   telegram:
+    enabled: true
     token: test-token
     username: test-bot
     start-message: Hello from integration test
+    max-message-length: 4096
+    agent-stream-edit-min-interval-ms: 0
+    agent-stream-view:
+      private-chat-flush-interval-ms: 0
+      group-chat-flush-interval-ms: 0
+      final-delivery-timeout-ms: 5000
+      default-acquire-timeout-ms: 0
     file-upload:
       enabled: false
+  agent:
+    stream-timeout-seconds: 120
   common:
     assistant-role: You are a helpful assistant
     max-output-tokens: 1000
@@ -81,7 +95,6 @@ open-daimon:
       history-window-size: 10
       timeouts:
         response-timeout-seconds: 120
-        stream-timeout-seconds: 120
       serper:
         api:
           key: test-key

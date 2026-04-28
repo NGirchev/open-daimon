@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.ui.config;
 
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
@@ -19,7 +20,7 @@ import io.github.ngirchev.opendaimon.rest.service.RestUserService;
 @AutoConfiguration
 @AutoConfigureAfter(name = "io.github.ngirchev.opendaimon.rest.config.RestAutoConfig")
 @EnableConfigurationProperties(UIProperties.class)
-@ConditionalOnProperty(name = "open-daimon.ui.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.UI_ENABLED, havingValue = "true")
 public class UIAutoConfig {
 
     @Bean

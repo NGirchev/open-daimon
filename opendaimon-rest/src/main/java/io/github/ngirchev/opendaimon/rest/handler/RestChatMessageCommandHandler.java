@@ -92,7 +92,7 @@ public class RestChatMessageCommandHandler implements
             AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
             String newRagDocIds = aiCommand.metadata().get(AICommand.RAG_DOCUMENT_IDS_FIELD);
             String newRagFilenames = aiCommand.metadata().get(AICommand.RAG_FILENAMES_FIELD);
-            if (newRagFilenames != null) {
+            if (newRagFilenames != null && newRagDocIds != null) {
                 messageService.updateRagMetadata(userMessage,
                         Arrays.asList(newRagDocIds.split(",")),
                         Arrays.asList(newRagFilenames.split(",")));

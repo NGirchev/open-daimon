@@ -20,7 +20,7 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramServiceConfig;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 
 import java.util.List;
 import java.util.Set;
@@ -32,7 +32,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 @EnableConfigurationProperties(TelegramProperties.class)
 @Import({
-        TestDatabaseConfiguration.class,
         BulkHeadAutoConfig.class,
         CoreAutoConfig.class,
         TelegramJpaConfig.class,
@@ -50,6 +49,8 @@ import static org.junit.jupiter.api.Assertions.*;
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
                 "io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig",
+        "open-daimon.agent.enabled=false",
+        "open-daimon.agent.max-iterations=10",
         "open-daimon.telegram.enabled=true",
         "open-daimon.telegram.token=test-token",
         "open-daimon.telegram.username=test-bot",
@@ -80,7 +81,7 @@ import static org.junit.jupiter.api.Assertions.*;
         "spring.ai.openai.api-key=mock-key",
         "spring.ai.ollama.base-url=http://localhost:11434"
 })
-class TelegramCommandHandlerRegistryIT {
+class TelegramCommandHandlerRegistryIT extends AbstractContainerIT {
 
     @MockitoBean
     private TelegramBot telegramBot;

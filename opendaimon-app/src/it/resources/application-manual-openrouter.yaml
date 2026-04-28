@@ -10,8 +10,6 @@ spring:
       api-key: ${OPENROUTER_KEY:sk-placeholder}
   autoconfigure:
     exclude:
-      - io.github.ngirchev.opendaimon.rest.config.RestAutoConfig
-      - io.github.ngirchev.opendaimon.ui.config.UIAutoConfig
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
@@ -21,8 +19,26 @@ spring:
 
 open-daimon:
   common:
+    # Raise summarization threshold so 3-turn conversation tests do not trigger
+    # SummarizationService — which otherwise calls OpenRouter with a default
+    # max_price=0 and receives HTTP 404 "No endpoints found that satisfy the
+    # max price for this request", causing the turn to error and leaving the
+    # conversation with fewer assistant messages than asserted.
+    summarization:
+      message-window-size: 100
+      max-window-tokens: 200000
     bulkhead:
-      enabled: false
+      enabled: true
+      instances:
+        ADMIN:
+          maxConcurrentCalls: 10
+          maxWaitDuration: 1s
+        VIP:
+          maxConcurrentCalls: 5
+          maxWaitDuration: 1s
+        REGULAR:
+          maxConcurrentCalls: 5
+          maxWaitDuration: 1s
     chat-routing:
       REGULAR:
         max-price: 5.0
@@ -30,8 +46,19 @@ open-daimon:
     enabled: true
     token: test-token
     username: test-bot
+    start-message: Manual test bot
+    max-message-length: 4096
+    agent-stream-edit-min-interval-ms: 1000
+    agent-stream-view:
+      private-chat-flush-interval-ms: 1000
+      group-chat-flush-interval-ms: 3000
+      final-delivery-timeout-ms: 5000
+      default-acquire-timeout-ms: 1000
     file-upload:
       enabled: false
+      max-file-size-mb: 20
+      supported-image-types: jpeg,png,gif,webp
+      supported-document-types: pdf,docx,doc,xls,xlsx,txt,rtf,html,csv
     access:
       ADMIN:
         ids:
@@ -56,7 +83,23 @@ open-daimon:
           enabled: false
       rag:
         enabled: true
+        chunk-size: 800
+        chunk-overlap: 100
+        top-k: 5
         similarity-threshold: 0.0
+        prompts:
+          document-extract-error-pdf: "Could not extract text from file \"%s\"."
+          document-extract-error-document: "Could not extract text from file \"%s\" (type: %s)."
+          augmented-prompt-template: |
+            The user attached a document. Relevant passages are in the Context below.
+            Prefer answering from the Context. Do not call web_search or fetch_url
+            when the Context already contains the information the user asked about.
+
+            Context:
+            %s
+
+            Question: %s
+          vision-extraction-prompt: "Extract all readable text from this image. Return only the extracted text, no commentary."
       serper:
         api:
           key: test-key

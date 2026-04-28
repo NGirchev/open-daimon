@@ -8,6 +8,17 @@ Act as a senior Java developer who follows the project style consistently — a 
 
 Java tech lead, experienced, intolerant of sloppy work. Requires tests and verification of hypotheses — code is not accepted without them. Significant changes must be agreed. Listen to the user and do what they ask; if you disagree, argue with reasoning.
 
+## Project Nature
+
+`open-daimon` is a **multi-module Maven project published to Maven Central** under `groupId: io.github.ngirchev` (see `<distributionManagement>` in the root `pom.xml`). Individual modules — `opendaimon-common`, `opendaimon-spring-ai`, `opendaimon-telegram`, `opendaimon-rest`, `opendaimon-ui` — are consumed by external Spring Boot applications, not only by the bundled `opendaimon-app` runtime.
+
+Consequences for any change touching `pom.xml`, public types, or shared APIs:
+
+- **Public API stability matters.** Removing or renaming a public class/method, changing a constructor signature on a `@Bean`-exposed type, or moving a class between packages breaks downstream consumers on the next version bump. If a public-facing change is necessary, ask the user before doing it.
+- **Declare what you use.** Each module's `pom.xml` must declare the libraries it imports directly, even when they would arrive transitively through `opendaimon-common`. This protects downstream consumers from surprise breakage if an upstream module is later marked `<optional>true</optional>` or scoped `provided`.
+- **Mark internal-only deps `<optional>true</optional>`** (Lombok and MinIO already do this in `opendaimon-common`) so they do not leak onto downstream classpaths.
+- **Module-level `*_MODULE.md` is part of the public contract** for behavior — keep it in sync with code in the same change.
+
 ## Rules for AI Agents
 
 ### Serena activation on session start
@@ -31,106 +42,91 @@ Java tech lead, experienced, intolerant of sloppy work. Requires tests and verif
 
 ### Language in code and documentation
 
-- **Code, comments, javadoc, commit messages, and in-repo documentation** (AGENTS.md, READMEs in packages) must be written in **English**.
+- **Code, comments, javadoc, commit messages, and in-repo documentation** must be written in **English**.
 - User-facing strings (i18n in `.properties`, bot messages) may be in any language.
 - Exception and log messages in code must be in English.
 
-### When creating new services and components
+## Project Style Guide
 
-1. **Do NOT use `@Service`, `@Component`, `@Repository`** for automatic bean scanning
-2. **Create beans explicitly** in configuration classes via `@Bean` methods
-3. **Configuration classes** live in the `config` package of each module
-4. **Example**:
-   ```java
-   // ❌ WRONG:
-   @Service
-   public class MyService { ... }
-   
-   // ✅ CORRECT:
-   public class MyService { ... }  // No annotations
-   
-   @Configuration
-   public class MyModuleConfig {
-       @Bean
-       @ConditionalOnMissingBean
-       public MyService myService(...) {
-           return new MyService(...);
-       }
-   }
-   ```
-5. **Exception:** `@Repository` on JPA repository interfaces is allowed (interfaces, not classes)
+### Java & Dependencies
 
-### When creating new modules
+- **Java 21** with modern features
+- **Lombok** (`@Getter`, `@Setter`, `@RequiredArgsConstructor`, `@Slf4j`)
+- **Vavr** for functional patterns
+- **Package structure:** `io.github.ngirchev.opendaimon.<module>.<layer>`
 
-1. **Create pom.xml** with the correct dependency structure (see [CODE_STYLE.md](CODE_STYLE.md))
-2. **Add the module** to parent pom.xml in the `<modules>` section
-3. **Package structure:** `io.github.ngirchev.opendaimon.<module-name>.<layer>`
-4. **If entities are needed:** extend `User` or `Message` from `opendaimon-common`
-5. **Create a Flyway migration** in `opendaimon-app/src/main/resources/db/migration/`
-6. **Create a configuration class** for all beans of the module (e.g. `MyModuleConfig`)
+### Dependency order in pom.xml
 
-### When working with entities
+1. Project modules (groupId: `io.github.ngirchev`)
+2. Spring dependencies
+3. Database dependencies
+4. Other utilities
+5. Test dependencies (scope: `test`)
 
-1. **Do not duplicate entities** across modules — use inheritance
-2. **Base entities** only in `opendaimon-common`
-3. **Module-specific fields** in subclasses (e.g. `telegram_id` in `TelegramUser`)
-4. **Use JPA Inheritance JOINED** for User
-5. **Use JPA Inheritance SINGLE_TABLE** for Message (all messages in one table, specific data in metadata JSONB)
-6. **Discriminator** is required for polymorphic queries
+**All versions MUST be in `<properties>`!**
 
-### When adding new AI providers
+### Spring Bean Configuration
 
-1. **Create a new module** `ai-<provider-name>` (e.g. `ai-anthropic`)
-2. **Create a Service** with `generateResponse(String prompt, ...)`
-3. **Create Properties** for configuration (API key, URL)
-4. **Add the dependency** to modules that will use the provider
-5. **Do not add entities** — providers are stateless
+**Do NOT use `@Service`, `@Component`** for automatic bean scanning.
+- Create beans explicitly in configuration classes via `@Bean` methods
+- Configuration classes live in the `config` package of each module
 
-### When working with the database
+**ObjectProvider** for optional/lazy beans; **@Lazy** to break circular dependencies at creation time.
 
-1. **All migrations** in `opendaimon-app/src/main/resources/db/migration/`
-2. **Naming:** `V<number>__<description>.sql` (e.g. `V1__Create_initial_tables.sql`)
-3. **Indexes are required** for foreign keys and frequently queried fields
-4. **Use `IF NOT EXISTS`** for idempotency
-5. **Timestamps:** `TIMESTAMP WITH TIME ZONE` (not `TIMESTAMP`)
+### Service Layer
 
-### When adding metrics
+- Interfaces for services (e.g. `UserService`, `UserPriorityService`)
+- Implementations with `Impl` suffix
+- `@RequiredArgsConstructor` for dependency injection
 
-1. **Use `OpenDaimonMeterRegistry`** from `opendaimon-common`
-2. **Metric format:** `<module>.<action>.<metric>` (e.g. `rest.request.processing.time`)
-3. **Types:** Counter, Timer, Gauge
-4. **Add description** in the Grafana dashboard
+### Entities
 
-### When working with prioritization
+- Base entities only in `opendaimon-common` (`User`, `Message`)
+- Module-specific entities in modules (`TelegramUser`, `RestUser`)
+- **JPA Inheritance JOINED** for User (discriminator: `user_type`, values: `TELEGRAM`, `REST`)
+- **JPA Inheritance SINGLE_TABLE** for Message (discriminator: `message_type`, metadata JSONB)
+- `@PrePersist` and `@PreUpdate` for automatic timestamps
 
-1. **Use `PriorityRequestExecutor`** for all AI requests
-2. **Do not call AI services directly** — only via the executor
-3. **Priorities:** ADMIN (10 threads), VIP (5 threads), REGULAR (1 thread)
-4. **Whitelist** is managed via `WhitelistService`
+### Configuration
 
-### Security
+- Namespace: `open-daimon.*` (modules `telegram`, `rest`, `ui`, `ai.spring-ai`); toggles use `*.enabled`
+- **Feature Toggles:** centralized in `FeatureToggle` (opendaimon-common). Never use raw string literals in `@ConditionalOnProperty` — use `FeatureToggle.Module`, `FeatureToggle.Feature`, or `FeatureToggle.TelegramCommand`.
+- **@ConfigurationProperties:** all values required (set in `application.yml`, not in code). Use `@Validated` with `@NotNull`, wrapper types (`Integer`, `Double`, `Boolean`).
+- Module auto-configs: `CoreAutoConfig`, `TelegramAutoConfig`, `RestAutoConfig`, `SpringAIAutoConfig`
 
-1. **API keys** ONLY in environment variables
-2. **Do not commit** `application.yml` with real keys
-3. **Use `@PreAuthorize`** to protect REST endpoints (if you add Spring Security)
-4. **Validate input** with Jakarta Validation (`@Valid`, `@NotNull`, etc.)
+### Database Migrations
+
+- All migrations in `opendaimon-app/src/main/resources/db/migration/`
+- Modular paths: `core/`, `telegram/`, `rest/`, `springai/`
+- Naming: `V<number>__<description>.sql`
+- Indexes required for FKs and frequent queries
+- Use `IF NOT EXISTS` for idempotency
+- Timestamps: `TIMESTAMP WITH TIME ZONE`
+
+### Metrics
+
+- Use `OpenDaimonMeterRegistry` from `opendaimon-common`
+- Format: `<module>.<action>.<metric>` (e.g. `telegram.message.processing.time`)
+
+### Prioritization
+
+- Use `PriorityRequestExecutor` for all AI requests — never call AI services directly
+- Priorities: ADMIN (10 threads), VIP (5 threads), REGULAR (1 thread)
+- Whitelist managed via `WhitelistService`
 
 ### Testing
 
-1. **Unit tests** for services (Mockito)
-2. **Integration tests** for repositories (Testcontainers)
-3. **Coverage** at least 70% for critical business logic
-4. **Do not mock entities** — use real objects
-5. **Use `@DataJpaTest`** for repository tests
+- Unit tests for services (Mockito), integration tests for repositories (Testcontainers)
+- Coverage at least 80% for critical business logic
+- Do not mock entities — use real objects
+- Use `@DataJpaTest` for repository tests
 
 ### Build & Verification
 
-1. **Always run `mvn clean`** before compile or test to avoid stale bytecode issues
-2. **Always run `mvn clean compile`** after code changes before running tests
-3. **Verify compilation separately** — run `mvn compile` before `mvn test` to catch compilation errors early
+- Always run `./mvnw clean compile` after code changes before running tests
+- Verify compilation separately before running tests
 
 ## See Also
 
 - **Architecture & Modules:** [ARCHITECTURE.md](ARCHITECTURE.md)
-- **Code Style & Configuration:** [CODE_STYLE.md](CODE_STYLE.md)
 - **Build & Test Commands:** [Makefile](Makefile)

@@ -162,7 +162,7 @@ class TelegramBotStartCommandIT {
                 TelegramUserRepository telegramUserRepository,
                 TelegramUserSessionService telegramUserSessionService,
                 AssistantRoleService assistantRoleService) {
-            return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService);
+            return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService, false);
         }
 
         @Bean

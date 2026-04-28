@@ -7,17 +7,27 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.*;
+import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
+import io.github.ngirchev.opendaimon.rest.controller.AdminAttachmentController;
+import io.github.ngirchev.opendaimon.rest.controller.AdminConversationController;
+import io.github.ngirchev.opendaimon.rest.controller.AdminMeController;
+import io.github.ngirchev.opendaimon.rest.controller.AdminUserController;
 import io.github.ngirchev.opendaimon.rest.controller.SessionController;
 import io.github.ngirchev.opendaimon.rest.handler.RestChatHandlerSupport;
 import io.github.ngirchev.opendaimon.rest.handler.RestChatMessageCommandHandler;
 import io.github.ngirchev.opendaimon.rest.handler.RestChatStreamMessageCommandHandler;
+import io.github.ngirchev.opendaimon.rest.repository.AdminConversationRepository;
+import io.github.ngirchev.opendaimon.rest.repository.AdminUserRepository;
 import io.github.ngirchev.opendaimon.rest.repository.RestUserRepository;
+import io.github.ngirchev.opendaimon.rest.service.AdminAttachmentService;
+import io.github.ngirchev.opendaimon.rest.service.AdminQueryService;
 import io.github.ngirchev.opendaimon.rest.service.ChatService;
 import io.github.ngirchev.opendaimon.rest.service.RestAuthorizationService;
 import io.github.ngirchev.opendaimon.rest.service.RestMessageService;
@@ -34,9 +44,10 @@ import io.github.ngirchev.opendaimon.rest.exception.RestExceptionHandler;
 @EnableConfigurationProperties(RestProperties.class)
 @Import({
         RestJpaConfig.class,
-        RestFlywayConfig.class
+        RestFlywayConfig.class,
+        AdminSecurityConfig.class
 })
-@ConditionalOnProperty(name = "open-daimon.rest.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.REST_ENABLED, havingValue = "true")
 public class RestAutoConfig {
 
     @Bean
@@ -154,6 +165,47 @@ public class RestAutoConfig {
     @ConditionalOnMissingBean
     public RestExceptionHandler restExceptionHandler(MessageLocalizationService messageLocalizationService) {
         return new RestExceptionHandler(messageLocalizationService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AdminQueryService adminQueryService(
+            AdminConversationRepository adminConversationRepository,
+            AdminUserRepository adminUserRepository,
+            OpenDaimonMessageRepository messageRepository) {
+        return new AdminQueryService(adminConversationRepository, adminUserRepository, messageRepository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AdminAttachmentService adminAttachmentService(
+            OpenDaimonMessageRepository messageRepository,
+            FileStorageService fileStorageService) {
+        return new AdminAttachmentService(messageRepository, fileStorageService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AdminConversationController adminConversationController(AdminQueryService adminQueryService) {
+        return new AdminConversationController(adminQueryService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AdminUserController adminUserController(AdminQueryService adminQueryService) {
+        return new AdminUserController(adminQueryService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AdminAttachmentController adminAttachmentController(AdminAttachmentService adminAttachmentService) {
+        return new AdminAttachmentController(adminAttachmentService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AdminMeController adminMeController() {
+        return new AdminMeController();
     }
 }
 

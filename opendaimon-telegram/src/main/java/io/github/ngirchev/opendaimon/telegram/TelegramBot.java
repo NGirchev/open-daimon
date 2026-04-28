@@ -12,6 +12,8 @@ import org.telegram.telegrambots.meta.api.methods.polls.SendPoll;
 import org.telegram.telegrambots.meta.api.methods.send.SendChatAction;
 import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
@@ -43,6 +45,9 @@ import io.github.ngirchev.opendaimon.telegram.config.FileUploadProperties;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
+import io.github.ngirchev.opendaimon.common.model.User;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsOwnerResolver;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageCoalescingService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
@@ -66,11 +71,13 @@ public class TelegramBot extends TelegramLongPollingBot {
     private final ObjectProvider<TelegramFileService> fileServiceProvider;
     private final ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider;
     private final ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider;
+    private final ObjectProvider<TelegramBotMenuService> menuServiceProvider;
+    private final ObjectProvider<ChatSettingsOwnerResolver> ownerResolverProvider;
 
     public TelegramBot(TelegramProperties config,
                        CommandSyncService commandSyncService,
                        TelegramUserService userService) {
-        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null, null, null);
+        this(config, new DefaultBotOptions(), commandSyncService, userService, null, null, null, null, null, null);
     }
 
     /**
@@ -84,7 +91,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                        ObjectProvider<TelegramFileService> fileServiceProvider,
                        ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider) {
         this(config, botOptions, commandSyncService, userService, messageLocalizationService,
-                fileServiceProvider, fileUploadPropertiesProvider, null);
+                fileServiceProvider, fileUploadPropertiesProvider, null, null, null);
     }
 
     public TelegramBot(TelegramProperties config,
@@ -95,6 +102,34 @@ public class TelegramBot extends TelegramLongPollingBot {
                        ObjectProvider<TelegramFileService> fileServiceProvider,
                        ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
                        ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider) {
+        this(config, botOptions, commandSyncService, userService, messageLocalizationService,
+                fileServiceProvider, fileUploadPropertiesProvider, messageCoalescingServiceProvider, null, null);
+    }
+
+    public TelegramBot(TelegramProperties config,
+                       DefaultBotOptions botOptions,
+                       CommandSyncService commandSyncService,
+                       TelegramUserService userService,
+                       MessageLocalizationService messageLocalizationService,
+                       ObjectProvider<TelegramFileService> fileServiceProvider,
+                       ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
+                       ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider,
+                       ObjectProvider<TelegramBotMenuService> menuServiceProvider) {
+        this(config, botOptions, commandSyncService, userService, messageLocalizationService,
+                fileServiceProvider, fileUploadPropertiesProvider, messageCoalescingServiceProvider,
+                menuServiceProvider, null);
+    }
+
+    public TelegramBot(TelegramProperties config,
+                       DefaultBotOptions botOptions,
+                       CommandSyncService commandSyncService,
+                       TelegramUserService userService,
+                       MessageLocalizationService messageLocalizationService,
+                       ObjectProvider<TelegramFileService> fileServiceProvider,
+                       ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
+                       ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider,
+                       ObjectProvider<TelegramBotMenuService> menuServiceProvider,
+                       ObjectProvider<ChatSettingsOwnerResolver> ownerResolverProvider) {
         super(botOptions, config.getToken());
         this.config = config;
         this.commandSyncService = commandSyncService;
@@ -103,6 +138,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         this.fileServiceProvider = fileServiceProvider;
         this.fileUploadPropertiesProvider = fileUploadPropertiesProvider;
         this.messageCoalescingServiceProvider = messageCoalescingServiceProvider;
+        this.menuServiceProvider = menuServiceProvider;
+        this.ownerResolverProvider = ownerResolverProvider;
     }
 
     @Override
@@ -422,7 +459,13 @@ public class TelegramBot extends TelegramLongPollingBot {
             String langCode = null;
             try {
                 TelegramUser user = userService.getOrCreateUser(update.getMessage().getFrom());
-                langCode = user.getLanguageCode();
+                // Prefer the settings-owner's language so the disabled-reply is localised for
+                // the whole group, not just the member who triggered the upload. Fall back to
+                // the invoker when the owner has no language set yet (fresh group) or when
+                // the resolver bean is unavailable (bare-bones test harness).
+                User owner = resolveSettingsOwner(
+                        update.getMessage().getChat(), update.getMessage().getFrom(), user);
+                langCode = resolveLanguageCode(owner, user);
             } catch (Exception ignored) {
             }
             String msg = messageLocalizationService != null
@@ -443,7 +486,6 @@ public class TelegramBot extends TelegramLongPollingBot {
             sendErrorMessage(command.telegramId(), errMsg, replyToMessageId);
         } catch (TelegramApiException ex) {
             log.error("Exception on sending response to telegram", ex);
-            throw new RuntimeException(ex);
         }
     }
 
@@ -461,6 +503,33 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     /**
+     * Lazy per-chat command menu reconciliation.
+     * <p>
+     * Called from the slash-command and callback-query paths so the first chat-scoped
+     * interaction after a deployment repairs a stale {@code BotCommandScopeChat} snapshot
+     * whose command set diverges from the current build. Must not block or throw — any
+     * Telegram API failure is swallowed at the call site and the command processing continues.
+     *
+     * @param owner  settings owner (TelegramUser in private chats, TelegramGroup in groups)
+     * @param chatId Telegram chat id — the {@code BotCommandScopeChat} target
+     */
+    private void reconcileMenuIfStale(User owner, Long chatId) {
+        if (menuServiceProvider == null || owner == null || chatId == null) {
+            return;
+        }
+        TelegramBotMenuService menuService = menuServiceProvider.getIfAvailable();
+        if (menuService == null) {
+            return;
+        }
+        try {
+            menuService.reconcileMenuIfStale(owner, chatId);
+            // Persistence of the new hash is handled inside the menu service polymorphically.
+        } catch (Exception e) {
+            log.warn("Lazy menu reconciliation failed for chatId={}: {}", chatId, e.getMessage());
+        }
+    }
+
+    /**
      * Returns whether file upload is enabled.
      */
     private boolean isFileUploadEnabled() {
@@ -471,11 +540,43 @@ public class TelegramBot extends TelegramLongPollingBot {
         return props != null && Boolean.TRUE.equals(props.getEnabled());
     }
 
+    /**
+     * Resolves the chat-scoped settings owner for an incoming update.
+     * In a group/supergroup returns the {@code TelegramGroup} row; in a private chat returns
+     * the invoker's {@code TelegramUser}. When the resolver bean is unavailable (legacy tests,
+     * minimal bootstrap) falls back to the invoker to preserve old behavior.
+     */
+    private User resolveSettingsOwner(org.telegram.telegrambots.meta.api.objects.Chat chat,
+                                      org.telegram.telegrambots.meta.api.objects.User invoker,
+                                      TelegramUser invokerEntity) {
+        ChatSettingsOwnerResolver resolver = ownerResolverProvider != null
+                ? ownerResolverProvider.getIfAvailable() : null;
+        if (resolver == null || chat == null || invoker == null) {
+            return invokerEntity;
+        }
+        return resolver.resolveForChat(chat, invoker);
+    }
+
+    /**
+     * Returns the language code from the settings owner, falling back to the invoker's user when
+     * the group has no language yet (e.g. first interaction before {@code /language}).
+     */
+    private String resolveLanguageCode(User owner, TelegramUser invokerEntity) {
+        if (owner != null && owner.getLanguageCode() != null && !owner.getLanguageCode().isBlank()) {
+            return owner.getLanguageCode();
+        }
+        return invokerEntity != null ? invokerEntity.getLanguageCode() : null;
+    }
+
     protected TelegramCommand mapToTelegramCommand(Update update) {
         CallbackQuery cq = update.getCallbackQuery();
         var message = cq.getMessage();
         TelegramUser telegramUser = userService.getOrCreateUser(cq.getFrom());
         Long userId = telegramUser.getId();
+        org.telegram.telegrambots.meta.api.objects.Chat callbackChat =
+                (message instanceof Message accessibleMessage) ? accessibleMessage.getChat() : null;
+        User settingsOwner = resolveSettingsOwner(callbackChat, cq.getFrom(), telegramUser);
+        reconcileMenuIfStale(settingsOwner, message != null ? message.getChatId() : null);
 
         TelegramCommandType telegramCommandType = null;
         String callbackData = cq.getData();
@@ -484,10 +585,12 @@ public class TelegramBot extends TelegramLongPollingBot {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.THREADS);
             } else if (callbackData.startsWith("LANG_")) {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.LANGUAGE);
-            } else if ("ERROR".equals(callbackData) || "IMPROVEMENT".equals(callbackData)) {
+            } else if ("ERROR".equals(callbackData) || "IMPROVEMENT".equals(callbackData) || "BUG_CANCEL".equals(callbackData)) {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.BUGREPORT);
             } else if (callbackData.startsWith("MODEL_")) {
                 telegramCommandType = new TelegramCommandType(TelegramCommand.MODEL);
+            } else if (callbackData.startsWith("MODE_")) {
+                telegramCommandType = new TelegramCommandType(TelegramCommand.MODE);
             }
         }
         if (telegramCommandType == null) {
@@ -498,13 +601,15 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
 
         TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, true);
-        return cmd.languageCode(telegramUser.getLanguageCode());
+        cmd.settingsOwner(settingsOwner);
+        return cmd.languageCode(resolveLanguageCode(settingsOwner, telegramUser));
     }
 
     protected TelegramCommand mapToTelegramTextCommand(Update update) {
         var message = update.getMessage();
         TelegramUser telegramUser = userService.getOrCreateUser(message.getFrom());
         Long userId = telegramUser.getId();
+        User settingsOwner = resolveSettingsOwner(message.getChat(), message.getFrom(), telegramUser);
 
         String forwardInfo = extractForwardInfo(message);
         String userText;
@@ -517,6 +622,7 @@ public class TelegramBot extends TelegramLongPollingBot {
             userText = enrichWithForwardContext(stripped, forwardInfo, telegramUser.getLanguageCode());
         } else if (stripped.startsWith("/")) {
             clearStatus(telegramUser.getTelegramId());
+            reconcileMenuIfStale(settingsOwner, message.getChatId());
             int spaceIndex = stripped.indexOf(' ');
             String commandToken = stripped.substring(0, spaceIndex == -1 ? stripped.length() : spaceIndex);
             String normalizedCommand = normalizeBotCommand(commandToken);
@@ -539,7 +645,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         userText = enrichWithReplyContext(userText, message.getReplyToMessage(), telegramUser.getLanguageCode());
         TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true);
         cmd.forwardedFrom(forwardInfo);
-        return cmd.languageCode(telegramUser.getLanguageCode());
+        cmd.settingsOwner(settingsOwner);
+        return cmd.languageCode(resolveLanguageCode(settingsOwner, telegramUser));
     }
 
     /**
@@ -549,6 +656,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         var message = update.getMessage();
         TelegramUser telegramUser = userService.getOrCreateUser(message.getFrom());
         Long userId = telegramUser.getId();
+        User settingsOwner = resolveSettingsOwner(message.getChat(), message.getFrom(), telegramUser);
 
         String forwardInfo = extractForwardInfo(message);
         String caption = message.getCaption();
@@ -578,12 +686,14 @@ public class TelegramBot extends TelegramLongPollingBot {
                     : " [Photo upload error: " + e.getMessage() + "]";
             TelegramCommand errCmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update,
                     userText + errSuffix, true, new ArrayList<>());
-            return errCmd.languageCode(telegramUser.getLanguageCode());
+            errCmd.settingsOwner(settingsOwner);
+            return errCmd.languageCode(resolveLanguageCode(settingsOwner, telegramUser));
         }
 
         TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true, attachments);
         cmd.forwardedFrom(forwardInfo);
-        return cmd.languageCode(telegramUser.getLanguageCode());
+        cmd.settingsOwner(settingsOwner);
+        return cmd.languageCode(resolveLanguageCode(settingsOwner, telegramUser));
     }
 
     /**
@@ -593,6 +703,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         var message = update.getMessage();
         TelegramUser telegramUser = userService.getOrCreateUser(message.getFrom());
         Long userId = telegramUser.getId();
+        User settingsOwner = resolveSettingsOwner(message.getChat(), message.getFrom(), telegramUser);
 
         String forwardInfo = extractForwardInfo(message);
         String caption = message.getCaption();
@@ -625,7 +736,8 @@ public class TelegramBot extends TelegramLongPollingBot {
                         ? messageLocalizationService.getMessage("telegram.error.unsupported.file", telegramUser.getLanguageCode(), message.getDocument().getMimeType())
                         : " [Unsupported file type: " + message.getDocument().getMimeType() + "]";
                 TelegramCommand errCmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText + errSuffix, true, new ArrayList<>());
-                return errCmd.languageCode(telegramUser.getLanguageCode());
+                errCmd.settingsOwner(settingsOwner);
+                return errCmd.languageCode(resolveLanguageCode(settingsOwner, telegramUser));
             }
         } catch (Exception e) {
             log.error("Error processing document for user {}", userId, e);
@@ -633,7 +745,8 @@ public class TelegramBot extends TelegramLongPollingBot {
                     ? messageLocalizationService.getMessage("telegram.error.document.load", telegramUser.getLanguageCode(), e.getMessage())
                     : " [Document upload error: " + e.getMessage() + "]";
             TelegramCommand errCmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText + errSuffix, true, new ArrayList<>());
-            return errCmd.languageCode(telegramUser.getLanguageCode());
+            errCmd.settingsOwner(settingsOwner);
+            return errCmd.languageCode(resolveLanguageCode(settingsOwner, telegramUser));
         }
 
         Attachment first = attachments.getFirst();
@@ -641,7 +754,8 @@ public class TelegramBot extends TelegramLongPollingBot {
                 attachments.size(), userText, first != null ? first.type() : null, first != null && first.data() != null ? first.data().length : 0);
         TelegramCommand cmd = new TelegramCommand(userId, message.getChatId(), telegramCommandType, update, userText, true, attachments);
         cmd.forwardedFrom(forwardInfo);
-        return cmd.languageCode(telegramUser.getLanguageCode());
+        cmd.settingsOwner(settingsOwner);
+        return cmd.languageCode(resolveLanguageCode(settingsOwner, telegramUser));
     }
 
     public void sendMessage(Long chatId, String text) throws TelegramApiException {
@@ -657,15 +771,26 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId) throws TelegramApiException {
-        return sendMessageAndGetId(chatId, text, replyToMessageId, null);
+        return sendMessageAndGetId(chatId, text, replyToMessageId, null, false);
     }
 
     public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId, ReplyKeyboard replyMarkup) throws TelegramApiException {
+        return sendMessageAndGetId(chatId, text, replyToMessageId, replyMarkup, false);
+    }
+
+    public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId,
+                                        boolean disableLinkPreview) throws TelegramApiException {
+        return sendMessageAndGetId(chatId, text, replyToMessageId, null, disableLinkPreview);
+    }
+
+    public Integer sendMessageAndGetId(Long chatId, String text, Integer replyToMessageId,
+                                        ReplyKeyboard replyMarkup, boolean disableLinkPreview) throws TelegramApiException {
         try {
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
             message.setText(text);
             message.setParseMode("HTML");
+            message.setDisableWebPagePreview(disableLinkPreview);
             if (replyToMessageId != null) {
                 message.setReplyToMessageId(replyToMessageId);
             }
@@ -681,6 +806,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                     SendMessage fallbackMessage = new SendMessage();
                     fallbackMessage.setChatId(chatId.toString());
                     fallbackMessage.setText(text);
+                    fallbackMessage.setDisableWebPagePreview(disableLinkPreview);
                     if (replyToMessageId != null) {
                         fallbackMessage.setReplyToMessageId(replyToMessageId);
                     }
@@ -697,6 +823,76 @@ public class TelegramBot extends TelegramLongPollingBot {
             log.error("Error sending message", e);
             throw e;
         }
+    }
+
+    /**
+     * Edit an existing message's text with HTML formatting.
+     *
+     * <p>Falls back to plain text if HTML parsing fails (same pattern as
+     * {@link #sendMessageAndGetId}).
+     */
+    public void editMessageHtml(Long chatId, Integer messageId, String html) throws TelegramApiException {
+        editMessageHtml(chatId, messageId, html, false);
+    }
+
+    public void editMessageHtml(Long chatId, Integer messageId, String html,
+                                 boolean disableWebPagePreview) throws TelegramApiException {
+        if (messageId == null) {
+            log.warn("Message ID is null, cannot edit message for chat {}", chatId);
+            return;
+        }
+        try {
+            EditMessageText edit = new EditMessageText();
+            edit.setChatId(chatId.toString());
+            edit.setMessageId(messageId);
+            edit.setText(html);
+            edit.setParseMode("HTML");
+            edit.setDisableWebPagePreview(disableWebPagePreview);
+            execute(edit);
+        } catch (TelegramApiException e) {
+            String errorMessage = e.getMessage();
+            if (errorMessage != null && errorMessage.contains("message is not modified")) {
+                log.debug("Message {} in chat {} was not modified", messageId, chatId);
+                return;
+            }
+            if (errorMessage != null && errorMessage.contains("parse")) {
+                log.warn("HTML parsing error in editMessage, retrying without formatting: {}", errorMessage);
+                try {
+                    EditMessageText fallback = new EditMessageText();
+                    fallback.setChatId(chatId.toString());
+                    fallback.setMessageId(messageId);
+                    fallback.setText(html);
+                    fallback.setDisableWebPagePreview(disableWebPagePreview);
+                    execute(fallback);
+                } catch (TelegramApiException fallbackException) {
+                    if (fallbackException.getMessage() != null
+                            && fallbackException.getMessage().contains("message is not modified")) {
+                        log.debug("Message {} in chat {} was not modified (fallback)", messageId, chatId);
+                        return;
+                    }
+                    log.error("Error editing fallback message", fallbackException);
+                    throw fallbackException;
+                }
+            } else {
+                log.error("Error editing message", e);
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Delete a message in a chat. Fails silently for messages older than 48 h or when
+     * the bot lacks the right to delete — caller should treat any exception as "couldn't
+     * delete, fall back to edit".
+     */
+    public void deleteMessage(Long chatId, Integer messageId) throws TelegramApiException {
+        if (messageId == null) {
+            return;
+        }
+        DeleteMessage delete = new DeleteMessage();
+        delete.setChatId(chatId.toString());
+        delete.setMessageId(messageId);
+        execute(delete);
     }
 
     public void sendErrorMessage(Long chatId, String errorMessage) throws TelegramApiException {

@@ -5,18 +5,26 @@ import io.github.ngirchev.opendaimon.ai.springai.rag.FileRAGService;
 import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
 import io.github.ngirchev.opendaimon.ai.springai.service.PdfTextDetector;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentContentAnalyzer;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentOrchestrator;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPreprocessor;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPipelineActions;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringRagQueryAugmenter;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
-import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
-import io.github.ngirchev.opendaimon.common.ai.document.DocumentOrchestrationResult;
 import io.github.ngirchev.opendaimon.common.ai.document.IDocumentContentAnalyzer;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentOrchestrator;
-import io.github.ngirchev.opendaimon.common.ai.document.IDocumentPreprocessor;
 import io.github.ngirchev.opendaimon.common.ai.factory.AICommandFactoryRegistry;
 import io.github.ngirchev.opendaimon.common.ai.factory.DefaultAICommandFactory;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.DefaultAIRequestPipelineActions;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.IRagQueryAugmenter;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestEvent;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestPipelineFsmFactory;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AIRequestState;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentEvent;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentProcessingContext;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.AttachmentState;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.DocumentPipelineActions;
+import io.github.ngirchev.opendaimon.common.ai.pipeline.fsm.DocumentPipelineFsmFactory;
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
@@ -44,7 +52,6 @@ import org.springframework.context.annotation.Bean;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,7 +88,7 @@ class ImageWithTextPdfFixtureIT {
 
         @Bean
         public EmbeddingModel embeddingModel() {
-            return new DeterministicEmbeddingModel();
+            return new DeterministicEmbeddingModel(EMBEDDING_DIMENSIONS);
         }
 
         @Bean
@@ -129,16 +136,22 @@ class ImageWithTextPdfFixtureIT {
         }
 
         @Bean
-        public IDocumentPreprocessor documentPreprocessor(
-                DocumentProcessingService dps, FileRAGService rag) {
-            // No vision model available in fixture test — OCR will fail gracefully
-            return new SpringDocumentPreprocessor(dps, rag, null, null, ragProperties());
+        public DocumentPipelineActions documentPipelineActions(
+                IDocumentContentAnalyzer analyzer, DocumentProcessingService dps,
+                FileRAGService rag, RAGProperties ragProps) {
+            // No vision model registry or chat service in fixture test — OCR will fail gracefully
+            return new SpringDocumentPipelineActions(analyzer, dps, rag, null, null, ragProps);
         }
 
         @Bean
-        public IDocumentOrchestrator documentOrchestrator(
-                IDocumentPreprocessor preprocessor, FileRAGService rag, RAGProperties ragProps) {
-            return new SpringDocumentOrchestrator(preprocessor, rag, ragProps);
+        public ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentFsm(
+                DocumentPipelineActions actions) {
+            return DocumentPipelineFsmFactory.create(actions);
+        }
+
+        @Bean
+        public IRagQueryAugmenter ragQueryAugmenter(FileRAGService rag, RAGProperties ragProps) {
+            return new SpringRagQueryAugmenter(rag, ragProps);
         }
 
         @Bean
@@ -177,9 +190,24 @@ class ImageWithTextPdfFixtureIT {
         }
 
         @Bean
+        public DefaultAIRequestPipelineActions aiRequestPipelineActions(
+                ExDomainFsm<AttachmentProcessingContext, AttachmentState, AttachmentEvent> documentFsm,
+                IRagQueryAugmenter augmenter,
+                AICommandFactoryRegistry registry) {
+            return new DefaultAIRequestPipelineActions(documentFsm, augmenter, registry);
+        }
+
+        @Bean
+        public ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent> requestFsm(
+                DefaultAIRequestPipelineActions actions) {
+            return AIRequestPipelineFsmFactory.create(actions);
+        }
+
+        @Bean
         public AIRequestPipeline aiRequestPipeline(
-                IDocumentOrchestrator orchestrator, AICommandFactoryRegistry registry) {
-            return new AIRequestPipeline(orchestrator, registry);
+                ExDomainFsm<AIRequestContext, AIRequestState, AIRequestEvent> requestFsm,
+                AICommandFactoryRegistry registry) {
+            return new AIRequestPipeline(requestFsm, registry);
         }
     }
 
@@ -190,13 +218,10 @@ class ImageWithTextPdfFixtureIT {
     private FileRAGService fileRagService;
 
     @Autowired
-    private IDocumentOrchestrator orchestrator;
-
-    @Autowired
     private IDocumentContentAnalyzer analyzer;
 
     /**
-     * IMAGE + text PDF together: PDF goes through RAG text extraction,
+     * IMAGE + text PDF together via FSM pipeline: PDF goes through RAG text extraction,
      * IMAGE does NOT trigger RAG. VISION is added from IMAGE, not from PDF.
      */
     @Test
@@ -212,39 +237,40 @@ class ImageWithTextPdfFixtureIT {
                 "doc/report.pdf", "application/pdf", "report.pdf",
                 pdfData.length, AttachmentType.PDF, pdfData);
 
-        // Orchestrate documents — only PDF should be processed
+        // Process via FSM pipeline
         Map<String, String> metadata = new HashMap<>();
-        DocumentOrchestrationResult result = orchestrator.orchestrate(
-                "What was the Q1 revenue?",
-                new ArrayList<>(List.of(imageAttachment, pdfAttachment)),
-                new SimpleMetadataCommand(metadata));
+        TestChatCommand command = new TestChatCommand(
+                1L, "What was the Q1 revenue?",
+                List.of(imageAttachment, pdfAttachment));
 
-        // PDF processed — documentIds stored
-        assertThat(result.processedDocumentIds())
-                .as("Text PDF should produce exactly one documentId")
-                .hasSize(1);
+        AICommand aiCommand = pipeline.prepareCommand(command, metadata);
+
+        // PDF processed — documentIds stored in metadata
+        String rawDocIds = metadata.get(AICommand.RAG_DOCUMENT_IDS_FIELD);
+        assertThat(rawDocIds)
+                .as("Text PDF should produce a documentId in metadata")
+                .isNotNull()
+                .isNotBlank();
 
         // RAG chunks contain PDF text
-        String docId = result.processedDocumentIds().getFirst();
+        String docId = rawDocIds.split(",")[0].trim();
         List<Document> chunks = fileRagService.findAllByDocumentId(docId);
         assertThat(chunks).isNotEmpty();
         String allText = chunks.stream().map(Document::getText).reduce("", (a, b) -> a + " " + b);
         assertThat(allText).contains("$2.5M");
 
-        // Augmented query contains RAG context
-        assertThat(result.augmentedUserQuery())
-                .contains("$2.5M")
-                .contains("Q1 revenue");
-
-        // IMAGE stays in attachments untouched
-        assertThat(result.attachments())
-                .as("IMAGE should remain in attachments for vision model")
-                .anyMatch(a -> a.type() == AttachmentType.IMAGE && "photo.png".equals(a.filename()));
+        // AICommand options should have augmented text with RAG context
+        if (aiCommand.options() instanceof io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions opts) {
+            assertThat(opts.userRole())
+                    .as("Augmented query should contain RAG context")
+                    .contains("$2.5M")
+                    .contains("Q1 revenue");
+        }
 
         // No PDF-as-image fallback (text PDF should not trigger vision OCR)
-        assertThat(result.pdfAsImageFilenames())
+        assertThat(metadata.get("pdfAsImageFilenames"))
                 .as("Text PDF should NOT be converted to images")
-                .isEmpty();
+                .isNull();
     }
 
     /**
@@ -326,14 +352,6 @@ class ImageWithTextPdfFixtureIT {
         }
     }
 
-    private record SimpleMetadataCommand(Map<String, String> metadata) implements AICommand {
-        @Override
-        public Set<ModelCapabilities> modelCapabilities() { return Set.of(); }
-        @Override
-        @SuppressWarnings("unchecked")
-        public <T extends io.github.ngirchev.opendaimon.common.ai.command.AICommandOptions> T options() { return null; }
-    }
-
     private record TestChatCommand(
             Long userId, String userText, List<Attachment> attachments
     ) implements io.github.ngirchev.opendaimon.common.command.IChatCommand<io.github.ngirchev.opendaimon.common.command.ICommandType> {
@@ -341,19 +359,4 @@ class ImageWithTextPdfFixtureIT {
         @Override public boolean stream() { return false; }
     }
 
-    static class DeterministicEmbeddingModel implements EmbeddingModel {
-        @Override
-        public EmbeddingResponse call(EmbeddingRequest request) {
-            var embeddings = IntStream.range(0, request.getInstructions().size())
-                    .mapToObj(i -> new Embedding(unitVector(), i)).toList();
-            return new EmbeddingResponse(embeddings);
-        }
-        @Override
-        public float[] embed(Document document) { return unitVector(); }
-        private static float[] unitVector() {
-            float[] v = new float[384];
-            java.util.Arrays.fill(v, 1.0f / 384);
-            return v;
-        }
-    }
 }

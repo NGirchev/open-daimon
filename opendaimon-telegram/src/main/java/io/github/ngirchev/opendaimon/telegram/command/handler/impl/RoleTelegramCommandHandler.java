@@ -1,14 +1,17 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.AssistantRole;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
@@ -16,6 +19,7 @@ import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
@@ -24,27 +28,37 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+@Slf4j
 public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
 
     private static final String CALLBACK_PREFIX = "ROLE_";
     private static final String CALLBACK_CUSTOM = CALLBACK_PREFIX + "CUSTOM";
+    private static final String CALLBACK_CANCEL = CALLBACK_PREFIX + "CANCEL";
 
     private final TelegramUserService telegramUserService;
     private final CoreCommonProperties coreCommonProperties;
+    private final ChatSettingsService chatSettingsService;
 
     public RoleTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                       TypingIndicatorService typingIndicatorService,
                                       MessageLocalizationService messageLocalizationService,
                                       TelegramUserService telegramUserService,
-                                      CoreCommonProperties coreCommonProperties) {
+                                      CoreCommonProperties coreCommonProperties,
+                                      ChatSettingsService chatSettingsService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.coreCommonProperties = coreCommonProperties;
+        this.chatSettingsService = chatSettingsService;
     }
 
     @Override
     public String getSupportedCommandText(String languageCode) {
         return messageLocalizationService.getMessage("telegram.command.role.desc", languageCode);
+    }
+
+    @Override
+    protected boolean shouldShowTypingIndicator(TelegramCommand command) {
+        return false;
     }
 
     @Override
@@ -73,13 +87,14 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for role command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
+        User owner = TelegramCommand.resolveOwner(command,user);
         String userText = command.userText() != null ? command.userText().trim() : null;
-        
+
         String lang = command.languageCode();
         if (userText == null || userText.isEmpty()) {
-            // Show current role
-            AssistantRole currentRole = telegramUserService.getOrCreateAssistantRole(
-                    user,
+            // Show current role (owner-scoped: group in groups, user in privates)
+            AssistantRole currentRole = chatSettingsService.getOrCreateAssistantRole(
+                    owner,
                     messageLocalizationService.getMessage(coreCommonProperties.getAssistantRole(), lang)
             );
 
@@ -100,8 +115,8 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             // Return null as messages already sent
             return null;
         } else {
-            // Update role
-            telegramUserService.updateAssistantRole(message.getFrom(), userText);
+            // Update role on the settings owner (group in groups, user in privates)
+            chatSettingsService.updateAssistantRole(owner, userText);
             telegramBotProvider.getObject().clearStatus(message.getFrom().getId());
 
             // Send confirmation replying to user message
@@ -117,6 +132,11 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
         if (callbackData == null || !callbackData.startsWith(CALLBACK_PREFIX)) {
             throw new TelegramCommandHandlerException(command.telegramId(), "Invalid callback data");
         }
+        if (CALLBACK_CANCEL.equals(callbackData)) {
+            ackCallback(cq.getId(), "");
+            deleteMenuMessage(command.telegramId(), cq);
+            return;
+        }
 
         String lang = command.languageCode();
         String roleKey = callbackData.substring(CALLBACK_PREFIX.length());
@@ -125,6 +145,7 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             telegramUserService.updateUserSession(user, TelegramCommand.ROLE);
             ackCallback(cq.getId(), messageLocalizationService.getMessage("telegram.role.enter.ack", lang));
             sendMessage(command.telegramId(), messageLocalizationService.getMessage("telegram.role.enter.text", lang));
+            deleteMenuMessage(command.telegramId(), cq);
             return;
         }
 
@@ -137,10 +158,11 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             return;
         }
 
-        telegramUserService.updateAssistantRole(cq.getFrom(), preset.get().content());
+        User owner = TelegramCommand.resolveOwner(command,telegramUserService.getOrCreateUser(cq.getFrom()));
+        chatSettingsService.updateAssistantRole(owner, preset.get().content());
         telegramBotProvider.getObject().clearStatus(cq.getFrom().getId());
         ackCallback(cq.getId(), messageLocalizationService.getMessage("telegram.role.ack.updated", lang));
-        sendMessage(command.telegramId(), messageLocalizationService.getMessage("telegram.role.changed", lang, preset.get().title()));
+        deleteMenuMessage(command.telegramId(), cq);
     }
 
     private void sendRoleMenu(Long chatId, String lang) {
@@ -157,8 +179,11 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
                     messageLocalizationService.getMessage("telegram.role.custom.button", lang));
             customButton.setCallbackData(CALLBACK_CUSTOM);
 
+            String closeLabel = messageLocalizationService.getMessage("telegram.role.close", lang);
+
             keyboard = new java.util.ArrayList<>(keyboard);
             keyboard.add(List.of(customButton));
+            keyboard.add(List.of(button(closeLabel, CALLBACK_CANCEL)));
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup(keyboard);
             SendMessage msg = new SendMessage(chatId.toString(),
@@ -167,6 +192,23 @@ public class RoleTelegramCommandHandler extends AbstractTelegramCommandHandlerWi
             telegramBotProvider.getObject().execute(msg);
         } catch (Exception e) {
             throw new TelegramCommandHandlerException("Failed to send role menu", e);
+        }
+    }
+
+    private InlineKeyboardButton button(String label, String callbackData) {
+        InlineKeyboardButton button = new InlineKeyboardButton(label);
+        button.setCallbackData(callbackData);
+        return button;
+    }
+
+    private void deleteMenuMessage(Long chatId, CallbackQuery callbackQuery) {
+        if (callbackQuery.getMessage() instanceof Message menuMessage) {
+            try {
+                telegramBotProvider.getObject().execute(
+                        new DeleteMessage(chatId.toString(), menuMessage.getMessageId()));
+            } catch (Exception e) {
+                log.warn("Failed to delete role menu message: {}", e.getMessage());
+            }
         }
     }
 

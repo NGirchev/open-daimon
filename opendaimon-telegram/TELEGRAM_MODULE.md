@@ -43,6 +43,48 @@ onUpdateReceived(Update)
 | message/caption contains explicit self mention | processed |
 | any other group message | skipped (no command dispatch, no AI call) |
 
+### Group Chat Conceptual Model
+
+A group (or supergroup) is treated as a **single logical participant**, not as a set of individuals. All chat-scoped state — conversation history, preferred model, bot-menu language, command-menu snapshot, agent mode, thinking mode, assistant role, recent models — belongs to a dedicated `TelegramGroup` row (a JOINED-inheritance subclass of `User` with `@DiscriminatorValue("TELEGRAM_GROUP")`) and is **shared by every member** of the group. There is no per-user-inside-group isolation.
+
+#### Settings Owner Resolution
+
+Every incoming `Update` resolves to exactly one *settings owner* — a polymorphic `User` that owns chat-scoped state for that chat:
+
+- **Private chat** → the invoker's `TelegramUser` (the chat *is* that person).
+- **Group / supergroup chat** → the `TelegramGroup` row keyed on the group `chat_id`.
+
+Resolution happens once in `TelegramBot.mapToTelegram*` via `ChatSettingsOwnerResolver.resolveForChat(chat, invoker)`. The result is stamped on `TelegramCommand.settingsOwner` and consumed by handlers through `ChatSettingsService`:
+
+```java
+// Language handler — writes go to the owner (group in groups, user in privates)
+chatSettingsService.updateLanguageCode(command.settingsOwner(), "ru");
+
+// Agent-mode handler — same pattern
+chatSettingsService.updateAgentMode(command.settingsOwner(), true);
+
+// Assistant role — same pattern
+chatSettingsService.updateAssistantRole(command.settingsOwner(), customRoleText);
+```
+
+The facade dispatches by subtype (`instanceof TelegramGroup` → write to `telegram_group`; `instanceof TelegramUser` → write to `telegram_user`).
+
+#### Implications
+
+- The **scope key for Telegram API calls is always `chat_id`**, never `user.telegramId`. In a private chat the two values coincide because Telegram uses the user id as the chat id; in a group they diverge (group `chat_id` is negative, e.g. `-1001234567890`).
+- `TelegramCommand` has a field named `telegramId`, but it actually stores the **chat id** (see its constructors: `this.telegramId = chatId`). The name is historical and misleading — treat it as `chatId` when reasoning about scope.
+- Adding a new chat-scoped setting? Add the field to `User` (inherited by both subclasses) and route reads/writes through `ChatSettingsService` over a `User owner`. Never introduce a code path that keys on `cq.getFrom().getId()` or `user.telegramId` — that reintroduces per-invoker leakage.
+- `BotCommandScopeChat(chat_id)` with the group id overrides Default scope for the group. `BotCommandScopeChatMember` (per-user-in-chat) is deliberately unused; it would contradict the shared-chat model. Menu-version hash lives on whichever owner resolved for the chat (`TelegramGroup.menuVersionHash` for groups, `TelegramUser.menuVersionHash` for privates); `TelegramBotMenuService.reconcileMenuIfStale(User owner, Long chatId)` dispatches by subtype and persists via `ChatSettingsService`.
+- Summarization (`SummarizationService` in `opendaimon-common`) reads the chat's `preferredModelId` via the `ChatOwnerLookup` SPI (`TelegramChatOwnerLookup` implementation) keyed on `thread.scopeId`. This ensures group chats summarize with their picked model and prevents the "HTTP 400 model is required" regression from empty AUTO-routing bodies.
+- Per-chat runtime caches (e.g. in-memory "which chats we already pushed the current command menu to") must be keyed on `chat_id`, not `user.telegramId`, otherwise they silently miss groups.
+
+#### What is NOT chat-scoped
+
+Two things stay **per-invoker** even in groups — this is intentional and must not be migrated:
+
+- **FSM input state** `TelegramUserSession.botStatus` (e.g. "awaiting custom role text"). If Alice starts `/role custom` in a group and Bob sends text first, Alice's FSM must not consume Bob's text.
+- **Whitelist / access level** (admin / vip / regular / blocked). Groups have no access level; their members do. `TelegramUserPriorityService` always receives the invoker's id, never the group's.
+
 ### Inline Query Policy
 | Condition | Result |
 |-----------|--------|
@@ -64,7 +106,7 @@ Enabled by `open-daimon.telegram.message-coalescing.enabled=true`.
 |----------------------|---------|
 | `THREADS_` | `THREADS` |
 | `LANG_` | `LANGUAGE` |
-| `ERROR` / `IMPROVEMENT` | `BUGREPORT` |
+| `ERROR` / `IMPROVEMENT` / `BUG_CANCEL` | `BUGREPORT` |
 | `MODEL_` | `MODEL` |
 | session has `botStatus` | use `botStatus` |
 | otherwise | null → skip |
@@ -141,6 +183,21 @@ Evaluated in order — first match wins:
 
 ---
 
+### UC-1B: Text message in agent mode (REACT) — two-message UX
+**Trigger:** `open-daimon.agent.enabled=true` and user sends plain text
+**Mapping:** `mapToTelegramTextCommand()` → `MESSAGE`, `stream=true`
+**Handler:** `MessageTelegramCommandHandler` via FSM action `generateAgentResponse()`
+
+See the canonical specification in **[## Agent Mode — REACT Loop Telegram UX](#agent-mode--react-loop-telegram-ux)** (below). The user-visible surface is:
+
+1. A **status message** (`💭 Thinking...` → reasoning/tool/observation transcript), edited in place.
+2. A separate **answer message** that is created only when the final user answer is confirmed (`FINAL_ANSWER` or `MAX_ITERATIONS` fallback).
+3. Streaming `PARTIAL_ANSWER` chunks are kept in a Java-side model buffer and rendered as status overlay while the iteration is still open.
+
+Implementation: `TelegramMessageHandlerActions` feeds provider-neutral stream events into `TelegramAgentStreamModel` and flushes snapshots through `TelegramAgentStreamView`. Flush cadence is configured via `open-daimon.telegram.agent-stream-view.*` and enforced per chat by `TelegramChatPacer`. Assistant response is persisted in DB; keyboard status is sent afterwards.
+
+---
+
 ### UC-1A: Telegram split input (text + forwarded/media) is coalesced
 **Trigger:** client sends two updates for one user intent:
 1) short text (e.g. "Что тут?")
@@ -178,6 +235,19 @@ Evaluated in order — first match wins:
 **Handler:** `MessageTelegramCommandHandler`
 4. Factory → `ChatAICommand(capabilities={CHAT, VISION})`
 5. Gateway → selects model with VISION → builds `UserMessage` with `Media`
+
+---
+
+### UC-3A: Photo attachment in agent mode (REACT, thinking enabled)
+**Trigger:** user sends a photo while the chat is in agent mode (`open-daimon.agent.enabled=true`, agent mode toggled on for the chat)
+**Mapping:** identical to UC-3 (`mapToTelegramPhotoCommand` → `Attachment(type=IMAGE)`)
+**Command:** `MESSAGE`, `attachments=[Attachment]`, `userText` = caption (e.g. «что тут?»)
+**Handler:** `TelegramMessageHandlerActions.generateResponse` — agent path
+4. Factory → `ChatAICommand(capabilities={CHAT, VISION})`; `DefaultAICommandFactory` resolves `requiredCaps=[AUTO, VISION]`
+5. `TelegramMessageHandlerActions` builds `AgentRequest(..., attachments=...)` and routes to `AgentExecutor.executeStream(...)`. The attachment source is the pipeline-processed list on the AI command — `ChatAICommand.attachments()` for the default path, `FixedModelChatAICommand.attachments()` when the chat has a preferred model fixed (mirrors `SpringAIGateway:383-387`). `TelegramCommand.attachments()` is used only as a fallback when the AI command carries no processed list, so image-only PDFs that `AIRequestPipeline` rendered page-by-page into IMAGE attachments are not silently dropped.
+6. `ReActAgentExecutor` carries attachments into `AgentContext`; `SpringAgentLoopActions.think()` builds the first `UserMessage` with `Media` (see `SPRING_AI_MODULE.md#image-attachments--agent-path`)
+**Output:** vision-capable model describes the image, agent loop terminates on the first `FINAL_ANSWER` (no tool call needed for a pure description)
+**Regression guarded by:** `TelegramAgentImageFixtureIT`, `SpringAgentLoopActionsAttachmentsTest`, `TelegramMessageHandlerActionsAgentTest#shouldPassAttachmentsToAgentRequestWhenCommandHasImage`
 
 ---
 
@@ -246,6 +316,7 @@ Evaluated in order — first match wins:
 **Trigger:** `/role` with no text
 **Handler:** `RoleTelegramCommandHandler`
 - Shows current role content + inline keyboard: 4 presets (DEFAULT, COACH, EDITOR, DEV) + "Write custom"
+- Menu includes a Cancel / Close button as the last row
 - No AI call
 
 ---
@@ -258,7 +329,7 @@ Evaluated in order — first match wins:
 ---
 
 ### UC-13: `/role` — multi-step custom role via keyboard
-**Step 1:** user clicks "Write custom role" button → callback → handler sets `botStatus = "/role"` → sends prompt
+**Step 1:** user clicks "Write custom role" button → callback → handler sets `botStatus = "/role"` → sends prompt, deletes the preset menu message after acknowledging
 **Step 2:** user sends text → `mapToTelegramTextCommand()` → `botStatus="/role"` → `ROLE` command
 **Handler:** detects no `/` prefix, has text, clears `botStatus`, saves role
 - Same outcome as UC-12
@@ -268,7 +339,7 @@ Evaluated in order — first match wins:
 ### UC-14: `/role` — preset via callback
 **Trigger:** user clicks preset button (e.g., `ROLE_COACH`)
 **Handler:** looks up preset content, calls `TelegramUserService.updateAssistantRole()`, clears `botStatus`
-- Sends confirmation
+- Deletes the preset menu message after updating role; no explicit 'role changed' chat message — toast only
 
 ---
 
@@ -276,16 +347,24 @@ Evaluated in order — first match wins:
 **Trigger:** `/model` or pressing `🤖 ModelName` keyboard button
 **Handler:** `ModelTelegramCommandHandler`
 1. Creates `ModelListAICommand` → `AIGatewayRegistry` resolves gateway → returns available model list
-2. Builds inline keyboard: `AUTO` button + one button per model with capability tags (Vision, Web, Tools, Summary, Free)
-3. Button text capped at 64 bytes (Telegram limit); uses index instead of model name in callback data
+2. When the model count exceeds page size, builds a two-level menu: `AUTO` + one row per category, with counts.
+   Category order: `RECENT`, `LOCAL`, `VISION`, `FREE`, `ALL`.
+   - `RECENT` is populated from `UserRecentModelService.getRecentModels()` (up to 8 most recently picked
+     models, ordered by `last_used_at DESC`). Hidden when the user has no history yet or when all recent
+     entries have disappeared from the current gateway model list.
+   - The remaining four categories use static predicates over `ModelInfo`.
+3. For small model counts (≤ page size), shows the flat legacy list with all models plus capability tags.
+4. Button text capped at 64 bytes (Telegram limit); uses index instead of model name in callback data.
 
 ---
 
 ### UC-16: `/model` — select model via callback
 **Trigger:** `MODEL_<index>` callback
-**Handler:** resolves index → model name → `UserModelPreferenceService.setPreferredModel()`
+**Handler:** resolves index → model name → `UserModelPreferenceService.setPreferredModel()` →
+`UserRecentModelService.recordUsage()` (upsert + prune to top 8)
 - Sends confirmation with model name
 - `PersistentKeyboardService.sendKeyboard()` updated with new model
+- The just-picked model appears first in the `RECENT` category on the next `/model` invocation.
 
 ---
 
@@ -294,18 +373,22 @@ Evaluated in order — first match wins:
 **Handler:** `UserModelPreferenceService.clearPreference()`
 - Callback ack uses `telegram.model.ack.auto` (user language)
 - Persistent keyboard left button uses `telegram.model.auto` when no fixed model is stored
+- Does NOT update `user_recent_model` — the Recent list reflects explicit picks only.
 
 ---
 
 ### UC-18: `/language` — view
 **Trigger:** `/language`
-**Handler:** `LanguageTelegramCommandHandler` — shows current language + inline keyboard (ru / en)
+**Handler:** `LanguageTelegramCommandHandler` — sends one inline-menu message with current language, ru/en choices, and a localized cancel/close button.
+- This UI-only flow does not start the typing indicator.
+- `LANG_CANCEL` acknowledges the callback and deletes the menu message without changing language.
 
 ---
 
 ### UC-19: `/language` — select via callback
 **Trigger:** `LANG_ru` or `LANG_en` callback
-**Handler:** `TelegramUserService.updateLanguageCode()` → `TelegramBotMenuService.setupBotMenuForUser()` — reloads bot command menu in new language for this user's chat
+**Handler:** `TelegramUserService.updateLanguageCode()` → `TelegramBotMenuService.setupBotMenuForUser()` — reloads bot command menu in new language for this user's chat.
+- Confirmation is callback-only (`telegram.language.updated`); the inline menu is deleted and no separate chat message is sent.
 
 ---
 
@@ -335,20 +418,21 @@ Evaluated in order — first match wins:
 **Handler:** `ThreadsTelegramCommandHandler`
 - Lists all threads in scope `TELEGRAM_CHAT:<chat.id>` (active ✅ / inactive 🔒) up to 20
 - Inline keyboard: `N. ✅/🔒 <title or Conversation <id>>` per thread
+- Menu ends with a localized Cancel / Close row; clicking it acknowledges the callback and deletes the menu without side effects
 
 ---
 
 ### UC-23: `/threads` — switch thread via callback
 **Trigger:** `THREADS_<threadKey>` callback
 **Handler:** finds thread, verifies it belongs to the same chat scope (`TELEGRAM_CHAT:<chat.id>`), activates it in that scope
-- Replies with confirmation
+- After activation the preset menu message is deleted; the confirmation is toast-only (localized "Active: <title>") — no separate chat message
 
 ---
 
 ### UC-24: `/bugreport` — report flow
-**Step 1:** `/bugreport` → inline keyboard: "Report bug" / "Suggest improvement"
-**Step 2a:** `ERROR` callback → sets `botStatus="/bugreport/ERROR"` → prompts for description
-**Step 2b:** `IMPROVEMENT` callback → sets `botStatus="/bugreport/IMPROVEMENT"` → prompts
+**Step 1:** `/bugreport` → inline keyboard: "Report bug" / "Suggest improvement". The inline keyboard now includes a localized Cancel / Close button; clicking it acknowledges the callback and deletes the menu message without changing session state.
+**Step 2a:** `ERROR` callback → sets `botStatus="/bugreport/ERROR"` → prompts for description. After sending the prompt, the preset menu message is deleted.
+**Step 2b:** `IMPROVEMENT` callback → sets `botStatus="/bugreport/IMPROVEMENT"` → prompts. After sending the prompt, the preset menu message is deleted.
 **Step 3:** user sends text → matched by `botStatus` → `BugreportService.saveBug()` or `.saveImprovementProposal()` → clears `botStatus`
 
 ---
@@ -419,6 +503,108 @@ Cleared by: handler completion, `/start`, any slash command, `BackoffCommandHand
 
 ---
 
+## Agent Mode — REACT Loop Telegram UX
+
+This section describes the Telegram UX while the REACT loop is running. It replaces the
+paragraph-streaming output from UC-1 for agent-enabled users.
+
+### Activation
+
+- `open-daimon.agent.enabled=true` (otherwise gateway flow from UC-1 is used)
+- resolved `AgentStrategy = REACT` when the selected model can use tools (`WEB` or `AUTO`)
+
+### Per-user override
+
+Each user has nullable `agentModeEnabled`:
+- `null`: follows global default (`open-daimon.agent.enabled`)
+- `true` / `false`: explicit per-user override
+
+The `/mode` command toggles this setting when mode command is enabled. Routing remains:
+gateway path when agent executor is missing or user mode is disabled, agent path only when both are enabled.
+
+### Provider-neutral model + Telegram view
+
+The Spring AI loop emits the same `AgentStreamEvent` shape for OpenRouter, Ollama, and other providers.
+Telegram handling is split into two layers:
+
+- `TelegramAgentStreamModel`: Java-side state machine and buffers (`statusHtml`, candidate partial answer, confirmed final answer)
+- `TelegramAgentStreamView`: periodic Telegram flushes of current snapshots
+
+The view does not queue historical operations. If a periodic flush is skipped, the next flush sends the latest snapshot.
+
+### Message roles
+
+| Role | Purpose | Lifecycle |
+|------|---------|-----------|
+| **Status message** | Thinking/reasoning/tool/observation transcript | Created once (except `SILENT`), then edited in place; rotated when it approaches Telegram size limit |
+| **Answer message** | User-visible final answer | Created only after final answer is confirmed; edited reliably if it already exists |
+
+Both messages are sent as replies to the original user message.
+
+### Event flow
+
+1. `THINKING`: status trailing line is `💭 Thinking...` or `<i>reasoning</i>`.
+2. `PARTIAL_ANSWER`: appended to model candidate buffer; rendered only as status overlay while iteration is still open.
+3. `TOOL_CALL`: candidate buffer is cleared as pre-tool content; status shows:
+   ```text
+   🔧 Tool: ...
+   Query: ...
+   ```
+   If the model calls `web_search` without usable arguments, the query line is
+   rendered as `Query: missing` instead of an ellipsis.
+4. `OBSERVATION`: status appends one line:
+   - `<blockquote>📋 Tool result received</blockquote>`
+   - `<blockquote>📋 No result</blockquote>`
+   - `<blockquote>⚠️ Tool failed: ...</blockquote>`; known structural errors
+     such as a missing web-search query are compacted for the user while the
+     full observation remains available to the agent loop.
+5. `MAX_ITERATIONS`: model confirms the terminal output first, strips any trailing partial-answer overlay from status, then appends `⚠️ reached iteration limit`.
+6. `FINAL_ANSWER` (or terminal max-iterations fallback): model confirms final answer and the view creates/edits answer message. The trailing partial-answer overlay (when a candidate was actually rendered as the status tail) is stripped from `statusHtml` so the status message does not freeze with a stale fragment (e.g. `<i>На ос</i>`) next to the freshly delivered answer. In `HIDE_REASONING`, a trailing reasoning overlay is also removed on confirmation; in `SHOW_ALL`, reasoning overlays are preserved. If the overlay was the only status content, it is replaced with a `✅` marker because Telegram rejects empty edits.
+
+### Thinking modes
+
+`/thinking` controls visibility:
+
+- `SHOW_ALL`: reasoning is preserved in the status transcript above tool blocks.
+- `HIDE_REASONING` (default): reasoning may appear live, but tool blocks replace trailing reasoning.
+- `SILENT`: no status message, only final answer delivery.
+
+### Flush pacing and delivery reliability
+
+Chat pacing is enforced by `TelegramChatPacer` (chat-scoped slot, no dispatcher queue):
+
+- private chats: `open-daimon.telegram.agent-stream-view.private-chat-flush-interval-ms` (default `1000`)
+- groups/supergroups: `open-daimon.telegram.agent-stream-view.group-chat-flush-interval-ms` (default `3000`)
+
+`TelegramAgentStreamView` behavior:
+
+- regular flush: non-blocking `tryReserve(chatId)`; if denied, skip this tick
+- forced/final flush: blocking `reserve(chatId, timeoutMs)` with configured timeout
+
+Final answer delivery uses reliable Telegram sender methods:
+
+- `editHtmlReliable(...)` and `sendHtmlReliableAndGetId(...)`
+- parse Telegram `retry_after` from response parameters or error text (`retry after N`)
+- retry once when budget allows
+- if final edit fails, fallback to fresh `sendMessage`
+- if both fail, FSM sets `MessageHandlerErrorType.TELEGRAM_DELIVERY_FAILED` and enters `ERROR`
+
+Final status cleanup is reliable too: `flushFinal()` edits the status message
+with `editHtmlReliable(...)` before sending/editing the answer. If Telegram
+refuses that final status edit, the view deletes the stale status message
+best-effort so an old partial-answer overlay is not left next to the final
+answer.
+
+`PersistentKeyboardService.sendKeyboard` uses the same chat pacer to avoid competing with stream edits/sends in the same chat. After an agent stream, it waits at least one chat pacing interval plus `default-acquire-timeout-ms` before skipping, so the post-run keyboard/status message can follow a just-delivered final answer in groups.
+
+### Length handling
+
+- status message rotation uses `TelegramProgressBatcher.selectContentToFlush(...)`
+- final answer uses chunked send when text exceeds `maxMessageLength`
+- split prefers paragraph boundaries; oversized paragraphs are hard-cut to stay within Telegram limits
+
+---
+
 ## File Upload Flow
 
 ```
@@ -441,6 +627,8 @@ On context rebuild, expired refs are skipped; active refs are loaded from MinIO.
 ## Persistent Keyboard
 
 Sent after every successful AI response via `PersistentKeyboardService.sendKeyboard()`.
+
+When sent after agent streaming, the keyboard waits for the chat pacer instead of using only the short non-final timeout. This preserves the final status line such as `🤖 <model>  ·  💬 N%` after a group-chat stream where the final answer has just consumed the Telegram slot.
 
 `ReplyKeyboardMarkup` does **not** set `is_persistent` (default `false`). When `is_persistent` was `true`, Telegram Android often did not let the user leave the custom keyboard for the normal IME via the usual back affordance; the default keeps that transition working while the bot still re-sends the keyboard on new replies.
 
@@ -481,6 +669,7 @@ Table: `telegram_user` (JPA JOINED inheritance, discriminator `TELEGRAM`)
 |-------|------|-------|
 | `telegramId` | `Long` | Unique, maps to Telegram chat ID |
 | `preferredModelId` | `String` | Set by `/model`, null = auto |
+| `menuVersionHash` | `String(64)` | SHA-256 of the command set last pushed to Telegram for this chat via `BotCommandScopeChat`. Null when no chat-scoped menu has been set — user falls back to Default scope. See "Lazy per-chat command menu reconciliation". |
 | Inherited from `User` | | id, languageCode, isPremium, isBlocked, isAdmin, currentAssistantRole, lastActivityAt, … |
 
 ### TelegramUserSession
@@ -508,3 +697,83 @@ On `ApplicationReadyEvent`:
 The control that opens the bot command list in the Telegram client is labeled by **Telegram app language** (for example, different localized labels), not by the bot’s `/language` setting. `setMyCommands` only defines the command list text per locale.
 
 Session cleanup: `TelegramUserActivityService` runs every 10 minutes, closes sessions inactive > 15 minutes.
+
+### Lazy per-chat command menu reconciliation
+
+Once a user interacts with `/language`, the bot calls `setMyCommands(..., chatId)` — a
+`BotCommandScopeChat` snapshot that overrides the Default-scope menu refreshed at startup.
+Because the Default-scope refresh never touches chat-scoped snapshots, a deployment that
+adds or removes commands (e.g. new `/mode`, `/thinking`) leaves those users frozen on the
+old menu.
+
+`TelegramBotMenuService#reconcileMenuIfStale(TelegramUser)` repairs this lazily, on the
+user's first chat interaction after the deployment:
+
+| Check | Outcome |
+|-------|---------|
+| `user.languageCode == null` | skip — user is still on the Default scope, already covered by startup refresh |
+| `user.menuVersionHash` equals `currentMenuVersionHash` | skip — nothing to do |
+| otherwise | call `setupBotMenuForUser(chatId, languageCode)`, then stamp `user.menuVersionHash = currentMenuVersionHash` |
+
+`currentMenuVersionHash` is a SHA-256 hex over the deterministic concatenation of
+`<lang>:<commandText>\n` lines across every entry in `SupportedLanguages.SUPPORTED_LANGUAGES`
+(sorted) and every handler-provided command text (sorted alphabetically within the language).
+It is computed lazily on first access and cached for the lifetime of the bean — command
+handlers are Spring-managed beans that may not be fully available at service construction time.
+
+**Wire-in points in `TelegramBot`:**
+- `mapToTelegramTextCommand` — inside the `stripped.startsWith("/")` branch, immediately
+  after `clearStatus(...)`.
+- `mapToTelegramCommand` — callback-query path, immediately after `getOrCreateUser(...)`.
+
+Plain-text messages (UC-1 and friends) do NOT trigger reconciliation — only slash commands
+and callback clicks do. This keeps the hot text-message path free of extra DB work.
+
+Telegram API failures and any unexpected exception inside the reconcile call are swallowed
+by `TelegramBot` (logged at `warn`) — the command processing continues. When reconcile
+returns `true`, `TelegramBot` persists the new hash via
+`TelegramUserService#updateMenuVersionHash(telegramId, hash)`.
+
+Column: `telegram_user.menu_version_hash VARCHAR(64)`, nullable. Migration
+`V2__Add_menu_version_hash_to_telegram_user.sql`.
+
+## Agent Streaming Internals
+
+`TelegramAgentStreamView` is a **stateless** singleton — all per-stream render state (including the progressive rendered offset) lives on `MessageHandlerContext`, alongside `statusMessageId`, `statusBuffer`, and `lastStatusEditAtMs`.
+
+### Model-first buffering
+
+`TelegramMessageHandlerActions` consumes stream events into `TelegramAgentStreamModel`.
+This model keeps:
+
+- status transcript (`statusHtml`)
+- candidate partial answer buffer (iteration-local, not user-final)
+- confirmed final answer (`confirmedAnswer`)
+
+`PARTIAL_ANSWER` is never treated as final while the iteration can still produce tool calls.
+
+### View flush cadence
+
+`TelegramAgentStreamView` flushes model snapshots with chat-scoped pacing:
+
+- non-forced flushes: best effort (`tryReserve`) to avoid flooding Telegram
+- forced/final flushes: bounded wait (`reserve(timeoutMs)`)
+
+This keeps the stream responsive while respecting Telegram chat limits, especially in groups.
+
+### Final delivery path
+
+For the answer message, the view uses reliable sender methods:
+
+1. reserve chat slot
+2. send/edit
+3. on 429 parse `retry_after` and retry once if budget permits
+4. if final edit fails, fallback to fresh send
+5. if both fail, set `TELEGRAM_DELIVERY_FAILED` and route FSM to `ERROR`
+
+No extra Telegram error notification is sent in this case because the same chat may already be rate-limited.
+
+### UX phase pacing
+
+`open-daimon.telegram.agent-stream-edit-min-interval-ms` remains as UX pacing between phase transitions.
+It is not the primary Telegram rate limiter. Chat-scoped pacing for stream and keyboard operations is handled by `TelegramChatPacer`.

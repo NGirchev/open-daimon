@@ -11,6 +11,8 @@ import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.RequestType;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
+import io.github.ngirchev.opendaimon.common.model.User;
+import io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
@@ -41,6 +43,9 @@ public class TelegramMessageService {
     private final ConversationThreadService conversationThreadService;
     /** Self-reference for transactional proxy (avoids bypassing @Transactional on internal calls). */
     private final ObjectProvider<TelegramMessageService> selfProvider;
+    /** Resolves per-chat settings owner (TelegramGroup for group chats, TelegramUser for privates). */
+    private final ChatOwnerLookup chatOwnerLookup;
+    private final ChatSettingsService chatSettingsService;
     
     /**
      * Saves USER message from Telegram user with session and conversation thread.
@@ -108,7 +113,8 @@ public class TelegramMessageService {
         String roleContent = assistantRoleContent != null
                 ? assistantRoleContent
                 : messageLocalizationService.getMessage(coreCommonProperties.getAssistantRole(), telegramUser.getLanguageCode());
-        AssistantRole assistantRole = telegramUserService.getOrCreateAssistantRole(telegramUser, roleContent);
+        User assistantRoleOwner = resolveSettingsOwner(telegramUser, chatId);
+        AssistantRole assistantRole = chatSettingsService.getOrCreateAssistantRole(assistantRoleOwner, roleContent);
 
         // Prepare Telegram-specific metadata
         Map<String, Object> metadata = null;
@@ -202,7 +208,10 @@ public class TelegramMessageService {
         String roleContent = assistantRoleContent != null
                 ? assistantRoleContent 
                 : messageLocalizationService.getMessage(coreCommonProperties.getAssistantRole(), telegramUser.getLanguageCode());
-        AssistantRole assistantRole = telegramUserService.getOrCreateAssistantRole(telegramUser, roleContent);
+        Long chatScopeId = thread != null && thread.getScopeKind() == ThreadScopeKind.TELEGRAM_CHAT
+                ? thread.getScopeId() : null;
+        User assistantRoleOwner = resolveSettingsOwner(telegramUser, chatScopeId);
+        AssistantRole assistantRole = chatSettingsService.getOrCreateAssistantRole(assistantRoleOwner, roleContent);
         return messageService.saveAssistantMessage(
                 telegramUser, 
                 content, 
@@ -265,15 +274,31 @@ public class TelegramMessageService {
         String roleContent = assistantRoleContent != null 
                 ? assistantRoleContent 
                 : messageLocalizationService.getMessage(coreCommonProperties.getAssistantRole(), telegramUser.getLanguageCode());
-        AssistantRole assistantRole = telegramUserService.getOrCreateAssistantRole(telegramUser, roleContent);
-        
+        Long chatScopeId = thread != null && thread.getScopeKind() == ThreadScopeKind.TELEGRAM_CHAT
+                ? thread.getScopeId() : null;
+        User assistantRoleOwner = resolveSettingsOwner(telegramUser, chatScopeId);
+        AssistantRole assistantRole = chatSettingsService.getOrCreateAssistantRole(assistantRoleOwner, roleContent);
+
         // Use base MessageService to save message
         return messageService.saveAssistantErrorMessage(
                 telegramUser, 
-                errorMessage, 
-                serviceName, 
-                assistantRole, 
+                errorMessage,
+                serviceName,
+                assistantRole,
                 errorData,
                 thread);
+    }
+
+    /**
+     * Resolves the settings-owner for a save operation: for group chats we want the
+     * {@link io.github.ngirchev.opendaimon.telegram.model.TelegramGroup} row so the assistant role
+     * comes from the shared group settings; in private chats we fall back to the invoker's
+     * {@code TelegramUser}. When {@code chatId} is unknown (legacy user-scope thread) the invoker is used.
+     */
+    private User resolveSettingsOwner(TelegramUser invoker, Long chatId) {
+        if (chatId == null) {
+            return invoker;
+        }
+        return chatOwnerLookup.findByChatId(chatId).orElse(invoker);
     }
 }

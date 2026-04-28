@@ -18,7 +18,7 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegr
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,11 +27,9 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import io.github.ngirchev.opendaimon.it.manual.config.OpenRouterSimpleManualTestConfig;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -56,6 +54,10 @@ import static org.mockito.Mockito.reset;
 
 /**
  * Manual E2E integration test for OpenRouter auto + {@code images_with_text.pdf} + follow-up RAG.
+ *
+ * <p><b>TODO:</b> Switch from {@code openrouter/auto} to an explicit vision model
+ * (e.g. {@code z-ai/glm-4.5v} which has VISION capability).
+ * {@code openrouter/auto} routes to unpredictable models, making test results non-reproducible.
  *
  * <p>Same scenario as {@link ImagesWithTextPdfVisionRagOllamaManualIT} but uses {@code openrouter/auto}
  * model via OpenRouter API instead of a local Ollama chat/vision model. Embeddings are handled by
@@ -83,12 +85,12 @@ import static org.mockito.Mockito.reset;
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = ImagesWithTextPdfVisionRagOpenRouterManualIT.TestConfig.class)
+@SpringBootTest(
+        classes = OpenRouterSimpleManualTestConfig.class,
+        properties = "open-daimon.agent.enabled=false"
+)
 @ActiveProfiles({"integration-test", "manual-openrouter"})
-@Import({
-        TestDatabaseConfiguration.class
-})
-class ImagesWithTextPdfVisionRagOpenRouterManualIT {
+class ImagesWithTextPdfVisionRagOpenRouterManualIT extends AbstractContainerIT {
 
     static {
         DotEnvLoader.loadDotEnv(Path.of("../.env"));
@@ -313,10 +315,5 @@ class ImagesWithTextPdfVisionRagOpenRouterManualIT {
                 .as("Assistant message should be saved")
                 .isNotEmpty();
         return assistantMessages.getLast().getContent();
-    }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestConfig {
     }
 }

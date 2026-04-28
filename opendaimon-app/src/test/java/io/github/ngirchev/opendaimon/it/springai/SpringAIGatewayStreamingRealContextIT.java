@@ -22,7 +22,7 @@ import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
 import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -50,7 +50,6 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         properties = {"spring.main.banner-mode=off"}
 )
 @Import({
-        TestDatabaseConfiguration.class,
         CoreFlywayConfig.class,
         CoreJpaConfig.class,
         SpringAIFlywayConfig.class
@@ -80,7 +79,7 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         "open-daimon.ai.spring-ai.enabled=true",
         "open-daimon.ai.spring-ai.mock=false",
         "open-daimon.ai.spring-ai.timeouts.response-timeout-seconds=600",
-        "open-daimon.ai.spring-ai.timeouts.stream-timeout-seconds=600",
+        "open-daimon.agent.stream-timeout-seconds=600",
         "open-daimon.ai.spring-ai.openrouter-auto-rotation.models.enabled=false",
         "open-daimon.ai.spring-ai.serper.api.key=test-key",
         "open-daimon.ai.spring-ai.serper.api.url=https://example.com",
@@ -96,7 +95,7 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         "open-daimon.rest.enabled=false",
         "open-daimon.ui.enabled=false"
 })
-class SpringAIGatewayStreamingRealContextIT {
+class SpringAIGatewayStreamingRealContextIT extends AbstractContainerIT {
 
     private static MockWebServer mockWebServer;
 

@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.telegram.config;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -27,7 +28,21 @@ public class TelegramProperties {
     
     @NotBlank(message = "Bot username cannot be blank")
     private String username;
-    
+
+    /**
+     * Returns the bot username prefixed with @ (normalized form for mentions).
+     */
+    public String getNormalizedBotUsername() {
+        if (username == null) {
+            return null;
+        }
+        String trimmed = username.trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        return trimmed.startsWith("@") ? trimmed : "@" + trimmed;
+    }
+
     /**
      * Access configuration for user priority levels.
      * Supports both environment variables and direct configuration.
@@ -43,6 +58,14 @@ public class TelegramProperties {
      * Coalescing settings for Telegram two-step user inputs (e.g. text + forwarded/media message).
      */
     private MessageCoalescing messageCoalescing = new MessageCoalescing();
+
+    /**
+     * Agent stream Telegram view settings. The Java-side stream model may receive many
+     * provider chunks per second; this view flushes only current snapshots to Telegram.
+     */
+    @NotNull
+    @Valid
+    private AgentStreamView agentStreamView = new AgentStreamView();
 
     @Getter
     @Setter
@@ -90,6 +113,54 @@ public class TelegramProperties {
     @Min(value = 100, message = "maxMessageLength must be >= 100")
     @Max(value = 10000, message = "maxMessageLength must be <= 10000")
     private Integer maxMessageLength;
+
+    /**
+     * UX phase pacing between structural agent stream transitions. Rate limiting is
+     * enforced chat-wide by {@link #agentStreamView}; this value only controls how long
+     * thinking/tool/result phases remain visible before being replaced.
+     */
+    @NotNull(message = "agentStreamEditMinIntervalMs is required")
+    @Min(value = 0, message = "agentStreamEditMinIntervalMs must be >= 0")
+    @Max(value = 10000, message = "agentStreamEditMinIntervalMs must be <= 10000")
+    private Integer agentStreamEditMinIntervalMs;
+
+    @Getter
+    @Setter
+    @Validated
+    public static class AgentStreamView {
+        /**
+         * Minimum interval between Telegram view flushes in private chats.
+         */
+        @NotNull(message = "privateChatFlushIntervalMs is required")
+        @Min(value = 0, message = "privateChatFlushIntervalMs must be >= 0")
+        @Max(value = 10000, message = "privateChatFlushIntervalMs must be <= 10000")
+        private Integer privateChatFlushIntervalMs = 1000;
+
+        /**
+         * Minimum interval between Telegram view flushes in groups/supergroups.
+         */
+        @NotNull(message = "groupChatFlushIntervalMs is required")
+        @Min(value = 0, message = "groupChatFlushIntervalMs must be >= 0")
+        @Max(value = 60000, message = "groupChatFlushIntervalMs must be <= 60000")
+        private Integer groupChatFlushIntervalMs = 3000;
+
+        /**
+         * Maximum time to wait for final answer delivery before the FSM reports a
+         * Telegram delivery error.
+         */
+        @NotNull(message = "finalDeliveryTimeoutMs is required")
+        @Min(value = 0, message = "finalDeliveryTimeoutMs must be >= 0")
+        @Max(value = 60000, message = "finalDeliveryTimeoutMs must be <= 60000")
+        private Integer finalDeliveryTimeoutMs = 5000;
+
+        /**
+         * Maximum time non-final sends may wait for the chat pacing slot.
+         */
+        @NotNull(message = "defaultAcquireTimeoutMs is required")
+        @Min(value = 0, message = "defaultAcquireTimeoutMs must be >= 0")
+        @Max(value = 10000, message = "defaultAcquireTimeoutMs must be <= 10000")
+        private Integer defaultAcquireTimeoutMs = 1000;
+    }
 
     @Getter
     @Setter

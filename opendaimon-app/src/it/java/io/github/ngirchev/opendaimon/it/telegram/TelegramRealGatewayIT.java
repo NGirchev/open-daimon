@@ -32,7 +32,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -65,7 +65,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 )
 @ActiveProfiles("integration-test")
 @Import({
-        TestDatabaseConfiguration.class,
         CoreFlywayConfig.class,
         CoreJpaConfig.class,
         TelegramFlywayConfig.class,
@@ -79,7 +78,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "open-daimon.common.bulkhead.enabled=true",
         "open-daimon.ai.gateway-mock.enabled=true"
 })
-class TelegramRealGatewayIT {
+class TelegramRealGatewayIT extends AbstractContainerIT {
 
     static {
         DotEnvLoader.loadDotEnv(Path.of("../.env"));

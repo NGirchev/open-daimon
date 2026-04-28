@@ -16,13 +16,6 @@
         },
         {
             "type": "java",
-            "name": "Debug (Launch) - Main",
-            "request": "launch",
-            "mainClass": "io.github.ngirchev.opendaimon.OpenDaimonApplication",
-            "projectName": "open-daimon"
-        },
-        {
-            "type": "java",
             "name": "Debug (Attach)",
             "request": "attach",
             "hostName": "localhost",

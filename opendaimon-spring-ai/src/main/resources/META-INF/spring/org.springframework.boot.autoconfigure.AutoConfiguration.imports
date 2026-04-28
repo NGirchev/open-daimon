@@ -1,2 +1,3 @@
 io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig
 io.github.ngirchev.opendaimon.ai.springai.config.RAGAutoConfig
+io.github.ngirchev.opendaimon.ai.springai.agent.AgentAutoConfig
