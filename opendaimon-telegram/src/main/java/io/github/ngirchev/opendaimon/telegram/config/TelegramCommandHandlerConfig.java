@@ -261,7 +261,6 @@ public class TelegramCommandHandlerConfig {
             ReplyImageAttachmentService replyImageAttachmentService,
             TelegramMessageSender telegramMessageSender,
             ObjectProvider<AgentExecutor> agentExecutorProvider,
-            TelegramAgentStreamRenderer agentStreamRenderer,
             TelegramAgentStreamView agentStreamView,
             // No default here — all defaults live in application.yml only (see coding-style.md)
             @Value("${open-daimon.agent.max-iterations}") int agentMaxIterations,
@@ -271,7 +270,7 @@ public class TelegramCommandHandlerConfig {
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, telegramMessageSender,
-                agentExecutorProvider.getIfAvailable(), agentStreamRenderer, agentStreamView, agentMaxIterations,
+                agentExecutorProvider.getIfAvailable(), agentStreamView, agentMaxIterations,
                 defaultAgentModeEnabled);
     }
 

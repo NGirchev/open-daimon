@@ -22,6 +22,7 @@ public final class TelegramAgentStreamModel {
     public static final String STATUS_MAX_ITER_LINE = "⚠️ reached iteration limit";
 
     private static final int CANDIDATE_TAIL_LIMIT = 400;
+    private static final String MISSING_TOOL_ARGUMENT = "missing";
 
     private final boolean silent;
     private final boolean preserveReasoning;
@@ -187,10 +188,10 @@ public final class TelegramAgentStreamModel {
     }
 
     private void applyMaxIterations(String content) {
+        confirmAnswer(content);
         if (!silent) {
             appendStatus("\n\n" + STATUS_MAX_ITER_LINE);
         }
-        confirmAnswer(content);
     }
 
     public void confirmAnswer(String content) {
@@ -201,8 +202,42 @@ public final class TelegramAgentStreamModel {
             return;
         }
         confirmedAnswer = content;
+        clearTrailingStatusOverlay();
         candidateEscaped.setLength(0);
         answerDirty = true;
+    }
+
+    /**
+     * Drops the trailing italic status line after answer confirmation when it is either
+     * a streamed answer candidate or hidden reasoning. SHOW_ALL keeps pure reasoning
+     * overlays, but still removes candidate overlays to avoid duplicating the answer.
+     */
+    private void clearTrailingStatusOverlay() {
+        if (silent) {
+            return;
+        }
+        boolean candidateOverlayRendered = candidateEscaped.length() > 0;
+        if (preserveReasoning && !candidateOverlayRendered) {
+            return;
+        }
+        String html = statusHtml.toString();
+        if (!html.endsWith("</i>")) {
+            return;
+        }
+        int lastBoundary = html.lastIndexOf("\n\n");
+        int trailingLineStart = lastBoundary >= 0 ? lastBoundary + 2 : 0;
+        if (!html.startsWith("<i>", trailingLineStart)) {
+            return;
+        }
+        if (lastBoundary >= 0) {
+            statusHtml.setLength(lastBoundary);
+        } else {
+            // Overlay was the only content; Telegram rejects empty edits, so leave a
+            // minimal completion marker.
+            statusHtml.setLength(0);
+            statusHtml.append("✅");
+        }
+        statusDirty = true;
     }
 
     private void updateIteration(int iteration) {
@@ -230,8 +265,23 @@ public final class TelegramAgentStreamModel {
     }
 
     private String candidateTailOverlay() {
-        int start = Math.max(0, candidateEscaped.length() - CANDIDATE_TAIL_LIMIT);
-        return "<i>" + collapseToSingleLine(candidateEscaped.substring(start)) + "</i>";
+        int rawStart = Math.max(0, candidateEscaped.length() - CANDIDATE_TAIL_LIMIT);
+        int wordStart = rawStart;
+        if (rawStart > 0) {
+            // Skip forward to the next whitespace so the tail starts on a word boundary.
+            // Without this, a `**bold**` pair can be sliced mid-marker and the regex in
+            // AIUtils.applyMarkdownReplacements leaves the orphan `**` visible in chat.
+            for (int i = rawStart; i < candidateEscaped.length(); i++) {
+                char c = candidateEscaped.charAt(i);
+                if (c == ' ' || c == '\n' || c == '\t') {
+                    wordStart = i + 1;
+                    break;
+                }
+            }
+        }
+        String tailEscaped = candidateEscaped.substring(wordStart);
+        String tailHtml = AIUtils.convertEscapedMarkdownToHtml(collapseToSingleLine(tailEscaped));
+        return "<i>" + tailHtml + "</i>";
     }
 
     private String renderToolCallBlock(String toolName, String args) {
@@ -240,7 +290,7 @@ public final class TelegramAgentStreamModel {
                 ? ""
                 : TelegramHtmlEscaper.escape(ToolLabels.truncateArg(args));
         return escapedArgs.isEmpty()
-                ? "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> …"
+                ? "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> " + MISSING_TOOL_ARGUMENT
                 : "🔧 <b>Tool:</b> " + label + "\n<b>Query:</b> " + escapedArgs;
     }
 

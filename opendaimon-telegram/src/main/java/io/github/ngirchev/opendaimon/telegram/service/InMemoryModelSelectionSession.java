@@ -23,13 +23,12 @@ public class InMemoryModelSelectionSession implements ModelSelectionSession {
 
     @Override
     public List<ModelInfo> getOrFetch(Long userId, Supplier<List<ModelInfo>> fetcher) {
-        CachedModelList cached = userCache.get(userId);
-        if (cached != null && cached.createdAt().isAfter(Instant.now().minusSeconds(TTL_SECONDS))) {
-            return cached.models();
-        }
-        List<ModelInfo> models = fetcher.get();
-        userCache.put(userId, new CachedModelList(List.copyOf(models), Instant.now()));
-        return models;
+        return userCache.compute(userId, (k, v) -> {
+            if (v != null && v.createdAt().isAfter(Instant.now().minusSeconds(TTL_SECONDS))) {
+                return v;
+            }
+            return new CachedModelList(List.copyOf(fetcher.get()), Instant.now());
+        }).models();
     }
 
     @Override

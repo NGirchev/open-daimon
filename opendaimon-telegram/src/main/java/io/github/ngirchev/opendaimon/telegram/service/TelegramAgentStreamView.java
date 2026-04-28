@@ -12,6 +12,10 @@ import lombok.extern.slf4j.Slf4j;
  * <p>The view sends/edit snapshots. It does not own model state and it does not queue
  * historical operations; skipped partial flushes are fine because the next flush renders
  * the latest model contents.
+ *
+ * <p><b>Stateless singleton</b> — all per-request render state (including the progressive
+ * rendered offset) lives on {@link MessageHandlerContext}. Adding mutable instance fields
+ * here would re-introduce TD-1 race condition between concurrent agent streams.
  */
 @Slf4j
 public final class TelegramAgentStreamView {
@@ -19,7 +23,6 @@ public final class TelegramAgentStreamView {
     private final TelegramMessageSender messageSender;
     private final TelegramChatPacer telegramChatPacer;
     private final TelegramProperties telegramProperties;
-    private int statusRenderedOffset;
 
     public TelegramAgentStreamView(TelegramMessageSender messageSender,
                                    TelegramChatPacer telegramChatPacer,
@@ -48,15 +51,16 @@ public final class TelegramAgentStreamView {
             return true;
         }
         Long chatId = ctx.getCommand().telegramId();
-        if (!reserveForView(chatId, force)) {
+        if (!force && !reserveForView(chatId, false)) {
             return !force;
         }
         String fullHtml = model.statusHtml();
-        if (statusRenderedOffset > fullHtml.length()) {
-            statusRenderedOffset = 0;
+        if (ctx.getStatusRenderedOffset() > fullHtml.length()) {
+            ctx.setStatusRenderedOffset(0);
         }
-        String html = fullHtml.substring(statusRenderedOffset);
+        String html = fullHtml.substring(ctx.getStatusRenderedOffset());
         Integer statusId = ctx.getStatusMessageId();
+        long reliableTimeoutMs = telegramProperties.getAgentStreamView().getFinalDeliveryTimeoutMs();
         if (statusId == null) {
             Integer sentId = messageSender.sendHtmlAndGetId(
                     chatId, html, ctx.consumeNextReplyToMessageId(), true);
@@ -70,9 +74,14 @@ public final class TelegramAgentStreamView {
             var rotated = TelegramProgressBatcher.selectContentToFlush(
                     current, telegramProperties.getMaxMessageLength());
             if (rotated.isPresent()) {
-                messageSender.editHtml(chatId, statusId, rotated.get(), true);
-                statusRenderedOffset = fullHtml.length() - current.length();
-                Integer nextId = messageSender.sendHtmlAndGetId(chatId, current.toString(), null, true);
+                if (!editStatus(chatId, statusId, rotated.get(), force, reliableTimeoutMs)) {
+                    return deleteStaleStatus(ctx, chatId, statusId, force);
+                }
+                ctx.setStatusRenderedOffset(fullHtml.length() - current.length());
+                Integer nextId = force
+                        ? messageSender.sendHtmlReliableAndGetId(
+                                chatId, current.toString(), null, true, reliableTimeoutMs)
+                        : messageSender.sendHtmlAndGetId(chatId, current.toString(), null, true);
                 if (nextId != null) {
                     ctx.setStatusMessageId(nextId);
                     ctx.markStatusEdited();
@@ -82,11 +91,36 @@ public final class TelegramAgentStreamView {
                 }
                 return false;
             }
-            messageSender.editHtml(chatId, statusId, html, true);
+            if (!editStatus(chatId, statusId, html, force, reliableTimeoutMs)) {
+                return deleteStaleStatus(ctx, chatId, statusId, force);
+            }
             ctx.markStatusEdited();
         }
         ctx.setAlreadySentInStream(true);
         model.markStatusClean();
+        return true;
+    }
+
+    private boolean editStatus(Long chatId, Integer statusId, String html, boolean reliable, long maxWaitMs) {
+        if (reliable) {
+            return messageSender.editHtmlReliable(chatId, statusId, html, true, maxWaitMs);
+        }
+        messageSender.editHtml(chatId, statusId, html, true);
+        return true;
+    }
+
+    private boolean deleteStaleStatus(MessageHandlerContext ctx, Long chatId, Integer statusId, boolean force) {
+        if (!force) {
+            return false;
+        }
+        log.warn("Final status edit failed for chatId={}, statusId={}; deleting stale status message",
+                chatId, statusId);
+        if (!messageSender.deleteMessage(chatId, statusId)) {
+            return false;
+        }
+        ctx.setStatusMessageId(null);
+        ctx.setStatusRenderedOffset(0);
+        ctx.setAlreadySentInStream(true);
         return true;
     }
 

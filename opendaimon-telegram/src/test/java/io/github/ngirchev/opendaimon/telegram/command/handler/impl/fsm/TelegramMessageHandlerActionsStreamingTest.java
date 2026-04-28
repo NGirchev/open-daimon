@@ -110,7 +110,7 @@ class TelegramMessageHandlerActionsStreamingTest {
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, agentStreamView, MAX_ITERATIONS, true);
+                agentExecutor, agentStreamView, MAX_ITERATIONS, true);
     }
 
     @Test

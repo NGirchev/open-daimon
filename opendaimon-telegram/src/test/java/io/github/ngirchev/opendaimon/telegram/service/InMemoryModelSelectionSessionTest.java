@@ -7,7 +7,10 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -99,5 +102,41 @@ class InMemoryModelSelectionSessionTest {
 
         // Assert — returned list should be immutable (List.copyOf)
         assertThat(result).isUnmodifiable();
+    }
+
+    @Test
+    void shouldInvokeFetcherOnceUnderConcurrentRequestsForSameUser() throws InterruptedException {
+        // Reproducer for TD-future-A race: under non-atomic get()+put(), two threads observing
+        // the same cache miss would both invoke the (slow) fetcher. Atomic compute() single-flights it.
+        AtomicInteger fetcherCalls = new AtomicInteger();
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(2);
+        List<ModelInfo> models = List.of(new ModelInfo("gpt-4", Set.of(ModelCapabilities.CHAT), "openai"));
+        Supplier<List<ModelInfo>> slowFetcher = () -> {
+            fetcherCalls.incrementAndGet();
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return models;
+        };
+        Runnable task = () -> {
+            try {
+                start.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            session.getOrFetch(42L, slowFetcher);
+            done.countDown();
+        };
+        new Thread(task, "concurrent-fetcher-1").start();
+        new Thread(task, "concurrent-fetcher-2").start();
+
+        start.countDown();
+
+        assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(fetcherCalls.get()).isEqualTo(1);
     }
 }

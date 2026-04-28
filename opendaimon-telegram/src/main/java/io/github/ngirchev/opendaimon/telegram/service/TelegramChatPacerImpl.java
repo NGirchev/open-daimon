@@ -1,14 +1,17 @@
 package io.github.ngirchev.opendaimon.telegram.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.time.Duration;
 
 public class TelegramChatPacerImpl implements TelegramChatPacer {
 
     private final TelegramProperties telegramProperties;
-    private final Map<Long, ChatSlot> slots = new ConcurrentHashMap<>();
+    private final Cache<Long, ChatSlot> slots = Caffeine.newBuilder()
+            .expireAfterAccess(Duration.ofHours(1))
+            .build();
 
     public TelegramChatPacerImpl(TelegramProperties telegramProperties) {
         this.telegramProperties = telegramProperties;
@@ -16,13 +19,13 @@ public class TelegramChatPacerImpl implements TelegramChatPacer {
 
     @Override
     public boolean tryReserve(long chatId) {
-        return slots.computeIfAbsent(chatId, ignored -> new ChatSlot())
+        return slots.get(chatId, ignored -> new ChatSlot())
                 .tryReserve(System.currentTimeMillis(), intervalMs(chatId));
     }
 
     @Override
     public boolean reserve(long chatId, long timeoutMs) throws InterruptedException {
-        return slots.computeIfAbsent(chatId, ignored -> new ChatSlot())
+        return slots.get(chatId, ignored -> new ChatSlot())
                 .reserve(System.currentTimeMillis(), intervalMs(chatId), timeoutMs);
     }
 

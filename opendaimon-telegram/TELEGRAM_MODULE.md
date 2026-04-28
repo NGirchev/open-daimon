@@ -550,12 +550,16 @@ Both messages are sent as replies to the original user message.
    🔧 Tool: ...
    Query: ...
    ```
+   If the model calls `web_search` without usable arguments, the query line is
+   rendered as `Query: missing` instead of an ellipsis.
 4. `OBSERVATION`: status appends one line:
    - `<blockquote>📋 Tool result received</blockquote>`
    - `<blockquote>📋 No result</blockquote>`
-   - `<blockquote>⚠️ Tool failed: ...</blockquote>`
-5. `MAX_ITERATIONS`: status appends `⚠️ reached iteration limit`, then answer is still delivered from terminal output.
-6. `FINAL_ANSWER` (or terminal max-iterations fallback): model confirms final answer and the view creates/edits answer message.
+   - `<blockquote>⚠️ Tool failed: ...</blockquote>`; known structural errors
+     such as a missing web-search query are compacted for the user while the
+     full observation remains available to the agent loop.
+5. `MAX_ITERATIONS`: model confirms the terminal output first, strips any trailing partial-answer overlay from status, then appends `⚠️ reached iteration limit`.
+6. `FINAL_ANSWER` (or terminal max-iterations fallback): model confirms final answer and the view creates/edits answer message. The trailing partial-answer overlay (when a candidate was actually rendered as the status tail) is stripped from `statusHtml` so the status message does not freeze with a stale fragment (e.g. `<i>На ос</i>`) next to the freshly delivered answer. In `HIDE_REASONING`, a trailing reasoning overlay is also removed on confirmation; in `SHOW_ALL`, reasoning overlays are preserved. If the overlay was the only status content, it is replaced with a `✅` marker because Telegram rejects empty edits.
 
 ### Thinking modes
 
@@ -584,6 +588,12 @@ Final answer delivery uses reliable Telegram sender methods:
 - retry once when budget allows
 - if final edit fails, fallback to fresh `sendMessage`
 - if both fail, FSM sets `MessageHandlerErrorType.TELEGRAM_DELIVERY_FAILED` and enters `ERROR`
+
+Final status cleanup is reliable too: `flushFinal()` edits the status message
+with `editHtmlReliable(...)` before sending/editing the answer. If Telegram
+refuses that final status edit, the view deletes the stale status message
+best-effort so an old partial-answer overlay is not left next to the final
+answer.
 
 `PersistentKeyboardService.sendKeyboard` uses the same chat pacer to avoid competing with stream edits/sends in the same chat. After an agent stream, it waits at least one chat pacing interval plus `default-acquire-timeout-ms` before skipping, so the post-run keyboard/status message can follow a just-delivered final answer in groups.
 
@@ -728,6 +738,8 @@ Column: `telegram_user.menu_version_hash VARCHAR(64)`, nullable. Migration
 `V2__Add_menu_version_hash_to_telegram_user.sql`.
 
 ## Agent Streaming Internals
+
+`TelegramAgentStreamView` is a **stateless** singleton — all per-stream render state (including the progressive rendered offset) lives on `MessageHandlerContext`, alongside `statusMessageId`, `statusBuffer`, and `lastStatusEditAtMs`.
 
 ### Model-first buffering
 
