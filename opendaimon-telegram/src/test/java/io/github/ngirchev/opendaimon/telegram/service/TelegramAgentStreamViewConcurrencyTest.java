@@ -106,6 +106,10 @@ class TelegramAgentStreamViewConcurrencyTest {
                 .thenReturn(ROTATED_NEW_MSG_ID_B);
         lenient().when(messageSender.sendHtmlAndGetId(eq(CHAT_ID_A), anyString(), any(), anyBoolean()))
                 .thenReturn(STATUS_MSG_ID_A);
+        lenient().when(messageSender.editHtmlReliable(anyLong(), any(), anyString(), anyBoolean(), anyLong()))
+                .thenReturn(true);
+        lenient().when(messageSender.sendHtmlReliableAndGetId(eq(CHAT_ID_B), anyString(), any(), anyBoolean(), anyLong()))
+                .thenReturn(ROTATED_NEW_MSG_ID_B);
 
         view = new TelegramAgentStreamView(messageSender, telegramChatPacer, telegramProperties);
         executor = Executors.newFixedThreadPool(2);
