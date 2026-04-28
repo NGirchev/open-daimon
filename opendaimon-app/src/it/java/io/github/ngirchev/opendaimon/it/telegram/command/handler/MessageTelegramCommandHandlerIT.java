@@ -3,6 +3,8 @@ package io.github.ngirchev.opendaimon.it.telegram.command.handler;
 import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacerImpl;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup;
 import io.github.ngirchev.opendaimon.common.repository.UserRepository;
@@ -45,6 +47,7 @@ import io.github.ngirchev.opendaimon.common.ai.response.MapResponse;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
+import io.github.ngirchev.opendaimon.it.TelegramMessageHandlerActionsTestWiring;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
@@ -319,7 +322,8 @@ class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
         ) {
             return new PersistentKeyboardService(
                     coreCommonProperties, telegramBotProvider, telegramProperties,
-                    messageLocalizationService, userRepository);
+                    messageLocalizationService, userRepository,
+                    new TelegramChatPacerImpl(telegramProperties));
         }
 
         @Bean
@@ -347,23 +351,11 @@ class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
                 ChatSettingsService chatSettingsService,
                 PersistentKeyboardService persistentKeyboardService,
                 ReplyImageAttachmentService replyImageAttachmentService) {
-            TelegramMessageSender messageSender = new TelegramMessageSender(
-                    telegramBotProvider, messageLocalizationService, persistentKeyboardService);
-            TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
+            return TelegramMessageHandlerActionsTestWiring.create(
+                    telegramBotProvider, typingIndicatorService, messageLocalizationService,
                     telegramUserService, telegramUserSessionService, telegramMessageService,
                     aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
-                    chatSettingsService, persistentKeyboardService, replyImageAttachmentService,
-                    messageSender, null, null, 10, false);
-            ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
-                    MessageHandlerFsmFactory.create(actions);
-            return new MessageTelegramCommandHandler(
-                    telegramBotProvider,
-                    typingIndicatorService,
-                    messageLocalizationService,
-                    handlerFsm,
-                    telegramMessageService,
-                    telegramProperties,
-                    persistentKeyboardService);
+                    chatSettingsService, persistentKeyboardService, replyImageAttachmentService);
         }
     }
 

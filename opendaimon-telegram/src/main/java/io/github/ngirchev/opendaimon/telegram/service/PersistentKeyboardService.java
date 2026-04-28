@@ -26,17 +26,20 @@ public class PersistentKeyboardService {
     private final TelegramProperties telegramProperties;
     private final MessageLocalizationService messageLocalizationService;
     private final UserRepository userRepository;
+    private final TelegramChatPacer telegramChatPacer;
 
     public PersistentKeyboardService(CoreCommonProperties coreCommonProperties,
                                      ObjectProvider<TelegramBot> telegramBotProvider,
                                      TelegramProperties telegramProperties,
                                      MessageLocalizationService messageLocalizationService,
-                                     UserRepository userRepository) {
+                                     UserRepository userRepository,
+                                     TelegramChatPacer telegramChatPacer) {
         this.coreCommonProperties = coreCommonProperties;
         this.telegramBotProvider = telegramBotProvider;
         this.telegramProperties = telegramProperties;
         this.messageLocalizationService = messageLocalizationService;
         this.userRepository = userRepository;
+        this.telegramChatPacer = telegramChatPacer;
     }
 
     /**
@@ -73,10 +76,25 @@ public class PersistentKeyboardService {
             markup.setResizeKeyboard(true);
             markup.setOneTimeKeyboard(false);
             msg.setReplyMarkup(markup);
+            long timeoutMs = keyboardAcquireTimeoutMs(chatId);
+            if (!telegramChatPacer.reserve(chatId, timeoutMs)) {
+                log.warn("Skipped persistent keyboard send to chat {} because chat pacing slot was unavailable after {}ms",
+                        chatId, timeoutMs);
+                return;
+            }
             telegramBotProvider.getObject().execute(msg);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Interrupted while sending persistent keyboard to chat {}", chatId);
         } catch (Exception e) {
             log.warn("Failed to send persistent keyboard to chat {}: {}", chatId, e.getMessage());
         }
+    }
+
+    private long keyboardAcquireTimeoutMs(Long chatId) {
+        long defaultTimeoutMs = telegramProperties.getAgentStreamView().getDefaultAcquireTimeoutMs();
+        long pacingIntervalMs = telegramChatPacer.intervalMs(chatId);
+        return defaultTimeoutMs + pacingIntervalMs;
     }
 
     /**

@@ -15,6 +15,8 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
@@ -37,6 +39,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -76,6 +79,7 @@ class TelegramMessageHandlerActionsStreamingTest {
     @Mock private ReplyImageAttachmentService replyImageAttachmentService;
     @Mock private TelegramMessageSender messageSender;
     @Mock private AgentExecutor agentExecutor;
+    @Mock private TelegramChatPacer telegramChatPacer;
 
     private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
@@ -88,17 +92,29 @@ class TelegramMessageHandlerActionsStreamingTest {
         // Disable throttling so every event produces a Telegram call we can assert on.
         telegramProperties.setAgentStreamEditMinIntervalMs(0);
         agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
+        when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
+        try {
+            when(telegramChatPacer.reserve(anyLong(), anyLong())).thenReturn(true);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
+        when(messageSender.sendHtmlReliableAndGetId(eq(CHAT_ID), anyString(), any(), anyBoolean(), anyLong()))
+                .thenReturn(ANSWER_MSG_ID);
+        when(messageSender.editHtmlReliable(eq(CHAT_ID), any(), anyString(), anyBoolean(), anyLong()))
+                .thenReturn(true);
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
                 aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, MAX_ITERATIONS, true);
+                agentExecutor, agentStreamView, MAX_ITERATIONS, true);
     }
 
     @Test
-    @DisplayName("should promote answer bubble on the first PARTIAL_ANSWER when no tool call has been seen")
+    @DisplayName("should keep partial answer in status and send answer only after FINAL_ANSWER")
     void shouldPromoteAnswerBubbleOnFirstPartialAnswerWhenNoToolCall() {
         MessageHandlerContext ctx = createContextWithMessage("Ask",
                 Set.of(ModelCapabilities.WEB));
@@ -124,15 +140,13 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        // Exactly one answer bubble send — threaded reply to the user message, content
-        // distinguished from the status bubble by the absence of the thinking marker.
-        verify(messageSender, times(1)).sendHtmlAndGetId(eq(CHAT_ID),
+        verify(messageSender, times(1)).sendHtmlReliableAndGetId(eq(CHAT_ID),
                 argThat(html -> html != null && html.contains("Quick single-line reply.")
                         && !html.contains(STATUS_THINKING_LINE)),
-                eq(USER_MSG_ID), eq(true));
+                eq(USER_MSG_ID), eq(false), eq(5000L));
 
         assertThat(ctx.getAgentRenderMode())
-                .isEqualTo(MessageHandlerContext.AgentRenderMode.TENTATIVE_ANSWER);
+                .isEqualTo(MessageHandlerContext.AgentRenderMode.STATUS_ONLY);
         assertThat(ctx.getTentativeAnswerMessageId()).isEqualTo(ANSWER_MSG_ID);
         assertThat(ctx.getErrorType()).isNull();
     }
@@ -164,12 +178,12 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        verify(messageSender, times(1)).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
+        verify(messageSender, never()).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
         assertThat(ctx.isTentativeAnswerActive()).isFalse();
-        assertThat(ctx.isToolCallSeenThisIteration()).isTrue();
-        assertThat(ctx.getTentativeAnswerBuffer().length())
-                .as("tentative-answer buffer should be cleared after rollback")
-                .isZero();
+        assertThat(ctx.getTentativeAnswerMessageId()).isEqualTo(ANSWER_MSG_ID);
+        verify(messageSender, times(1)).sendHtmlReliableAndGetId(eq(CHAT_ID),
+                argThat(html -> html != null && html.contains("Real answer.")),
+                eq(USER_MSG_ID), eq(false), eq(5000L));
     }
 
     @Test
@@ -203,7 +217,7 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        verify(messageSender, times(1)).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
+        verify(messageSender, never()).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
         assertThat(ctx.isTentativeAnswerActive()).isFalse();
 
         ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
@@ -238,12 +252,12 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        // No answer bubble was opened — only the status send (replying to the user
-        // message) should have hit sendHtmlAndGetId.
+        // No speculative answer bubble was opened via regular send; final answer is
+        // delivered only through the reliable final-answer path.
         verify(messageSender, never())
                 .sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), anyBoolean());
         assertThat(ctx.isTentativeAnswerActive()).isFalse();
-        assertThat(ctx.getTentativeAnswerMessageId()).isNull();
+        assertThat(ctx.getTentativeAnswerMessageId()).isEqualTo(ANSWER_MSG_ID);
         assertThat(ctx.getAgentRenderMode())
                 .isEqualTo(MessageHandlerContext.AgentRenderMode.STATUS_ONLY);
     }
@@ -349,12 +363,10 @@ class TelegramMessageHandlerActionsStreamingTest {
         // (b) status transcript records the ⚠️ iteration-limit marker.
         assertThat(ctx.getStatusBuffer().toString()).contains(STATUS_MAX_ITER_LINE);
 
-        // (c) the answer was actually delivered to the chat — generateAgentResponse routes the
-        //     no-tentative-bubble path through sendHtml(chatId, html, null) per paragraph. The
-        //     html is produced by AIUtils.convertMarkdownToHtml, so assert on the payload the
-        //     user would actually see (plain sentence survives conversion).
+        // (c) the answer was actually delivered to the chat through the reliable final-answer path.
         ArgumentCaptor<String> sentHtmlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messageSender, atLeastOnce()).sendHtml(eq(CHAT_ID), sentHtmlCaptor.capture(), isNull());
+        verify(messageSender, atLeastOnce()).sendHtmlReliableAndGetId(
+                eq(CHAT_ID), sentHtmlCaptor.capture(), eq(USER_MSG_ID), eq(false), eq(5000L));
         boolean deliveredSafetyText = sentHtmlCaptor.getAllValues().stream()
                 .anyMatch(html -> html.contains("I reached the iteration limit"));
         assertThat(deliveredSafetyText)
@@ -427,11 +439,10 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        // Collect all edit bodies applied to the answer bubble; the last one must contain
-        // the sanitized text and not the dead URL.
+        // The final answer send must contain the sanitized text and not the dead URL.
         ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messageSender, atLeastOnce())
-                .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), editCaptor.capture(), anyBoolean());
+        verify(messageSender, atLeastOnce()).sendHtmlReliableAndGetId(
+                eq(CHAT_ID), editCaptor.capture(), eq(USER_MSG_ID), eq(false), eq(5000L));
 
         String finalEdit = editCaptor.getAllValues().get(editCaptor.getAllValues().size() - 1);
         assertThat(finalEdit)
@@ -471,7 +482,8 @@ class TelegramMessageHandlerActionsStreamingTest {
         actions.generateResponse(ctx);
 
         ArgumentCaptor<String> sentHtmlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messageSender, atLeastOnce()).sendHtml(eq(CHAT_ID), sentHtmlCaptor.capture(), isNull());
+        verify(messageSender, atLeastOnce()).sendHtmlReliableAndGetId(
+                eq(CHAT_ID), sentHtmlCaptor.capture(), any(), eq(false), eq(5000L));
 
         assertThat(sentHtmlCaptor.getAllValues())
                 .as("oversized single paragraph must be split into multiple chunks")

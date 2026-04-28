@@ -686,6 +686,11 @@ the tool_call arguments). Aligns with the design decision recorded in
 `docs/agent-evolution-roadmap.md` Step 2 — "treat structural tool-use
 problems as errors worth surfacing, not silent fallbacks".
 
+For Telegram progress rendering, `ToolObservationClassifier` keeps that full
+observation for the model but compacts the user-visible stream content to
+`Search query is missing.` so the status bubble does not expose the internal
+retry prompt.
+
 The `apiKey` not-configured branch (server-side misconfiguration, not a
 model-side mistake) still returns an empty `SearchResult` so we do not
 nudge the model into a retry loop for a problem only the operator can

@@ -24,6 +24,10 @@ public final class ToolObservationClassifier {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static final int ERROR_SUMMARY_MAX_LEN = 200;
+    private static final String MISSING_WEB_SEARCH_QUERY_PREFIX =
+            "Error: argument 'query' is required and must not be blank.";
+    private static final String MISSING_WEB_SEARCH_QUERY_STREAM_CONTENT =
+            "Search query is missing.";
 
     /**
      * Output triple:
@@ -59,6 +63,9 @@ public final class ToolObservationClassifier {
         }
         String trimmed = normalizeStringToolResult(raw);
         if (isTextualToolFailure(trimmed)) {
+            if (isMissingWebSearchQuery(toolResult.toolName(), trimmed)) {
+                return new Classification(MISSING_WEB_SEARCH_QUERY_STREAM_CONTENT, observation, true);
+            }
             return new Classification(summarizeToolError(trimmed), observation, true);
         }
         return new Classification(trimmed, observation, false);
@@ -113,6 +120,12 @@ public final class ToolObservationClassifier {
             }
         }
         return trimmed;
+    }
+
+    private static boolean isMissingWebSearchQuery(String toolName, String text) {
+        return "web_search".equals(toolName)
+                && text != null
+                && text.startsWith(MISSING_WEB_SEARCH_QUERY_PREFIX);
     }
 
     /**
