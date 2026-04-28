@@ -49,6 +49,13 @@ Constant names use `SCREAMING_SNAKE_CASE` matching the property semantic:
 4. Use the constant in `@ConditionalOnProperty` annotations
 5. Document the toggle with a `# FEATURE FLAG` comment in `application.yml`
 
+## Telegram Command Toggles
+
+| Constant | Property Key | Default | Description |
+|---|---|---|---|
+| `TelegramCommand.LANGUAGE` | `open-daimon.telegram.commands.language-enabled` | `true` | Enable the `/language` per-user language selection command. |
+| `TelegramCommand.THINKING` | `open-daimon.telegram.commands.thinking-enabled` | `true` | Enable the `/thinking` per-user reasoning-visibility command (3 states: SHOW_ALL, HIDE_REASONING, SILENT). See [docs/telegram-thinking-modes.md](telegram-thinking-modes.md). |
+
 ## Default Values
 
 All default values live exclusively in `application.yml` — never in Java code,

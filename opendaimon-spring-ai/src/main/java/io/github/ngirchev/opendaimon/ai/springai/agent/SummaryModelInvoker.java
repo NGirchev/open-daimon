@@ -2,6 +2,7 @@ package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
+import io.github.ngirchev.opendaimon.common.ai.lang.LanguageInstructions;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
 import lombok.extern.slf4j.Slf4j;
@@ -148,16 +149,8 @@ final class SummaryModelInvoker {
     private static String resolveLanguageInstruction(Map<String, String> metadata) {
         if (metadata == null) return "";
         String code = metadata.get(AICommand.LANGUAGE_CODE_FIELD);
-        if (code == null || code.isBlank()) return "";
-        String name = switch (code.toLowerCase()) {
-            case "ru" -> "Russian";
-            case "en" -> "English";
-            case "de" -> "German";
-            case "fr" -> "French";
-            case "es" -> "Spanish";
-            case "zh" -> "Chinese";
-            default -> code;
-        };
-        return "Respond in " + name + " (" + code + ").";
+        return LanguageInstructions.displayName(code)
+                .map(name -> "Respond in " + name + " (" + code + ").")
+                .orElse("");
     }
 }

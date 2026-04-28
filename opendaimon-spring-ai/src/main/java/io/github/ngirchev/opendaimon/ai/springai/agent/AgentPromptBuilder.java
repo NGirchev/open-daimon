@@ -2,8 +2,11 @@ package io.github.ngirchev.opendaimon.ai.springai.agent;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentStepResult;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
+import io.github.ngirchev.opendaimon.common.ai.lang.LanguageInstructions;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Builds system and user prompts for the ReAct agent loop.
@@ -37,11 +40,38 @@ public final class AgentPromptBuilder {
             - If a tool returns an error, try an alternative approach
             """;
 
+    private static final String TOOL_CALLING_INSTRUCTION =
+            "\nWhen calling any tool, you MUST provide all required parameters"
+            + " with concrete non-empty values. Never emit a tool call with empty"
+            + " or null arguments. For web_search, always include a non-empty"
+            + " `query` string describing what to search. For fetch_url, always"
+            + " include a valid http(s) `url`.";
+
     /**
-     * Builds the system prompt including ReAct instructions.
+     * Builds the system prompt enriched with language and tool-calling instructions
+     * derived from agent metadata.
+     *
+     * <p>The tool-calling discipline instruction is appended unconditionally because
+     * the ReAct agent always operates with web_search/fetch_url tools available.
+     * The language instruction is appended only when {@link AICommand#LANGUAGE_CODE_FIELD}
+     * is present in the metadata — it covers intermediate thoughts and status messages
+     * as well as the final answer to eliminate bifurcated-language output.
+     *
+     * @param metadata agent metadata from {@link AgentContext#getMetadata()}, may be {@code null}
      */
-    public static String buildSystemPrompt() {
-        return REACT_SYSTEM_PROMPT;
+    public static String buildSystemPrompt(Map<String, String> metadata) {
+        String prompt = REACT_SYSTEM_PROMPT + TOOL_CALLING_INSTRUCTION;
+        return appendLanguageInstruction(prompt, metadata);
+    }
+
+    private static String appendLanguageInstruction(String prompt, Map<String, String> metadata) {
+        if (metadata == null) return prompt;
+        String code = metadata.get(AICommand.LANGUAGE_CODE_FIELD);
+        return LanguageInstructions.displayName(code)
+                .map(name -> prompt
+                        + "\nRespond in " + name + " (" + code + "), INCLUDING intermediate thoughts and status messages."
+                        + " When quoting text from documents or tool results, preserve the original language exactly.")
+                .orElse(prompt);
     }
 
     /**

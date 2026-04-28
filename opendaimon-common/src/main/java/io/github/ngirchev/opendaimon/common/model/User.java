@@ -60,6 +60,25 @@ public class User extends AbstractEntity<Long> implements IUserObject {
     private String preferredModelId;
 
     /**
+     * Per-user agent mode flag. {@code null} means "use application default"
+     * ({@code open-daimon.agent.enabled}). Set to {@code true}/{@code false}
+     * explicitly via the {@code /mode} Telegram command.
+     */
+    @Column(name = "agent_mode_enabled")
+    private Boolean agentModeEnabled;
+
+    /**
+     * Per-user thinking-visibility mode. Controls how the model's reasoning is rendered
+     * during and after streaming in the Telegram status transcript.
+     * Set explicitly via the {@code /thinking} Telegram command.
+     *
+     * @see ThinkingMode
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "thinking_mode", nullable = false)
+    private ThinkingMode thinkingMode = ThinkingMode.HIDE_REASONING;
+
+    /**
      * Current active assistant role
      */
     @OneToOne(fetch = FetchType.LAZY)

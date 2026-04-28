@@ -27,6 +27,9 @@ public enum MessageHandlerErrorType {
     /** AI response has empty content after retry. */
     EMPTY_RESPONSE,
 
+    /** Telegram refused all attempts to deliver the final answer. */
+    TELEGRAM_DELIVERY_FAILED,
+
     /** General/unexpected error during processing. */
     GENERAL
 }

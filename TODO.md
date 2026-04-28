@@ -41,12 +41,13 @@
   - [x] Agent observability: intermediate events (thinking, tool_call, observation) shown in Telegram
   - [x] Agent final answer: stream by paragraphs (like gateway path) instead of single message
   - [x] Ollama thinking: parse `<think>...</think>` tags from getText() and show as reasoning content
-  - [ ] OpenRouter reasoning: verify `reasoningContent` in Generation metadata for models with extended thinking
+  - [x] OpenRouter reasoning: verify `reasoningContent` in Generation metadata for models with extended thinking — `AgentTextSanitizer.extractReasoning` reads `metadata.get("reasoningContent")` (opendaimon-spring-ai/.../agent/AgentTextSanitizer.java:89)
 - [ ] Show thinking in web
 - [ ] Provider Registry — replace ProviderType enum with String + Strategy pattern ([plan](docs/provider-registry-plan.md))
 - [ ] Different models in the flow
 - [ ] Add balance loader
-- [ ] WebTools need to parse result
+- [x] WebTools need to parse result — JSoup-based HTML parsing in `WebTools.java:5,173` strips markup and returns clean text to the model
+- [ ] Arch unit
 
 ## Agent Framework Pivot
 
@@ -111,11 +112,11 @@
 - [ ] **REST Integration** — agent endpoint for REST/UI
 
 ## Bugs
-- [ ] Bug - custom role for group chat is not working
+- [x] Bug - custom role for group chat is not working — closed by TelegramGroup migration (Stage 4): `RoleTelegramCommandHandler` writes role to the resolved `User owner` (TelegramGroup in groups, TelegramUser in privates) via `chatSettingsService.updateAssistantRole(owner, ...)`; `TelegramMessageService` reads the role from the same owner via `ChatOwnerLookup.findByChatId(thread.scopeId)`.
 - [ ] Bug 2026-04-11 10:56:21.190 [opendaimon_bot Telegram Connection] ERROR o.t.t.u.DefaultBotSession - api.telegram.org
   2026-04-11T10:56:21.190938830Z java.net.UnknownHostException: api.telegram.org
   2026-04-11T10:56:21.190941994Z 	at java.base/java.net.InetAddress$CachedLookup.get(Unknown Source)...
-- [ ] Bug for summarizing in group chat 2026-04-11 07:20:05.388 [boundedElastic-20] ERROR i.g.n.o.a.s.s.SpringAIChatService - Spring AI stream error. model=openrouter/auto, body={reasoning={max_tokens=1500}}
+- [x] Bug for summarizing in group chat 2026-04-11 07:20:05.388 [boundedElastic-20] ERROR i.g.n.o.a.s.s.SpringAIChatService - Spring AI stream error. model=openrouter/auto, body={reasoning={max_tokens=1500}}
   2026-04-11T07:20:05.389665794Z io.github.ngirchev.opendaimon.common.exception.SummarizationFailedException: Conversation summarization failed. Please start a new session (/newthread).
   2026-04-11T07:20:05.389668410Z 	at io.github.ngirchev.opendaimon.ai.springai.memory.SummarizingChatMemory.performSummarizationAndUpdateChatMemory(SummarizingChatMemory.java:189)
   2026-04-11T07:20:05.389670903Z 	at io.github.ngirchev.opendaimon.ai.springai.memory.SummarizingChatMemory.get(SummarizingChatMemory.java:93)
@@ -178,15 +179,17 @@
   2026-04-11T07:20:05.389844438Z 	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.executeAndExtract(DefaultRestClient.java:814)
   2026-04-11T07:20:05.389846893Z 	at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.body(DefaultRestClient.java:750)
   2026-04-11T07:20:05.389849206Z 	at org.springframework.ai.ollama.api.OllamaApi.chat(OllamaApi.java:115) - Also message was sent to personal chat instead of group
+  - **Closed by Stage 6** of the TelegramGroup migration: `SummarizationService` now resolves the chat-scoped owner via the new `ChatOwnerLookup` SPI (`thread.getScopeId()` → `TelegramChatOwnerLookup.findByChatId`) and seeds the owner's `preferredModelId` into `ChatAICommand.metadata` BEFORE the gateway dispatches the request. This eliminates the AUTO-routing path that produced an empty `model` field and the resulting HTTP 400. The "personal chat instead of group" symptom was a side-effect of cross-bleed: the bot was reading the invoker's settings (role / model / language) inside a group, making the group response look like a private-chat reply — the same Stage 4 settings-owner refactor closes it.
+  - Regression test: `SummarizationServiceTest.shouldSeedPreferredModelFromChatOwnerIntoSummarizationMetadata` (uses real `ChatOwnerLookup` lambda + `ArgumentCaptor` to assert `PREFERRED_MODEL_ID_FIELD` lands in the dispatched `ChatAICommand.metadata`).
 - [x] Bug: WebTools.fetchUrl 403 Forbidden on Medium/Cloudflare sites — add browser-like fetch headers plus Cloudflare-challenge retry and per-run agent guard
-- [ ] Bug: WebTools.fetchUrl DataBufferLimitException → model responds in English (2026-04-11)
+- [x] Bug: WebTools.fetchUrl DataBufferLimitException → model responds in English (2026-04-11)
   - `WebClient` default buffer limit is 256KB (262144 bytes); large pages (e.g. GitHub issues) exceed it
   - `fetchUrl` catches the exception and returns empty string `""`
   - Model receives empty tool result, generates a fallback response ignoring the language instruction
   - Root cause: `SpringAIAutoConfig.webClient()` creates WebClient via `builder.build()` without `maxInMemorySize`
   - Observed: `google/gemini-2.5-flash-lite` via `openrouter/auto` responded in English despite `languageCode=ru`
-  - Fix 1: Set `maxInMemorySize` in `SpringAIAutoConfig.webClient()` (e.g. 2MB)
-  - Fix 2: Investigate why language instruction (`"Prefer responding in Russian"`) is lost after tool call failure — check if system message is preserved in the retry/fallback path
+  - **Fix 1 LANDED**: `maxInMemorySize(2 * 1024 * 1024)` set on the WebClient builder (`SpringAIAutoConfig.java:254`, comment at line 231 explaining the 2 MB cap).
+  - Fix 2 (open follow-up): why language instruction is lost after a tool-call failure — separate from the buffer issue and not addressed here.
   - Log: `WebTools.fetchUrl failed for url=[https://github.com/anthropics/claude-code/issues/42796]: DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144`
 
 ## Tech Debt

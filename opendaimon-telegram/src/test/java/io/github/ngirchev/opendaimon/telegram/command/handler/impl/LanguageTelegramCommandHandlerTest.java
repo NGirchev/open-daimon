@@ -22,6 +22,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
@@ -51,6 +52,8 @@ class LanguageTelegramCommandHandlerTest {
     private TelegramUserService telegramUserService;
     @Mock
     private TelegramBotMenuService telegramBotMenuService;
+    @Mock
+    private ChatSettingsService chatSettingsService;
 
     private LanguageTelegramCommandHandler handler;
 
@@ -74,7 +77,8 @@ class LanguageTelegramCommandHandlerTest {
         when(messageLocalizationService.getMessage(eq("telegram.language.unknown"), anyString()))
             .thenReturn("Unknown language");
         handler = new LanguageTelegramCommandHandler(
-            telegramBotProvider, typingIndicatorService, messageLocalizationService, telegramUserService, telegramBotMenuService);
+            telegramBotProvider, typingIndicatorService, messageLocalizationService, telegramUserService, telegramBotMenuService,
+            chatSettingsService);
     }
 
     @Test
@@ -208,7 +212,7 @@ class LanguageTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(telegramUserService).updateLanguageCode(eq(from.getId()), eq("ru"));
+        verify(chatSettingsService).updateLanguageCode(any(), eq("ru"));
         verify(telegramBotMenuService).setupBotMenuForUser(eq(CHAT_ID), eq("ru"));
         verify(telegramBot).execute(any(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.class));
         verify(telegramBot).execute(any(DeleteMessage.class));
@@ -237,7 +241,7 @@ class LanguageTelegramCommandHandlerTest {
 
         verify(typingIndicatorService, never()).startTyping(CHAT_ID);
         verify(typingIndicatorService, never()).stopTyping(CHAT_ID);
-        verify(telegramUserService).updateLanguageCode(USER_ID, "ru");
+        verify(chatSettingsService).updateLanguageCode(any(), eq("ru"));
         verify(telegramBot).execute(any(DeleteMessage.class));
     }
 
@@ -261,7 +265,7 @@ class LanguageTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(telegramUserService).updateLanguageCode(eq(from.getId()), eq("en"));
+        verify(chatSettingsService).updateLanguageCode(any(), eq("en"));
         verify(telegramBot).execute(any(DeleteMessage.class));
         verify(telegramBot, never()).sendMessage(anyLong(), anyString(), any(), any());
     }

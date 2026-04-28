@@ -56,7 +56,7 @@ class WebToolsTest {
     @Test
     void webSearch_whenApiKeyBlank_returnsEmptyResult() {
         WebTools noKeyTools = new WebTools(webClient, "   ", "https://example.com");
-        var result = noKeyTools.webSearch("query");
+        var result = (WebTools.SearchResult) noKeyTools.webSearch("query");
         assertNotNull(result);
         assertEquals("query", result.query());
         assertTrue(result.hits().isEmpty());
@@ -66,35 +66,38 @@ class WebToolsTest {
     @Test
     void webSearch_whenApiKeyNull_returnsEmptyResult() {
         WebTools noKeyTools = new WebTools(webClient, null, "https://example.com");
-        var result = noKeyTools.webSearch("query");
+        var result = (WebTools.SearchResult) noKeyTools.webSearch("query");
         assertNotNull(result);
         assertTrue(result.hits().isEmpty());
     }
 
     @Test
-    void shouldReturnEmptyResultWhenQueryIsNull() {
+    void shouldReturnErrorStringWhenQueryIsNull() {
         // Spring AI deserialises a tool_call with empty arguments ({}) as query=null
-        // and invokes webSearch(null). Without the guard, Map.of("q", null, ...) blows up
-        // with NPE and Spring AI converts that into an unhelpful "Exception occurred …"
-        // string. The guard returns an empty SearchResult early — no HTTP call is made.
+        // and invokes webSearch(null). Instead of a success-shaped empty SearchResult
+        // (which the model cannot distinguish from "search ran, 0 results"), we return
+        // an Error-prefixed string so ToolObservationClassifier flags it as a tool
+        // failure and the model receives an explicit instruction to retry with a
+        // non-empty 'query' argument.
         var result = webTools.webSearch(null);
 
-        assertNotNull(result);
-        assertEquals("", result.query());
-        assertTrue(result.hits().isEmpty());
+        assertThat(result).isInstanceOf(String.class);
+        assertThat((String) result).startsWith("Error: ");
+        assertThat((String) result).contains("query");
+        assertThat((String) result).contains("required");
         verify(webClient, never()).post();
     }
 
     @Test
-    void shouldReturnEmptyResultWhenQueryIsBlank() {
-        // Same guard as the null case — a whitespace-only query is equally useless.
-        // The original (non-null) input is echoed back in SearchResult.query() so the
-        // model can still see what it asked for.
+    void shouldReturnErrorStringWhenQueryIsBlank() {
+        // Same rationale as the null case: a whitespace-only query is also a bad-input
+        // signal from the model. Returning an Error-prefixed string lets the classifier
+        // and the downstream LLM distinguish this from a valid-but-empty search.
         var result = webTools.webSearch("   ");
 
-        assertNotNull(result);
-        assertEquals("   ", result.query());
-        assertTrue(result.hits().isEmpty());
+        assertThat(result).isInstanceOf(String.class);
+        assertThat((String) result).startsWith("Error: ");
+        assertThat((String) result).contains("query");
         verify(webClient, never()).post();
     }
 

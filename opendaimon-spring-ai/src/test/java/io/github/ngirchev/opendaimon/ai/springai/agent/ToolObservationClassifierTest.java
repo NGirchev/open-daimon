@@ -53,6 +53,20 @@ class ToolObservationClassifierTest {
     }
 
     @Test
+    void shouldCompactMissingWebSearchQueryForUserVisibleStream() {
+        String raw = "Error: argument 'query' is required and must not be blank. "
+                + "Retry web_search with a non-empty 'query' field containing the search terms. "
+                + "Example arguments: {\"query\": \"russian theater cyprus 2026\"}";
+
+        ToolObservationClassifier.Classification classification =
+                ToolObservationClassifier.classify(AgentToolResult.success("web_search", raw));
+
+        assertThat(classification.toolError()).isTrue();
+        assertThat(classification.streamContent()).isEqualTo("Search query is missing.");
+        assertThat(classification.observation()).isEqualTo(raw);
+    }
+
+    @Test
     void shouldClassifyAsSuccessWhenResultIsValidJson() {
         // Regression guard: a legitimate tool output (JSON payload, plain text, etc.)
         // must stay classified as success=toolError=false even after the third prefix

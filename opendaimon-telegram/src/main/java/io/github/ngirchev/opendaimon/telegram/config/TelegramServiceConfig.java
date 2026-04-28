@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.telegram.config;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -14,7 +15,10 @@ import io.github.ngirchev.opendaimon.common.command.CommandHandlerRegistry;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.meter.OpenDaimonMeterRegistry;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.common.repository.UserRecentModelRepository;
+import io.github.ngirchev.opendaimon.common.repository.UserRepository;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
+import io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
@@ -22,10 +26,13 @@ import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
 import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
+import io.github.ngirchev.opendaimon.telegram.repository.TelegramGroupRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramWhitelistRepository;
 import io.github.ngirchev.opendaimon.telegram.service.*;
+import io.github.ngirchev.opendaimon.telegram.service.impl.UserRecentModelServiceImpl;
+import org.springframework.context.annotation.Primary;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -39,8 +46,41 @@ public class TelegramServiceConfig {
     public TelegramUserService telegramUserService(
             TelegramUserRepository telegramUserRepository,
             TelegramUserSessionService telegramUserSessionService,
-            AssistantRoleService assistantRoleService) {
-        return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService);
+            AssistantRoleService assistantRoleService,
+            @Value("${open-daimon.agent.enabled:false}") boolean defaultAgentModeEnabled) {
+        return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService,
+                defaultAgentModeEnabled);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TelegramGroupService telegramGroupService(
+            TelegramGroupRepository telegramGroupRepository,
+            AssistantRoleService assistantRoleService,
+            @Value("${open-daimon.agent.enabled:false}") boolean defaultAgentModeEnabled) {
+        return new TelegramGroupService(telegramGroupRepository, assistantRoleService, defaultAgentModeEnabled);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ChatSettingsService chatSettingsService(
+            TelegramUserService telegramUserService,
+            TelegramGroupService telegramGroupService) {
+        return new ChatSettingsService(telegramUserService, telegramGroupService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ChatSettingsOwnerResolver chatSettingsOwnerResolver(
+            TelegramUserService telegramUserService,
+            TelegramGroupService telegramGroupService) {
+        return new ChatSettingsOwnerResolver(telegramUserService, telegramGroupService);
+    }
+
+    @Bean
+    @Primary
+    public ChatOwnerLookup telegramChatOwnerLookup(ChatSettingsOwnerResolver resolver) {
+        return new TelegramChatOwnerLookup(resolver);
     }
 
     @Bean
@@ -91,7 +131,9 @@ public class TelegramServiceConfig {
             MessageLocalizationService messageLocalizationService,
             ObjectProvider<StorageProperties> storagePropertiesProvider,
             ConversationThreadService conversationThreadService,
-            ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider) {
+            ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider,
+            ChatOwnerLookup chatOwnerLookup,
+            ChatSettingsService chatSettingsService) {
         return new TelegramMessageService(
                 messageService,
                 telegramUserService,
@@ -99,7 +141,9 @@ public class TelegramServiceConfig {
                 messageLocalizationService,
                 storagePropertiesProvider,
                 conversationThreadService,
-                telegramMessageServiceSelfProvider);
+                telegramMessageServiceSelfProvider,
+                chatOwnerLookup,
+                chatSettingsService);
     }
 
     @Bean
@@ -147,8 +191,9 @@ public class TelegramServiceConfig {
     @ConditionalOnMissingBean
     public TelegramBotMenuService telegramBotMenuService(
             ObjectProvider<TelegramBot> telegramBotProvider,
-            ObjectProvider<TelegramSupportedCommandProvider> commandHandlersProvider) {
-        return new TelegramBotMenuService(telegramBotProvider, commandHandlersProvider);
+            ObjectProvider<TelegramSupportedCommandProvider> commandHandlersProvider,
+            ObjectProvider<ChatSettingsService> chatSettingsServiceProvider) {
+        return new TelegramBotMenuService(telegramBotProvider, commandHandlersProvider, chatSettingsServiceProvider);
     }
 
     @Bean
@@ -183,5 +228,13 @@ public class TelegramServiceConfig {
             ObjectProvider<FileStorageService> fileStorageServiceProvider,
             FileUploadProperties fileUploadProperties) {
         return new TelegramFileService(telegramBotProvider, fileStorageServiceProvider, fileUploadProperties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public UserRecentModelService userRecentModelService(
+            UserRecentModelRepository userRecentModelRepository,
+            UserRepository userRepository) {
+        return new UserRecentModelServiceImpl(userRecentModelRepository, userRepository);
     }
 }

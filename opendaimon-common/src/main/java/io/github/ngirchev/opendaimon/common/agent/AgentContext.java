@@ -2,6 +2,7 @@ package io.github.ngirchev.opendaimon.common.agent;
 
 import io.github.ngirchev.fsm.StateContext;
 import io.github.ngirchev.fsm.Transition;
+import io.github.ngirchev.opendaimon.common.model.Attachment;
 import org.jetbrains.annotations.Nullable;
 
 import java.time.Duration;
@@ -40,6 +41,12 @@ public final class AgentContext implements StateContext<AgentState> {
     private final Map<String, String> metadata;
     private final int maxIterations;
     private final Set<String> enabledTools;
+    /**
+     * Multimodal attachments (e.g. images) passed alongside the task. Used by the
+     * Spring AI agent path to attach {@code Media} objects to the first user message
+     * so vision-capable models actually see the image. Defaults to {@link List#of()}.
+     */
+    private final List<Attachment> attachments;
     private final Instant startTime;
 
     // --- Iteration tracking ---
@@ -81,11 +88,18 @@ public final class AgentContext implements StateContext<AgentState> {
 
     public AgentContext(String task, String conversationId, Map<String, String> metadata,
                         int maxIterations, Set<String> enabledTools) {
+        this(task, conversationId, metadata, maxIterations, enabledTools, List.of());
+    }
+
+    public AgentContext(String task, String conversationId, Map<String, String> metadata,
+                        int maxIterations, Set<String> enabledTools,
+                        List<Attachment> attachments) {
         this.task = task;
         this.conversationId = conversationId;
         this.metadata = metadata;
         this.maxIterations = maxIterations;
         this.enabledTools = enabledTools;
+        this.attachments = attachments == null ? List.of() : List.copyOf(attachments);
         this.state = AgentState.INITIALIZED;
         this.startTime = Instant.now();
     }
@@ -208,6 +222,14 @@ public final class AgentContext implements StateContext<AgentState> {
 
     public Set<String> getEnabledTools() {
         return Set.copyOf(enabledTools);
+    }
+
+    /**
+     * Returns the multimodal attachments associated with this agent run.
+     * The list is unmodifiable and never {@code null}.
+     */
+    public List<Attachment> getAttachments() {
+        return attachments;
     }
 
     // --- Iteration state accessors ---

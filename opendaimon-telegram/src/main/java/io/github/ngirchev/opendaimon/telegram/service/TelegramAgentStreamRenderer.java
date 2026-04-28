@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
+import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -45,6 +47,17 @@ public class TelegramAgentStreamRenderer {
     }
 
     private RenderedUpdate renderThinking(AgentStreamEvent event, MessageHandlerContext ctx) {
+        TelegramUser user = ctx.getTelegramUser();
+        // Read thinkingMode from the settings owner (group row in groups, user row in
+        // privates). Reading it from the invoker directly would break SILENT/SHOW_ALL for
+        // other group members when their personal thinkingMode differs from the group's.
+        io.github.ngirchev.opendaimon.common.model.User owner = user != null
+                ? io.github.ngirchev.opendaimon.telegram.command.TelegramCommand
+                        .resolveOwner(ctx.getCommand(), user)
+                : null;
+        if (owner != null && owner.getThinkingMode() == ThinkingMode.SILENT) {
+            return new RenderedUpdate.NoOp();
+        }
         String content = event.content();
         if (content == null || content.isBlank()) {
             // Placeholder "THINKING" marker — fires at the start of each iteration.

@@ -7,19 +7,26 @@ import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
+import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
+import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -31,6 +38,7 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import reactor.core.publisher.Flux;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -45,6 +53,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.atMost;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -62,11 +71,12 @@ class TelegramMessageHandlerActionsAgentTest {
     @Mock private AIGatewayRegistry aiGatewayRegistry;
     @Mock private OpenDaimonMessageService messageService;
     @Mock private AIRequestPipeline aiRequestPipeline;
-    @Mock private UserModelPreferenceService userModelPreferenceService;
+    @Mock private ChatSettingsService chatSettingsService;
     @Mock private PersistentKeyboardService persistentKeyboardService;
     @Mock private ReplyImageAttachmentService replyImageAttachmentService;
     @Mock private TelegramMessageSender messageSender;
     @Mock private AgentExecutor agentExecutor;
+    @Mock private TelegramChatPacer telegramChatPacer;
 
     private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
@@ -81,13 +91,25 @@ class TelegramMessageHandlerActionsAgentTest {
         // event produces a Telegram call and the tests can assert on it directly.
         telegramProperties.setAgentStreamEditMinIntervalMs(0);
         agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
+        lenient().when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
+        try {
+            lenient().when(telegramChatPacer.reserve(anyLong(), anyLong())).thenReturn(true);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
+        lenient().when(messageSender.sendHtmlReliableAndGetId(eq(12345L), anyString(), any(), anyBoolean(), anyLong()))
+                .thenReturn(777);
+        lenient().when(messageSender.editHtmlReliable(eq(12345L), any(), anyString(), anyBoolean(), anyLong()))
+                .thenReturn(true);
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
-                aiRequestPipeline, telegramProperties, userModelPreferenceService,
+                aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, MAX_ITERATIONS);
+                agentExecutor, agentStreamView, MAX_ITERATIONS, true);
     }
 
     @Test
@@ -238,6 +260,238 @@ class TelegramMessageHandlerActionsAgentTest {
     }
 
     @Test
+    @DisplayName("generateResponse forwards image attachments from TelegramCommand into AgentRequest")
+    void shouldPassAttachmentsToAgentRequestWhenCommandHasImage() {
+        // Regression guard for the prod bug (2026-04-25 logs, chatId=-5267226692):
+        // photo + caption "что тут?" reached DefaultAICommandFactory with attachments=1,
+        // routing resolved a vision-capable model, but AgentRequest had no attachments
+        // field — the image was dropped before the prompt was built. Without this test
+        // the wiring can silently regress next time someone refactors generateResponse.
+        TelegramCommand command = mock(TelegramCommand.class);
+        when(command.userText()).thenReturn("что тут?");
+        when(command.telegramId()).thenReturn(-5267226692L);
+        io.github.ngirchev.opendaimon.common.model.Attachment image =
+                new io.github.ngirchev.opendaimon.common.model.Attachment(
+                        "photo/abc", "image/jpeg", "photo.jpg", 1024L,
+                        io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE,
+                        new byte[]{1, 2, 3});
+        when(command.attachments()).thenReturn(List.of(image));
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+        metadata.put(AICommand.USER_ID_FIELD, "42");
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        ctx.setMetadata(metadata);
+        ctx.setModelCapabilities(Set.of(ModelCapabilities.AUTO));
+
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("Looks like a cat", 1));
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        AgentRequest request = captor.getValue();
+        assertThat(request.attachments())
+                .as("Image attachments from TelegramCommand must be carried into AgentRequest "
+                        + "so SpringAgentLoopActions can attach Media to the first user message")
+                .hasSize(1)
+                .first()
+                .satisfies(a -> {
+                    assertThat(a.type()).isEqualTo(
+                            io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE);
+                    assertThat(a.mimeType()).isEqualTo("image/jpeg");
+                });
+    }
+
+    @Test
+    @DisplayName("generateResponse prefers aiCommand processed attachments over raw command attachments")
+    void shouldPreferAiCommandAttachmentsOverRawCommandAttachmentsWhenAiCommandIsChatAICommand() {
+        // Regression guard for image-only PDFs in agent mode: AIRequestPipeline renders
+        // each PDF page into an IMAGE attachment in mutableAttachments, and the result
+        // lands in ChatAICommand.attachments() — not in TelegramCommand.attachments(),
+        // which still holds the raw PDF bytes. The agent path must read the pipeline-
+        // processed list (mirroring SpringAIGateway.java:384), otherwise the rendered
+        // pages are lost and toImageMedia() drops the raw PDF as non-IMAGE.
+        TelegramCommand command = mock(TelegramCommand.class);
+        // Intentionally no command.userText() / telegramId() / attachments() stubs:
+        // when ChatAICommand carries the processed payload, the agent path uses
+        // aiCommand.userRole() and aiCommand.attachments() exclusively — Mockito's
+        // strict mode flags the raw-command stubs as unnecessary if we add them.
+        io.github.ngirchev.opendaimon.common.model.Attachment renderedPage =
+                new io.github.ngirchev.opendaimon.common.model.Attachment(
+                        "doc/scan-page-1", "image/png", "scan-page-1.png", 2048L,
+                        io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE,
+                        new byte[]{9, 9, 9});
+        ChatAICommand processedAiCommand = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
+                0.7, 1024, "system", "опиши документ",
+                Map.of(AICommand.THREAD_KEY_FIELD, "test-thread-key"));
+        // Build a fresh ChatAICommand carrying the rendered page in attachments
+        // (the no-attachments ctor sets it to List.of(); use the canonical 11-arg
+        // ctor instead so we can pin a specific image attachment).
+        processedAiCommand = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
+                Set.of(),
+                0.7, 1024, null, "system", "опиши документ", false,
+                new HashMap<>(Map.of(AICommand.THREAD_KEY_FIELD, "test-thread-key",
+                        AICommand.USER_ID_FIELD, "42")),
+                new HashMap<>(),
+                List.of(renderedPage));
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+        metadata.put(AICommand.USER_ID_FIELD, "42");
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        ctx.setMetadata(metadata);
+        ctx.setAiCommand(processedAiCommand);
+        ctx.setModelCapabilities(processedAiCommand.modelCapabilities());
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.finalAnswer("Документ описан", 1));
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        AgentRequest request = captor.getValue();
+        assertThat(request.attachments())
+                .as("agent path must use the pipeline-processed image pages, not the raw PDF")
+                .hasSize(1)
+                .first()
+                .satisfies(a -> {
+                    assertThat(a.type()).isEqualTo(
+                            io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE);
+                    assertThat(a.mimeType()).isEqualTo("image/png");
+                    assertThat(a.filename()).isEqualTo("scan-page-1.png");
+                });
+    }
+
+    @Test
+    @DisplayName("generateResponse prefers FixedModelChatAICommand processed attachments over raw command attachments")
+    void shouldPreferAiCommandAttachmentsOverRawCommandAttachmentsWhenAiCommandIsFixedModelChatAICommand() {
+        // Regression guard mirroring the ChatAICommand case for the fixed-model branch:
+        // when a user pinned a preferred model, DefaultAICommandFactory returns a
+        // FixedModelChatAICommand instead of a ChatAICommand. AIRequestPipeline still
+        // renders an image-only PDF page-by-page into IMAGE attachments and parks the
+        // result on the AI command — but on FixedModelChatAICommand.attachments(), not
+        // on TelegramCommand.attachments(). The agent path must inspect this branch
+        // (mirroring SpringAIGateway:383-387), otherwise fixed-model agent runs drop
+        // the rendered pages and pass the original PDF that toImageMedia() discards.
+        TelegramCommand command = mock(TelegramCommand.class);
+        // Intentionally no command.userText() / telegramId() / attachments() stubs:
+        // when the AI command carries the processed payload, the agent path uses
+        // aiCommand.userRole() and aiCommand.attachments() exclusively.
+        io.github.ngirchev.opendaimon.common.model.Attachment renderedPage =
+                new io.github.ngirchev.opendaimon.common.model.Attachment(
+                        "doc/scan-page-1", "image/png", "scan-page-1.png", 2048L,
+                        io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE,
+                        new byte[]{9, 9, 9});
+        FixedModelChatAICommand processedAiCommand = new FixedModelChatAICommand(
+                "openrouter/google/gemini-2.5-flash-preview",
+                Set.of(ModelCapabilities.CHAT, ModelCapabilities.VISION),
+                0.7, 1024, null, "system", "опиши документ", false,
+                new HashMap<>(Map.of(AICommand.THREAD_KEY_FIELD, "test-thread-key",
+                        AICommand.USER_ID_FIELD, "42")),
+                new HashMap<>(),
+                List.of(renderedPage));
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+        metadata.put(AICommand.USER_ID_FIELD, "42");
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        ctx.setMetadata(metadata);
+        ctx.setAiCommand(processedAiCommand);
+        ctx.setModelCapabilities(processedAiCommand.modelCapabilities());
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.finalAnswer("Документ описан", 1));
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        AgentRequest request = captor.getValue();
+        assertThat(request.attachments())
+                .as("agent path must use the pipeline-processed image pages from "
+                        + "FixedModelChatAICommand, not the raw PDF on TelegramCommand")
+                .hasSize(1)
+                .first()
+                .satisfies(a -> {
+                    assertThat(a.type()).isEqualTo(
+                            io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE);
+                    assertThat(a.mimeType()).isEqualTo("image/png");
+                    assertThat(a.filename()).isEqualTo("scan-page-1.png");
+                });
+    }
+
+    @Test
+    @DisplayName("generateResponse uses aiCommand.userRole (RAG-augmented) as agent task, not raw command.userText")
+    void shouldPassAugmentedUserRoleAsAgentTaskWhenChatAICommandHasRagAugmentedQuery() {
+        // Regression guard for textual PDF / DOCX in agent mode: AIRequestPipeline runs RAG
+        // (extract text → chunk → embedding → similarity search → augment) BEFORE the
+        // agent-vs-gateway branching, and parks the augmented query on
+        // ChatAICommand.userRole(). The agent path must read userRole() and not the raw
+        // TelegramCommand.userText(), otherwise the document content silently disappears
+        // before the prompt and the model answers from the bare caption only.
+        TelegramCommand command = mock(TelegramCommand.class);
+        // No command.userText() / attachments() stubs — the ChatAICommand path must not
+        // touch them when userRole is set; Mockito strict mode would flag any unused stub.
+
+        String rawCaption = "сколько было упомянуто в документе компаний?";
+        String augmentedQuery = "Context:\nThe report mentions five companies: Acme, Globex, Initech, "
+                + "Umbrella and Soylent.\n\nQuestion: " + rawCaption;
+
+        ChatAICommand processedAiCommand = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT),
+                Set.of(),
+                0.7, 1024, null, "system", augmentedQuery, false,
+                new HashMap<>(Map.of(AICommand.THREAD_KEY_FIELD, "test-thread-key",
+                        AICommand.USER_ID_FIELD, "42")),
+                new HashMap<>(),
+                List.of());
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+        metadata.put(AICommand.USER_ID_FIELD, "42");
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        ctx.setMetadata(metadata);
+        ctx.setAiCommand(processedAiCommand);
+        ctx.setModelCapabilities(processedAiCommand.modelCapabilities());
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.finalAnswer("Пять компаний", 1));
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        AgentRequest request = captor.getValue();
+        assertThat(request.task())
+                .as("agent task must be the pipeline-augmented query carrying RAG context, "
+                        + "not the bare caption — otherwise document content is lost before the prompt")
+                .isEqualTo(augmentedQuery)
+                .contains("five companies")
+                .contains(rawCaption);
+    }
+
+    @Test
+    @DisplayName("generateResponse passes empty attachments when TelegramCommand has none")
+    void shouldPassEmptyAttachmentsToAgentRequestWhenCommandHasNoAttachments() {
+        // Negative guard — text-only commands must not crash on null attachments() and
+        // must produce a non-null empty list, mirroring the AgentRequest compact-ctor
+        // contract (canonical-ctor normalises null → List.of()).
+        MessageHandlerContext ctx = createContextWithMetadata("hello");
+
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("hi", 1));
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        assertThat(captor.getValue().attachments()).isNotNull().isEmpty();
+    }
+
+    @Test
     @DisplayName("generateResponse uses SIMPLE for REGULAR with only CHAT capability")
     void generateResponse_chatOnlyCapability_usesSimpleStrategy() {
         MessageHandlerContext ctx = createContextWithMetadata("Just chat",
@@ -253,6 +507,39 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(ctx.getResponseText()).hasValue("Reply");
     }
 
+    @Test
+    @DisplayName("createCommand looks up aiGateway when agentExecutor is present but user disabled agent mode")
+    void shouldLookupAiGatewayInCreateCommandWhenAgentExecutorPresentButUserDisabledAgentMode() {
+        // Arrange: agentExecutor is non-null (wired in @BeforeEach), but user has agent mode OFF
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setAgentModeEnabled(Boolean.FALSE);
+
+        TelegramCommand command = mock(TelegramCommand.class);
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        ctx.setTelegramUser(telegramUser);
+
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+        ctx.setMetadata(metadata);
+
+        AICommand aiCommand = mock(AICommand.class);
+        when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
+
+        AIGateway aiGateway = mock(AIGateway.class);
+        when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(aiGateway));
+
+        // Act
+        actions.createCommand(ctx);
+
+        // Assert: gateway must be populated even though agentExecutor bean is present
+        assertThat(ctx.getAiGateway()).isNotNull();
+        assertThat(ctx.getAiGateway()).isEqualTo(aiGateway);
+        verify(aiGatewayRegistry).getSupportedAiGateways(any());
+        // The agent executor must not be invoked — the predicate routes to the gateway path
+        verify(agentExecutor, never()).executeStream(any());
+    }
+
     // ── Two-message orchestration tests ──────────────────────────────
     //
     // The agent run now renders to two separate Telegram messages:
@@ -263,6 +550,7 @@ class TelegramMessageHandlerActionsAgentTest {
     //     fresh paragraph-batched message carries the FINAL_ANSWER.
 
     @Nested
+    @Disabled("Superseded by TelegramAgentStreamModel/TelegramMessageHandlerActionsStreamingTest model-view tests")
     @DisplayName("Two-message orchestration")
     class TwoMessageOrchestration {
 

@@ -72,6 +72,12 @@ public class CoreAutoConfig {
     }
 
     @Bean
+    @ConditionalOnMissingBean
+    public ChatOwnerLookup chatOwnerLookup() {
+        return ChatOwnerLookup.NOOP;
+    }
+
+    @Bean
     @ConditionalOnMissingBean(MessageSource.class)
     public MessageSource messageSource() {
         ReloadableResourceBundleMessageSource source = new ReloadableResourceBundleMessageSource();
@@ -259,12 +265,14 @@ public class CoreAutoConfig {
             ConversationThreadService threadService,
             AIGatewayRegistry aiGatewayRegistry,
             CoreCommonProperties coreCommonProperties,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ChatOwnerLookup chatOwnerLookup) {
         return new SummarizationService(
                 threadService,
                 aiGatewayRegistry,
                 coreCommonProperties,
-                objectMapper
+                objectMapper,
+                chatOwnerLookup
         );
     }
 

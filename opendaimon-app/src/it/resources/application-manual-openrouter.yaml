@@ -48,6 +48,12 @@ open-daimon:
     username: test-bot
     start-message: Manual test bot
     max-message-length: 4096
+    agent-stream-edit-min-interval-ms: 1000
+    agent-stream-view:
+      private-chat-flush-interval-ms: 1000
+      group-chat-flush-interval-ms: 3000
+      final-delivery-timeout-ms: 5000
+      default-acquire-timeout-ms: 1000
     file-upload:
       enabled: false
       max-file-size-mb: 20

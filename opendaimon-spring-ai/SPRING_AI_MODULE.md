@@ -317,6 +317,17 @@ Telegram-specific bot identity is already part of `role` metadata from Telegram 
 ## REACT Agent Loop — Iteration Handling
 
 The REACT loop lives in `SpringAgentLoopActions` (FSM actions) and is driven by `ReActAgentExecutor`.
+
+The system prompt is assembled via `AgentPromptBuilder.buildSystemPrompt(metadata)` and enriched with
+two additional instructions derived from agent metadata:
+- **Tool-calling discipline** — always appended unconditionally, because the agent always operates with
+  `web_search`/`fetch_url` tools available. Prevents empty-argument tool calls observed on some models.
+- **Language instruction** — appended when `LANGUAGE_CODE_FIELD` is present in metadata (e.g. Telegram
+  passes `languageCode = "ru"`). The instruction covers intermediate thoughts and status messages as well
+  as the final answer (`"Respond in Russian (ru), INCLUDING intermediate thoughts and status messages"`),
+  eliminating the bifurcated-language issue where thought tokens appeared in English while the final
+  answer was in Russian. Language name resolution is handled by `LanguageInstructions.displayName()` in
+  `opendaimon-common` (JDK `Locale.getDisplayLanguage`, ~180 ISO 639 / BCP 47 codes — no hardcoded switch).
 Spring AI's built-in tool-execution loop is disabled via
 `ToolCallingChatOptions.internalToolExecutionEnabled = false`; we drive tool invocations
 ourselves so that each `THINKING → TOOL_CALL → OBSERVATION` step can be streamed as
@@ -347,6 +358,61 @@ implements a **redundant** marker scan on every `PARTIAL_ANSWER` chunk
 tentative-answer bubble is rolled back when leaked tool markup appears. Do not treat
 `StreamingAnswerFilter` as the sole defense against tool-call leakage into the user
 answer — downstream consumers that render model text to users must scan too.
+
+### Image attachments — agent path
+
+When a Telegram message carrying a photo + caption (or a multimodal REST payload)
+is routed to the agent path, the image bytes propagate through:
+
+```
+ChatAICommand.attachments() / FixedModelChatAICommand.attachments()  // pipeline-processed list
+  └─ fallback: TelegramCommand.attachments()                          // only when the AI command carries no processed list
+  → AgentRequest.attachments()              // 7-arg canonical record ctor; null → List.of()
+  → AgentContext.getAttachments()           // populated by ReActAgentExecutor.execute/executeStream
+  → SpringAgentLoopActions.buildInitialUserMessage(ctx)
+  → UserMessage.builder().text(...).media(toImageMedia(attachments)).build()
+```
+
+The agent path inspects **both** AI-command shapes (mirroring `SpringAIGateway:383-387`):
+`DefaultAICommandFactory` returns a `FixedModelChatAICommand` when the chat has a
+preferred model fixed and a `ChatAICommand` otherwise; in both cases the pipeline
+parks the processed attachment list on the AI command itself, not on
+`TelegramCommand`. For an image-only PDF `AIRequestPipeline` renders each page into
+an IMAGE attachment in `mutableAttachments`, and the agent must consume those
+rendered pages — the raw PDF on `TelegramCommand.attachments()` would be discarded
+by `toImageMedia()` as non-IMAGE.
+
+`toImageMedia` filters by `AttachmentType.IMAGE`, validates non-null/non-blank
+mime + non-empty data, and constructs `org.springframework.ai.content.Media` from
+a `ByteArrayResource` — the exact same shape `SpringDocumentPreprocessor` produces on
+the gateway path, so vision-capable models receive identical multimodal prompts
+regardless of which path was chosen. Document-typed attachments (PDF, DOCX, …) are
+intentionally filtered out here; their RAG processing happens upstream on the
+gateway path and arrives at the agent — when it arrives — as text-only context.
+
+**Multi-iteration invariant.** The ReAct loop reuses one `messages` list across
+`think()` iterations via the `KEY_CONVERSATION_HISTORY` extras key. The first
+`UserMessage(media)` is appended once when `messages.isEmpty()`; subsequent
+iterations append assistant + tool messages without rebuilding from scratch, so
+the original media survives every subsequent prompt rebuild. If a future refactor
+reloads `messages` from a persisted store on each iteration, media must be
+re-attached from `ctx.getAttachments()` — otherwise the model loses image context
+after the first tool call (which was the original prod bug shape: VISION model
+selected, but `Agent think: raw prompt messages` showed text only).
+
+**Tool-result UserMessages stay plain-text.** The follow-up `UserMessage` created
+to deliver `ToolResponseMessage` content is built without media; the image is
+already in the conversation context above it.
+
+`SimpleChainExecutor` (strategy=SIMPLE, single LLM call without tools) mirrors the
+same `buildUserMessage`-with-media helper so caption-only photos in non-ReAct
+flows also work. `PlanAndExecuteAgentExecutor` does **not** propagate attachments
+to plan sub-tasks by default (sub-steps are textual decompositions); a TODO marks
+where to revisit if a future product requirement needs an image to flow into a
+specific step.
+
+See `docs/usecases/agent-image-attachment.md` and the use-case fixture
+`TelegramAgentImageFixtureIT`.
 
 ### Tool failure detection
 
@@ -598,11 +664,37 @@ The codes are public constants on `WebTools`; downstream test fixtures and
 `z-ai/glm-4.5v`) emit a `web_search` `tool_call` with empty arguments — Spring AI
 deserialises this as `query=null` and invokes `WebTools.webSearch(null)`.
 `Map.of("q", query, …)` would then throw NPE, and Spring AI converts the
-exception into the textual `"Exception occurred in tool: web_search (…)"`
-string (now recognised by `isTextualToolFailure`). To avoid even reaching that
-path, `webSearch` returns an empty `SearchResult` early on `query == null` or
-`query.isBlank()`, logging the event at WARN. The result is a valid JSON the
-model handles gracefully.
+exception into the textual `"Exception occurred in tool: web_search (…)"` string.
+
+`webSearch` handles this case explicitly: when `query` is null or blank, it
+returns an **Error-prefixed string** rather than a success-shaped empty
+`SearchResult`. The return signature is `Object` so the method can yield
+either a `SearchResult` (success / API-key not configured) or a `String`
+(structured error for bad input). The error text is:
+
+> `"Error: argument 'query' is required and must not be blank. Retry
+> web_search with a non-empty 'query' field containing the search terms.
+> Example arguments: {"query": "…"}"`
+
+Rationale: a success-shaped `{"query":"","hits":[]}` is indistinguishable
+from "search ran, 0 results" and the model therefore cannot self-correct.
+An Error-prefixed string is matched by
+`ToolObservationClassifier.isTextualToolFailure()` and surfaced to the
+model as a failure observation with explicit retry instructions, which
+lets it self-correct on the next iteration (put a non-empty `query` into
+the tool_call arguments). Aligns with the design decision recorded in
+`docs/agent-evolution-roadmap.md` Step 2 — "treat structural tool-use
+problems as errors worth surfacing, not silent fallbacks".
+
+For Telegram progress rendering, `ToolObservationClassifier` keeps that full
+observation for the model but compacts the user-visible stream content to
+`Search query is missing.` so the status bubble does not expose the internal
+retry prompt.
+
+The `apiKey` not-configured branch (server-side misconfiguration, not a
+model-side mistake) still returns an empty `SearchResult` so we do not
+nudge the model into a retry loop for a problem only the operator can
+fix.
 
 ### History recovery from primary store — `SummarizingChatMemory`
 

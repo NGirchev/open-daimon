@@ -460,9 +460,106 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
                 .isFalse();
     }
 
+    // --- B9: Language-aware system prompt — agent responds in Russian ---
+
+    @Test
+    @Timeout(3 * 60)
+    @DisplayName("B9: ADMIN agent responds in Russian when languageCode=ru, including intermediate thoughts")
+    void admin_agentReact_respondsInRussian_whenLanguageCodeIsRu() {
+        TelegramCommand command = createMessageCommand(
+                ADMIN_CHAT_ID,
+                11,
+                "Что такое Spring Boot? Поищи в интернете и ответь кратко.",
+                "ru"
+        );
+
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+
+        String assistantReply = latestAssistantReply(thread);
+
+        assertThat(assistantReply)
+                .as("Agent should produce a non-blank response")
+                .isNotBlank();
+
+        assertThat(assistantReply)
+                .as("Agent response must contain Cyrillic characters — language-aware prompt should make LLM reply in Russian")
+                .matches("(?s).*[\\p{IsCyrillic}]+.*");
+    }
+
+    // --- B5: Agent path with image attachment + vision model (regression for prod 2026-04-25) ---
+
+    @Test
+    @Timeout(3 * 60)
+    @DisplayName("B5: ADMIN agent + image + vision model — model sees the picture, not just the caption")
+    void admin_agentReact_imageAttachment_visionDescribesObjects() throws IOException {
+        // Reproduces prod log of 2026-04-25 (chatId=-5267226692, caption «что тут?», resolved=z-ai/glm-4.5v):
+        // before the fix, AgentRequest had no attachments field, so the photo bytes were dropped before
+        // the prompt was built and the vision model would answer "укажите изображение". This test fires
+        // the exact agent-path code that ships to prod and asserts the model actually describes the photo.
+        //
+        // Pin to z-ai/glm-4.5v (the model that misbehaved in prod) so the test covers the same routing
+        // decision the user hit — not a different vision model picked by openrouter/auto.
+        userModelPreferenceService.setPreferredModel(ADMIN_CHAT_ID, "z-ai/glm-4.5v");
+
+        io.github.ngirchev.opendaimon.common.model.Attachment image = loadImageAttachment();
+        TelegramCommand command = createMessageCommand(
+                ADMIN_CHAT_ID, 5,
+                "Опиши что ты видишь на этом фото",
+                "ru",
+                List.of(image));
+
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+        String reply = latestAssistantReply(thread);
+
+        assertThat(reply)
+                .as("Agent must produce a non-blank response when an image is attached")
+                .isNotBlank();
+
+        // The image (attachments/objects.jpeg) shows a pink bunny + flowers on sticks. If the agent
+        // path lost the image, the model would either ask for clarification or talk about something
+        // unrelated. Any of the visible objects appearing in the reply confirms the model received
+        // multimodal Media on the first user message of the agent prompt.
+        assertThat(reply.toLowerCase())
+                .as("Vision model should describe an object from the picture (bunny / rabbit / flowers / leaves) — "
+                        + "if the reply asks 'where is the image?' the agent path lost the attachment again")
+                .containsAnyOf("bunny", "rabbit", "кролик", "заяц", "зайч",
+                        "flower", "цвет", "лист", "leaves", "leaf", "розов", "pink");
+    }
+
+    private io.github.ngirchev.opendaimon.common.model.Attachment loadImageAttachment() throws IOException {
+        org.springframework.core.io.ClassPathResource resource =
+                new org.springframework.core.io.ClassPathResource("attachments/objects.jpeg");
+        byte[] imageBytes = resource.getInputStream().readAllBytes();
+        return new io.github.ngirchev.opendaimon.common.model.Attachment(
+                "manual/objects.jpeg", "image/jpeg", "objects.jpeg",
+                imageBytes.length,
+                io.github.ngirchev.opendaimon.common.model.AttachmentType.IMAGE,
+                imageBytes);
+    }
+
     // --- Helpers ---
 
     private TelegramCommand createMessageCommand(Long chatId, int messageId, String text) {
+        return createMessageCommand(chatId, messageId, text, "en");
+    }
+
+    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text, String languageCode) {
+        return createMessageCommand(chatId, messageId, text, languageCode, List.of());
+    }
+
+    private TelegramCommand createMessageCommand(Long chatId, int messageId, String text, String languageCode,
+                                                 List<io.github.ngirchev.opendaimon.common.model.Attachment> attachments) {
         Update update = new Update();
 
         User from = new User();
@@ -470,7 +567,7 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
         from.setUserName("manual-agent-user-" + chatId);
         from.setFirstName("Manual");
         from.setLastName("Agent");
-        from.setLanguageCode("en");
+        from.setLanguageCode(languageCode);
 
         Message message = new Message();
         message.setMessageId(messageId);
@@ -488,9 +585,9 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
                 update,
                 text,
                 false,
-                List.of()
+                attachments
         );
-        command.languageCode("en");
+        command.languageCode(languageCode);
         return command;
     }
 

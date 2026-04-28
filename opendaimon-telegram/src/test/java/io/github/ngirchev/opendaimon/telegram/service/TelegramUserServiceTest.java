@@ -14,6 +14,7 @@ import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -35,7 +36,7 @@ class TelegramUserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new TelegramUserService(userRepository, telegramUserSessionService, assistantRoleService);
+        userService = new TelegramUserService(userRepository, telegramUserSessionService, assistantRoleService, false);
     }
 
     @Test
@@ -197,6 +198,78 @@ class TelegramUserServiceTest {
         assertNotNull(result);
         verify(assistantRoleService).updateActiveRole(any(TelegramUser.class), any());
         verify(userRepository).save(user);
+    }
+
+    @Test
+    void shouldSetDefaultAgentModeWhenCreateNewUser() {
+        when(telegramUserApi.getId()).thenReturn(200L);
+        when(telegramUserApi.getUserName()).thenReturn("newuser");
+        when(telegramUserApi.getFirstName()).thenReturn("New");
+        when(telegramUserApi.getLastName()).thenReturn("User");
+        when(telegramUserApi.getLanguageCode()).thenReturn("en");
+        when(telegramUserApi.getIsPremium()).thenReturn(false);
+        when(userRepository.findByTelegramId(200L)).thenReturn(Optional.empty());
+        when(userRepository.save(any(TelegramUser.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TelegramUserService serviceWithAgentEnabled =
+                new TelegramUserService(userRepository, telegramUserSessionService, assistantRoleService, true);
+        TelegramUser result = serviceWithAgentEnabled.getOrCreateUser(telegramUserApi);
+
+        assertThat(result.getAgentModeEnabled()).isTrue();
+
+        reset(userRepository);
+        when(userRepository.findByTelegramId(200L)).thenReturn(Optional.empty());
+        when(userRepository.save(any(TelegramUser.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TelegramUserService serviceWithAgentDisabled =
+                new TelegramUserService(userRepository, telegramUserSessionService, assistantRoleService, false);
+        TelegramUser resultDisabled = serviceWithAgentDisabled.getOrCreateUser(telegramUserApi);
+
+        assertThat(resultDisabled.getAgentModeEnabled()).isFalse();
+    }
+
+    @Test
+    void shouldUpdateAgentModeWhenCalled() {
+        TelegramUser user = new TelegramUser();
+        user.setId(1L);
+        user.setTelegramId(300L);
+        user.setAgentModeEnabled(false);
+        OffsetDateTime before = OffsetDateTime.now().minusSeconds(5);
+        user.setUpdatedAt(before);
+        user.setLastActivityAt(before);
+
+        when(userRepository.findByTelegramId(300L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(TelegramUser.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        userService.updateAgentMode(300L, true);
+
+        assertThat(user.getAgentModeEnabled()).isTrue();
+        assertThat(user.getUpdatedAt()).isAfter(before);
+        assertThat(user.getLastActivityAt()).isAfter(before);
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    void shouldPreserveAgentModeWhenRefreshExistingUser() {
+        when(telegramUserApi.getId()).thenReturn(400L);
+        when(telegramUserApi.getUserName()).thenReturn("existinguser");
+        when(telegramUserApi.getFirstName()).thenReturn("Existing");
+        when(telegramUserApi.getIsPremium()).thenReturn(false);
+
+        TelegramUser existing = new TelegramUser();
+        existing.setTelegramId(400L);
+        existing.setAgentModeEnabled(false);
+        existing.setLanguageCode("ru");
+
+        when(userRepository.findByTelegramId(400L)).thenReturn(Optional.of(existing));
+        when(userRepository.save(any(TelegramUser.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TelegramUserService serviceWithAgentEnabled =
+                new TelegramUserService(userRepository, telegramUserSessionService, assistantRoleService, true);
+        TelegramUser result = serviceWithAgentEnabled.getOrCreateUser(telegramUserApi);
+
+        // Existing user's agentModeEnabled must NOT be overwritten by the application default
+        assertThat(result.getAgentModeEnabled()).isFalse();
     }
 }
  

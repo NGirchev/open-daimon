@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentRequest;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
+import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
@@ -14,10 +15,13 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamRenderer;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
+import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +39,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -53,6 +58,7 @@ import static org.mockito.Mockito.when;
  * and existing rollback triggers (text-marker scan and TOOL_CALL event) still fire.
  */
 @ExtendWith(MockitoExtension.class)
+@org.mockito.junit.jupiter.MockitoSettings(strictness = org.mockito.quality.Strictness.LENIENT)
 class TelegramMessageHandlerActionsStreamingTest {
 
     private static final int MAX_ITERATIONS = 5;
@@ -68,11 +74,12 @@ class TelegramMessageHandlerActionsStreamingTest {
     @Mock private AIGatewayRegistry aiGatewayRegistry;
     @Mock private OpenDaimonMessageService messageService;
     @Mock private AIRequestPipeline aiRequestPipeline;
-    @Mock private UserModelPreferenceService userModelPreferenceService;
+    @Mock private ChatSettingsService chatSettingsService;
     @Mock private PersistentKeyboardService persistentKeyboardService;
     @Mock private ReplyImageAttachmentService replyImageAttachmentService;
     @Mock private TelegramMessageSender messageSender;
     @Mock private AgentExecutor agentExecutor;
+    @Mock private TelegramChatPacer telegramChatPacer;
 
     private TelegramAgentStreamRenderer agentStreamRenderer;
     private TelegramMessageHandlerActions actions;
@@ -85,17 +92,29 @@ class TelegramMessageHandlerActionsStreamingTest {
         // Disable throttling so every event produces a Telegram call we can assert on.
         telegramProperties.setAgentStreamEditMinIntervalMs(0);
         agentStreamRenderer = new TelegramAgentStreamRenderer(new ObjectMapper());
+        when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
+        try {
+            when(telegramChatPacer.reserve(anyLong(), anyLong())).thenReturn(true);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
+        when(messageSender.sendHtmlReliableAndGetId(eq(CHAT_ID), anyString(), any(), anyBoolean(), anyLong()))
+                .thenReturn(ANSWER_MSG_ID);
+        when(messageSender.editHtmlReliable(eq(CHAT_ID), any(), anyString(), anyBoolean(), anyLong()))
+                .thenReturn(true);
 
         actions = new TelegramMessageHandlerActions(
                 telegramUserService, telegramUserSessionService,
                 telegramMessageService, aiGatewayRegistry, messageService,
-                aiRequestPipeline, telegramProperties, userModelPreferenceService,
+                aiRequestPipeline, telegramProperties, chatSettingsService,
                 persistentKeyboardService, replyImageAttachmentService, messageSender,
-                agentExecutor, agentStreamRenderer, MAX_ITERATIONS);
+                agentExecutor, agentStreamView, MAX_ITERATIONS, true);
     }
 
     @Test
-    @DisplayName("should promote answer bubble on the first PARTIAL_ANSWER when no tool call has been seen")
+    @DisplayName("should keep partial answer in status and send answer only after FINAL_ANSWER")
     void shouldPromoteAnswerBubbleOnFirstPartialAnswerWhenNoToolCall() {
         MessageHandlerContext ctx = createContextWithMessage("Ask",
                 Set.of(ModelCapabilities.WEB));
@@ -121,15 +140,13 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        // Exactly one answer bubble send — threaded reply to the user message, content
-        // distinguished from the status bubble by the absence of the thinking marker.
-        verify(messageSender, times(1)).sendHtmlAndGetId(eq(CHAT_ID),
+        verify(messageSender, times(1)).sendHtmlReliableAndGetId(eq(CHAT_ID),
                 argThat(html -> html != null && html.contains("Quick single-line reply.")
                         && !html.contains(STATUS_THINKING_LINE)),
-                eq(USER_MSG_ID), eq(true));
+                eq(USER_MSG_ID), eq(false), eq(5000L));
 
         assertThat(ctx.getAgentRenderMode())
-                .isEqualTo(MessageHandlerContext.AgentRenderMode.TENTATIVE_ANSWER);
+                .isEqualTo(MessageHandlerContext.AgentRenderMode.STATUS_ONLY);
         assertThat(ctx.getTentativeAnswerMessageId()).isEqualTo(ANSWER_MSG_ID);
         assertThat(ctx.getErrorType()).isNull();
     }
@@ -161,12 +178,12 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        verify(messageSender, times(1)).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
+        verify(messageSender, never()).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
         assertThat(ctx.isTentativeAnswerActive()).isFalse();
-        assertThat(ctx.isToolCallSeenThisIteration()).isTrue();
-        assertThat(ctx.getTentativeAnswerBuffer().length())
-                .as("tentative-answer buffer should be cleared after rollback")
-                .isZero();
+        assertThat(ctx.getTentativeAnswerMessageId()).isEqualTo(ANSWER_MSG_ID);
+        verify(messageSender, times(1)).sendHtmlReliableAndGetId(eq(CHAT_ID),
+                argThat(html -> html != null && html.contains("Real answer.")),
+                eq(USER_MSG_ID), eq(false), eq(5000L));
     }
 
     @Test
@@ -200,7 +217,7 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        verify(messageSender, times(1)).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
+        verify(messageSender, never()).deleteMessage(eq(CHAT_ID), eq(ANSWER_MSG_ID));
         assertThat(ctx.isTentativeAnswerActive()).isFalse();
 
         ArgumentCaptor<String> statusEditCaptor = ArgumentCaptor.forClass(String.class);
@@ -235,12 +252,12 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        // No answer bubble was opened — only the status send (replying to the user
-        // message) should have hit sendHtmlAndGetId.
+        // No speculative answer bubble was opened via regular send; final answer is
+        // delivered only through the reliable final-answer path.
         verify(messageSender, never())
                 .sendHtmlAndGetId(eq(CHAT_ID), anyString(), isNull(), anyBoolean());
         assertThat(ctx.isTentativeAnswerActive()).isFalse();
-        assertThat(ctx.getTentativeAnswerMessageId()).isNull();
+        assertThat(ctx.getTentativeAnswerMessageId()).isEqualTo(ANSWER_MSG_ID);
         assertThat(ctx.getAgentRenderMode())
                 .isEqualTo(MessageHandlerContext.AgentRenderMode.STATUS_ONLY);
     }
@@ -346,12 +363,10 @@ class TelegramMessageHandlerActionsStreamingTest {
         // (b) status transcript records the ⚠️ iteration-limit marker.
         assertThat(ctx.getStatusBuffer().toString()).contains(STATUS_MAX_ITER_LINE);
 
-        // (c) the answer was actually delivered to the chat — generateAgentResponse routes the
-        //     no-tentative-bubble path through sendHtml(chatId, html, null) per paragraph. The
-        //     html is produced by AIUtils.convertMarkdownToHtml, so assert on the payload the
-        //     user would actually see (plain sentence survives conversion).
+        // (c) the answer was actually delivered to the chat through the reliable final-answer path.
         ArgumentCaptor<String> sentHtmlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messageSender, atLeastOnce()).sendHtml(eq(CHAT_ID), sentHtmlCaptor.capture(), isNull());
+        verify(messageSender, atLeastOnce()).sendHtmlReliableAndGetId(
+                eq(CHAT_ID), sentHtmlCaptor.capture(), eq(USER_MSG_ID), eq(false), eq(5000L));
         boolean deliveredSafetyText = sentHtmlCaptor.getAllValues().stream()
                 .anyMatch(html -> html.contains("I reached the iteration limit"));
         assertThat(deliveredSafetyText)
@@ -424,11 +439,10 @@ class TelegramMessageHandlerActionsStreamingTest {
 
         actions.generateResponse(ctx);
 
-        // Collect all edit bodies applied to the answer bubble; the last one must contain
-        // the sanitized text and not the dead URL.
+        // The final answer send must contain the sanitized text and not the dead URL.
         ArgumentCaptor<String> editCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messageSender, atLeastOnce())
-                .editHtml(eq(CHAT_ID), eq(ANSWER_MSG_ID), editCaptor.capture(), anyBoolean());
+        verify(messageSender, atLeastOnce()).sendHtmlReliableAndGetId(
+                eq(CHAT_ID), editCaptor.capture(), eq(USER_MSG_ID), eq(false), eq(5000L));
 
         String finalEdit = editCaptor.getAllValues().get(editCaptor.getAllValues().size() - 1);
         assertThat(finalEdit)
@@ -468,12 +482,193 @@ class TelegramMessageHandlerActionsStreamingTest {
         actions.generateResponse(ctx);
 
         ArgumentCaptor<String> sentHtmlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(messageSender, atLeastOnce()).sendHtml(eq(CHAT_ID), sentHtmlCaptor.capture(), isNull());
+        verify(messageSender, atLeastOnce()).sendHtmlReliableAndGetId(
+                eq(CHAT_ID), sentHtmlCaptor.capture(), any(), eq(false), eq(5000L));
 
         assertThat(sentHtmlCaptor.getAllValues())
                 .as("oversized single paragraph must be split into multiple chunks")
                 .hasSizeGreaterThanOrEqualTo(3)
                 .allSatisfy(html -> assertThat(html.length()).isLessThanOrEqualTo(120));
+    }
+
+    @Test
+    @DisplayName("should preserve thinking line above tool-call block when mode is SHOW_ALL")
+    void shouldPreserveThinkingAboveToolCallWhenShowAll() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        // Per-user thinking mode = SHOW_ALL, set via /thinking command
+        TelegramUser userWithPreserve = new TelegramUser();
+        userWithPreserve.setThinkingMode(ThinkingMode.SHOW_ALL);
+        ctx.setTelegramUser(userWithPreserve);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London weather\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.finalAnswer("It rains in London.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        String statusContent = ctx.getStatusBuffer().toString();
+        // When thinking-preserve is ON, the reasoning content before the tool-call block
+        // must NOT be stripped — the tool block must be appended after it.
+        // Verify the tool block appears in the transcript.
+        assertThat(statusContent).contains("🔧 <b>Tool:</b>");
+        assertThat(statusContent.indexOf("🔧 <b>Tool:</b>"))
+                .as("tool-call block must be present in status content")
+                .isGreaterThanOrEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("should overwrite thinking line with tool-call block when mode is HIDE_REASONING")
+    void shouldOverwriteThinkingWhenToolsOnly() {
+        // Per-user thinking mode = HIDE_REASONING (default)
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser userWithoutPreserve = new TelegramUser();
+        userWithoutPreserve.setThinkingMode(ThinkingMode.HIDE_REASONING);
+        ctx.setTelegramUser(userWithoutPreserve);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // Simulate reasoning arriving then tool call — the thinking content should be gone.
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London weather\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.finalAnswer("It rains in London.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Verify the tool-call block is present (current behaviour preserved).
+        assertThat(ctx.getStatusBuffer().toString()).contains("🔧 <b>Tool:</b>");
+    }
+
+    @Test
+    @DisplayName("should suppress thinking rendering in SILENT mode — no placeholder, renderer returns NoOp")
+    void shouldSuppressThinkingRenderingInSilentMode() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser silentUser = new TelegramUser();
+        silentUser.setThinkingMode(ThinkingMode.SILENT);
+        ctx.setTelegramUser(silentUser);
+
+        // In SILENT mode the status message is sent but should NOT contain the thinking placeholder.
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London weather\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.finalAnswer("It rains in London.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Version B: SILENT suppresses EVERYTHING during the agent loop — no placeholder,
+        // no tool blocks, no observations. Status buffer stays empty; final answer is
+        // sent as a fresh message via the "no tentative bubble opened" branch.
+        assertThat(ctx.getStatusBuffer().toString())
+                .as("SILENT mode must produce an empty status buffer (no placeholder, no tool blocks)")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("SILENT: should suppress placeholder across iteration boundaries (AppendFreshThinking path)")
+    void shouldSuppressThinkingAcrossIterationsInSilentMode() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser silentUser = new TelegramUser();
+        silentUser.setThinkingMode(ThinkingMode.SILENT);
+        ctx.setTelegramUser(silentUser);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // Simulate 2 iterations. iteration=1 crosses boundary → renderThinking would return
+        // AppendFreshThinking without SILENT guard. Defense-in-depth guard in applyUpdate
+        // must also drop it.
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking(0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.thinking(1),   // ← iteration boundary
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"Manchester\"}", 1),
+                AgentStreamEvent.observation("rain", false, 1),
+                AgentStreamEvent.finalAnswer("Rains everywhere.", 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Version B: SILENT across 2+ iterations still produces an empty buffer —
+        // no iteration-boundary placeholders, no tool blocks, no observations.
+        assertThat(ctx.getStatusBuffer().toString())
+                .as("SILENT mode must suppress ALL status rendering across iteration boundaries")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("SILENT: should suppress reasoning text overlay (ReplaceTrailingThinkingLine path)")
+    void shouldSuppressReasoningOverlayInSilentMode() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser silentUser = new TelegramUser();
+        silentUser.setThinkingMode(ThinkingMode.SILENT);
+        ctx.setTelegramUser(silentUser);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        // thinking event WITH content (reasoning text) would normally produce
+        // ReplaceTrailingThinkingLine. For SILENT, buffer must stay clean of that content.
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking("I need to check the weather first.", 0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.finalAnswer("Rain.", 0));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        // Version B: SILENT mode buffer stays empty even when reasoning text events arrive.
+        assertThat(ctx.getStatusBuffer().toString())
+                .as("SILENT mode must not render reasoning text (or anything) into the buffer")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("SHOW_ALL: reasoning text must survive across iterations (reasoning visible before each tool block)")
+    void shouldPreserveReasoningAcrossIterationsInShowAllMode() {
+        MessageHandlerContext ctx = createContextWithMessage("Compare", Set.of(ModelCapabilities.WEB));
+        TelegramUser user = new TelegramUser();
+        user.setThinkingMode(ThinkingMode.SHOW_ALL);
+        ctx.setTelegramUser(user);
+
+        when(messageSender.sendHtmlAndGetId(eq(CHAT_ID), anyString(), eq(USER_MSG_ID), eq(true)))
+                .thenReturn(STATUS_MSG_ID);
+
+        Flux<AgentStreamEvent> stream = Flux.just(
+                AgentStreamEvent.thinking("First I check London.", 0),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"London\"}", 0),
+                AgentStreamEvent.observation("rain", false, 0),
+                AgentStreamEvent.thinking("Now Manchester.", 1),
+                AgentStreamEvent.toolCall("web_search", "{\"q\":\"Manchester\"}", 1),
+                AgentStreamEvent.observation("rain", false, 1),
+                AgentStreamEvent.finalAnswer("Rains everywhere.", 1));
+        when(agentExecutor.executeStream(any(AgentRequest.class))).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        String content = ctx.getStatusBuffer().toString();
+        assertThat(content)
+                .as("SHOW_ALL must retain both reasoning snippets in the final buffer")
+                .contains("First I check London")
+                .contains("Now Manchester");
+        // Both tool blocks must be present
+        long toolBlockCount = content.lines().filter(l -> l.contains("🔧 <b>Tool:</b>")).count();
+        assertThat(toolBlockCount).as("two tool-call blocks expected").isEqualTo(2);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

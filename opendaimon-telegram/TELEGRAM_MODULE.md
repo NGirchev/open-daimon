@@ -43,6 +43,48 @@ onUpdateReceived(Update)
 | message/caption contains explicit self mention | processed |
 | any other group message | skipped (no command dispatch, no AI call) |
 
+### Group Chat Conceptual Model
+
+A group (or supergroup) is treated as a **single logical participant**, not as a set of individuals. All chat-scoped state — conversation history, preferred model, bot-menu language, command-menu snapshot, agent mode, thinking mode, assistant role, recent models — belongs to a dedicated `TelegramGroup` row (a JOINED-inheritance subclass of `User` with `@DiscriminatorValue("TELEGRAM_GROUP")`) and is **shared by every member** of the group. There is no per-user-inside-group isolation.
+
+#### Settings Owner Resolution
+
+Every incoming `Update` resolves to exactly one *settings owner* — a polymorphic `User` that owns chat-scoped state for that chat:
+
+- **Private chat** → the invoker's `TelegramUser` (the chat *is* that person).
+- **Group / supergroup chat** → the `TelegramGroup` row keyed on the group `chat_id`.
+
+Resolution happens once in `TelegramBot.mapToTelegram*` via `ChatSettingsOwnerResolver.resolveForChat(chat, invoker)`. The result is stamped on `TelegramCommand.settingsOwner` and consumed by handlers through `ChatSettingsService`:
+
+```java
+// Language handler — writes go to the owner (group in groups, user in privates)
+chatSettingsService.updateLanguageCode(command.settingsOwner(), "ru");
+
+// Agent-mode handler — same pattern
+chatSettingsService.updateAgentMode(command.settingsOwner(), true);
+
+// Assistant role — same pattern
+chatSettingsService.updateAssistantRole(command.settingsOwner(), customRoleText);
+```
+
+The facade dispatches by subtype (`instanceof TelegramGroup` → write to `telegram_group`; `instanceof TelegramUser` → write to `telegram_user`).
+
+#### Implications
+
+- The **scope key for Telegram API calls is always `chat_id`**, never `user.telegramId`. In a private chat the two values coincide because Telegram uses the user id as the chat id; in a group they diverge (group `chat_id` is negative, e.g. `-1001234567890`).
+- `TelegramCommand` has a field named `telegramId`, but it actually stores the **chat id** (see its constructors: `this.telegramId = chatId`). The name is historical and misleading — treat it as `chatId` when reasoning about scope.
+- Adding a new chat-scoped setting? Add the field to `User` (inherited by both subclasses) and route reads/writes through `ChatSettingsService` over a `User owner`. Never introduce a code path that keys on `cq.getFrom().getId()` or `user.telegramId` — that reintroduces per-invoker leakage.
+- `BotCommandScopeChat(chat_id)` with the group id overrides Default scope for the group. `BotCommandScopeChatMember` (per-user-in-chat) is deliberately unused; it would contradict the shared-chat model. Menu-version hash lives on whichever owner resolved for the chat (`TelegramGroup.menuVersionHash` for groups, `TelegramUser.menuVersionHash` for privates); `TelegramBotMenuService.reconcileMenuIfStale(User owner, Long chatId)` dispatches by subtype and persists via `ChatSettingsService`.
+- Summarization (`SummarizationService` in `opendaimon-common`) reads the chat's `preferredModelId` via the `ChatOwnerLookup` SPI (`TelegramChatOwnerLookup` implementation) keyed on `thread.scopeId`. This ensures group chats summarize with their picked model and prevents the "HTTP 400 model is required" regression from empty AUTO-routing bodies.
+- Per-chat runtime caches (e.g. in-memory "which chats we already pushed the current command menu to") must be keyed on `chat_id`, not `user.telegramId`, otherwise they silently miss groups.
+
+#### What is NOT chat-scoped
+
+Two things stay **per-invoker** even in groups — this is intentional and must not be migrated:
+
+- **FSM input state** `TelegramUserSession.botStatus` (e.g. "awaiting custom role text"). If Alice starts `/role custom` in a group and Bob sends text first, Alice's FSM must not consume Bob's text.
+- **Whitelist / access level** (admin / vip / regular / blocked). Groups have no access level; their members do. `TelegramUserPriorityService` always receives the invoker's id, never the group's.
+
 ### Inline Query Policy
 | Condition | Result |
 |-----------|--------|
@@ -148,11 +190,11 @@ Evaluated in order — first match wins:
 
 See the canonical specification in **[## Agent Mode — REACT Loop Telegram UX](#agent-mode--react-loop-telegram-ux)** (below). The user-visible surface is:
 
-1. A **status message** (`💭 Thinking...` → replaced in-place by reasoning lines, `🔧 Tool: …` blocks, and `📋 Tool result received` observation markers) — a running per-iteration log, edited in place.
-2. A separate **answer message** (opened tentatively on the first paragraph boundary of a `PARTIAL_ANSWER` when no tool call has yet been made this iteration) — streamed paragraph-by-paragraph. The bubble is deleted and its prose folded back into the status message as `<i>…</i>` overlay whenever **either** of the two rollback triggers fires: (a) an `AgentStreamEvent.TOOL_CALL` event arrives from the agent loop, or (b) a tool-call marker (`<tool_call>`, `<arg_key>`, `<arg_value>`, `<tool>`, or their closing forms) is detected inside a streamed `PARTIAL_ANSWER` chunk — caught by a redundant scan in the Telegram layer because the upstream `StreamingAnswerFilter` only recognizes the exact `<tool_call>…</tool_call>` form.
-3. Final `FINAL_ANSWER` finalizes the answer bubble if one was opened; otherwise it is sent fresh (fallback path).
+1. A **status message** (`💭 Thinking...` → reasoning/tool/observation transcript), edited in place.
+2. A separate **answer message** that is created only when the final user answer is confirmed (`FINAL_ANSWER` or `MAX_ITERATIONS` fallback).
+3. Streaming `PARTIAL_ANSWER` chunks are kept in a Java-side model buffer and rendered as status overlay while the iteration is still open.
 
-Implementation: `TelegramMessageHandlerActions` orchestrates the two-message state in `MessageHandlerContext`; `TelegramAgentStreamRenderer` maps each `AgentStreamEvent` to a `RenderedUpdate` record. Throttling: `telegramProperties.agentStreamEditMinIntervalMs` (default 1000 ms). Paragraph-boundary rotation (when the status buffer would exceed `maxMessageLength`) is handled by `TelegramBufferRotator`. Assistant response is persisted in DB; keyboard status is sent afterwards.
+Implementation: `TelegramMessageHandlerActions` feeds provider-neutral stream events into `TelegramAgentStreamModel` and flushes snapshots through `TelegramAgentStreamView`. Flush cadence is configured via `open-daimon.telegram.agent-stream-view.*` and enforced per chat by `TelegramChatPacer`. Assistant response is persisted in DB; keyboard status is sent afterwards.
 
 ---
 
@@ -193,6 +235,19 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 **Handler:** `MessageTelegramCommandHandler`
 4. Factory → `ChatAICommand(capabilities={CHAT, VISION})`
 5. Gateway → selects model with VISION → builds `UserMessage` with `Media`
+
+---
+
+### UC-3A: Photo attachment in agent mode (REACT, thinking enabled)
+**Trigger:** user sends a photo while the chat is in agent mode (`open-daimon.agent.enabled=true`, agent mode toggled on for the chat)
+**Mapping:** identical to UC-3 (`mapToTelegramPhotoCommand` → `Attachment(type=IMAGE)`)
+**Command:** `MESSAGE`, `attachments=[Attachment]`, `userText` = caption (e.g. «что тут?»)
+**Handler:** `TelegramMessageHandlerActions.generateResponse` — agent path
+4. Factory → `ChatAICommand(capabilities={CHAT, VISION})`; `DefaultAICommandFactory` resolves `requiredCaps=[AUTO, VISION]`
+5. `TelegramMessageHandlerActions` builds `AgentRequest(..., attachments=...)` and routes to `AgentExecutor.executeStream(...)`. The attachment source is the pipeline-processed list on the AI command — `ChatAICommand.attachments()` for the default path, `FixedModelChatAICommand.attachments()` when the chat has a preferred model fixed (mirrors `SpringAIGateway:383-387`). `TelegramCommand.attachments()` is used only as a fallback when the AI command carries no processed list, so image-only PDFs that `AIRequestPipeline` rendered page-by-page into IMAGE attachments are not silently dropped.
+6. `ReActAgentExecutor` carries attachments into `AgentContext`; `SpringAgentLoopActions.think()` builds the first `UserMessage` with `Media` (see `SPRING_AI_MODULE.md#image-attachments--agent-path`)
+**Output:** vision-capable model describes the image, agent loop terminates on the first `FINAL_ANSWER` (no tool call needed for a pure description)
+**Regression guarded by:** `TelegramAgentImageFixtureIT`, `SpringAgentLoopActionsAttachmentsTest`, `TelegramMessageHandlerActionsAgentTest#shouldPassAttachmentsToAgentRequestWhenCommandHasImage`
 
 ---
 
@@ -292,16 +347,24 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 **Trigger:** `/model` or pressing `🤖 ModelName` keyboard button
 **Handler:** `ModelTelegramCommandHandler`
 1. Creates `ModelListAICommand` → `AIGatewayRegistry` resolves gateway → returns available model list
-2. Builds inline keyboard: `AUTO` button + one button per model with capability tags (Vision, Web, Tools, Summary, Free)
-3. Button text capped at 64 bytes (Telegram limit); uses index instead of model name in callback data
+2. When the model count exceeds page size, builds a two-level menu: `AUTO` + one row per category, with counts.
+   Category order: `RECENT`, `LOCAL`, `VISION`, `FREE`, `ALL`.
+   - `RECENT` is populated from `UserRecentModelService.getRecentModels()` (up to 8 most recently picked
+     models, ordered by `last_used_at DESC`). Hidden when the user has no history yet or when all recent
+     entries have disappeared from the current gateway model list.
+   - The remaining four categories use static predicates over `ModelInfo`.
+3. For small model counts (≤ page size), shows the flat legacy list with all models plus capability tags.
+4. Button text capped at 64 bytes (Telegram limit); uses index instead of model name in callback data.
 
 ---
 
 ### UC-16: `/model` — select model via callback
 **Trigger:** `MODEL_<index>` callback
-**Handler:** resolves index → model name → `UserModelPreferenceService.setPreferredModel()`
+**Handler:** resolves index → model name → `UserModelPreferenceService.setPreferredModel()` →
+`UserRecentModelService.recordUsage()` (upsert + prune to top 8)
 - Sends confirmation with model name
 - `PersistentKeyboardService.sendKeyboard()` updated with new model
+- The just-picked model appears first in the `RECENT` category on the next `/model` invocation.
 
 ---
 
@@ -310,6 +373,7 @@ Implementation: `TelegramMessageHandlerActions` orchestrates the two-message sta
 **Handler:** `UserModelPreferenceService.clearPreference()`
 - Callback ack uses `telegram.model.ack.auto` (user language)
 - Persistent keyboard left button uses `telegram.model.auto` when no fixed model is stored
+- Does NOT update `user_recent_model` — the Recent list reflects explicit picks only.
 
 ---
 
@@ -441,273 +505,103 @@ Cleared by: handler completion, `/start`, any slash command, `BackoffCommandHand
 
 ## Agent Mode — REACT Loop Telegram UX
 
-This section describes the user-visible Telegram behavior when the REACT agent loop is active.
-It replaces the paragraph-streaming step of UC-1 (and related text-message UCs) while the request is being processed.
+This section describes the Telegram UX while the REACT loop is running. It replaces the
+paragraph-streaming output from UC-1 for agent-enabled users.
 
 ### Activation
 
-- `open-daimon.agent.enabled=true` (otherwise the gateway flow from UC-1 is used)
-- Resolved `AgentStrategy = REACT` — see `StrategyDelegatingAgentExecutor#resolveStrategy`
-  (triggered when the selected model has capability `WEB` or `AUTO` and at least one tool is registered)
+- `open-daimon.agent.enabled=true` (otherwise gateway flow from UC-1 is used)
+- resolved `AgentStrategy = REACT` when the selected model can use tools (`WEB` or `AUTO`)
 
-The loop is driven by our own FSM (`SpringAgentLoopActions`). Spring AI's built-in tool-execution
-loop is explicitly disabled via `ToolCallingChatOptions.internalToolExecutionEnabled=false` —
-we pass tools to Spring AI but keep iteration control on our side. `SimpleChainExecutor` does not
-use this UX: it performs a single `ChatModel.call()` and falls back to paragraph streaming from UC-1.
+### Per-user override
+
+Each user has nullable `agentModeEnabled`:
+- `null`: follows global default (`open-daimon.agent.enabled`)
+- `true` / `false`: explicit per-user override
+
+The `/mode` command toggles this setting when mode command is enabled. Routing remains:
+gateway path when agent executor is missing or user mode is disabled, agent path only when both are enabled.
+
+### Provider-neutral model + Telegram view
+
+The Spring AI loop emits the same `AgentStreamEvent` shape for OpenRouter, Ollama, and other providers.
+Telegram handling is split into two layers:
+
+- `TelegramAgentStreamModel`: Java-side state machine and buffers (`statusHtml`, candidate partial answer, confirmed final answer)
+- `TelegramAgentStreamView`: periodic Telegram flushes of current snapshots
+
+The view does not queue historical operations. If a periodic flush is skipped, the next flush sends the latest snapshot.
 
 ### Message roles
 
-Two logical messages coexist during one agent request. Both are sent as `reply_to_message_id`
-pointing to the original user message.
-
 | Role | Purpose | Lifecycle |
 |------|---------|-----------|
-| **Status message** | Carries `💭 Thinking...`, tool-call lines, tool-result lines, reasoning text | Edited in place across iterations; rotated to a new message when Telegram length limit is hit |
-| **Answer message** | Final user-visible answer | Sent fresh on the **first** `PARTIAL_ANSWER` chunk of an iteration where no tool call has been seen yet; edited ~once per second until complete. **Rolled back** — deleted and its prose folded back into the status message — when either a `<tool_call>` / `<arg_key>` / `<arg_value>` / `<tool>` marker is detected in a `PARTIAL_ANSWER` chunk, or an `AgentStreamEvent.TOOL_CALL` event arrives from the agent loop. See "Final answer transition" for both triggers. |
+| **Status message** | Thinking/reasoning/tool/observation transcript | Created once (except `SILENT`), then edited in place; rotated when it approaches Telegram size limit |
+| **Answer message** | User-visible final answer | Created only after final answer is confirmed; edited reliably if it already exists |
 
-Edit rate for both roles is throttled to **at most one edit per second** to stay below Telegram rate limits.
+Both messages are sent as replies to the original user message.
 
-### Iteration flow
+### Event flow
 
-1. **Start.** Send the initial status message: `💭 Thinking...`
-2. **Tool call.** On `AgentStreamEvent.toolCall`, edit the status message and **replace the
-   trailing line** (whether it is the `💭 Thinking...` placeholder or the current reasoning
-   overlay) with the tool-call block:
+1. `THINKING`: status trailing line is `💭 Thinking...` or `<i>reasoning</i>`.
+2. `PARTIAL_ANSWER`: appended to model candidate buffer; rendered only as status overlay while iteration is still open.
+3. `TOOL_CALL`: candidate buffer is cleared as pre-tool content; status shows:
+   ```text
+   🔧 Tool: ...
+   Query: ...
    ```
-   🔧 <b>Tool:</b> <friendlyToolLabel>
-   <b>Query:</b> <toolArguments>
-   ```
-   The `<b>Tool:</b>` / `<b>Query:</b>` labels are HTML-bold so they stand out on Telegram.
+   If the model calls `web_search` without usable arguments, the query line is
+   rendered as `Query: missing` instead of an ellipsis.
+4. `OBSERVATION`: status appends one line:
+   - `<blockquote>📋 Tool result received</blockquote>`
+   - `<blockquote>📋 No result</blockquote>`
+   - `<blockquote>⚠️ Tool failed: ...</blockquote>`; known structural errors
+     such as a missing web-search query are compacted for the user while the
+     full observation remains available to the agent loop.
+5. `MAX_ITERATIONS`: model confirms the terminal output first, strips any trailing partial-answer overlay from status, then appends `⚠️ reached iteration limit`.
+6. `FINAL_ANSWER` (or terminal max-iterations fallback): model confirms final answer and the view creates/edits answer message. The trailing partial-answer overlay (when a candidate was actually rendered as the status tail) is stripped from `statusHtml` so the status message does not freeze with a stale fragment (e.g. `<i>На ос</i>`) next to the freshly delivered answer. In `HIDE_REASONING`, a trailing reasoning overlay is also removed on confirmation; in `SHOW_ALL`, reasoning overlays are preserved. If the overlay was the only status content, it is replaced with a `✅` marker because Telegram rejects empty edits.
 
-   Visual chronology *thinking → tool call → result* is created in **time**, not space: the
-   tool-call force-flush is **paced** — the orchestrator waits until at least one throttle
-   interval (`open-daimon.telegram.agent-stream-edit-min-interval-ms`, default 1000 ms) has
-   elapsed since the last status edit before pushing the tool-call block. Without pacing, a
-   model that emits a structured tool call without preceding text (e.g. OpenAI / Anthropic
-   function calling without `reasoning` content) would overwrite `💭 Thinking...` in the same
-   tick and the user would never see the thinking state at all. Pacing guarantees each phase
-   (placeholder / reasoning overlay → tool call → observation marker) is on screen for at
-   least one window before the next replaces it.
-3. **Tool result.** On the matching `toolResult`, append one line to the same status message:
+### Thinking modes
 
-   | Outcome | Appended line |
-   |---------|---------------|
-   | Result present | `<blockquote>📋 Tool result received</blockquote>` |
-   | Empty result | `<blockquote>📋 No result</blockquote>` |
-   | Tool threw OR returned a textual failure (e.g. `"HTTP error 403 …"`, `"Error: …"`) | `<blockquote>⚠️ Tool failed: <first line of error></blockquote>` |
+`/thinking` controls visibility:
 
-   Blockquote визуально отделяет фазу observation от предшествующего tool-call блока; используется нативный Telegram `<blockquote>` в `parseMode=HTML`.
+- `SHOW_ALL`: reasoning is preserved in the status transcript above tool blocks.
+- `HIDE_REASONING` (default): reasoning may appear live, but tool blocks replace trailing reasoning.
+- `SILENT`: no status message, only final answer delivery.
 
-   The textual-failure detection is implemented in
-   `SpringAgentLoopActions#observe` (see `opendaimon-spring-ai/SPRING_AI_MODULE.md` — "Tool
-   failure detection"): several built-in `@Tool` implementations (`HttpApiTool`,
-   `WebTools`) return HTTP failures as a non-exceptional `String`, so the Telegram layer
-   cannot rely on `toolResult.success()` alone to distinguish a 403 from a real page.
+### Flush pacing and delivery reliability
 
-   `fetch_url` may perform one internal retry for a Cloudflare challenge (`403` with
-   `cf-mitigated: challenge`) before the observation is emitted. This retry is not shown
-   as a second `🔧 Tool:` block because it is part of the same tool invocation. Repeated
-   blocked URLs are suppressed by the Spring AI agent guard: the next observation is a
-   synthetic `"Error: previously_failed_url ..."` or `"Error: host_unreadable ..."` result,
-   still rendered as `⚠️ Tool failed`.
+Chat pacing is enforced by `TelegramChatPacer` (chat-scoped slot, no dispatcher queue):
 
-4. **Next iteration.** A fresh `💭 Thinking...` line is appended below the previous tool block.
-   Completed tool blocks stay in the status message as a running iteration log.
+- private chats: `open-daimon.telegram.agent-stream-view.private-chat-flush-interval-ms` (default `1000`)
+- groups/supergroups: `open-daimon.telegram.agent-stream-view.group-chat-flush-interval-ms` (default `3000`)
 
-### Reasoning updates between tool calls
+`TelegramAgentStreamView` behavior:
 
-If the model emits `AgentStreamEvent.thinking` with non-empty reasoning:
+- regular flush: non-blocking `tryReserve(chatId)`; if denied, skip this tick
+- forced/final flush: blocking `reserve(chatId, timeoutMs)` with configured timeout
 
-- Replace the trailing `💭 Thinking...` line (or prior reasoning overlay) with the new
-  reasoning text wrapped in `<i>…</i>` — edit throttled to once per second.
-- When the iteration ends with a `toolCall`, the reasoning overlay is replaced by the
-  tool-call block (step 2). Visibility of the reasoning state is guaranteed by the paced
-  flush of the tool-call edit — the user sees the reasoning for at least one throttle
-  window before the tool-call block overwrites it.
-- If the iteration turns into a final answer, see "Final answer transition" below.
+Final answer delivery uses reliable Telegram sender methods:
 
-### Final answer transition (tentative + rollback)
+- `editHtmlReliable(...)` and `sendHtmlReliableAndGetId(...)`
+- parse Telegram `retry_after` from response parameters or error text (`retry after N`)
+- retry once when budget allows
+- if final edit fails, fallback to fresh `sendMessage`
+- if both fail, FSM sets `MessageHandlerErrorType.TELEGRAM_DELIVERY_FAILED` and enters `ERROR`
 
-Final-answer detection is **heuristic**, not driven by a single reliable event. The model may emit
-text that looks like a final answer but contains a `<tool_call>` / tool-call marker somewhere inside —
-in which case it was actually reasoning with an embedded tool call. `AgentStreamEvent.FINAL_ANSWER`
-alone is not sufficient, because the tag may appear mid-stream inside `PARTIAL_ANSWER` chunks **before**
-a `TOOL_CALL` event arrives from the agent loop.
+Final status cleanup is reliable too: `flushFinal()` edits the status message
+with `editHtmlReliable(...)` before sending/editing the answer. If Telegram
+refuses that final status edit, the view deletes the stale status message
+best-effort so an old partial-answer overlay is not left next to the final
+answer.
 
-The flow therefore uses a **tentative-answer** state with rollback driven by **two independent
-triggers**:
+`PersistentKeyboardService.sendKeyboard` uses the same chat pacer to avoid competing with stream edits/sends in the same chat. After an agent stream, it waits at least one chat pacing interval plus `default-acquire-timeout-ms` before skipping, so the post-run keyboard/status message can follow a just-delivered final answer in groups.
 
-#### Trigger A — text scan on `PARTIAL_ANSWER` (Telegram layer)
+### Length handling
 
-The Telegram orchestrator scans every `PARTIAL_ANSWER` chunk for known tool-call markers. The
-scan is **necessary and not redundant**: the upstream
-`io.github.ngirchev.opendaimon.ai.springai.agent.StreamingAnswerFilter` only strips the exact
-`<think>…</think>` / `<tool_call>…</tool_call>` forms, but some providers (Qwen / Ollama variants)
-emit pseudo-XML tool calls using other tag names (`<arg_key>`, `<arg_value>`, `<tool>`) that slip
-through the filter and reach the Telegram layer as raw text inside `PARTIAL_ANSWER`. Without a
-redundant scan in the Telegram layer, those tokens end up rendered in the user's answer bubble
-(visible as `fetch_url`, `<arg_key>url</arg_key>`, `</tool_call>`, etc.).
-
-**The set of markers the Telegram layer scans for** (stored as escaped forms because the
-tentative-answer buffer holds pre-escaped HTML fragments):
-
-- `<tool_call>`, `</tool_call>`
-- `<tool>`, `</tool>`
-- `<arg_key>`, `</arg_key>`
-- `<arg_value>`, `</arg_value>`
-
-When any of these is found in the accumulated tentative-answer buffer, **trigger A fires**. The
-scan is skipped once the iteration's `toolCallSeenThisIteration` flag is already set, so
-subsequent chunks don't re-enter rollback.
-
-#### Trigger B — `AgentStreamEvent.TOOL_CALL` event (agent loop)
-
-If the `StreamingAnswerFilter` did strip a full `<tool_call>…</tool_call>` block, the Telegram
-layer never sees the marker in text, but the downstream agent loop will still emit a
-`TOOL_CALL` event. The `TelegramAgentStreamRenderer` maps that event to
-`RollbackAndAppendToolCall` whenever `ctx.isTentativeAnswerActive()` is true — same rollback
-path, different entry point.
-
-Additionally, **every** `TOOL_CALL` event clears `tentativeAnswerBuffer` regardless of whether
-the tentative bubble was opened. Rationale: some models (observed with `z-ai/glm-4.5v`) emit
-pre-tool reasoning as ordinary `PARTIAL_ANSWER` chunks **interleaved with** a structured tool
-call in the same stream. When the chunks never cross the `\n\n` paragraph boundary the bubble
-stays closed, so the trigger-B rollback path (which calls `resetTentativeAnswer()`) never
-runs — but the stale prose is still accumulated in the buffer and would prepend itself to the
-eventual real answer. Clearing the buffer on every `TOOL_CALL` is idempotent with the
-rollback path (which also clears it) and keeps pre-tool reasoning from leaking across
-iterations.
-
-#### Rollback semantics (both triggers)
-
-When a rollback fires on an **active** tentative-answer bubble:
-
-1. **Delete** the tentative answer message in Telegram. If the delete call fails (message too
-   old, no rights, transient 5xx), edit the bubble to a graceful fallback
-   (`<i>(folded into reasoning)</i>`) instead — no retry.
-2. Fold the prose that had been streamed into the bubble back into the **status message**: it
-   replaces the trailing `💭 Thinking...` / reasoning line with an `<i>…</i>` overlay
-   containing the prose collapsed to a single line.
-3. Set `toolCallSeenThisIteration = true`. This suppresses any further promotion attempts in
-   the current iteration and short-circuits the scan on subsequent PARTIAL_ANSWER chunks.
-4. Reset tentative-answer state (buffer cleared, message id cleared, mode back to `STATUS_ONLY`).
-
-For trigger A, the orchestrator does **not** append a tool-call block at rollback time — it
-waits for the upcoming `TOOL_CALL` event (trigger B would have appended the block, but since
-we just reset `tentativeAnswerActive`, the renderer now maps `TOOL_CALL` to `AppendToolCall`
-instead of `RollbackAndAppendToolCall`, and the block is rendered normally in
-"Iteration flow" step 2).
-
-#### Finalize
-
-If the stream ends without any rollback firing, the tentative answer bubble becomes the final
-user-visible response: a final forced edit flushes the complete buffer, throttling is bypassed,
-and editing stops.
-
-**Link previews** are disabled (`disable_web_page_preview=true`) on every streaming edit of
-the answer bubble — an in-progress URL that's still being typed character-by-character would
-either fail to resolve or make Telegram flicker the preview card on every edit. The terminal
-forced edit inverts the flag: when `forceFlush=true` the orchestrator sends
-`disable_web_page_preview=false`, so Telegram fetches the preview for the first link in the
-now-complete message and renders the card below the bubble. The distinction is derived from
-the `forceFlush` parameter alone in `editTentativeAnswer` — no extra plumbing.
-
-#### Commit-to-answer rule
-
-A tentative answer bubble is opened on the **first** PARTIAL_ANSWER chunk of an
-iteration where `toolCallSeenThisIteration == false`. If the content later turns
-out to be pre-tool reasoning, one of two rollback triggers fires and the bubble
-is deleted and its prose is folded back into the status transcript as a
-reasoning overlay:
-
-1. **Trigger A** — a tool-call marker (`<tool_call>`, `<arg_key>`, `<arg_value>`,
-   `<tool>`, or their closing forms) is detected in the accumulated buffer by
-   the Telegram-layer text scan.
-2. **Trigger B** — an `AgentStreamEvent.TOOL_CALL` event arrives from the agent
-   loop.
-
-#### Markdown rendering in the answer bubble
-
-The tentative-answer buffer stores **pre-escaped HTML fragments** (see the marker list
-above) but the model output still carries raw Markdown tokens like `**bold**`, `*italic*`,
-`` `code` ``, `~~strike~~`. Before any `sendMessage` / `editMessage` that targets the
-answer bubble, the buffer content is passed through
-`AIUtils#convertEscapedMarkdownToHtml` — this applies Markdown-to-HTML replacements
-**without** re-escaping the already-escaped content (calling the standard
-`AIUtils#convertMarkdownToHtml` on an already-escaped buffer would double-escape
-`&amp;` → `&amp;amp;` and turn bot-authored literal tags like `<i>` into `&lt;i&gt;`).
-Status-message content is left as-is — it is authored by the Telegram layer itself and
-never contains raw Markdown.
-
-### Max iterations exhausted
-
-When `AgentProperties.maxIterations` is reached without a `finalAnswer`:
-
-1. One extra model call is made **without the tool list**, asking the model to summarize the
-   collected observations and answer the user directly — no further reasoning.
-2. The output is treated as a normal `finalAnswer` and drives the status-to-answer transition above.
-
-#### Invariant: MAX_ITERATIONS always pairs with FINAL_ANSWER rendering
-
-`ReActAgentExecutor` is the authoritative source of the terminal stream tail: whenever it
-emits a `MAX_ITERATIONS` event, it **also emits a `FINAL_ANSWER` event immediately after** —
-either with the summarizer output from step 1 above, or, if that call produced nothing, with
-the hard-coded safety-net fallback
-`"I reached the iteration limit before producing a complete answer. Please rephrase or try again."`
-This guarantees the Telegram layer never reaches the end of the stream with `ctx.responseText`
-still unset after an iteration-limit exit.
-
-Consumer contract inside `TelegramMessageHandlerActions`:
-
-- The `MAX_ITERATIONS` event appends `⚠️ reached iteration limit` to the status transcript and
-  force-flushes the status edit (see `handleAgentStreamEvent`).
-- The subsequent `FINAL_ANSWER` event sets `ctx.responseText`; `generateAgentResponse` then
-  either finalizes the tentative answer bubble (if one was opened via `PARTIAL_ANSWER`
-  promotion) or sends the text as a fresh message via `sendTextByParagraphs`. Either way, the
-  user **always** receives an answer bubble alongside the ⚠️ status marker.
-- If a `MAX_ITERATIONS` event is ever observed as the terminal event without a following
-  `FINAL_ANSWER` (i.e. the `ReActAgentExecutor` safety-net is bypassed or broken), the
-  Telegram layer classifies the outcome as `MessageHandlerErrorType.EMPTY_RESPONSE` so the
-  error path surfaces a notification to the user instead of silence.
-
-This invariant is pinned by two tests in
-`TelegramMessageHandlerActionsStreamingTest`:
-`shouldRenderFinalAnswerBubbleOnMaxIterations` (happy path — bubble delivered) and
-`shouldSetEmptyResponseErrorWhenMaxIterationsEventHasNoFinalAnswer` (regression guard against
-silent iteration-limit exits).
-
-### Telegram length limit — message rotation
-
-When a status or answer message approaches Telegram's message-body length cap:
-
-1. Stop editing the current message.
-2. Start a new message of the **same role** (status or answer), still as a reply to the original user message.
-3. Split on paragraph or sentence boundaries — never mid-word.
-
-Splitting logic is implemented in `io.github.ngirchev.opendaimon.common.service.AIUtils`.
-Paragraph-boundary streaming is exercised by
-`io.github.ngirchev.opendaimon.ai.springai.SpringAIOllamaDnsIT#testStreamParagraphToConsole`.
-
-### Original Russian draft (reference)
-
-> **Exception to the English-only documentation rule.** This subsection intentionally preserves
-> the author's original Russian phrasing for convenience. The English spec above is canonical —
-> if the two diverge, the English version wins.
-
-1. Пользователь отправляет запрос: Сравни производительность Quarkus и Spring Boot в 2026 году. Найди свежие бенчмарки и дай конкретные цифры
-2. Агент запускает React Loop: Отправляет запрос в модель передавая тулы, используем spring ai, но не используем spring agent loop
-3. В телеграм отправляется сообщение: 💭 Thinking...
-4. Модель ответила с tool запросом, редактируем сообщение в телеграм, заменяем 💭 Thinking... на 🔧 Tool: web_search
-   Query: Quarkus vs Spring Boot performance benchmarks 2023 2024 latest comparison numbers metrics latency throughput memory consumption
-   4.1. Если тул ничего не вернул, редактируем сообщение и на следующей строке пишем: 📋 No result
-   4.2. Если тул упал с ошибкой, редактируем сообщение и на следующей строке пишем: ⚠️ Tool failed: HTTP 403
-   4.3. Если результат есть, редактируем сообщение и на следующей строке пишем: 📋 Tool result received
-5. Если модель кроме tool call присылает свои рассуждения, раз в секунду вместо 💭 Thinking... пишем её рассуждения через редактирование, но когда выясняем что это всё же только часть цикла, и когда получаем ответ, заменяем всё же эту строку на результат, как в пункте 4.
-7. Если модель достигла лимита, вызываем последний раз запрос без передачи tool в модель, просим модель сделать вывод по собранным данным и ответить пользователю на запрос без рассуждений.
-8. Продолжаем редактировать сообщение пока мы не стали уверенны что это ответ пользователю, в этом случае заканчиваем редактировать сообщение в телеграме отвечающее за рассуждения и начинаем редактировать новое сообщение - ответ пользователю. Раз в секунду отправляем текст ответа.
-9. Если модель прислала смешанный ответ, когда в тексте есть <tool call> - то не считаем такой ответ конечным для пользователя, так же пишем редактируя сообщение как в предыдущих пунктах, сообщение thinking/processing, считаем это рассуждением и в итоге мы пишем только вызываемые действия в агентском цикле и результат.
-10. Каждое сообщение должно быть reply пользовательного сообщения с которого всё началось.
-11. Если мы достигли лимита по кол-ву символов в сообщении, прекращаем редактировать это сообщение и начинаем новое, того же типа, thinking или ответа пользователю. Контент не должен быть разбит на полуслове, нужно закончить предложение или абзац. Логика этого есть в io.github.ngirchev.opendaimon.common.service.AIUtils, а тест io.github.ngirchev.opendaimon.ai.springai.SpringAIOllamaDnsIT.testStreamParagraphToConsole тестировал эти разбиения по параграфам.
+- status message rotation uses `TelegramProgressBatcher.selectContentToFlush(...)`
+- final answer uses chunked send when text exceeds `maxMessageLength`
+- split prefers paragraph boundaries; oversized paragraphs are hard-cut to stay within Telegram limits
 
 ---
 
@@ -733,6 +627,8 @@ On context rebuild, expired refs are skipped; active refs are loaded from MinIO.
 ## Persistent Keyboard
 
 Sent after every successful AI response via `PersistentKeyboardService.sendKeyboard()`.
+
+When sent after agent streaming, the keyboard waits for the chat pacer instead of using only the short non-final timeout. This preserves the final status line such as `🤖 <model>  ·  💬 N%` after a group-chat stream where the final answer has just consumed the Telegram slot.
 
 `ReplyKeyboardMarkup` does **not** set `is_persistent` (default `false`). When `is_persistent` was `true`, Telegram Android often did not let the user leave the custom keyboard for the normal IME via the usual back affordance; the default keeps that transition working while the bot still re-sends the keyboard on new replies.
 
@@ -773,6 +669,7 @@ Table: `telegram_user` (JPA JOINED inheritance, discriminator `TELEGRAM`)
 |-------|------|-------|
 | `telegramId` | `Long` | Unique, maps to Telegram chat ID |
 | `preferredModelId` | `String` | Set by `/model`, null = auto |
+| `menuVersionHash` | `String(64)` | SHA-256 of the command set last pushed to Telegram for this chat via `BotCommandScopeChat`. Null when no chat-scoped menu has been set — user falls back to Default scope. See "Lazy per-chat command menu reconciliation". |
 | Inherited from `User` | | id, languageCode, isPremium, isBlocked, isAdmin, currentAssistantRole, lastActivityAt, … |
 
 ### TelegramUserSession
@@ -801,57 +698,82 @@ The control that opens the bot command list in the Telegram client is labeled by
 
 Session cleanup: `TelegramUserActivityService` runs every 10 minutes, closes sessions inactive > 15 minutes.
 
-## Agent Streaming: Throttling & Rollback Internals
+### Lazy per-chat command menu reconciliation
 
-### Rate-limited status edits — `TelegramProgressBatcher`
+Once a user interacts with `/language`, the bot calls `setMyCommands(..., chatId)` — a
+`BotCommandScopeChat` snapshot that overrides the Default-scope menu refreshed at startup.
+Because the Default-scope refresh never touches chat-scoped snapshots, a deployment that
+adds or removes commands (e.g. new `/mode`, `/thinking`) leaves those users frozen on the
+old menu.
 
-Status-bubble edits during a ReAct stream go through
-`TelegramProgressBatcher.shouldFlush(lastFlushAtMs, nowMs, debounceMs, forceFlush)`
-before reaching `messageSender.editHtml`. The debounce source is the existing
-`open-daimon.telegram.agent-stream-edit-min-interval-ms` property (default
-1000 ms) — a single knob that owns the rate limit across the two call sites
-(`editStatusThrottled`, `editTentativeAnswer`). Structural events (tool call,
-observation, final answer, rollback) pass `forceFlush=true` and bypass the
-window; `PARTIAL_ANSWER` chunks obey the debounce. This prevents runaway
-`editMessage` spam when the LLM emits many short tokens.
+`TelegramBotMenuService#reconcileMenuIfStale(TelegramUser)` repairs this lazily, on the
+user's first chat interaction after the deployment:
 
-Buffer rotation — choosing the cut point when the accumulated HTML exceeds
-Telegram's 4096-char limit — is centralized in
-`TelegramProgressBatcher.selectContentToFlush(buffer, maxLength)`, which
-delegates to `TelegramBufferRotator.rotateIfExceeds` so the heuristic
-(paragraph → sentence → whitespace → hard cut) stays shared between status
-and tentative-answer flushes.
+| Check | Outcome |
+|-------|---------|
+| `user.languageCode == null` | skip — user is still on the Default scope, already covered by startup refresh |
+| `user.menuVersionHash` equals `currentMenuVersionHash` | skip — nothing to do |
+| otherwise | call `setupBotMenuForUser(chatId, languageCode)`, then stamp `user.menuVersionHash = currentMenuVersionHash` |
 
-### Incremental tool-marker scan
+`currentMenuVersionHash` is a SHA-256 hex over the deterministic concatenation of
+`<lang>:<commandText>\n` lines across every entry in `SupportedLanguages.SUPPORTED_LANGUAGES`
+(sorted) and every handler-provided command text (sorted alphabetically within the language).
+It is computed lazily on first access and cached for the lifetime of the bean — command
+handlers are Spring-managed beans that may not be fully available at service construction time.
 
-Pre-4.7 the `containsToolMarker` scan was a naïve O(n·m) loop across every
-marker on every PARTIAL_ANSWER chunk — at tens of chunks per second and
-buffers of several KB the overhead showed up in streaming jitter. The
-context now stores `toolMarkerScanOffset` and the scan resumes from
-`max(0, offset - MAX_MARKER_LEN + 1)`, bounded to the size of the newly
-appended chunk plus one marker-length of overlap (to catch a marker that
-straddles the chunk boundary). `resetTentativeAnswer()` clears the offset so
-the next iteration starts fresh.
+**Wire-in points in `TelegramBot`:**
+- `mapToTelegramTextCommand` — inside the `stripped.startsWith("/")` branch, immediately
+  after `clearStatus(...)`.
+- `mapToTelegramCommand` — callback-query path, immediately after `getOrCreateUser(...)`.
 
-### Orphan tentative bubble on double failure
+Plain-text messages (UC-1 and friends) do NOT trigger reconciliation — only slash commands
+and callback clicks do. This keeps the hot text-message path free of extra DB work.
 
-When the tentative-answer bubble needs to be rolled back (tool marker
-detected mid-stream), the first attempt is `deleteMessage`; on failure the
-fallback is `editHtml` to `<i>(folded into reasoning)</i>`. If **both** fail
-— a rare condition usually signalling a Telegram API outage — the folded
-reasoning is still preserved as an overlay on the status message via
-`replaceTrailingThinkingLineWithEscaped(foldedProse, forceFlush=true)`. The
-orphan bubble remains visible, but its content is now stable (no further
-appends) and a log `ERROR` is emitted for ops attention. The rollback event
-reports `visual=false` in logs so it's searchable.
+Telegram API failures and any unexpected exception inside the reconcile call are swallowed
+by `TelegramBot` (logged at `warn`) — the command processing continues. When reconcile
+returns `true`, `TelegramBot` persists the new hash via
+`TelegramUserService#updateMenuVersionHash(telegramId, hash)`.
 
-### Cooperative cancellation (hook)
+Column: `telegram_user.menu_version_hash VARCHAR(64)`, nullable. Migration
+`V2__Add_menu_version_hash_to_telegram_user.sql`.
 
-The underlying `AgentContext` now exposes `cancel()` / `isCancelled()`. A
-future `/cancel` command can simply look up the active context for the chat
-and flip the flag — `SpringAgentLoopActions` polls the flag at iteration
-entry and during streaming and exits cleanly with
-`errorMessage="Agent run cancelled by user during streaming"`. The Telegram
-handler then routes to the error terminal and the user sees a standard
-"⚠️ ..." message instead of a silent stop. Wire-up of the command itself is
-out of scope for the current change set.
+## Agent Streaming Internals
+
+`TelegramAgentStreamView` is a **stateless** singleton — all per-stream render state (including the progressive rendered offset) lives on `MessageHandlerContext`, alongside `statusMessageId`, `statusBuffer`, and `lastStatusEditAtMs`.
+
+### Model-first buffering
+
+`TelegramMessageHandlerActions` consumes stream events into `TelegramAgentStreamModel`.
+This model keeps:
+
+- status transcript (`statusHtml`)
+- candidate partial answer buffer (iteration-local, not user-final)
+- confirmed final answer (`confirmedAnswer`)
+
+`PARTIAL_ANSWER` is never treated as final while the iteration can still produce tool calls.
+
+### View flush cadence
+
+`TelegramAgentStreamView` flushes model snapshots with chat-scoped pacing:
+
+- non-forced flushes: best effort (`tryReserve`) to avoid flooding Telegram
+- forced/final flushes: bounded wait (`reserve(timeoutMs)`)
+
+This keeps the stream responsive while respecting Telegram chat limits, especially in groups.
+
+### Final delivery path
+
+For the answer message, the view uses reliable sender methods:
+
+1. reserve chat slot
+2. send/edit
+3. on 429 parse `retry_after` and retry once if budget permits
+4. if final edit fails, fallback to fresh send
+5. if both fail, set `TELEGRAM_DELIVERY_FAILED` and route FSM to `ERROR`
+
+No extra Telegram error notification is sent in this case because the same chat may already be rate-limited.
+
+### UX phase pacing
+
+`open-daimon.telegram.agent-stream-edit-min-interval-ms` remains as UX pacing between phase transitions.
+It is not the primary Telegram rate limiter. Chat-scoped pacing for stream and keyboard operations is handled by `TelegramChatPacer`.

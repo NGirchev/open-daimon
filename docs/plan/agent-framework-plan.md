@@ -1,9 +1,9 @@
 # Agent Framework Pivot — Implementation Plan
 
-> **Architecture documentation**: see [`opendaimon-common/.../agent/README.md`](../opendaimon-common/src/main/java/io/github/ngirchev/opendaimon/common/agent/README.md)
+> **Architecture documentation**: see [`opendaimon-common/.../agent/README.md`](../../opendaimon-common/src/main/java/io/github/ngirchev/opendaimon/common/agent/README.md)
 > for the full architecture guide with diagrams, sequence flows, and bean wiring.
 >
-> **Sequence diagram**: see [`docs/agent-sequence.puml`](agent-sequence.puml)
+> **Sequence diagram**: see [`docs/agent-sequence.puml`](../agent-sequence.puml)
 
 ## Overview
 

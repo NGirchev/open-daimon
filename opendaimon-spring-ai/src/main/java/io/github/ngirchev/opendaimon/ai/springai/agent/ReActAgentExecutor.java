@@ -45,7 +45,8 @@ public class ReActAgentExecutor implements AgentExecutor {
                 request.conversationId(),
                 request.metadata(),
                 request.maxIterations(),
-                request.enabledTools()
+                request.enabledTools(),
+                request.attachments()
         );
 
         agentFsm.handle(ctx, AgentEvent.START);
@@ -71,7 +72,8 @@ public class ReActAgentExecutor implements AgentExecutor {
                         request.conversationId(),
                         request.metadata(),
                         request.maxIterations(),
-                        request.enabledTools()
+                        request.enabledTools(),
+                        request.attachments()
                 );
 
                 // Install an event listener on the context

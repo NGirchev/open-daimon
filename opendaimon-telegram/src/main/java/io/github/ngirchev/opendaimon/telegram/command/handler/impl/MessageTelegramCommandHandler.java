@@ -109,19 +109,25 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
     // --- Success response sending ---
 
     private void sendSuccessResponse(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        // ownerId identifies the settings-owner row (group in group chats, user in privates)
+        // so the keyboard label reads the group's preferred model / recent state, not the
+        // invoker's private-chat state. Falls back to invoker when settingsOwner is unset
+        // (legacy paths without a resolver).
+        Long ownerId = io.github.ngirchev.opendaimon.telegram.command.TelegramCommand
+                .resolveOwner(command, ctx.getTelegramUser()).getId();
         if (ctx.isAlreadySentInStream()) {
             // Streaming: text already sent paragraph-by-paragraph, now send keyboard
             persistentKeyboardService.sendKeyboard(
-                    command.telegramId(), ctx.getTelegramUser().getId(),
+                    command.telegramId(), ownerId,
                     ctx.getThread(), ctx.getResponseModel());
         } else {
             // Non-streaming: send text + keyboard, then status message with model name
             String htmlText = AIUtils.convertMarkdownToHtml(ctx.getResponseText().orElseThrow());
             ReplyKeyboardMarkup keyboard = persistentKeyboardService.buildKeyboardMarkup(
-                    ctx.getTelegramUser().getId(), ctx.getThread());
+                    ownerId, ctx.getThread());
             sendMessage(command.telegramId(), htmlText, message.getMessageId(), keyboard);
             persistentKeyboardService.sendKeyboard(
-                    command.telegramId(), ctx.getTelegramUser().getId(),
+                    command.telegramId(), ownerId,
                     ctx.getThread(), ctx.getResponseModel());
         }
     }

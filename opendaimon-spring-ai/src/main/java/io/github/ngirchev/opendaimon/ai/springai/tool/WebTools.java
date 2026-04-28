@@ -52,16 +52,19 @@ public class WebTools {
         name = "web_search",
         description = "Search the web for recent, factual information and return top results with URLs."
     )
-    public SearchResult webSearch(String query) {
+    public Object webSearch(String query) {
         if (apiKey == null || apiKey.isBlank()) {
             log.warn("WebTools.webSearch: Serper API key is not configured. Web search disabled. Returning empty result for query=[{}].", query);
             return new SearchResult(query, List.of());
         }
 
         if (query == null || query.isBlank()) {
-            log.warn("WebTools.webSearch: query is null/blank — skipping. "
-                    + "Likely the model emitted an empty tool_call arguments object.");
-            return new SearchResult(query == null ? "" : query, List.of());
+            log.warn("WebTools.webSearch: query is null/blank — returning structured error. "
+                    + "The model emitted an empty tool_call arguments object; the error-shaped observation "
+                    + "will be classified as a failure so the model can self-correct on the next iteration.");
+            return "Error: argument 'query' is required and must not be blank. "
+                    + "Retry web_search with a non-empty 'query' field containing the search terms. "
+                    + "Example arguments: {\"query\": \"russian theater cyprus 2026\"}";
         }
 
         Map<String, Object> body = Map.of(

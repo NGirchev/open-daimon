@@ -28,6 +28,7 @@ import io.github.ngirchev.opendaimon.common.service.TokenCounter;
 import io.github.ngirchev.opendaimon.common.service.impl.AssistantRoleServiceImpl;
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
+import io.github.ngirchev.opendaimon.it.TelegramMessageHandlerActionsTestWiring;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
@@ -41,12 +42,20 @@ import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepository;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacerImpl;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup;
+import io.github.ngirchev.opendaimon.common.repository.UserRepository;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsOwnerResolver;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatOwnerLookup;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramGroupService;
+import io.github.ngirchev.opendaimon.telegram.repository.TelegramGroupRepository;
 import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -223,7 +232,7 @@ public class TelegramFixtureConfig {
             TelegramUserRepository telegramUserRepository,
             TelegramUserSessionService telegramUserSessionService,
             AssistantRoleService assistantRoleService) {
-        return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService);
+        return new TelegramUserService(telegramUserRepository, telegramUserSessionService, assistantRoleService, false);
     }
 
     @Bean
@@ -242,7 +251,9 @@ public class TelegramFixtureConfig {
             MessageLocalizationService messageLocalizationService,
             ObjectProvider<StorageProperties> storagePropertiesProvider,
             ConversationThreadService conversationThreadService,
-            ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider) {
+            ObjectProvider<TelegramMessageService> telegramMessageServiceSelfProvider,
+            ChatOwnerLookup chatOwnerLookup,
+            ChatSettingsService chatSettingsService) {
         return new TelegramMessageService(
                 messageService,
                 telegramUserService,
@@ -250,7 +261,9 @@ public class TelegramFixtureConfig {
                 messageLocalizationService,
                 storagePropertiesProvider,
                 conversationThreadService,
-                telegramMessageServiceSelfProvider);
+                telegramMessageServiceSelfProvider,
+                chatOwnerLookup,
+                chatSettingsService);
     }
 
     @Bean
@@ -278,22 +291,42 @@ public class TelegramFixtureConfig {
     }
 
     @Bean
-    public UserModelPreferenceService userModelPreferenceService(
-            TelegramUserRepository telegramUserRepository) {
-        return new UserModelPreferenceService(telegramUserRepository);
+    public TelegramGroupService telegramGroupService(
+            TelegramGroupRepository telegramGroupRepository,
+            io.github.ngirchev.opendaimon.common.service.AssistantRoleService assistantRoleService) {
+        return new TelegramGroupService(telegramGroupRepository, assistantRoleService, false);
+    }
+
+    @Bean
+    public ChatSettingsService chatSettingsService(
+            TelegramUserService telegramUserService,
+            TelegramGroupService telegramGroupService) {
+        return new ChatSettingsService(telegramUserService, telegramGroupService);
+    }
+
+    @Bean
+    public ChatSettingsOwnerResolver chatSettingsOwnerResolver(
+            TelegramUserService telegramUserService,
+            TelegramGroupService telegramGroupService) {
+        return new ChatSettingsOwnerResolver(telegramUserService, telegramGroupService);
+    }
+
+    @Bean
+    public ChatOwnerLookup chatOwnerLookup(ChatSettingsOwnerResolver resolver) {
+        return new TelegramChatOwnerLookup(resolver);
     }
 
     @Bean
     public PersistentKeyboardService persistentKeyboardService(
-            UserModelPreferenceService userModelPreferenceService,
             CoreCommonProperties coreCommonProperties,
             ObjectProvider<TelegramBot> telegramBotProvider,
             TelegramProperties telegramProperties,
             MessageLocalizationService messageLocalizationService,
-            TelegramUserRepository telegramUserRepository) {
+            UserRepository userRepository) {
         return new PersistentKeyboardService(
-                userModelPreferenceService, coreCommonProperties, telegramBotProvider,
-                telegramProperties, messageLocalizationService, telegramUserRepository);
+                coreCommonProperties, telegramBotProvider,
+                telegramProperties, messageLocalizationService, userRepository,
+                new TelegramChatPacerImpl(telegramProperties));
     }
 
     @Bean
@@ -317,26 +350,14 @@ public class TelegramFixtureConfig {
             OpenDaimonMessageService messageService,
             AIRequestPipeline aiRequestPipeline,
             TelegramProperties telegramProperties,
-            UserModelPreferenceService userModelPreferenceService,
+            ChatSettingsService chatSettingsService,
             PersistentKeyboardService persistentKeyboardService,
             ReplyImageAttachmentService replyImageAttachmentService) {
-        TelegramMessageSender messageSender = new TelegramMessageSender(
-                telegramBotProvider, messageLocalizationService, persistentKeyboardService);
-        TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
+        return TelegramMessageHandlerActionsTestWiring.create(
+                telegramBotProvider, typingIndicatorService, messageLocalizationService,
                 telegramUserService, telegramUserSessionService, telegramMessageService,
                 aiGatewayRegistry, messageService, aiRequestPipeline, telegramProperties,
-                userModelPreferenceService, persistentKeyboardService, replyImageAttachmentService,
-                messageSender, null, null, 10);
-        ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
-                MessageHandlerFsmFactory.create(actions);
-        return new MessageTelegramCommandHandler(
-                telegramBotProvider,
-                typingIndicatorService,
-                messageLocalizationService,
-                handlerFsm,
-                telegramMessageService,
-                telegramProperties,
-                persistentKeyboardService);
+                chatSettingsService, persistentKeyboardService, replyImageAttachmentService);
     }
 
     /**

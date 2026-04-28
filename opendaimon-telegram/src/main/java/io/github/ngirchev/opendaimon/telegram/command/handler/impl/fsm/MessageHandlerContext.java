@@ -92,6 +92,7 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
     private Integer statusMessageId;
     private final StringBuilder statusBuffer = new StringBuilder();
     private long lastStatusEditAtMs;
+    private int statusRenderedOffset;
 
     // --- Tentative answer message state ---
     private Integer tentativeAnswerMessageId;
@@ -331,6 +332,14 @@ public final class MessageHandlerContext implements StateContext<MessageHandlerS
 
     public void markStatusEdited() {
         this.lastStatusEditAtMs = System.currentTimeMillis();
+    }
+
+    public int getStatusRenderedOffset() {
+        return statusRenderedOffset;
+    }
+
+    public void setStatusRenderedOffset(int statusRenderedOffset) {
+        this.statusRenderedOffset = statusRenderedOffset;
     }
 
     // --- Tentative answer accessors ---
