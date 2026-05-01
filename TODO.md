@@ -50,11 +50,11 @@
 - [ ] **opendaimon-spring-boot-starter** — auto-configuration starter for easy integration 
   - [ ] New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
   - [ ] Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
-  - [ ] **Module hygiene & ArchUnit** — enforce clean module boundaries before publishing to Maven Central (see `AGENTS.md` § Project Nature)
-  - [ ] **`./mvnw dependency:analyze` reactor-wide** — fix every `Used undeclared dependencies` and `Unused declared dependencies` finding, then wire `maven-dependency-plugin:analyze-only` into the `verify` phase with `failOnWarning=true` so future undeclared / unused deps break CI. First known cases: `opendaimon-telegram` uses Caffeine in `TelegramChatPacerImpl` without declaring it (transitively via `opendaimon-common`); `opendaimon-spring-ai` re-declares Caffeine that already comes through `opendaimon-common` — keep the declaration (per "declare what you use") and verify nothing else falls in the same trap.
-  - [ ] **ArchUnit test module** — inter-module boundary rules (`opendaimon-telegram` ↛ `opendaimon-rest`, `opendaimon-rest` ↛ `opendaimon-telegram`, only `opendaimon-app` may depend on multiple delivery-channel modules), per-module layering (`config` → `service` → `repository`, never the reverse), and a guard that forbids `@Service` / `@Component` beans plus concrete `@Repository` classes outside test sources while allowing Spring Data repository interfaces.
-  - [ ] **`maven-enforcer-plugin` rules** — `dependencyConvergence` (single resolved version per transitive dep), `requireUpperBoundDeps`, `bannedDependencies` (no `commons-logging`, no `*-spring-boot-starter` in non-`opendaimon-app` modules to keep delivery-channel modules embeddable in third-party Spring Boot apps).
-  - [ ] **Continuation checkpoint: module hygiene / dependency analyze / ArchUnit**
+  - [x] **Module hygiene & ArchUnit** — enforce clean module boundaries before publishing to Maven Central (see `AGENTS.md` § Project Nature)
+  - [x] **`./mvnw dependency:analyze` reactor-wide** — fix every `Used undeclared dependencies` and `Unused declared dependencies` finding, then wire `maven-dependency-plugin:analyze-only` into the `verify` phase with `failOnWarning=true` so future undeclared / unused deps break CI. First known cases: `opendaimon-telegram` uses Caffeine in `TelegramChatPacerImpl` without declaring it (transitively via `opendaimon-common`); `opendaimon-spring-ai` re-declares Caffeine that already comes through `opendaimon-common` — keep the declaration (per "declare what you use") and verify nothing else falls in the same trap.
+  - [x] **ArchUnit test module** — inter-module boundary rules (`opendaimon-telegram` ↛ `opendaimon-rest`, `opendaimon-rest` ↛ `opendaimon-telegram`, only `opendaimon-app` may depend on multiple delivery-channel modules), per-module layering (`config` → `service` → `repository`, never the reverse), and a guard that forbids `@Service` / `@Component` beans plus concrete `@Repository` classes outside test sources while allowing Spring Data repository interfaces.
+  - [x] **`maven-enforcer-plugin` rules** — `dependencyConvergence` (single resolved version per transitive dep), `requireUpperBoundDeps`, `bannedDependencies` (no `commons-logging`, no `*-spring-boot-starter` in non-`opendaimon-app` modules to keep delivery-channel modules embeddable in third-party Spring Boot apps).
+  - [x] **Continuation checkpoint: module hygiene / dependency analyze / ArchUnit**
     - [x] Root Maven hygiene baseline
       - Spring Boot aligned to `3.5.13`.
       - Removed explicit Spring Framework BOM override.
@@ -106,11 +106,16 @@
       - Run `./mvnw -pl opendaimon-app -am test -Dtest=ArchitectureTest -Dsurefire.failIfNoSpecifiedTests=false`.
       - Fix real boundary/layer violations in code; do not reintroduce frozen ArchUnit rules.
       - Verified with `./mvnw -pl opendaimon-app -am test -Dtest=ArchitectureTest -Dsurefire.failIfNoSpecifiedTests=false`: `ArchitectureTest` passed (7 tests, 0 failures/errors/skipped).
-    - [ ] Final reactor verification
+    - [x] Final reactor verification
       - Run `./mvnw clean compile`.
       - Run `./mvnw dependency:analyze -DskipTests`.
       - Run targeted `ArchitectureTest`.
       - Run `./mvnw clean verify`.
+      - Verified `./mvnw clean compile`: reactor build success across 8 modules.
+      - Verified `./mvnw dependency:analyze -DskipTests`: dependency analyzer reports `No dependency problems found` across all jar modules.
+      - Verified `./mvnw -pl opendaimon-app -am test -Dtest=ArchitectureTest -Dsurefire.failIfNoSpecifiedTests=false`: `ArchitectureTest` passed (7 tests, 0 failures/errors/skipped).
+      - First sandboxed `./mvnw clean verify` failed in `opendaimon-spring-ai` because the sandbox blocked local socket binding / DNS used by tests (`MockWebServer.start`, `example.com`).
+      - Verified outside the sandbox with `./mvnw clean verify`: full reactor build success; `dependency:analyze-only` and enforcer rules passed in `verify`, including app integration tests.
 
 ## Agent Framework Pivot
 
