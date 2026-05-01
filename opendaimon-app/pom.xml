@@ -142,6 +142,12 @@
             <artifactId>minio</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- OkHttp (required by MinIO client at runtime) -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Logging -->
         <dependency>
@@ -248,11 +254,6 @@
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
             <scope>test</scope>
         </dependency>
@@ -293,6 +294,7 @@
                         <ignored>org.postgresql:postgresql</ignored>
                         <ignored>org.flywaydb:flyway-database-postgresql</ignored>
                         <ignored>io.minio:minio</ignored>
+                        <ignored>com.squareup.okhttp3:okhttp</ignored>
                         <ignored>net.logstash.logback:logstash-logback-encoder</ignored>
                         <ignored>org.apache.pdfbox:pdfbox-io</ignored>
                         <ignored>org.springframework.boot:spring-boot-testcontainers</ignored>

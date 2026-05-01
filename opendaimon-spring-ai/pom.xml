@@ -98,6 +98,22 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-openai</artifactId>
         </dependency>
+        <!-- Provider/chat-client autoconfig from Spring AI starters, kept explicit for starter hygiene -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-autoconfigure-model-openai</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-autoconfigure-model-ollama</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-autoconfigure-model-chat-client</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <!-- Chat memory autoconfig + JDBC repository (runtime-only autoconfig glue) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
@@ -326,9 +342,12 @@
                         <ignored>org.apache.pdfbox:pdfbox-io</ignored>
                         <!-- Spring Boot discovers these auto-configurations through
                              META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports.
-                             They provide ChatMemoryRepository/ChatMemory runtime beans for
-                             consumers of this starter-style module, so source analysis cannot
-                             see the usage. -->
+                             They provide provider ChatModel, ChatClient, and ChatMemory runtime
+                             beans for consumers of this starter-style module, so source analysis
+                             cannot see the usage. -->
+                        <ignored>org.springframework.ai:spring-ai-autoconfigure-model-openai</ignored>
+                        <ignored>org.springframework.ai:spring-ai-autoconfigure-model-ollama</ignored>
+                        <ignored>org.springframework.ai:spring-ai-autoconfigure-model-chat-client</ignored>
                         <ignored>org.springframework.ai:spring-ai-autoconfigure-model-chat-memory</ignored>
                         <ignored>org.springframework.ai:spring-ai-autoconfigure-model-chat-memory-repository-jdbc</ignored>
                     </ignoredUnusedDeclaredDependencies>
