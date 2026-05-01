@@ -398,6 +398,19 @@ public class OpenDaimonMessageService {
         return result;
     }
 
+    @Transactional(readOnly = true)
+    public List<OpenDaimonMessage> findByThreadOrderBySequenceNumberAsc(ConversationThread thread) {
+        return messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OpenDaimonMessage> findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(
+            ConversationThread thread,
+            Integer minSequenceNumber) {
+        return messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(
+                thread, minSequenceNumber);
+    }
+
     /**
      * Stores RAG documentIds and filenames in the metadata of a USER message.
      *

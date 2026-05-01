@@ -7,7 +7,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 /**
  * Admin-scope queries over ConversationThread.
@@ -15,7 +14,6 @@ import org.springframework.stereotype.Repository;
  * core common contract — this keeps opendaimon-common untouched while still reusing
  * the ConversationThread entity.
  */
-@Repository
 public interface AdminConversationRepository extends JpaRepository<ConversationThread, Long> {
 
     /**

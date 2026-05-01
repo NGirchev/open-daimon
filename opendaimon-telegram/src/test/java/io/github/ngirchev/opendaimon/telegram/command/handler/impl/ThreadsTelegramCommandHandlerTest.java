@@ -18,7 +18,6 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
@@ -55,8 +54,6 @@ class ThreadsTelegramCommandHandlerTest {
     @Mock
     private TypingIndicatorService typingIndicatorService;
     @Mock
-    private ConversationThreadRepository threadRepository;
-    @Mock
     private ConversationThreadService threadService;
     @Mock
     private TelegramUserService userService;
@@ -76,7 +73,7 @@ class ThreadsTelegramCommandHandlerTest {
         when(botProvider.getObject()).thenReturn(telegramBot);
 
         handler = new ThreadsTelegramCommandHandler(botProvider, typingIndicatorService, messageLocalizationService,
-                threadRepository, threadService, userService);
+                threadService, userService);
     }
 
     @Test
@@ -150,8 +147,7 @@ class ThreadsTelegramCommandHandlerTest {
         TelegramUser user = new TelegramUser();
         user.setTelegramId(200L);
         when(userService.getOrCreateUser(any(User.class))).thenReturn(user);
-        when(threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
-                ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(List.of());
+        when(threadService.findThreads(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(List.of());
 
         TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.THREADS), update);
         command.languageCode("en");
@@ -180,8 +176,7 @@ class ThreadsTelegramCommandHandlerTest {
         thread.setScopeId(CHAT_ID);
 
         when(userService.getOrCreateUser(from)).thenReturn(user);
-        when(threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
-                ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(List.of(thread));
+        when(threadService.findThreads(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(List.of(thread));
 
         TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.THREADS), update);
         command.languageCode("en");
@@ -335,8 +330,7 @@ class ThreadsTelegramCommandHandlerTest {
         TelegramUser user = new TelegramUser();
         user.setTelegramId(200L);
         when(userService.getOrCreateUser(any(User.class))).thenReturn(user);
-        when(threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
-                ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(List.of());
+        when(threadService.findThreads(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(List.of());
 
         TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.THREADS), update);
         command.languageCode("en");

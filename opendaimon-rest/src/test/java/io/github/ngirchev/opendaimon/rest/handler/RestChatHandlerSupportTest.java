@@ -1,6 +1,5 @@
 package io.github.ngirchev.opendaimon.rest.handler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.SupportedLanguages;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -119,7 +118,7 @@ class RestChatHandlerSupportTest {
     class SerializeToJson {
 
         @Test
-        void whenMapValid_returnsJsonString() throws JsonProcessingException {
+        void whenMapValid_returnsJsonString() throws Exception {
             Map<String, Object> map = Map.of("key", "value");
             when(objectMapper.writeValueAsString(map)).thenReturn("{\"key\":\"value\"}");
 
@@ -137,7 +136,7 @@ class RestChatHandlerSupportTest {
         }
 
         @Test
-        void whenWriteValueThrows_returnsNull() throws JsonProcessingException {
+        void whenWriteValueThrows_returnsNull() throws Exception {
             Map<String, Object> map = Map.of("x", "y");
             when(objectMapper.writeValueAsString(map)).thenThrow(new RuntimeException("serialization failed"));
 
@@ -150,7 +149,7 @@ class RestChatHandlerSupportTest {
     class HandleProcessingError {
 
         @Test
-        void whenUserMessageNotNull_savesAssistantErrorMessageAndReturnsRuntimeException() throws JsonProcessingException {
+        void whenUserMessageNotNull_savesAssistantErrorMessageAndReturnsRuntimeException() throws Exception {
             HttpServletRequest request = mockRequestWithLocale(Locale.ENGLISH);
             RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
             RestUser user = new RestUser();
@@ -181,7 +180,7 @@ class RestChatHandlerSupportTest {
         }
 
         @Test
-        void whenModelCapabilitiesEmpty_usesChatInMetadata() throws JsonProcessingException {
+        void whenModelCapabilitiesEmpty_usesChatInMetadata() throws Exception {
             when(objectMapper.writeValueAsString(any())).thenAnswer(inv -> {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> m = inv.getArgument(0);

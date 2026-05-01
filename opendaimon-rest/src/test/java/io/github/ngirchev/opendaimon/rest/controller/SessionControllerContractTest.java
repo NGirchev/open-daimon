@@ -16,11 +16,11 @@ import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.repository.RestUserRepository;
 import io.github.ngirchev.opendaimon.rest.service.ChatService;
 import io.github.ngirchev.opendaimon.rest.service.RestAuthorizationService;
+import jakarta.annotation.Resource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -33,6 +33,7 @@ import reactor.core.publisher.Flux;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static org.hamcrest.Matchers.equalTo;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -60,10 +61,10 @@ class SessionControllerContractTest {
     private static final String TEST_EMAIL = "user@test.com";
     private static final String SESSION_ID = "session-123";
 
-    @Autowired
+    @Resource
     private MockMvc mockMvc;
 
-    @Autowired
+    @Resource
     private ObjectMapper objectMapper;
 
     @MockitoBean
@@ -110,8 +111,8 @@ class SessionControllerContractTest {
                             .content(toJson(request)))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.message").value("AI reply"))
-                    .andExpect(jsonPath("$.sessionId").value(SESSION_ID));
+                    .andExpect(jsonPath("$.message").value(equalTo("AI reply")))
+                    .andExpect(jsonPath("$.sessionId").value(equalTo(SESSION_ID)));
         }
 
         @Test
@@ -126,8 +127,8 @@ class SessionControllerContractTest {
                     .andExpect(status().isUnauthorized())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                     .andExpect(jsonPath("$.message").exists())
-                    .andExpect(jsonPath("$.status").value(401))
-                    .andExpect(jsonPath("$.redirect").value("/login"));
+                    .andExpect(jsonPath("$.status").value(equalTo(401)))
+                    .andExpect(jsonPath("$.redirect").value(equalTo("/login")));
         }
 
         @Test
@@ -142,8 +143,8 @@ class SessionControllerContractTest {
                             .accept(MediaType.APPLICATION_JSON)
                             .content(toJson(request)))
                     .andExpect(status().isUnauthorized())
-                    .andExpect(jsonPath("$.message").value("User not found"))
-                    .andExpect(jsonPath("$.status").value(401));
+                    .andExpect(jsonPath("$.message").value(equalTo("User not found")))
+                    .andExpect(jsonPath("$.status").value(equalTo(401)));
         }
     }
 
@@ -165,8 +166,8 @@ class SessionControllerContractTest {
                             .content(toJson(request)))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.message").value("AI reply"))
-                    .andExpect(jsonPath("$.sessionId").value(SESSION_ID));
+                    .andExpect(jsonPath("$.message").value(equalTo("AI reply")))
+                    .andExpect(jsonPath("$.sessionId").value(equalTo(SESSION_ID)));
         }
 
         @Test
@@ -199,11 +200,11 @@ class SessionControllerContractTest {
             mockMvc.perform(get(BASE_URL).param("email", TEST_EMAIL))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.length()").value(2))
-                    .andExpect(jsonPath("$[0].sessionId").value("s1"))
-                    .andExpect(jsonPath("$[0].name").value("Chat 1"))
+                    .andExpect(jsonPath("$.length()").value(equalTo(2)))
+                    .andExpect(jsonPath("$[0].sessionId").value(equalTo("s1")))
+                    .andExpect(jsonPath("$[0].name").value(equalTo("Chat 1")))
                     .andExpect(jsonPath("$[0].createdAt").exists())
-                    .andExpect(jsonPath("$[1].sessionId").value("s2"));
+                    .andExpect(jsonPath("$[1].sessionId").value(equalTo("s2")));
         }
 
         @Test
@@ -231,12 +232,12 @@ class SessionControllerContractTest {
             mockMvc.perform(get(BASE_URL + "/" + SESSION_ID + "/messages").param("email", TEST_EMAIL))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.sessionId").value(SESSION_ID))
-                    .andExpect(jsonPath("$.messages.length()").value(2))
-                    .andExpect(jsonPath("$.messages[0].role").value("USER"))
-                    .andExpect(jsonPath("$.messages[0].content").value("Hello"))
-                    .andExpect(jsonPath("$.messages[1].role").value("ASSISTANT"))
-                    .andExpect(jsonPath("$.messages[1].content").value("Hi there"));
+                    .andExpect(jsonPath("$.sessionId").value(equalTo(SESSION_ID)))
+                    .andExpect(jsonPath("$.messages.length()").value(equalTo(2)))
+                    .andExpect(jsonPath("$.messages[0].role").value(equalTo("USER")))
+                    .andExpect(jsonPath("$.messages[0].content").value(equalTo("Hello")))
+                    .andExpect(jsonPath("$.messages[1].role").value(equalTo("ASSISTANT")))
+                    .andExpect(jsonPath("$.messages[1].content").value(equalTo("Hi there")));
         }
 
         @Test
@@ -291,7 +292,7 @@ class SessionControllerContractTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                     .andExpect(jsonPath("$.message").exists())
-                    .andExpect(jsonPath("$.status").value(400));
+                    .andExpect(jsonPath("$.status").value(equalTo(400)));
         }
     }
 
@@ -315,7 +316,7 @@ class SessionControllerContractTest {
                     .andExpect(status().isForbidden())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                     .andExpect(jsonPath("$.message").exists())
-                    .andExpect(jsonPath("$.status").value(403));
+                    .andExpect(jsonPath("$.status").value(equalTo(403)));
         }
     }
 

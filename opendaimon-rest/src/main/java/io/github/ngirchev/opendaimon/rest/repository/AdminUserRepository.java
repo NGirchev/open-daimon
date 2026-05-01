@@ -6,13 +6,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 
 /**
  * Polymorphic lookup over the base User table for admin filter dropdowns.
  * Returns TelegramUser / RestUser subclasses transparently thanks to JOINED inheritance.
  */
-@Repository
 public interface AdminUserRepository extends JpaRepository<User, Long> {
 
     /**

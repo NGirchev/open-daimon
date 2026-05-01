@@ -83,23 +83,21 @@ public class RestUserService {
         if (level == null) {
             return;
         }
-        switch (level) {
-            case ADMIN -> {
-                user.setIsAdmin(true);
-                user.setIsPremium(true);
-                user.setIsBlocked(false);
-            }
-            case VIP -> {
-                user.setIsAdmin(false);
-                user.setIsPremium(true);
-                user.setIsBlocked(false);
-            }
-            case REGULAR, BLOCKED -> {
-                user.setIsAdmin(false);
-                user.setIsPremium(false);
-                user.setIsBlocked(level == UserPriority.BLOCKED);
-            }
+        if (level == UserPriority.ADMIN) {
+            user.setIsAdmin(true);
+            user.setIsPremium(true);
+            user.setIsBlocked(false);
+            return;
         }
+        if (level == UserPriority.VIP) {
+            user.setIsAdmin(false);
+            user.setIsPremium(true);
+            user.setIsBlocked(false);
+            return;
+        }
+        user.setIsAdmin(false);
+        user.setIsPremium(false);
+        user.setIsBlocked(level == UserPriority.BLOCKED);
     }
 
     /**
@@ -186,4 +184,3 @@ public class RestUserService {
         return restUserRepository.findById(id);
     }
 }
-

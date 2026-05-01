@@ -6,7 +6,6 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
@@ -19,8 +18,6 @@ import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 
-import java.util.Optional;
-
 /**
  * Handler for /newthread command to start a new conversation.
  */
@@ -28,7 +25,6 @@ import java.util.Optional;
 public class NewThreadTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
     
     private final ConversationThreadService threadService;
-    private final ConversationThreadRepository threadRepository;
     private final TelegramUserService userService;
     private final ObjectProvider<PersistentKeyboardService> persistentKeyboardServiceProvider;
 
@@ -37,12 +33,10 @@ public class NewThreadTelegramCommandHandler extends AbstractTelegramCommandHand
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
             ConversationThreadService threadService,
-            ConversationThreadRepository threadRepository,
             TelegramUserService userService,
             ObjectProvider<PersistentKeyboardService> persistentKeyboardServiceProvider) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.threadService = threadService;
-        this.threadRepository = threadRepository;
         this.userService = userService;
         this.persistentKeyboardServiceProvider = persistentKeyboardServiceProvider;
     }
@@ -72,10 +66,7 @@ public class NewThreadTelegramCommandHandler extends AbstractTelegramCommandHand
         Long chatId = command.telegramId();
 
         // Close current thread (if any active)
-        Optional<ConversationThread> currentThread = threadRepository.findMostRecentActiveThread(
-                ThreadScopeKind.TELEGRAM_CHAT, chatId);
-        boolean hadPreviousThread = currentThread.isPresent();
-        currentThread.ifPresent(threadService::closeThread);
+        boolean hadPreviousThread = threadService.closeCurrentThread(ThreadScopeKind.TELEGRAM_CHAT, chatId);
 
         // Create new thread — thread.user is the invoker (audit), scope is per-chat.
         ConversationThread newThread = threadService.createNewThread(user, ThreadScopeKind.TELEGRAM_CHAT, chatId);

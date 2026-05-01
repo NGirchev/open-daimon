@@ -7,9 +7,9 @@ import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
-import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
+import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
@@ -28,20 +28,20 @@ import java.util.Optional;
 @Slf4j
 public class HistoryTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
     
-    private final ConversationThreadRepository threadRepository;
-    private final OpenDaimonMessageRepository messageRepository;
+    private final ConversationThreadService threadService;
+    private final OpenDaimonMessageService messageService;
     private final TelegramUserService userService;
     
     public HistoryTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
-            ConversationThreadRepository threadRepository,
-            OpenDaimonMessageRepository messageRepository,
+            ConversationThreadService threadService,
+            OpenDaimonMessageService messageService,
             TelegramUserService userService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
-        this.threadRepository = threadRepository;
-        this.messageRepository = messageRepository;
+        this.threadService = threadService;
+        this.messageService = messageService;
         this.userService = userService;
     }
     
@@ -65,13 +65,13 @@ public class HistoryTelegramCommandHandler extends AbstractTelegramCommandHandle
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for history command");
         }
         userService.getOrCreateUser(message.getFrom());
-        Optional<ConversationThread> threadOpt = threadRepository.findMostRecentActiveThread(
+        Optional<ConversationThread> threadOpt = threadService.findCurrentThread(
                 ThreadScopeKind.TELEGRAM_CHAT, command.telegramId());
         if (threadOpt.isEmpty()) {
             return "❌ You have no active conversation. Start one by sending a message.";
         }
         ConversationThread thread = threadOpt.get();
-        List<OpenDaimonMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
+        List<OpenDaimonMessage> messages = messageService.findByThreadOrderBySequenceNumberAsc(thread);
         if (messages.isEmpty()) {
             return "📝 Conversation history is empty.\n\nThread ID: `" + thread.getThreadKey().substring(0, 8) + "...`";
         }

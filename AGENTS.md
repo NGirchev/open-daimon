@@ -29,10 +29,13 @@ Consequences for any change touching `pom.xml`, public types, or shared APIs:
 
 ### MCP tools for information lookup
 
-- Two MCP servers are available and should be used for information lookup when relevant:
+- MCP servers are available and should be used for information lookup when relevant:
   - `Serena` — codebase navigation, symbol search, and project-aware exploration.
+  - `JetBrains` — IDE-indexed code search/navigation, symbol documentation, rename refactoring, open-editor context, and inspections.
   - `Context7` — library/framework documentation lookup and API usage search.
 - Prefer these MCP tools first for discovery and verification before broader ad-hoc searching.
+- Prefer JetBrains MCP for Java refactoring and IDE-backed checks: use it before text-only replacement for renames, before broad shell search when IDE indexing is likely more precise, and for targeted file diagnostics after edits.
+- Prefer Context7 for Spring AI, OpenAI API, MCP SDK/transport, Maven plugin, and dependency API questions before answering or implementing from memory.
 
 ### Documentation maintenance
 
