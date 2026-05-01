@@ -541,6 +541,12 @@ never sees an orphan "⚠️ reached iteration limit" status line with no body t
 the warn message ever shows up in `logs/`, it flags a bug in the
 `handleMaxIterations` fallback chain rather than being normal steady state.
 
+Final-answer cleanup strips model reasoning before both delivery and chat-memory
+persistence. The sanitizer handles provider metadata, `<think>...</think>` blocks,
+or plaintext `THINK:`/`Thought:` prefixes. If a plaintext reasoning prefix has no
+clear answer boundary, the cleaned answer is treated as empty so the retry/fallback
+path runs instead of saving or sending reasoning as assistant text.
+
 ### WebClient codec — `webToolsWebClient` bean
 
 Built-in agent tools that fetch arbitrary third-party pages/APIs (`WebTools`,

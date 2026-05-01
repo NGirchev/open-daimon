@@ -600,8 +600,9 @@ answer.
 ### Length handling
 
 - status message rotation uses `TelegramProgressBatcher.selectContentToFlush(...)`
-- final answer uses chunked send when text exceeds `maxMessageLength`
-- split prefers paragraph boundaries; oversized paragraphs are hard-cut to stay within Telegram limits
+- final answer uses chunked send when the converted Telegram HTML would exceed `maxMessageLength`
+- split prefers paragraph boundaries, flushes the current paragraph buffer before overflow,
+  and hard-cuts oversized paragraphs so every sent HTML chunk stays within Telegram limits
 
 ---
 

@@ -178,6 +178,23 @@ class SpringAgentLoopActionsStreamingTest {
     }
 
     @Test
+    void shouldStripPlaintextThinkPrefixFromFallbackFinalAnswer() {
+        when(chatModel.stream(any(Prompt.class)))
+                .thenThrow(new RuntimeException("stream unavailable"));
+        when(chatModel.call(any(Prompt.class))).thenReturn(chunk(
+                "THINK: I should answer from prior context.\n\nI already answered above."));
+
+        actions.think(ctx);
+
+        assertThat(ctx.getCurrentTextResponse()).isEqualTo("I already answered above.");
+        assertThat(ctx.getCurrentTextResponse()).doesNotContain("THINK:");
+        assertThat(events)
+                .filteredOn(e -> e.type() == EventType.THINKING)
+                .extracting(AgentStreamEvent::content)
+                .anySatisfy(content -> assertThat(content).contains("prior context"));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void shouldRouteFallbackCallThroughPriorityRequestExecutor() throws Exception {
         PriorityRequestExecutor mockExecutor = mock(PriorityRequestExecutor.class);

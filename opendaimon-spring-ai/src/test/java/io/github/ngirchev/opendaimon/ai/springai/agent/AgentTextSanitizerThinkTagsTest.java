@@ -19,6 +19,13 @@ class AgentTextSanitizerThinkTagsTest {
     }
 
     @Test
+    void shouldExtractPlaintextThinkPrefixBeforeBlankLine() {
+        String text = "THINK: I should answer from the previous context.\n\nI already answered above.";
+        assertThat(AgentTextSanitizer.extractThinkTags(text))
+                .isEqualTo("I should answer from the previous context.");
+    }
+
+    @Test
     void shouldReturnNullForNullInput() {
         assertThat(AgentTextSanitizer.extractThinkTags(null)).isNull();
     }
@@ -44,6 +51,26 @@ class AgentTextSanitizerThinkTagsTest {
     void shouldReturnTextUnchangedWhenNoThinkTags() {
         assertThat(AgentTextSanitizer.stripThinkTags("Just a regular answer"))
                 .isEqualTo("Just a regular answer");
+    }
+
+    @Test
+    void shouldStripPlaintextThinkPrefixBeforeBlankLine() {
+        String text = "THINK: I should answer from the previous context.\n\nI already answered above.";
+        assertThat(AgentTextSanitizer.stripThinkTags(text))
+                .isEqualTo("I already answered above.");
+    }
+
+    @Test
+    void shouldStripPlaintextThoughtPrefixBeforeAnswerMarker() {
+        String text = "Thought: Need to be concise.\nAnswer: The answer is visible.";
+        assertThat(AgentTextSanitizer.stripThinkTags(text))
+                .isEqualTo("The answer is visible.");
+    }
+
+    @Test
+    void shouldReturnEmptyForPlaintextThinkPrefixWithoutAnswerBoundary() {
+        String text = "THINK: I should now present the answer but have not separated it";
+        assertThat(AgentTextSanitizer.stripThinkTags(text)).isEmpty();
     }
 
     @Test

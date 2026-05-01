@@ -6,6 +6,9 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Telegram view for an agent stream model.
  *
@@ -129,28 +132,51 @@ public final class TelegramAgentStreamView {
             return true;
         }
         Long chatId = ctx.getCommand().telegramId();
-        String html = model.answerHtml();
         long maxWaitMs = telegramProperties.getAgentStreamView().getFinalDeliveryTimeoutMs();
+        List<String> answerChunks = splitAnswerChunks(model.answerText());
+        if (answerChunks.isEmpty()) {
+            log.error("Final Telegram answer split produced no chunks for chatId={}", chatId);
+            return false;
+        }
         Integer answerId = ctx.getTentativeAnswerMessageId();
         if (answerId == null) {
             Integer replyTo = ctx.getMessage() != null ? ctx.getMessage().getMessageId() : null;
-            Integer sentId = sendAnswerChunks(chatId, model.answerText(), replyTo, maxWaitMs);
+            Integer sentId = sendAnswerChunks(chatId, answerChunks, replyTo, maxWaitMs);
             if (sentId == null) {
                 log.error("Final Telegram answer send failed for chatId={}", chatId);
                 return false;
             }
             ctx.setTentativeAnswerMessageId(sentId);
             ctx.markAnswerEdited();
-        } else if (!messageSender.editHtmlReliable(chatId, answerId, html, false, maxWaitMs)) {
-            Integer sentId = messageSender.sendHtmlReliableAndGetId(
-                    chatId, html, null, false, maxWaitMs);
+        } else if (answerChunks.size() == 1) {
+            String html = toHtmlChunk(answerChunks.getFirst());
+            if (!messageSender.editHtmlReliable(chatId, answerId, html, false, maxWaitMs)) {
+                Integer sentId = messageSender.sendHtmlReliableAndGetId(
+                        chatId, html, null, false, maxWaitMs);
+                if (sentId == null) {
+                    log.error("Final Telegram answer edit and fallback send failed for chatId={}", chatId);
+                    return false;
+                }
+                ctx.setTentativeAnswerMessageId(sentId);
+            }
+            ctx.markAnswerEdited();
+        } else {
+            String firstHtml = toHtmlChunk(answerChunks.getFirst());
+            Integer lastId = answerId;
+            if (!messageSender.editHtmlReliable(chatId, answerId, firstHtml, false, maxWaitMs)) {
+                lastId = messageSender.sendHtmlReliableAndGetId(
+                        chatId, firstHtml, null, false, maxWaitMs);
+            }
+            if (lastId == null) {
+                log.error("Final Telegram answer first chunk edit/send failed for chatId={}", chatId);
+                return false;
+            }
+            Integer sentId = sendAnswerChunks(chatId, answerChunks.subList(1, answerChunks.size()), null, maxWaitMs);
             if (sentId == null) {
-                log.error("Final Telegram answer edit and fallback send failed for chatId={}", chatId);
+                log.error("Final Telegram answer trailing chunks send failed for chatId={}", chatId);
                 return false;
             }
             ctx.setTentativeAnswerMessageId(sentId);
-            ctx.markAnswerEdited();
-        } else {
             ctx.markAnswerEdited();
         }
         ctx.setTentativeAnswerActive(false);
@@ -159,48 +185,111 @@ public final class TelegramAgentStreamView {
         return true;
     }
 
-    private Integer sendAnswerChunks(Long chatId, String answerText, Integer replyTo, long maxWaitMs) {
-        int maxLength = telegramProperties.getMaxMessageLength();
-        if (answerText.length() <= maxLength) {
-            return messageSender.sendHtmlReliableAndGetId(
-                    chatId, AIUtils.convertMarkdownToHtml(answerText), replyTo, false, maxWaitMs);
-        }
+    private Integer sendAnswerChunks(Long chatId, List<String> chunks, Integer replyTo, long maxWaitMs) {
         Integer lastId = null;
-        String[] paragraphs = answerText.split("\n\n");
-        StringBuilder buffer = new StringBuilder();
         Integer currentReplyTo = replyTo;
-        for (String paragraph : paragraphs) {
-            while (paragraph.length() > maxLength) {
-                if (!buffer.isEmpty()) {
-                    lastId = sendAnswerChunk(chatId, buffer.toString().trim(), currentReplyTo, maxWaitMs);
-                    if (lastId == null) {
-                        return null;
-                    }
-                    currentReplyTo = null;
-                    buffer.setLength(0);
-                }
-                String chunk = paragraph.substring(0, maxLength);
-                lastId = sendAnswerChunk(chatId, chunk, currentReplyTo, maxWaitMs);
-                if (lastId == null) {
-                    return null;
-                }
-                currentReplyTo = null;
-                paragraph = paragraph.substring(maxLength);
+        for (String chunk : chunks) {
+            lastId = sendAnswerChunk(chatId, chunk, currentReplyTo, maxWaitMs);
+            if (lastId == null) {
+                return null;
             }
-            if (!buffer.isEmpty()) {
-                buffer.append("\n\n");
-            }
-            buffer.append(paragraph);
-        }
-        if (!buffer.isEmpty()) {
-            lastId = sendAnswerChunk(chatId, buffer.toString().trim(), currentReplyTo, maxWaitMs);
+            currentReplyTo = null;
         }
         return lastId;
     }
 
     private Integer sendAnswerChunk(Long chatId, String markdown, Integer replyTo, long maxWaitMs) {
+        String html = toHtmlChunk(markdown);
+        int maxLength = telegramProperties.getMaxMessageLength();
+        if (html.length() > maxLength) {
+            log.error("Refusing to send oversized Telegram answer chunk: chatId={}, htmlLength={}, maxLength={}",
+                    chatId, html.length(), maxLength);
+            return null;
+        }
         return messageSender.sendHtmlReliableAndGetId(
-                chatId, AIUtils.convertMarkdownToHtml(markdown), replyTo, false, maxWaitMs);
+                chatId, html, replyTo, false, maxWaitMs);
+    }
+
+    private List<String> splitAnswerChunks(String answerText) {
+        int maxLength = telegramProperties.getMaxMessageLength();
+        List<String> chunks = new ArrayList<>();
+        if (answerText == null || answerText.isBlank()) {
+            return chunks;
+        }
+        String[] paragraphs = answerText.split("\n\n", -1);
+        StringBuilder buffer = new StringBuilder();
+        for (String paragraph : paragraphs) {
+            String candidate = buffer.isEmpty() ? paragraph : buffer + "\n\n" + paragraph;
+            if (fitsTelegramHtml(candidate, maxLength)) {
+                buffer.setLength(0);
+                buffer.append(candidate);
+                continue;
+            }
+            flushAnswerBuffer(buffer, chunks);
+            splitOversizedParagraph(paragraph, chunks, maxLength);
+        }
+        flushAnswerBuffer(buffer, chunks);
+        return chunks;
+    }
+
+    private void splitOversizedParagraph(String paragraph, List<String> chunks, int maxLength) {
+        String remaining = paragraph;
+        while (!remaining.isEmpty()) {
+            int splitPoint = findMarkdownSplitPointForHtmlLimit(remaining, maxLength);
+            if (splitPoint <= 0) {
+                chunks.clear();
+                return;
+            }
+            String chunk = remaining.substring(0, splitPoint).trim();
+            if (!chunk.isEmpty()) {
+                chunks.add(chunk);
+            }
+            remaining = remaining.substring(splitPoint).stripLeading();
+        }
+    }
+
+    private int findMarkdownSplitPointForHtmlLimit(String text, int maxLength) {
+        if (fitsTelegramHtml(text, maxLength)) {
+            return text.length();
+        }
+        int low = 1;
+        int high = Math.min(text.length(), maxLength);
+        int best = 0;
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            if (fitsTelegramHtml(text.substring(0, mid), maxLength)) {
+                best = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        if (best <= 0) {
+            return 0;
+        }
+        int preferred = AIUtils.findSplitPoint(text, best);
+        return preferred > 0 && fitsTelegramHtml(text.substring(0, preferred), maxLength)
+                ? preferred
+                : best;
+    }
+
+    private void flushAnswerBuffer(StringBuilder buffer, List<String> chunks) {
+        if (buffer.isEmpty()) {
+            return;
+        }
+        String chunk = buffer.toString().trim();
+        if (!chunk.isEmpty()) {
+            chunks.add(chunk);
+        }
+        buffer.setLength(0);
+    }
+
+    private boolean fitsTelegramHtml(String markdown, int maxLength) {
+        return toHtmlChunk(markdown).length() <= maxLength;
+    }
+
+    private String toHtmlChunk(String markdown) {
+        return AIUtils.convertMarkdownToHtml(markdown);
     }
 
     private boolean reserveForView(Long chatId, boolean force) {
