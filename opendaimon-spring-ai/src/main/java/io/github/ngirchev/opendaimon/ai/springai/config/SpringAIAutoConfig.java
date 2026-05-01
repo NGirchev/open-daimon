@@ -68,7 +68,6 @@ import org.springframework.context.support.GenericApplicationContext;
 import java.util.List;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterFreeModelResolver;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelsApiClient;
-import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelsProperties;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelStatsRecorder;
 import io.github.ngirchev.opendaimon.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker;
 import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;

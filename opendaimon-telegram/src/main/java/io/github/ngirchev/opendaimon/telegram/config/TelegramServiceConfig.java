@@ -25,7 +25,7 @@ import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
 import io.github.ngirchev.opendaimon.common.storage.service.FileStorageService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
-import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
+import io.github.ngirchev.opendaimon.telegram.command.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramGroupRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepository;

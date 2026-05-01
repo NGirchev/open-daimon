@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler;
+package io.github.ngirchev.opendaimon.telegram.command;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;

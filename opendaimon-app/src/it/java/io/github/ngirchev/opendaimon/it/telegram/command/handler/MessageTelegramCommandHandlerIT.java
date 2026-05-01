@@ -3,7 +3,6 @@ package io.github.ngirchev.opendaimon.it.telegram.command.handler;
 import io.github.ngirchev.opendaimon.it.ITTestConfiguration;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
-import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacerImpl;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup;
@@ -49,13 +48,6 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.it.TelegramMessageHandlerActionsTestWiring;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerFsmFactory;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
-import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
 import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
@@ -243,9 +235,12 @@ class MessageTelegramCommandHandlerIT extends AbstractContainerIT {
         @Bean
         @Primary
         public ObjectProvider<StorageProperties> storagePropertiesProvider() {
-            ObjectProvider<StorageProperties> provider = mock(ObjectProvider.class);
-            when(provider.getIfAvailable()).thenReturn(null);
-            return provider;
+            return new ObjectProvider<>() {
+                @Override
+                public StorageProperties getIfAvailable() {
+                    return null;
+                }
+            };
         }
 
         @Bean

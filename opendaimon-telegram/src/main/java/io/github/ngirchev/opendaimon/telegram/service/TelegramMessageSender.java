@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
+package io.github.ngirchev.opendaimon.telegram.service;
 
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;

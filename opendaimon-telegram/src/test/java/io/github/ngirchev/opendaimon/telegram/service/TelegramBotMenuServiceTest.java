@@ -1,7 +1,7 @@
 package io.github.ngirchev.opendaimon.telegram.service;
 
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
-import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
+import io.github.ngirchev.opendaimon.telegram.command.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

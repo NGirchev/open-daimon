@@ -2,8 +2,8 @@ package io.github.ngirchev.opendaimon.telegram.service;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageSender;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

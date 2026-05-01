@@ -1,5 +1,6 @@
-package io.github.ngirchev.opendaimon.ai.springai.agent;
+package io.github.ngirchev.opendaimon.ai.springai.config;
 
+import io.github.ngirchev.opendaimon.ai.springai.agent.SpringAgentLoopActions;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;

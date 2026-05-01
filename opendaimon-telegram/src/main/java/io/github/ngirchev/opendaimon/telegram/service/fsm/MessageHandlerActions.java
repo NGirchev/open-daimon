@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
+package io.github.ngirchev.opendaimon.telegram.service.fsm;
 
 /**
  * Actions invoked by the message handler FSM during state transitions.

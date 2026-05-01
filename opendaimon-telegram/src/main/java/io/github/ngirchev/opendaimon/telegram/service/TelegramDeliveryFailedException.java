@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
+package io.github.ngirchev.opendaimon.telegram.service;
 
 public class TelegramDeliveryFailedException extends RuntimeException {
 

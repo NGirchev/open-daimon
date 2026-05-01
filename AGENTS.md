@@ -21,11 +21,11 @@ Consequences for any change touching `pom.xml`, public types, or shared APIs:
 
 ## Rules for AI Agents
 
-### Serena activation on session start
+### Serena project context
 
-- At the beginning of each new session in this repository, verify Serena state first.
-- If Serena reports `Active Project: None`, immediately call `activate_project("open-daimon")`.
-- Do this before any code exploration or edits to ensure project-aware symbol tooling works correctly.
+- Before using Serena tools for project-aware navigation, silently verify that the active project is `open-daimon`.
+- If Serena is inactive or points to another project, activate `open-daimon`.
+- Do not mention this check in user-facing updates unless activation fails or the Serena state is directly relevant to the task.
 
 ### MCP tools for information lookup
 
@@ -36,6 +36,15 @@ Consequences for any change touching `pom.xml`, public types, or shared APIs:
 - Prefer these MCP tools first for discovery and verification before broader ad-hoc searching.
 - Prefer JetBrains MCP for Java refactoring and IDE-backed checks: use it before text-only replacement for renames, before broad shell search when IDE indexing is likely more precise, and for targeted file diagnostics after edits.
 - Prefer Context7 for Spring AI, OpenAI API, MCP SDK/transport, Maven plugin, and dependency API questions before answering or implementing from memory.
+
+### Code exploration with ast-outline
+
+- Use `ast-outline` as a pre-read layer for supported source and documentation files when a structural view is enough.
+- For unfamiliar directories, start with `ast-outline digest <paths...>` to get a compact type and public-method map.
+- For file-level shape, use `ast-outline <paths...>` to inspect declarations with line ranges and without method bodies.
+- For one method, type, markdown heading, or YAML key, use `ast-outline show <file> <Symbol>` and then read the full file only if the extracted context is not enough.
+- For implementation lookups, use `ast-outline implements <Type> <paths...>` when an AST-based search is more precise than text search.
+- Batch paths in one call where useful. `ast-outline` complements `rg`, Serena, and JetBrains; it does not replace IDE-backed symbol navigation or full reads when exact code context is needed.
 
 ### Documentation maintenance
 

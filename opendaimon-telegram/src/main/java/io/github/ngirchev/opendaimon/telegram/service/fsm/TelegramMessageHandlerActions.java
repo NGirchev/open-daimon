@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
+package io.github.ngirchev.opendaimon.telegram.service.fsm;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.agent.AgentStrategy;
@@ -36,7 +36,9 @@ import io.github.ngirchev.opendaimon.telegram.service.RenderedUpdate;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamModel;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramDeliveryFailedException;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramHtmlEscaper;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageSender;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramProgressBatcher;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;

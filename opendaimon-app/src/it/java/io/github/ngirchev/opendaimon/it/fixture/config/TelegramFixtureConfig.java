@@ -30,19 +30,11 @@ import io.github.ngirchev.opendaimon.common.storage.config.StorageProperties;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.it.TelegramMessageHandlerActionsTestWiring;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegramCommandHandler;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerFsmFactory;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
-import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserSessionRepository;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
 import io.github.ngirchev.opendaimon.telegram.service.ReplyImageAttachmentService;
-import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacerImpl;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramFileService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
@@ -237,10 +229,12 @@ public class TelegramFixtureConfig {
 
     @Bean
     public ObjectProvider<StorageProperties> storagePropertiesProvider() {
-        @SuppressWarnings("unchecked")
-        ObjectProvider<StorageProperties> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(null);
-        return provider;
+        return new ObjectProvider<>() {
+            @Override
+            public StorageProperties getIfAvailable() {
+                return null;
+            }
+        };
     }
 
     @Bean

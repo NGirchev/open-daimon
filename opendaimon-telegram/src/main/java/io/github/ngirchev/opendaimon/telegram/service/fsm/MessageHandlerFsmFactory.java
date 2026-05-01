@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
+package io.github.ngirchev.opendaimon.telegram.service.fsm;
 
 import io.github.ngirchev.fsm.Action;
 import io.github.ngirchev.fsm.FsmFactory;
@@ -9,8 +9,8 @@ import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-import static io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent.HANDLE;
-import static io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState.*;
+import static io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerEvent.HANDLE;
+import static io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerState.*;
 
 /**
  * Creates the message handler FSM with all transitions defined declaratively.

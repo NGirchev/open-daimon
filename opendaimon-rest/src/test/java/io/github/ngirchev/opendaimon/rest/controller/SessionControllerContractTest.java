@@ -6,10 +6,10 @@ import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongExceptio
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.rest.RestTestConfiguration;
 import io.github.ngirchev.opendaimon.rest.config.AdminSecurityConfig;
-import io.github.ngirchev.opendaimon.rest.dto.ChatMessageDto;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatMessage;
 import io.github.ngirchev.opendaimon.rest.dto.ChatRequestDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatResponseDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatSessionDto;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatResponse;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatSession;
 import io.github.ngirchev.opendaimon.rest.exception.RestExceptionHandler;
 import io.github.ngirchev.opendaimon.rest.exception.UnauthorizedException;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
@@ -101,7 +101,7 @@ class SessionControllerContractTest {
         @DisplayName("returns 200 and JSON with message and sessionId when authorized")
         void whenAuthorized_returns200AndResponseDto() throws Exception {
             ChatRequestDto request = new ChatRequestDto("Hello", null, null, TEST_EMAIL);
-            ChatResponseDto<String> response = new ChatResponseDto<>("AI reply", SESSION_ID);
+            ChatResponse<String> response = new ChatResponse<>("AI reply", SESSION_ID);
 
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             doReturn(response).when(chatService).sendMessageToNewChat(eq("Hello"), eq(restUser), any(), eq(false));
@@ -156,7 +156,7 @@ class SessionControllerContractTest {
         @DisplayName("returns 200 and JSON with message and sessionId when authorized")
         void whenAuthorized_returns200AndResponseDto() throws Exception {
             ChatRequestDto request = new ChatRequestDto("Follow-up", null, null, TEST_EMAIL);
-            ChatResponseDto<String> response = new ChatResponseDto<>("AI reply", SESSION_ID);
+            ChatResponse<String> response = new ChatResponse<>("AI reply", SESSION_ID);
 
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             doReturn(response).when(chatService).sendMessage(eq(SESSION_ID), eq("Follow-up"), eq(restUser), any(), eq(false));
@@ -190,9 +190,9 @@ class SessionControllerContractTest {
         @Test
         @DisplayName("returns 200 and JSON array of sessions when authorized")
         void whenAuthorized_returns200AndSessionList() throws Exception {
-            List<ChatSessionDto> sessions = List.of(
-                    new ChatSessionDto("s1", "Chat 1", OffsetDateTime.now()),
-                    new ChatSessionDto("s2", "Chat 2", OffsetDateTime.now())
+            List<ChatSession> sessions = List.of(
+                    new ChatSession("s1", "Chat 1", OffsetDateTime.now()),
+                    new ChatSession("s2", "Chat 2", OffsetDateTime.now())
             );
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             when(chatService.getSessions(restUser)).thenReturn(sessions);
@@ -222,9 +222,9 @@ class SessionControllerContractTest {
         @Test
         @DisplayName("returns 200 and JSON with sessionId and messages when authorized")
         void whenAuthorized_returns200AndHistory() throws Exception {
-            List<ChatMessageDto> messages = List.of(
-                    new ChatMessageDto("USER", "Hello"),
-                    new ChatMessageDto("ASSISTANT", "Hi there")
+            List<ChatMessage> messages = List.of(
+                    new ChatMessage("USER", "Hello"),
+                    new ChatMessage("ASSISTANT", "Hi there")
             );
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             when(chatService.getChatHistory(SESSION_ID, restUser)).thenReturn(messages);
@@ -329,7 +329,7 @@ class SessionControllerContractTest {
         void whenAuthorized_returnsSseStream() throws Exception {
             ChatRequestDto request = new ChatRequestDto("Hello", null, null, TEST_EMAIL);
             Flux<String> flux = Flux.just("Hello", " ", "world");
-            ChatResponseDto<Flux<String>> response = new ChatResponseDto<>(flux, SESSION_ID);
+            ChatResponse<Flux<String>> response = new ChatResponse<>(flux, SESSION_ID);
 
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             doReturn(response).when(chatService).sendMessageToNewChat(eq("Hello"), eq(restUser), any(), eq(true));
@@ -376,7 +376,7 @@ class SessionControllerContractTest {
         void whenAuthorized_returnsSseStream() throws Exception {
             ChatRequestDto request = new ChatRequestDto("More", null, null, TEST_EMAIL);
             Flux<String> flux = Flux.just("Response");
-            ChatResponseDto<Flux<String>> response = new ChatResponseDto<>(flux, SESSION_ID);
+            ChatResponse<Flux<String>> response = new ChatResponse<>(flux, SESSION_ID);
 
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             doReturn(response).when(chatService).sendMessage(eq(SESSION_ID), eq("More"), eq(restUser), any(), eq(true));

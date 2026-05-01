@@ -7,7 +7,7 @@ import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
-import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
+import io.github.ngirchev.opendaimon.telegram.command.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramGroup;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 

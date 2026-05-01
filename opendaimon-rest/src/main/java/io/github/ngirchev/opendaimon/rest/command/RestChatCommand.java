@@ -1,11 +1,13 @@
-package io.github.ngirchev.opendaimon.rest.handler;
+package io.github.ngirchev.opendaimon.rest.command;
 
 import jakarta.servlet.http.HttpServletRequest;
 import io.github.ngirchev.opendaimon.common.command.IChatCommand;
-import io.github.ngirchev.opendaimon.rest.dto.ChatRequestDto;
 
 public record RestChatCommand(
-        ChatRequestDto chatRequestDto,
+        String message,
+        String assistantRole,
+        String model,
+        String email,
         RestChatCommandType commandType,
         HttpServletRequest request,
         Long userId
@@ -18,7 +20,7 @@ public record RestChatCommand(
 
     @Override
     public String userText() {
-        return chatRequestDto != null ? chatRequestDto.message() : null;
+        return message;
     }
 
     @Override

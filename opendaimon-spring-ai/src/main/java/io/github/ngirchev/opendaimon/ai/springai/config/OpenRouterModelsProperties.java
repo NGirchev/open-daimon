@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.ai.springai.retry;
+package io.github.ngirchev.opendaimon.ai.springai.config;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;

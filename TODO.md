@@ -84,29 +84,28 @@
       - `org.hibernate.validator:hibernate-validator` is declared as a test-scoped validation provider for `BulkHeadPropertiesTest`; it is not exported as compile API.
       - ArchUnit test dependencies are declared as direct test dependencies (`archunit`, `archunit-junit5-api`) plus the JUnit Platform runtime engine (`archunit-junit5-engine`) with a targeted analyzer ignore.
       - Verified with `./mvnw -pl opendaimon-common test dependency:analyze -DskipITs -DskipIT`: 283 tests, 0 failures/errors, 2 skipped; dependency analyzer reports `No dependency problems found`.
-    - [ ] `opendaimon-spring-ai` module cleanup
-      - Analyzer warnings observed:
-        - unused declared `org.springframework.ai:spring-ai-autoconfigure-model-chat-memory:runtime`
-        - unused declared `org.springframework.ai:spring-ai-autoconfigure-model-chat-memory-repository-jdbc:runtime`
-        - unused declared `com.h2database:h2:test`
-      - Decide whether runtime autoconfig glue should be precisely ignored with comments or removed.
-      - Review `jakarta.persistence-api`: it is currently test-scoped, while compile showed missing enum-constant warnings in app compile; move to compile only if main bytecode really needs it.
-      - Verify with `./mvnw -pl opendaimon-spring-ai -am clean compile test dependency:analyze -DskipITs -DskipIT`.
+    - [x] `opendaimon-spring-ai` module cleanup
+      - Resolved previous analyzer warnings for Spring AI chat-memory autoconfig runtime glue and `com.h2database:h2:test`.
+      - Kept module-local ArchUnit dependencies with a targeted analyzer ignore for the JUnit Platform runtime engine.
+      - Verified with `./mvnw -pl opendaimon-spring-ai -am clean compile dependency:analyze -DskipTests -DskipITs -DskipIT`: dependency analyzer reports `No dependency problems found`.
+      - Verified module tests with `./mvnw -pl opendaimon-spring-ai -am test -Dtest='io.github.ngirchev.opendaimon.ai.springai.**.*Test' -Dsurefire.failIfNoSpecifiedTests=false -DskipITs -DskipIT`: 463 tests, 0 failures/errors, 1 skipped.
     - [x] `opendaimon-rest` module cleanup
       - Added REST-local `RestArchitectureTest` with layer, explicit-configuration, repository, DTO/model, and service/delivery boundary rules.
       - Added REST ArchUnit test dependencies and targeted analyzer ignore for the JUnit Platform engine.
       - Kept `org.hamcrest:hamcrest:test` because `SessionControllerContractTest` imports Hamcrest matchers directly.
       - Resolved previous `jackson-core` / `spring-beans` analyzer warnings through direct dependency cleanup.
       - Verified with `./mvnw -pl opendaimon-rest -am clean compile -DskipTests`, `./mvnw -pl opendaimon-rest -am test -Dtest=RestArchitectureTest -Dsurefire.failIfNoSpecifiedTests=false -DskipITs -DskipIT`, `./mvnw -pl opendaimon-rest -am dependency:analyze -DskipTests`, and `./mvnw -pl opendaimon-rest -am test -DskipITs -DskipIT`.
-    - [ ] `opendaimon-telegram` module cleanup
-      - Re-run tests after handler-test constructor patches.
-      - Confirm `com.github.ben-manes.caffeine:caffeine` is declared directly because `TelegramChatPacerImpl` imports it.
-      - Verify with `./mvnw -pl opendaimon-telegram -am clean compile test dependency:analyze -DskipITs -DskipIT`.
+    - [x] `opendaimon-telegram` module cleanup
+      - Re-ran tests after handler-test constructor patches.
+      - Confirmed `com.github.ben-manes.caffeine:caffeine` is declared directly because `TelegramChatPacerImpl` imports it.
+      - Verified with `./mvnw -pl opendaimon-telegram -am clean compile dependency:analyze -DskipTests -DskipITs -DskipIT`: dependency analyzer reports `No dependency problems found`.
+      - Verified module tests with `./mvnw -pl opendaimon-telegram -am clean test -Dtest='io.github.ngirchev.opendaimon.telegram.**.*Test' -Dsurefire.failIfNoSpecifiedTests=false -DskipITs -DskipIT`: 481 tests, 0 failures/errors, 19 skipped.
     - [x] `opendaimon-ui` and `opendaimon-gateway-mock` module cleanup
       - Run analyzer/enforcer per module and fix only local POM warnings.
-    - [ ] `opendaimon-app` ArchUnit verification
+    - [x] `opendaimon-app` ArchUnit verification
       - Run `./mvnw -pl opendaimon-app -am test -Dtest=ArchitectureTest -Dsurefire.failIfNoSpecifiedTests=false`.
       - Fix real boundary/layer violations in code; do not reintroduce frozen ArchUnit rules.
+      - Verified with `./mvnw -pl opendaimon-app -am test -Dtest=ArchitectureTest -Dsurefire.failIfNoSpecifiedTests=false`: `ArchitectureTest` passed (7 tests, 0 failures/errors/skipped).
     - [ ] Final reactor verification
       - Run `./mvnw clean compile`.
       - Run `./mvnw dependency:analyze -DskipTests`.

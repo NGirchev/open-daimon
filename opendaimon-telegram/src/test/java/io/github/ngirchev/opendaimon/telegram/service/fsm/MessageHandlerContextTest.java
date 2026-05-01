@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm;
+package io.github.ngirchev.opendaimon.telegram.service.fsm;
 
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import org.junit.jupiter.api.DisplayName;

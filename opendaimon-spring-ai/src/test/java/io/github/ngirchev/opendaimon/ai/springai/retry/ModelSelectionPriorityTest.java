@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.ai.springai.retry;
 
+import io.github.ngirchev.opendaimon.ai.springai.config.OpenRouterModelsProperties;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import org.junit.jupiter.api.BeforeEach;

@@ -75,6 +75,16 @@ Before submitting a Pull Request, ensure:
 4. JavaDoc is added or updated for public APIs where relevant.
 5. No secrets or API keys are committed (use environment variables or `.env`).
 
+## Contribution licensing
+
+By submitting a contribution, you certify that you have the right to submit it
+and agree to license it under the Apache License, Version 2.0.
+
+You also grant Nikolai Girchev a perpetual, worldwide, non-exclusive,
+royalty-free right to use, reproduce, modify, distribute, sublicense, and
+relicense your contribution as part of OpenDaimon and related commercial or
+closed-source products.
+
 ## Security
 
 - **API keys and secrets**: Only in environment variables or `.env` (and `.env` must not be committed).

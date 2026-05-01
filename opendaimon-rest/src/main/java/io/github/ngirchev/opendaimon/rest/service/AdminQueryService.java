@@ -5,16 +5,16 @@ import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
-import io.github.ngirchev.opendaimon.rest.dto.admin.AttachmentRefDto;
-import io.github.ngirchev.opendaimon.rest.dto.admin.ConversationSummaryDto;
-import io.github.ngirchev.opendaimon.rest.dto.admin.MessageDetailDto;
-import io.github.ngirchev.opendaimon.rest.dto.admin.MessageSummaryDto;
-import io.github.ngirchev.opendaimon.rest.dto.admin.PageResponseDto;
-import io.github.ngirchev.opendaimon.rest.dto.admin.UserSummaryDto;
 import io.github.ngirchev.opendaimon.rest.exception.UnauthorizedException;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.repository.AdminConversationRepository;
 import io.github.ngirchev.opendaimon.rest.repository.AdminUserRepository;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminAttachmentRef;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminConversationSummary;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminMessageDetail;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminMessageSummary;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminPageResponse;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminUserSummary;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -45,26 +45,26 @@ public class AdminQueryService {
     private final OpenDaimonMessageRepository messageRepository;
 
     @Transactional(readOnly = true)
-    public PageResponseDto<ConversationSummaryDto> listConversations(
+    public AdminPageResponse<AdminConversationSummary> listConversations(
             Long userId, ThreadScopeKind scopeKind, Boolean isActive, Pageable pageable) {
         Page<ConversationThread> page = adminConversationRepository
                 .findAllWithFilters(userId, scopeKind, isActive, pageable);
-        return PageResponseDto.from(page.map(this::toConversationSummary));
+        return AdminPageResponse.from(page.map(this::toConversationSummary));
     }
 
     @Transactional(readOnly = true)
-    public ConversationSummaryDto getConversation(Long threadId) {
+    public AdminConversationSummary getConversation(Long threadId) {
         ConversationThread thread = adminConversationRepository.findByIdWithUser(threadId)
                 .orElseThrow(() -> new UnauthorizedException("Conversation not found: " + threadId));
         return toConversationSummary(thread);
     }
 
     @Transactional(readOnly = true)
-    public List<MessageSummaryDto> listMessages(Long threadId) {
+    public List<AdminMessageSummary> listMessages(Long threadId) {
         ConversationThread thread = adminConversationRepository.findByIdWithUser(threadId)
                 .orElseThrow(() -> new UnauthorizedException("Conversation not found: " + threadId));
         List<OpenDaimonMessage> messages = messageRepository.findByThreadOrderBySequenceNumberAsc(thread);
-        List<MessageSummaryDto> result = new ArrayList<>(messages.size());
+        List<AdminMessageSummary> result = new ArrayList<>(messages.size());
         for (OpenDaimonMessage m : messages) {
             result.add(toMessageSummary(m));
         }
@@ -72,20 +72,20 @@ public class AdminQueryService {
     }
 
     @Transactional(readOnly = true)
-    public MessageDetailDto getMessage(Long messageId) {
+    public AdminMessageDetail getMessage(Long messageId) {
         OpenDaimonMessage message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new UnauthorizedException("Message not found: " + messageId));
         return toMessageDetail(message);
     }
 
     @Transactional(readOnly = true)
-    public PageResponseDto<UserSummaryDto> listUsers(String search, Pageable pageable) {
+    public AdminPageResponse<AdminUserSummary> listUsers(String search, Pageable pageable) {
         Page<User> page = adminUserRepository.searchAll(search, pageable);
-        return PageResponseDto.from(page.map(this::toUserSummary));
+        return AdminPageResponse.from(page.map(this::toUserSummary));
     }
 
-    private ConversationSummaryDto toConversationSummary(ConversationThread t) {
-        return new ConversationSummaryDto(
+    private AdminConversationSummary toConversationSummary(ConversationThread t) {
+        return new AdminConversationSummary(
                 t.getId(),
                 t.getThreadKey(),
                 t.getTitle(),
@@ -100,8 +100,8 @@ public class AdminQueryService {
         );
     }
 
-    private MessageSummaryDto toMessageSummary(OpenDaimonMessage m) {
-        return new MessageSummaryDto(
+    private AdminMessageSummary toMessageSummary(OpenDaimonMessage m) {
+        return new AdminMessageSummary(
                 m.getId(),
                 m.getSequenceNumber(),
                 m.getRole() != null ? m.getRole().name() : null,
@@ -113,8 +113,8 @@ public class AdminQueryService {
         );
     }
 
-    private MessageDetailDto toMessageDetail(OpenDaimonMessage m) {
-        return new MessageDetailDto(
+    private AdminMessageDetail toMessageDetail(OpenDaimonMessage m) {
+        return new AdminMessageDetail(
                 m.getId(),
                 m.getThread() != null ? m.getThread().getId() : null,
                 m.getSequenceNumber(),
@@ -135,13 +135,13 @@ public class AdminQueryService {
         );
     }
 
-    private UserSummaryDto toUserSummary(User user) {
+    private AdminUserSummary toUserSummary(User user) {
         if (user == null) {
             return null;
         }
         String discriminator = resolveUserType(user);
         String identity = resolveIdentity(user);
-        return new UserSummaryDto(
+        return new AdminUserSummary(
                 user.getId(),
                 discriminator,
                 user.getUsername(),
@@ -186,17 +186,17 @@ public class AdminQueryService {
         }
     }
 
-    private List<AttachmentRefDto> toAttachmentRefs(List<Map<String, Object>> raw) {
+    private List<AdminAttachmentRef> toAttachmentRefs(List<Map<String, Object>> raw) {
         if (raw == null || raw.isEmpty()) {
             return List.of();
         }
-        List<AttachmentRefDto> refs = new ArrayList<>(raw.size());
+        List<AdminAttachmentRef> refs = new ArrayList<>(raw.size());
         for (Map<String, Object> entry : raw) {
             String storageKey = asString(entry.get(ATTACH_KEY_STORAGE));
             if (storageKey == null) {
                 continue;
             }
-            refs.add(new AttachmentRefDto(
+            refs.add(new AdminAttachmentRef(
                     storageKey,
                     asString(entry.get(ATTACH_KEY_MIME)),
                     asString(entry.get(ATTACH_KEY_FILENAME)),

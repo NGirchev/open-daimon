@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler;
+package io.github.ngirchev.opendaimon.telegram.command;
 
 /**
  * Marker interface for handlers that can provide the description of their supported command
@@ -12,5 +12,3 @@ public interface TelegramSupportedCommandProvider {
      */
     String getSupportedCommandText(String languageCode);
 }
-
-

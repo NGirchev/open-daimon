@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration," +
                 "org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration," +
                 "io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig," +
-                "io.github.ngirchev.opendaimon.ai.springai.agent.AgentAutoConfig," +
+                "io.github.ngirchev.opendaimon.ai.springai.config.AgentAutoConfig," +
                 "io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig," +
                 "io.github.ngirchev.opendaimon.telegram.config.TelegramAutoConfig",
         "open-daimon.common.bulkhead.enabled=false",
