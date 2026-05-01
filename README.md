@@ -711,6 +711,7 @@ File -> Invalidate Caches / Restart
 
 - **[docs/setup-telegram.md](docs/setup-telegram.md)** — Create a Telegram bot and get your user ID
 - **[docs/setup-serper.md](docs/setup-serper.md)** — Enable web search (optional)
+- **[docs/codex/setup.md](docs/codex/setup.md)** — Recreate the Codex, MCP, and Serena workstation setup
 
 ### Project docs
 
