@@ -58,6 +58,12 @@ Consequences for any change touching `pom.xml`, public types, or shared APIs:
 - User-facing strings (i18n in `.properties`, bot messages) may be in any language.
 - Exception and log messages in code must be in English.
 
+### Git remotes and publishing
+
+- AI agents must never run `git push`, publish branches/tags, create releases, or otherwise transfer repository contents to a remote destination.
+- AI agents may create local commits only when explicitly requested by the user.
+- The user is responsible for pushing commits and publishing repository state.
+
 ## Project Style Guide
 
 ### Java & Dependencies
