@@ -3,7 +3,6 @@ package io.github.ngirchev.opendaimon.common.repository;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
@@ -16,7 +15,6 @@ import java.util.Optional;
  * Repository for dialog messages.
  * Replaces UserRequestRepository and ServiceResponseRepository.
  */
-@Repository
 public interface OpenDaimonMessageRepository extends JpaRepository<OpenDaimonMessage, Long> {
     
     /**

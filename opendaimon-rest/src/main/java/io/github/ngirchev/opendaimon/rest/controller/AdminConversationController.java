@@ -1,11 +1,19 @@
 package io.github.ngirchev.opendaimon.rest.controller;
 
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
+import io.github.ngirchev.opendaimon.rest.dto.admin.AttachmentRefDto;
 import io.github.ngirchev.opendaimon.rest.dto.admin.ConversationSummaryDto;
 import io.github.ngirchev.opendaimon.rest.dto.admin.MessageDetailDto;
 import io.github.ngirchev.opendaimon.rest.dto.admin.MessageSummaryDto;
 import io.github.ngirchev.opendaimon.rest.dto.admin.PageResponseDto;
+import io.github.ngirchev.opendaimon.rest.dto.admin.UserSummaryDto;
 import io.github.ngirchev.opendaimon.rest.service.AdminQueryService;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminAttachmentRef;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminConversationSummary;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminMessageDetail;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminMessageSummary;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminPageResponse;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminUserSummary;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -53,24 +61,103 @@ public class AdminConversationController {
                 boundedPage,
                 boundedSize == 0 ? DEFAULT_PAGE_SIZE : boundedSize,
                 Sort.by(Sort.Direction.DESC, "lastActivityAt"));
-        return ResponseEntity.ok(adminQueryService.listConversations(userId, scopeKind, isActive, pageable));
+        return ResponseEntity.ok(toConversationPageDto(adminQueryService.listConversations(userId, scopeKind, isActive, pageable)));
     }
 
     @GetMapping("/conversations/{id}")
     @Operation(summary = "Get conversation metadata")
     public ResponseEntity<ConversationSummaryDto> getConversation(@PathVariable Long id) {
-        return ResponseEntity.ok(adminQueryService.getConversation(id));
+        return ResponseEntity.ok(toDto(adminQueryService.getConversation(id)));
     }
 
     @GetMapping("/conversations/{id}/messages")
     @Operation(summary = "List messages of a conversation", description = "Sorted by sequenceNumber asc")
     public ResponseEntity<List<MessageSummaryDto>> listMessages(@PathVariable Long id) {
-        return ResponseEntity.ok(adminQueryService.listMessages(id));
+        return ResponseEntity.ok(adminQueryService.listMessages(id).stream()
+                .map(AdminConversationController::toDto)
+                .toList());
     }
 
     @GetMapping("/messages/{id}")
     @Operation(summary = "Get single message with attachments metadata")
     public ResponseEntity<MessageDetailDto> getMessage(@PathVariable Long id) {
-        return ResponseEntity.ok(adminQueryService.getMessage(id));
+        return ResponseEntity.ok(toDto(adminQueryService.getMessage(id)));
+    }
+
+    private static PageResponseDto<ConversationSummaryDto> toConversationPageDto(
+            AdminPageResponse<AdminConversationSummary> page) {
+        return new PageResponseDto<>(
+                page.content().stream().map(AdminConversationController::toDto).toList(),
+                page.page(),
+                page.size(),
+                page.totalElements(),
+                page.totalPages());
+    }
+
+    private static ConversationSummaryDto toDto(AdminConversationSummary summary) {
+        return new ConversationSummaryDto(
+                summary.id(),
+                summary.threadKey(),
+                summary.title(),
+                summary.scopeKind(),
+                summary.scopeId(),
+                summary.totalMessages(),
+                summary.totalTokens(),
+                summary.isActive(),
+                summary.lastActivityAt(),
+                summary.createdAt(),
+                toDto(summary.user()));
+    }
+
+    private static MessageSummaryDto toDto(AdminMessageSummary summary) {
+        return new MessageSummaryDto(
+                summary.id(),
+                summary.sequenceNumber(),
+                summary.role(),
+                summary.requestType(),
+                summary.status(),
+                summary.contentPreview(),
+                summary.attachmentCount(),
+                summary.createdAt());
+    }
+
+    private static MessageDetailDto toDto(AdminMessageDetail detail) {
+        return new MessageDetailDto(
+                detail.id(),
+                detail.threadId(),
+                detail.sequenceNumber(),
+                detail.role(),
+                detail.content(),
+                detail.requestType(),
+                detail.status(),
+                detail.serviceName(),
+                detail.tokenCount(),
+                detail.processingTimeMs(),
+                detail.errorMessage(),
+                detail.telegramMessageId(),
+                detail.createdAt(),
+                detail.attachments().stream().map(AdminConversationController::toDto).toList(),
+                detail.metadata(),
+                detail.responseData(),
+                toDto(detail.user()));
+    }
+
+    private static AttachmentRefDto toDto(AdminAttachmentRef ref) {
+        return new AttachmentRefDto(ref.storageKey(), ref.mimeType(), ref.filename(), ref.expiresAt());
+    }
+
+    private static UserSummaryDto toDto(AdminUserSummary user) {
+        if (user == null) {
+            return null;
+        }
+        return new UserSummaryDto(
+                user.id(),
+                user.userType(),
+                user.username(),
+                user.firstName(),
+                user.lastName(),
+                user.emailOrTelegramId(),
+                user.isAdmin(),
+                user.isBlocked());
     }
 }

@@ -37,6 +37,10 @@ public class AdminAttachmentService {
         if (messageId == null || storageKey == null || storageKey.isBlank()) {
             return Optional.empty();
         }
+        if (fileStorageService == null) {
+            log.warn("Admin requested attachment storageKey={} but file storage is disabled", storageKey);
+            return Optional.empty();
+        }
         Optional<OpenDaimonMessage> messageOpt = messageRepository.findById(messageId);
         if (messageOpt.isEmpty()) {
             log.warn("Admin requested attachment for unknown messageId={}", messageId);

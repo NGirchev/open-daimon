@@ -21,24 +21,49 @@ Consequences for any change touching `pom.xml`, public types, or shared APIs:
 
 ## Rules for AI Agents
 
-### Serena activation on session start
+### Codex subagents
 
-- At the beginning of each new session in this repository, verify Serena state first.
-- If Serena reports `Active Project: None`, immediately call `activate_project("open-daimon")`.
-- Do this before any code exploration or edits to ensure project-aware symbol tooling works correctly.
+- Use Codex subagents only when the user explicitly asks for delegation, parallel agent work, or a subagent.
+- For small, bounded side tasks, prefer a Spark-backed Codex subagent with `model: gpt-5.3-codex-spark` and the lightest reasoning effort that fits the task.
+- Keep Spark subagent work concrete and sidecar: codebase lookup, narrow verification, or a small disjoint patch. Do not hand off the immediate blocking task if the main agent needs that result before moving.
+- When assigning a worker subagent, define its owned files or module clearly, and tell it that other changes may exist in the same worktree and must not be reverted.
+
+### Serena project context
+
+- Before using Serena tools for project-aware navigation, silently verify that the active project is `open-daimon`.
+- If Serena is inactive or points to another project, activate `open-daimon`.
+- Do not mention this check in user-facing updates unless activation fails or the Serena state is directly relevant to the task.
 
 ### MCP tools for information lookup
 
-- Two MCP servers are available and should be used for information lookup when relevant:
+- MCP servers are available and should be used for information lookup when relevant:
   - `Serena` — codebase navigation, symbol search, and project-aware exploration.
+  - `JetBrains` — IDE-indexed code search/navigation, symbol documentation, rename refactoring, open-editor context, and inspections.
   - `Context7` — library/framework documentation lookup and API usage search.
 - Prefer these MCP tools first for discovery and verification before broader ad-hoc searching.
+- Prefer JetBrains MCP for Java refactoring and IDE-backed checks: use it before text-only replacement for renames, before broad shell search when IDE indexing is likely more precise, and for targeted file diagnostics after edits.
+- Prefer Context7 for Spring AI, OpenAI API, MCP SDK/transport, Maven plugin, and dependency API questions before answering or implementing from memory.
+
+### Code exploration with ast-outline
+
+- Use `ast-outline` as a pre-read layer for supported source and documentation files when a structural view is enough.
+- For unfamiliar directories, start with `ast-outline digest <paths...>` to get a compact type and public-method map.
+- For file-level shape, use `ast-outline <paths...>` to inspect declarations with line ranges and without method bodies.
+- For one method, type, markdown heading, or YAML key, use `ast-outline show <file> <Symbol>` and then read the full file only if the extracted context is not enough.
+- For implementation lookups, use `ast-outline implements <Type> <paths...>` when an AST-based search is more precise than text search.
+- Batch paths in one call where useful. `ast-outline` complements `rg`, Serena, and JetBrains; it does not replace IDE-backed symbol navigation or full reads when exact code context is needed.
 
 ### Documentation maintenance
 
 - Every module that has a behavior reference doc (e.g. `SPRING_AI_MODULE.md`, `TELEGRAM_MODULE.md`) must be updated when the behavior it describes changes.
 - If you add or change a use case, command flow, branching condition, input/output format, or error path — update the corresponding doc in the same commit.
 - Docs live next to the module root (e.g. `opendaimon-spring-ai/SPRING_AI_MODULE.md`, `opendaimon-telegram/TELEGRAM_MODULE.md`).
+
+### ArchUnit scope
+
+- Keep ArchUnit focused on modules with meaningful architectural boundaries: `opendaimon-common`, `opendaimon-spring-ai`, `opendaimon-telegram`, `opendaimon-rest`, and cross-module checks from `opendaimon-app`.
+- Do not add module-local ArchUnit suites to `opendaimon-ui` or `opendaimon-gateway-mock` while they remain thin support modules without their own repository/domain/service layering.
+- For `opendaimon-ui` and `opendaimon-gateway-mock`, prefer compile checks, dependency analysis/enforcer checks, and focused behavior tests when behavior changes. Reconsider ArchUnit only if one of these modules grows stable internal architectural boundaries that need executable enforcement.
 
 ### Language in code and documentation
 

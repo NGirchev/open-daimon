@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerContext;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import lombok.RequiredArgsConstructor;
 

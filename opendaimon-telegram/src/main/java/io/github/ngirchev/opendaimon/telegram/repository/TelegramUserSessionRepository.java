@@ -5,7 +5,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
 
@@ -13,7 +12,6 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
-@Repository
 public interface TelegramUserSessionRepository extends JpaRepository<TelegramUserSession, Long> {
     
     Optional<TelegramUserSession> findByTelegramUserAndSessionId(TelegramUser telegramUser, String sessionId);

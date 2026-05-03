@@ -10,6 +10,7 @@ import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommand;
 
 import io.github.ngirchev.opendaimon.common.SupportedLanguages;
 

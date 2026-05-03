@@ -113,11 +113,12 @@ class TelegramAgentStreamModelTest {
     }
 
     @Test
-    @DisplayName("should leave completion marker when status was entirely overlay")
-    void shouldLeaveCompletionMarkerWhenStatusWasEntirelyOverlay() {
+    @DisplayName("should leave textual completion marker when status was entirely overlay")
+    void shouldLeaveTextualCompletionMarkerWhenStatusWasEntirelyOverlay() {
         // First-iteration straight-to-answer: partial chunk overwrites the initial
         // "💭 Thinking..." line, then FINAL arrives. Stripping leaves an empty status —
-        // Telegram rejects empty edits, so the model substitutes a "✅" marker.
+        // Telegram rejects empty edits, so the model substitutes a textual marker
+        // instead of a lone emoji, which Telegram renders oversized.
         TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
         model.apply(AgentStreamEvent.partialAnswer("Quick", 0));
 
@@ -127,7 +128,7 @@ class TelegramAgentStreamModelTest {
 
         assertThat(model.statusHtml())
                 .doesNotContain("Quick")
-                .isEqualTo("✅");
+                .isEqualTo(TelegramAgentStreamModel.STATUS_DONE_LINE);
     }
 
     @Test

@@ -1,0 +1,156 @@
+spring:
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      request-timeout: 600s
+    openai:
+      base-url: https://openrouter.ai/api
+    chat:
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: never
+
+open-daimon:
+  common:
+    storage:
+      enabled: false
+      minio:
+        endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+        access-key: ${MINIO_USER:minioadmin}
+        secret-key: ${MINIO_PASSWORD:minioadmin}
+        bucket: opendaimon-files
+        ttl-hours: 24
+    bulkhead:
+      enabled: false
+      instances:
+        ADMIN:
+          maxConcurrentCalls: 10
+          maxWaitDuration: 1s
+        VIP:
+          maxConcurrentCalls: 5
+          maxWaitDuration: 1s
+        REGULAR:
+          maxConcurrentCalls: 1
+          maxWaitDuration: 500ms
+    assistant-role: role.content.default
+    max-total-prompt-tokens: 32000
+    max-user-message-tokens: 4000
+    max-output-tokens: 4000
+    max-reasoning-tokens: 1500
+    chat-routing:
+      ADMIN:
+        max-price: 5.0
+        required-capabilities:
+          - AUTO
+        optional-capabilities: []
+      VIP:
+        max-price: 0.5
+        required-capabilities:
+          - CHAT
+        optional-capabilities:
+          - TOOL_CALLING
+          - WEB
+      REGULAR:
+        max-price: ${OPENDAIMON_REGULAR_MAX_PRICE:5.0}
+        required-capabilities:
+          - CHAT
+        optional-capabilities: []
+    summarization:
+      message-window-size: 50
+      max-window-tokens: 16000
+      max-output-tokens: 6000
+      prompt: |
+        You are summarizing a conversation for an AI assistant's long-term memory.
+        If a "Previous conversation summary" section is present, incorporate it into your new summary - produce a SINGLE UNIFIED summary, not a continuation.
+
+        Rules:
+        1. Summarize only what was ACTUALLY said - do not infer, interpret, or invent meaning. If messages are trivial (e.g. single words, numbers, test messages), state that plainly.
+        2. Summary: 2-4 paragraphs, max 500 words. Focus on user's goals, decisions made, problems solved, preferences expressed.
+        3. Memory bullets: up to 10 key facts the assistant must remember going forward. Omit bullets if there is nothing meaningful to remember.
+        4. If previous bullets exist, keep relevant ones, drop obsolete, deduplicate.
+        5. Respond in the SAME LANGUAGE as the conversation.
+        6. Reply in strict JSON only (no markdown, no backticks, no preamble):
+        {"summary": "...", "memory_bullets": ["fact 1", "fact 2", ...]}
+
+        Conversation:
+  ai:
+    spring-ai:
+      enabled: true
+      openrouter-app:
+        site-url: ${OPENROUTER_APP_SITE_URL:}
+        title: ${OPENROUTER_APP_TITLE:}
+      openrouter-auto-rotation:
+        models:
+          enabled: false
+          api:
+            key: ${OPENROUTER_KEY:}
+            url: https://openrouter.ai/api
+          refresh-initial-delay: 10s
+          refresh-interval: 24h
+          whitelist: []
+          blacklist:
+            exclude-model-ids: []
+            exclude-contains: []
+          ranking:
+            enabled: true
+            retry-max-attempts: 3
+            latency-ewma-alpha: 0.2
+            cooldown429: 10m
+            cooldown5xx: 5m
+            cooldown404: 6h
+      serper:
+        api:
+          url: https://google.serper.dev/search
+          key: ${SERPER_KEY:}
+      mock: false
+      timeouts:
+        response-timeout-seconds: 600
+      url-check:
+        enabled: true
+        timeout-ms: 3000
+        max-urls-per-answer: 10
+        cache-ttl-minutes: 10
+      ssl:
+        merge-system-keychain: true
+      models:
+        list:
+          - name: ${OPENDAIMON_DEFAULT_MODEL:${OPENROUTER_CONTRACT_MODEL:openrouter/auto}}
+            provider-type: ${OPENDAIMON_DEFAULT_PROVIDER:OPENAI}
+            priority: 1
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - VISION
+            allowed-roles:
+              - ADMIN
+              - VIP
+              - REGULAR
+      rag:
+        enabled: false
+        chunk-size: 800
+        chunk-overlap: 100
+        top-k: 5
+        similarity-threshold: 0.7
+        prompts:
+          document-extract-error-pdf: "Could not extract text from file \"%s\". The file may be a scanned/image-only PDF or corrupted."
+          document-extract-error-document: "Could not extract text from file \"%s\" (type: %s). The file may be unsupported or corrupted."
+          augmented-prompt-template: |
+            The user attached one or more documents. The following context was extracted from them.
+
+            Context:
+            %s
+
+            User question:
+            %s
+          vision-extraction-prompt: "Extract ALL text content from this image exactly as written. Include all headings, paragraphs, tables, lists, captions, and any visible text. Preserve the original structure and formatting as much as possible. Output only the extracted text, no commentary."
+  agent:
+    enabled: true
+    max-iterations: 10
+    stream-timeout-seconds: 600
+    tools:
+      http-api:
+        enabled: true

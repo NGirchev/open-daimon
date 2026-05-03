@@ -66,15 +66,14 @@ import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.context.support.GenericApplicationContext;
 
 import java.util.List;
-import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterFreeModelResolver;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelsApiClient;
-import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelsProperties;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelStatsRecorder;
 import io.github.ngirchev.opendaimon.ai.springai.retry.metrics.OpenRouterStreamMetricsTracker;
 import io.github.ngirchev.opendaimon.common.ai.ModelDescriptionCache;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
+import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.SummarizationService;
 
 @Slf4j
@@ -508,16 +507,16 @@ public class SpringAIAutoConfig {
     @DependsOn("springAiFlyway")
     public ChatMemory chatMemoryOnPostgresDb(
             ChatMemoryRepository chatMemoryRepository,
-            ConversationThreadRepository conversationThreadRepository,
-            OpenDaimonMessageRepository messageRepository,
+            ConversationThreadService conversationThreadService,
+            OpenDaimonMessageService messageService,
             SummarizationService summarizationService,
             org.springframework.context.ApplicationEventPublisher eventPublisher,
             CoreCommonProperties coreCommonProperties) {
 
         return new SummarizingChatMemory(
                 chatMemoryRepository,
-                conversationThreadRepository,
-                messageRepository,
+                conversationThreadService,
+                messageService,
                 summarizationService,
                 eventPublisher,
                 coreCommonProperties.getSummarization().getMessageWindowSize(),

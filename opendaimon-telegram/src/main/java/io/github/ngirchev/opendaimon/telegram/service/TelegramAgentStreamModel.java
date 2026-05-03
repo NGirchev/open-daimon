@@ -20,6 +20,7 @@ public final class TelegramAgentStreamModel {
 
     public static final String STATUS_THINKING_LINE = "💭 Thinking...";
     public static final String STATUS_MAX_ITER_LINE = "⚠️ reached iteration limit";
+    public static final String STATUS_DONE_LINE = "✅ Done";
 
     private static final int CANDIDATE_TAIL_LIMIT = 400;
     private static final String MISSING_TOOL_ARGUMENT = "missing";
@@ -232,10 +233,10 @@ public final class TelegramAgentStreamModel {
         if (lastBoundary >= 0) {
             statusHtml.setLength(lastBoundary);
         } else {
-            // Overlay was the only content; Telegram rejects empty edits, so leave a
-            // minimal completion marker.
+            // Overlay was the only content; Telegram rejects empty edits, so leave
+            // text next to the emoji to avoid Telegram's oversized single-emoji render.
             statusHtml.setLength(0);
-            statusHtml.append("✅");
+            statusHtml.append(STATUS_DONE_LINE);
         }
         statusDirty = true;
     }

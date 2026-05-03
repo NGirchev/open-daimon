@@ -1,3 +1,8 @@
+# Bundled OpenDaimon runtime keeps its effective configuration explicit in this file.
+# Reference only: external apps that use opendaimon-spring-boot-starter receive low-priority defaults from:
+# opendaimon-spring-boot-starter/src/main/resources/META-INF/opendaimon/opendaimon-defaults.yml
+# This app does not depend on the starter and does not import those defaults, so change runtime values here.
+
 server:
   port: 8080
 
@@ -23,10 +28,6 @@ open-daimon:
         REGULAR:
           maxConcurrentCalls: 1
           maxWaitDuration: 500ms
-    admin:
-      enabled: ${ADMIN_ENABLED:true}
-      telegram-id: ${ADMIN_TELEGRAM_ID:}
-      rest-email: ${ADMIN_REST_EMAIL:}
     assistant-role: role.content.default
     # Hard limit for entire prompt to API (system + history + current). When exceeded — trim/reject and return error.
     max-total-prompt-tokens: 32000
@@ -190,6 +191,7 @@ open-daimon:
                 - stepfun/step-3.5-flash:free
           blacklist:
             exclude-model-ids: []  # add model IDs here to block them permanently
+            exclude-contains: []   # add substrings here to block model families
           ranking:
             enabled: true
             retry-max-attempts: 3

@@ -16,8 +16,10 @@ import io.github.ngirchev.opendaimon.rest.dto.*;
 import io.github.ngirchev.opendaimon.rest.exception.UnauthorizedException;
 import io.github.ngirchev.opendaimon.rest.service.ChatService;
 import io.github.ngirchev.opendaimon.rest.service.RestAuthorizationService;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatMessage;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatResponse;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatSession;
 
-import java.time.Duration;
 import java.util.List;
 
 /**
@@ -44,13 +46,12 @@ public class SessionController {
             HttpServletRequest httpRequest,
             HttpSession session) {
         String email = getEmailFromSessionOrRequest(session, request.email(), httpRequest.getLocale().getLanguage());
-        return ResponseEntity.ok(
-                chatService.sendMessageToNewChat(
+        ChatResponse<String> response = chatService.sendMessageToNewChat(
                         request.message(),
                         restAuthorizationService.authorize(email, httpRequest.getLocale().getLanguage()),
                         httpRequest,
-                        false)
-        );
+                false);
+        return ResponseEntity.ok(toDto(response));
     }
 
     @PostMapping("/{sessionId}")
@@ -61,13 +62,13 @@ public class SessionController {
             HttpServletRequest httpRequest,
             HttpSession session) {
         String email = getEmailFromSessionOrRequest(session, request.email(), httpRequest.getLocale().getLanguage());
-        return ResponseEntity.ok(chatService.sendMessage(
+        ChatResponse<String> response = chatService.sendMessage(
                 sessionId,
                 request.message(),
                 restAuthorizationService.authorize(email, httpRequest.getLocale().getLanguage()),
                 httpRequest,
-                false)
-        );
+                false);
+        return ResponseEntity.ok(toDto(response));
     }
 
 //    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -94,7 +95,7 @@ public class SessionController {
             HttpSession session) {
         String email = getEmailFromSessionOrRequest(session, request.email(), httpRequest.getLocale().getLanguage());
         var user = restAuthorizationService.authorize(email, httpRequest.getLocale().getLanguage());
-        ChatResponseDto<Flux<String>> response = chatService.sendMessageToNewChat(request.message(), user, httpRequest, true);
+        ChatResponse<Flux<String>> response = chatService.sendMessageToNewChat(request.message(), user, httpRequest, true);
         String sessionId = response.sessionId();
         // Send sessionId in first event with type "metadata"
         ServerSentEvent<String> sessionEvent = ServerSentEvent.<String>builder()
@@ -119,7 +120,7 @@ public class SessionController {
             HttpSession session) {
         String email = getEmailFromSessionOrRequest(session, request.email(), httpRequest.getLocale().getLanguage());
         var user = restAuthorizationService.authorize(email, httpRequest.getLocale().getLanguage());
-        ChatResponseDto<Flux<String>> response = chatService.sendMessage(sessionId, request.message(), user, httpRequest, true);
+        ChatResponse<Flux<String>> response = chatService.sendMessage(sessionId, request.message(), user, httpRequest, true);
         // Do not use delayElements - send data as soon as it arrives
         return response.message()
                 // Convert to SSE
@@ -134,7 +135,9 @@ public class SessionController {
             HttpServletRequest httpRequest) {
         String userEmail = getEmailFromSessionOrRequest(session, email, httpRequest.getLocale().getLanguage());
         var user = restAuthorizationService.authorize(userEmail, httpRequest.getLocale().getLanguage());
-        return ResponseEntity.ok(chatService.getSessions(user));
+        return ResponseEntity.ok(chatService.getSessions(user).stream()
+                .map(SessionController::toDto)
+                .toList());
     }
 
     @GetMapping("/{sessionId}/messages")
@@ -146,7 +149,9 @@ public class SessionController {
             HttpServletRequest httpRequest) {
         String userEmail = getEmailFromSessionOrRequest(session, email, httpRequest.getLocale().getLanguage());
         var user = restAuthorizationService.authorize(userEmail, httpRequest.getLocale().getLanguage());
-        List<ChatMessageDto> messages = chatService.getChatHistory(sessionId, user);
+        List<ChatMessageDto> messages = chatService.getChatHistory(sessionId, user).stream()
+                .map(SessionController::toDto)
+                .toList();
         return ResponseEntity.ok(new ChatHistoryResponseDto(sessionId, messages));
     }
 
@@ -182,5 +187,16 @@ public class SessionController {
         }
         throw new UnauthorizedException(messageLocalizationService.getMessage("rest.auth.email.required", languageCode));
     }
-}
 
+    private static <T> ChatResponseDto<T> toDto(ChatResponse<T> response) {
+        return new ChatResponseDto<>(response.message(), response.sessionId());
+    }
+
+    private static ChatSessionDto toDto(ChatSession session) {
+        return new ChatSessionDto(session.sessionId(), session.name(), session.createdAt());
+    }
+
+    private static ChatMessageDto toDto(ChatMessage message) {
+        return new ChatMessageDto(message.role(), message.content());
+    }
+}

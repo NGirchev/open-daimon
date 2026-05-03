@@ -13,7 +13,6 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
@@ -38,7 +37,6 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
     private static final String CALLBACK_PREFIX = "THREADS_";
     private static final String CALLBACK_CANCEL = CALLBACK_PREFIX + "CANCEL";
 
-    private final ConversationThreadRepository threadRepository;
     private final ConversationThreadService threadService;
     private final TelegramUserService userService;
 
@@ -46,11 +44,9 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
-            ConversationThreadRepository threadRepository,
             ConversationThreadService threadService,
             TelegramUserService userService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
-        this.threadRepository = threadRepository;
         this.threadService = threadService;
         this.userService = userService;
     }
@@ -103,8 +99,7 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
         String lang = command.languageCode();
 
         // Get all threads (active and inactive)
-        List<ConversationThread> allThreads = threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
-                ThreadScopeKind.TELEGRAM_CHAT, chatId);
+        List<ConversationThread> allThreads = threadService.findThreads(ThreadScopeKind.TELEGRAM_CHAT, chatId);
 
         if (allThreads.isEmpty()) {
             return messageLocalizationService.getMessage("telegram.threads.empty", lang);
@@ -203,8 +198,7 @@ public class ThreadsTelegramCommandHandler extends AbstractTelegramCommandHandle
     private void sendMessageWithMenu(Long chatId, String text, TelegramCommand command, String lang) throws TelegramCommandHandlerException {
         try {
             userService.getOrCreateUser(command.update().getMessage().getFrom());
-            List<ConversationThread> allThreads = threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(
-                    ThreadScopeKind.TELEGRAM_CHAT, chatId);
+            List<ConversationThread> allThreads = threadService.findThreads(ThreadScopeKind.TELEGRAM_CHAT, chatId);
 
             if (allThreads.isEmpty()) {
                 sendMessage(chatId, text);

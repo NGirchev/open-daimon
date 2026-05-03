@@ -15,8 +15,8 @@ import io.github.ngirchev.opendaimon.common.exception.SummarizationFailedExcepti
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
-import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
+import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.SummarizationService;
 
 import java.util.ArrayList;
@@ -39,8 +39,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SummarizingChatMemory implements ChatMemory {
 
     private final MessageWindowChatMemory delegate; // MessageWindowChatMemory
-    private final ConversationThreadRepository conversationThreadRepository;
-    private final OpenDaimonMessageRepository messageRepository;
+    private final ConversationThreadService conversationThreadService;
+    private final OpenDaimonMessageService messageService;
     private final SummarizationService summarizationService;
     private final ApplicationEventPublisher eventPublisher;
     private final Integer maxMessages; // Max messages from MessageWindowChatMemory
@@ -64,14 +64,14 @@ public class SummarizingChatMemory implements ChatMemory {
 
     public SummarizingChatMemory(
             ChatMemoryRepository chatMemoryRepository,
-            ConversationThreadRepository conversationThreadRepository,
-            OpenDaimonMessageRepository messageRepository,
+            ConversationThreadService conversationThreadService,
+            OpenDaimonMessageService messageService,
             SummarizationService summarizationService,
             ApplicationEventPublisher eventPublisher,
             Integer maxMessages,
             Integer maxWindowTokens) {
-        this.conversationThreadRepository = conversationThreadRepository;
-        this.messageRepository = messageRepository;
+        this.conversationThreadService = conversationThreadService;
+        this.messageService = messageService;
         this.summarizationService = summarizationService;
         this.eventPublisher = eventPublisher;
         this.maxMessages = maxMessages;
@@ -117,7 +117,7 @@ public class SummarizingChatMemory implements ChatMemory {
         boolean tokenLimitReached = false;
 
         if (!messageLimitReached && maxWindowTokens != null) {
-            Optional<ConversationThread> threadOpt = conversationThreadRepository.findByThreadKey(conversationId);
+            Optional<ConversationThread> threadOpt = conversationThreadService.findByThreadKey(conversationId);
             tokenLimitReached = threadOpt
                 .map(t -> t.getTotalTokens() != null && t.getTotalTokens() >= maxWindowTokens)
                 .orElse(false);
@@ -170,7 +170,7 @@ public class SummarizingChatMemory implements ChatMemory {
     private List<Message> restoreHistoryFromPrimaryStore(@NonNull String conversationId) {
         try {
             Optional<ConversationThread> threadOpt =
-                    conversationThreadRepository.findByThreadKey(conversationId);
+                    conversationThreadService.findByThreadKey(conversationId);
             if (threadOpt.isEmpty()) {
                 return List.of();
             }
@@ -184,7 +184,7 @@ public class SummarizingChatMemory implements ChatMemory {
             Integer messagesAtLastSummarization = thread.getMessagesAtLastSummarization();
             int minSequenceNumber = messagesAtLastSummarization != null ? messagesAtLastSummarization : 0;
 
-            List<OpenDaimonMessage> postSummaryMessages = messageRepository
+            List<OpenDaimonMessage> postSummaryMessages = messageService
                     .findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(thread, minSequenceNumber);
 
             // Drop the trailing in-flight USER row: TelegramMessageHandlerActions.saveMessage
@@ -235,7 +235,7 @@ public class SummarizingChatMemory implements ChatMemory {
      */
     private boolean performSummarizationAndUpdateChatMemory(@NonNull String conversationId) {
         try {
-            Optional<ConversationThread> threadOpt = conversationThreadRepository.findByThreadKey(conversationId);
+            Optional<ConversationThread> threadOpt = conversationThreadService.findByThreadKey(conversationId);
 
             if (threadOpt.isEmpty()) {
                 log.debug("Thread not found for conversationId {}, skipping summarization", conversationId);
@@ -251,7 +251,7 @@ public class SummarizingChatMemory implements ChatMemory {
             Integer messagesAtLastSummarization = thread.getMessagesAtLastSummarization();
             int minSequenceNumber = messagesAtLastSummarization != null ? messagesAtLastSummarization : 0;
 
-            List<OpenDaimonMessage> allMessages = new ArrayList<>(messageRepository
+            List<OpenDaimonMessage> allMessages = new ArrayList<>(messageService
                 .findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(thread, minSequenceNumber));
 
             if (allMessages.size() < 2) {
@@ -271,7 +271,7 @@ public class SummarizingChatMemory implements ChatMemory {
             summarizationService.summarizeThread(thread, toSummarize);
 
             // Refresh thread from DB after summarization
-            thread = conversationThreadRepository.findByThreadKey(conversationId)
+            thread = conversationThreadService.findByThreadKey(conversationId)
                 .orElseThrow(() -> new RuntimeException("Thread not found after summarization"));
 
             // Rebuild ChatMemory atomically so that any concurrent get() on the same

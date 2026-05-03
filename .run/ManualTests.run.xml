@@ -1,0 +1,13 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="ManualTests" type="JUnit" factoryName="JUnit">
+    <module name="opendaimon-app" />
+    <option name="MAIN_CLASS_NAME" value="" />
+    <option name="METHOD_NAME" value="" />
+    <option name="TEST_OBJECT" value="directory" />
+    <option name="VM_PARAMETERS" value="-ea -Dmanual.ollama.e2e=true -Dmanual.openrouter.e2e=true" />
+    <dir value="$PROJECT_DIR$/opendaimon-app/src/it/java/io/github/ngirchev/opendaimon/it/manual" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

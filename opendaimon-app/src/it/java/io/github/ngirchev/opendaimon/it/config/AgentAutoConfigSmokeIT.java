@@ -1,6 +1,6 @@
 package io.github.ngirchev.opendaimon.it.config;
 
-import io.github.ngirchev.opendaimon.ai.springai.agent.AgentAutoConfig;
+import io.github.ngirchev.opendaimon.ai.springai.config.AgentAutoConfig;
 import io.github.ngirchev.opendaimon.ai.springai.agent.PlanAndExecuteAgentExecutor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.ReActAgentExecutor;
 import io.github.ngirchev.opendaimon.ai.springai.agent.SimpleChainExecutor;

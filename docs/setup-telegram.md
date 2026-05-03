@@ -27,7 +27,7 @@ Your admin ID is your numeric Telegram user ID. To find it:
    First: John
    ...
    ```
-   The `Id` value is your **`ADMIN_TELEGRAM_ID`**.
+   Put the `Id` value into **`TELEGRAM_ACCESS_ADMIN_IDS`**.
 
 ## Step 3: (Optional) Allow bot in groups
 
@@ -56,5 +56,5 @@ If your token is compromised:
 ## Notes
 
 - The bot will only respond to users listed in `TELEGRAM_ACCESS_*_IDS` or channels in `TELEGRAM_ACCESS_*_CHANNELS`
-- As admin, you are added automatically (via `ADMIN_TELEGRAM_ID`)
+- Add your own user ID to `TELEGRAM_ACCESS_ADMIN_IDS` to get admin access
 - See [User Priorities](../README.md#user-priorities-and-bulkhead) for how access levels work

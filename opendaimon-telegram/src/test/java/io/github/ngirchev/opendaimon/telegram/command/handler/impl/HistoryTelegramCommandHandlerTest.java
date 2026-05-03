@@ -4,9 +4,9 @@ import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
-import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
+import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
@@ -51,9 +51,9 @@ class HistoryTelegramCommandHandlerTest {
     @Mock
     private TypingIndicatorService typingIndicatorService;
     @Mock
-    private ConversationThreadRepository threadRepository;
+    private ConversationThreadService threadService;
     @Mock
-    private OpenDaimonMessageRepository messageRepository;
+    private OpenDaimonMessageService messageService;
     @Mock
     private TelegramUserService userService;
 
@@ -73,7 +73,7 @@ class HistoryTelegramCommandHandlerTest {
 
         handler = new HistoryTelegramCommandHandler(
                 botProvider, typingIndicatorService, messageLocalizationService,
-                threadRepository, messageRepository, userService);
+                threadService, messageService, userService);
     }
 
     @Test
@@ -127,7 +127,7 @@ class HistoryTelegramCommandHandlerTest {
 
         TelegramUser telegramUser = new TelegramUser();
         when(userService.getOrCreateUser(any())).thenReturn(telegramUser);
-        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.empty());
+        when(threadService.findCurrentThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.empty());
 
         TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
                 new TelegramCommandType(TelegramCommand.HISTORY), update);
@@ -149,8 +149,8 @@ class HistoryTelegramCommandHandlerTest {
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey("thread-key-12");
         when(userService.getOrCreateUser(any())).thenReturn(telegramUser);
-        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.of(thread));
-        when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread)).thenReturn(List.of());
+        when(threadService.findCurrentThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.of(thread));
+        when(messageService.findByThreadOrderBySequenceNumberAsc(thread)).thenReturn(List.of());
 
         TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
                 new TelegramCommandType(TelegramCommand.HISTORY), update);
@@ -173,7 +173,7 @@ class HistoryTelegramCommandHandlerTest {
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey("thread-key-ab");
         when(userService.getOrCreateUser(any())).thenReturn(telegramUser);
-        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.of(thread));
+        when(threadService.findCurrentThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.of(thread));
 
         OpenDaimonMessage userMsg = new OpenDaimonMessage();
         userMsg.setRole(MessageRole.USER);
@@ -181,7 +181,7 @@ class HistoryTelegramCommandHandlerTest {
         OpenDaimonMessage assistantMsg = new OpenDaimonMessage();
         assistantMsg.setRole(MessageRole.ASSISTANT);
         assistantMsg.setContent("Hi there");
-        when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
+        when(messageService.findByThreadOrderBySequenceNumberAsc(thread))
                 .thenReturn(List.of(userMsg, assistantMsg));
 
         TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
@@ -194,7 +194,7 @@ class HistoryTelegramCommandHandlerTest {
         assertTrue(result.contains("Hello"));
         assertTrue(result.contains("Hi there"));
         assertTrue(result.contains("Total messages: 2"));
-        verify(messageRepository).findByThreadOrderBySequenceNumberAsc(thread);
+        verify(messageService).findByThreadOrderBySequenceNumberAsc(thread);
     }
 
     @Test

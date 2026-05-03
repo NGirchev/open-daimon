@@ -3,6 +3,8 @@ package io.github.ngirchev.opendaimon.rest.controller;
 import io.github.ngirchev.opendaimon.rest.dto.admin.PageResponseDto;
 import io.github.ngirchev.opendaimon.rest.dto.admin.UserSummaryDto;
 import io.github.ngirchev.opendaimon.rest.service.AdminQueryService;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminPageResponse;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminUserSummary;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +40,27 @@ public class AdminUserController {
         int boundedSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         int boundedPage = Math.max(page, 0);
         PageRequest pageable = PageRequest.of(boundedPage, boundedSize, Sort.by("id"));
-        return ResponseEntity.ok(adminQueryService.listUsers(search, pageable));
+        return ResponseEntity.ok(toDto(adminQueryService.listUsers(search, pageable)));
+    }
+
+    private static PageResponseDto<UserSummaryDto> toDto(AdminPageResponse<AdminUserSummary> page) {
+        return new PageResponseDto<>(
+                page.content().stream().map(AdminUserController::toDto).toList(),
+                page.page(),
+                page.size(),
+                page.totalElements(),
+                page.totalPages());
+    }
+
+    private static UserSummaryDto toDto(AdminUserSummary user) {
+        return new UserSummaryDto(
+                user.id(),
+                user.userType(),
+                user.username(),
+                user.firstName(),
+                user.lastName(),
+                user.emailOrTelegramId(),
+                user.isAdmin(),
+                user.isBlocked());
     }
 }

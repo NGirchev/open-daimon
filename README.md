@@ -22,7 +22,9 @@
 
 [![Java 21](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk)](https://openjdk.org/)
 [![Spring Boot 3.3.3](https://img.shields.io/badge/Spring%20Boot-3.3.3-6DB33F?logo=springboot)](https://spring.io/projects/spring-boot)
-[![License](https://img.shields.io/github/license/NGirchev/open-daimon)](https://github.com/NGirchev/open-daimon/blob/master/LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/NGirchev/open-daimon/blob/master/LICENSE)
+
+![Screen Recording 2026-05-03 at 23.28.03.gif](Screen%20Recording%202026-05-03%20at%2023.28.03.gif)
 
 ## Quick Setup
 
@@ -711,6 +713,7 @@ File -> Invalidate Caches / Restart
 
 - **[docs/setup-telegram.md](docs/setup-telegram.md)** — Create a Telegram bot and get your user ID
 - **[docs/setup-serper.md](docs/setup-serper.md)** — Enable web search (optional)
+- **[docs/codex/setup.md](docs/codex/setup.md)** — Recreate the Codex, MCP, and Serena workstation setup
 
 ### Project docs
 
@@ -762,4 +765,10 @@ docker-compose -H tcp://localhost:23750 up -d
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
+OpenDaimon is licensed under the Apache License, Version 2.0. See
+[LICENSE](LICENSE) and [NOTICE](NOTICE) for details.
+
+The Apache License does not grant trademark rights. If you distribute a fork,
+modified version, hosted service, or commercial product based on OpenDaimon, use
+a distinct product name and preserve the required attribution notices. See
+[TRADEMARKS.md](TRADEMARKS.md).

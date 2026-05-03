@@ -69,13 +69,6 @@ public class CoreCommonProperties {
     private SummarizationProperties summarization = new SummarizationProperties();
 
     /**
-     * Admin initialization at application startup.
-     */
-    @Valid
-    @NestedConfigurationProperty
-    private AdminProperties admin = new AdminProperties();
-
-    /**
      * AI command routing by user priority. YAML uses {@code ADMIN} / {@code VIP} / {@code REGULAR} keys
      * (same style as {@code open-daimon.telegram.access}); Java fields are {@code admin}, {@code vip}, {@code regular}.
      */
@@ -133,30 +126,6 @@ public class CoreCommonProperties {
          */
         @NotBlank(message = "prompt is required")
         private String prompt;
-    }
-
-    /**
-     * Admin configuration properties.
-     */
-    @Getter
-    @Setter
-    @Validated
-    public static class AdminProperties {
-
-        /**
-         * Whether to run admin initialization.
-         */
-        private Boolean enabled = false;
-
-        /**
-         * Admin Telegram ID (optional).
-         */
-        private Long telegramId;
-
-        /**
-         * Admin REST email (optional).
-         */
-        private String restEmail;
     }
 
     /**

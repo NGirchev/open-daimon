@@ -2,8 +2,8 @@ package io.github.ngirchev.opendaimon.telegram.service;
 
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageSender;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,11 +35,12 @@ class TelegramAgentStreamViewTest {
     @Mock private TelegramMessageSender messageSender;
     @Mock private TelegramChatPacer telegramChatPacer;
 
+    private TelegramProperties properties;
     private TelegramAgentStreamView view;
 
     @BeforeEach
     void setUp() throws InterruptedException {
-        TelegramProperties properties = new TelegramProperties();
+        properties = new TelegramProperties();
         properties.setMaxMessageLength(4096);
         properties.getAgentStreamView().setFinalDeliveryTimeoutMs(5000);
         lenient().when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
@@ -87,6 +88,54 @@ class TelegramAgentStreamViewTest {
         verify(messageSender).deleteMessage(CHAT_ID, STATUS_MESSAGE_ID);
         assertThat(ctx.getStatusMessageId()).isNull();
         assertThat(delivered).isTrue();
+    }
+
+    @Test
+    @DisplayName("flushFinal should flush paragraph buffer before answer chunk exceeds Telegram limit")
+    void shouldFlushParagraphBufferBeforeAnswerChunkExceedsTelegramLimit() {
+        properties.setMaxMessageLength(120);
+        MessageHandlerContext ctx = newContext();
+        ctx.setStatusMessageId(STATUS_MESSAGE_ID);
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+        model.apply(AgentStreamEvent.finalAnswer("a".repeat(80) + "\n\n" + "b".repeat(80), 0));
+        when(messageSender.editHtmlReliable(eq(CHAT_ID), eq(STATUS_MESSAGE_ID), any(), eq(true), eq(5000L)))
+                .thenReturn(true);
+        when(messageSender.sendHtmlReliableAndGetId(eq(CHAT_ID), any(), any(), eq(false), eq(5000L)))
+                .thenReturn(31, 32);
+
+        boolean delivered = view.flushFinal(ctx, model);
+
+        ArgumentCaptor<String> answerCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messageSender, org.mockito.Mockito.times(2)).sendHtmlReliableAndGetId(
+                eq(CHAT_ID), answerCaptor.capture(), any(), eq(false), eq(5000L));
+        assertThat(delivered).isTrue();
+        assertThat(answerCaptor.getAllValues())
+                .hasSize(2)
+                .allSatisfy(html -> assertThat(html.length()).isLessThanOrEqualTo(120));
+    }
+
+    @Test
+    @DisplayName("flushFinal should split by converted HTML length, not raw markdown length")
+    void shouldSplitAnswerByConvertedHtmlLength() {
+        properties.setMaxMessageLength(120);
+        MessageHandlerContext ctx = newContext();
+        ctx.setStatusMessageId(STATUS_MESSAGE_ID);
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+        model.apply(AgentStreamEvent.finalAnswer("&".repeat(25), 0));
+        when(messageSender.editHtmlReliable(eq(CHAT_ID), eq(STATUS_MESSAGE_ID), any(), eq(true), eq(5000L)))
+                .thenReturn(true);
+        when(messageSender.sendHtmlReliableAndGetId(eq(CHAT_ID), any(), any(), eq(false), eq(5000L)))
+                .thenReturn(31, 32);
+
+        boolean delivered = view.flushFinal(ctx, model);
+
+        ArgumentCaptor<String> answerCaptor = ArgumentCaptor.forClass(String.class);
+        verify(messageSender, org.mockito.Mockito.times(2)).sendHtmlReliableAndGetId(
+                eq(CHAT_ID), answerCaptor.capture(), any(), eq(false), eq(5000L));
+        assertThat(delivered).isTrue();
+        assertThat(answerCaptor.getAllValues())
+                .hasSize(2)
+                .allSatisfy(html -> assertThat(html.length()).isLessThanOrEqualTo(120));
     }
 
     private static TelegramAgentStreamModel modelWithCleanedFinalAnswer() {

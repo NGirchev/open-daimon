@@ -3,8 +3,8 @@ package io.github.ngirchev.opendaimon.ai.springai.memory;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
-import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
+import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.SummarizationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,9 +56,9 @@ class SummarizingChatMemoryTest {
     private SummarizingChatMemory summarizingChatMemory;
 
     @Mock
-    private ConversationThreadRepository conversationThreadRepository;
+    private ConversationThreadService conversationThreadService;
     @Mock
-    private OpenDaimonMessageRepository messageRepository;
+    private OpenDaimonMessageService messageService;
     @Mock
     private SummarizationService summarizationService;
     @Mock
@@ -69,8 +69,8 @@ class SummarizingChatMemoryTest {
         ChatMemoryRepository chatMemoryRepository = new InMemoryChatMemoryRepository();
         summarizingChatMemory = new SummarizingChatMemory(
                 chatMemoryRepository,
-                conversationThreadRepository,
-                messageRepository,
+                conversationThreadService,
+                messageService,
                 summarizationService,
                 eventPublisher,
                 MAX_MESSAGES,
@@ -82,12 +82,12 @@ class SummarizingChatMemoryTest {
     void whenGetWithFewerThanMaxMessages_thenReturnsMessagesWithoutSummarization() {
         summarizingChatMemory.add(CONVERSATION_ID, new UserMessage("Hello"));
         summarizingChatMemory.add(CONVERSATION_ID, new AssistantMessage("Hi"));
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.empty());
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.empty());
 
         List<Message> result = summarizingChatMemory.get(CONVERSATION_ID);
 
         assertEquals(2, result.size());
-        verify(conversationThreadRepository, times(1)).findByThreadKey(CONVERSATION_ID);
+        verify(conversationThreadService, times(1)).findByThreadKey(CONVERSATION_ID);
         verify(summarizationService, never()).summarizeThread(any(), any());
     }
 
@@ -129,11 +129,11 @@ class SummarizingChatMemoryTest {
         for (int i = 0; i < MAX_MESSAGES; i++) {
             summarizingChatMemory.add(CONVERSATION_ID, new UserMessage("u" + i));
         }
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.empty());
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.empty());
 
         summarizingChatMemory.get(CONVERSATION_ID);
 
-        verify(conversationThreadRepository).findByThreadKey(CONVERSATION_ID);
+        verify(conversationThreadService).findByThreadKey(CONVERSATION_ID);
     }
 
     @Test
@@ -142,11 +142,11 @@ class SummarizingChatMemoryTest {
         for (int i = 0; i < MAX_MESSAGES - 1; i++) {
             summarizingChatMemory.add(CONVERSATION_ID, new UserMessage("u" + i));
         }
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.empty());
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.empty());
 
         summarizingChatMemory.get(CONVERSATION_ID);
 
-        verify(conversationThreadRepository, times(1)).findByThreadKey(CONVERSATION_ID);
+        verify(conversationThreadService, times(1)).findByThreadKey(CONVERSATION_ID);
         verify(summarizationService, never()).summarizeThread(any(), any());
     }
 
@@ -156,13 +156,13 @@ class SummarizingChatMemoryTest {
             summarizingChatMemory.add(CONVERSATION_ID, new UserMessage("u" + i));
             summarizingChatMemory.add(CONVERSATION_ID, new AssistantMessage("a" + i));
         }
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.empty());
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.empty());
 
         List<Message> result = summarizingChatMemory.get(CONVERSATION_ID);
 
         // Delegate (MessageWindowChatMemory) keeps only last maxMessages messages
         assertEquals(MAX_MESSAGES, result.size());
-        verify(conversationThreadRepository).findByThreadKey(CONVERSATION_ID);
+        verify(conversationThreadService).findByThreadKey(CONVERSATION_ID);
         verify(summarizationService, never()).summarizeThread(any(), any());
     }
 
@@ -174,14 +174,14 @@ class SummarizingChatMemoryTest {
         }
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey(CONVERSATION_ID);
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
         // One message: size < 2, partial summarization is skipped
-        when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
+        when(messageService.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
                 .thenReturn(new ArrayList<>(List.of(createMockMessage(MessageRole.USER))));
 
         List<Message> result = summarizingChatMemory.get(CONVERSATION_ID);
 
-        verify(conversationThreadRepository, atLeastOnce()).findByThreadKey(CONVERSATION_ID);
+        verify(conversationThreadService, atLeastOnce()).findByThreadKey(CONVERSATION_ID);
         verify(summarizationService, never()).summarizeThread(any(), any());
     }
 
@@ -199,7 +199,7 @@ class SummarizingChatMemoryTest {
         threadWithSummary.setSummary("Previous talk summary");
         threadWithSummary.setMemoryBullets(List.of("Point one", "Point two"));
 
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID))
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID))
                 .thenReturn(Optional.of(thread))
                 .thenReturn(Optional.of(threadWithSummary));
         // 4 messages in DB: partial summarization splits into 2 to summarize + 2 to keep
@@ -208,7 +208,7 @@ class SummarizingChatMemoryTest {
                 createMockMessage(MessageRole.ASSISTANT),
                 createMockMessage(MessageRole.USER),
                 createMockMessage(MessageRole.ASSISTANT)));
-        when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
+        when(messageService.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
                 .thenReturn(dbMessages);
 
         List<Message> result = summarizingChatMemory.get(CONVERSATION_ID);
@@ -242,7 +242,7 @@ class SummarizingChatMemoryTest {
         threadAfterSummary.setThreadKey(CONVERSATION_ID);
         threadAfterSummary.setSummary(null);
 
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID))
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID))
                 .thenReturn(Optional.of(thread))
                 .thenReturn(Optional.of(threadAfterSummary));
         ArrayList<OpenDaimonMessage> dbMessages = new ArrayList<>(List.of(
@@ -250,7 +250,7 @@ class SummarizingChatMemoryTest {
                 createMockMessage(MessageRole.ASSISTANT),
                 createMockMessage(MessageRole.USER),
                 createMockMessage(MessageRole.ASSISTANT)));
-        when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
+        when(messageService.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
                 .thenReturn(dbMessages);
 
         List<Message> result = summarizingChatMemory.get(CONVERSATION_ID);
@@ -272,8 +272,8 @@ class SummarizingChatMemoryTest {
         }
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey(CONVERSATION_ID);
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
-        when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
+        when(messageService.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
                 .thenReturn(new ArrayList<>(List.of(
                         createMockMessage(MessageRole.USER),
                         createMockMessage(MessageRole.ASSISTANT),
@@ -297,12 +297,12 @@ class SummarizingChatMemoryTest {
         thread.setThreadKey(CONVERSATION_ID);
         thread.setTotalTokens((long) MAX_WINDOW_TOKENS); // At the limit
 
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
 
         summarizingChatMemory.get(CONVERSATION_ID);
 
         // Token check in get(), then load thread again in performSummarizationAndUpdateChatMemory
-        verify(conversationThreadRepository, times(2)).findByThreadKey(CONVERSATION_ID);
+        verify(conversationThreadService, times(2)).findByThreadKey(CONVERSATION_ID);
     }
 
     @Test
@@ -316,12 +316,12 @@ class SummarizingChatMemoryTest {
         thread.setThreadKey(CONVERSATION_ID);
         thread.setTotalTokens(5000L); // Well below MAX_WINDOW_TOKENS=16000
 
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID)).thenReturn(Optional.of(thread));
 
         summarizingChatMemory.get(CONVERSATION_ID);
 
         // Thread is loaded once to evaluate totalTokens vs maxWindowTokens
-        verify(conversationThreadRepository, times(1)).findByThreadKey(CONVERSATION_ID);
+        verify(conversationThreadService, times(1)).findByThreadKey(CONVERSATION_ID);
         verify(summarizationService, never()).summarizeThread(any(), any());
     }
 
@@ -338,10 +338,10 @@ class SummarizingChatMemoryTest {
         // Delegate is empty (fresh app start / eviction) — get() triggers primary-store restore.
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey(CONVERSATION_ID);
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID))
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID))
                 .thenReturn(Optional.of(thread));
         // Primary store: 3 ASSISTANT turns interleaved with USER, tail is an in-flight USER row.
-        when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
+        when(messageService.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
                 .thenReturn(new ArrayList<>(List.of(
                         createMockMessage(MessageRole.USER, "u0"),
                         createMockMessage(MessageRole.ASSISTANT, "a0"),
@@ -371,14 +371,14 @@ class SummarizingChatMemoryTest {
     void shouldDropTrailingInFlightUserMessageWithAttachmentsEnrichment() {
         ConversationThread thread = new ConversationThread();
         thread.setThreadKey(CONVERSATION_ID);
-        when(conversationThreadRepository.findByThreadKey(CONVERSATION_ID))
+        when(conversationThreadService.findByThreadKey(CONVERSATION_ID))
                 .thenReturn(Optional.of(thread));
 
         OpenDaimonMessage trailingUserWithAttachments = createMockMessage(MessageRole.USER, "describe this");
         trailingUserWithAttachments.setAttachments(List.of(
                 java.util.Map.of("type", "image", "name", "photo.jpg")));
 
-        when(messageRepository.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
+        when(messageService.findByThreadAndSequenceNumberGreaterThanOrderBySequenceNumberAsc(eq(thread), any()))
                 .thenReturn(new ArrayList<>(List.of(
                         createMockMessage(MessageRole.USER, "earlier prompt"),
                         createMockMessage(MessageRole.ASSISTANT, "earlier reply"),

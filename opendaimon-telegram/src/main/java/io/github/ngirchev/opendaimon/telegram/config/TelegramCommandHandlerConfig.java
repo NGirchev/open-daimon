@@ -14,19 +14,18 @@ import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.service.*;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
-import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
+import io.github.ngirchev.opendaimon.telegram.command.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.command.handler.impl.*;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerActions;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerContext;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerEvent;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerFsmFactory;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.MessageHandlerState;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageHandlerActions;
-import io.github.ngirchev.opendaimon.telegram.command.handler.impl.fsm.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerActions;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerEvent;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerFsmFactory;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerState;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.TelegramMessageHandlerActions;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageSender;
 import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.InMemoryModelSelectionSession;
 import io.github.ngirchev.opendaimon.telegram.service.ModelSelectionSession;
@@ -151,7 +150,6 @@ public class TelegramCommandHandlerConfig {
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
             ConversationThreadService threadService,
-            ConversationThreadRepository threadRepository,
             TelegramUserService telegramUserService,
             ObjectProvider<PersistentKeyboardService> persistentKeyboardServiceProvider) {
         return new NewThreadTelegramCommandHandler(
@@ -159,7 +157,6 @@ public class TelegramCommandHandlerConfig {
                 typingIndicatorService,
                 messageLocalizationService,
                 threadService,
-                threadRepository,
                 telegramUserService,
                 persistentKeyboardServiceProvider);
     }
@@ -171,15 +168,15 @@ public class TelegramCommandHandlerConfig {
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
-            ConversationThreadRepository threadRepository,
-            OpenDaimonMessageRepository messageRepository,
+            ConversationThreadService threadService,
+            OpenDaimonMessageService messageService,
             TelegramUserService telegramUserService) {
         return new HistoryTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
                 messageLocalizationService,
-                threadRepository,
-                messageRepository,
+                threadService,
+                messageService,
                 telegramUserService);
     }
 
@@ -190,14 +187,12 @@ public class TelegramCommandHandlerConfig {
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
-            ConversationThreadRepository threadRepository,
             ConversationThreadService threadService,
             TelegramUserService telegramUserService) {
         return new ThreadsTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
                 messageLocalizationService,
-                threadRepository,
                 threadService,
                 telegramUserService);
     }

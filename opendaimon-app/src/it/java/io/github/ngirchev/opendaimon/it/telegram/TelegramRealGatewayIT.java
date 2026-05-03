@@ -50,7 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>To run the test:
  * <ol>
- *   <li>Ensure .env contains TELEGRAM_TOKEN, TELEGRAM_USERNAME and ADMIN_TELEGRAM_ID</li>
+ *   <li>Ensure .env contains TELEGRAM_TOKEN, TELEGRAM_USERNAME and TEST_TELEGRAM_CHAT_ID</li>
  *   <li>Remove @Disabled from the test or the whole class</li>
  *   <li>Run the test</li>
  * </ol>
@@ -84,7 +84,7 @@ class TelegramRealGatewayIT extends AbstractContainerIT {
         DotEnvLoader.loadDotEnv(Path.of("../.env"));
     }
 
-    @Value("${ADMIN_TELEGRAM_ID}")
+    @Value("${TEST_TELEGRAM_CHAT_ID}")
     private Long adminTelegramId;
 
     @Autowired

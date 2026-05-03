@@ -6,21 +6,21 @@ import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongExceptio
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.rest.RestTestConfiguration;
 import io.github.ngirchev.opendaimon.rest.config.AdminSecurityConfig;
-import io.github.ngirchev.opendaimon.rest.dto.ChatMessageDto;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatMessage;
 import io.github.ngirchev.opendaimon.rest.dto.ChatRequestDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatResponseDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatSessionDto;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatResponse;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatSession;
 import io.github.ngirchev.opendaimon.rest.exception.RestExceptionHandler;
 import io.github.ngirchev.opendaimon.rest.exception.UnauthorizedException;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.repository.RestUserRepository;
 import io.github.ngirchev.opendaimon.rest.service.ChatService;
 import io.github.ngirchev.opendaimon.rest.service.RestAuthorizationService;
+import jakarta.annotation.Resource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -33,6 +33,7 @@ import reactor.core.publisher.Flux;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static org.hamcrest.Matchers.equalTo;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -60,10 +61,10 @@ class SessionControllerContractTest {
     private static final String TEST_EMAIL = "user@test.com";
     private static final String SESSION_ID = "session-123";
 
-    @Autowired
+    @Resource
     private MockMvc mockMvc;
 
-    @Autowired
+    @Resource
     private ObjectMapper objectMapper;
 
     @MockitoBean
@@ -100,7 +101,7 @@ class SessionControllerContractTest {
         @DisplayName("returns 200 and JSON with message and sessionId when authorized")
         void whenAuthorized_returns200AndResponseDto() throws Exception {
             ChatRequestDto request = new ChatRequestDto("Hello", null, null, TEST_EMAIL);
-            ChatResponseDto<String> response = new ChatResponseDto<>("AI reply", SESSION_ID);
+            ChatResponse<String> response = new ChatResponse<>("AI reply", SESSION_ID);
 
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             doReturn(response).when(chatService).sendMessageToNewChat(eq("Hello"), eq(restUser), any(), eq(false));
@@ -110,8 +111,8 @@ class SessionControllerContractTest {
                             .content(toJson(request)))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.message").value("AI reply"))
-                    .andExpect(jsonPath("$.sessionId").value(SESSION_ID));
+                    .andExpect(jsonPath("$.message").value(equalTo("AI reply")))
+                    .andExpect(jsonPath("$.sessionId").value(equalTo(SESSION_ID)));
         }
 
         @Test
@@ -126,8 +127,8 @@ class SessionControllerContractTest {
                     .andExpect(status().isUnauthorized())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                     .andExpect(jsonPath("$.message").exists())
-                    .andExpect(jsonPath("$.status").value(401))
-                    .andExpect(jsonPath("$.redirect").value("/login"));
+                    .andExpect(jsonPath("$.status").value(equalTo(401)))
+                    .andExpect(jsonPath("$.redirect").value(equalTo("/login")));
         }
 
         @Test
@@ -142,8 +143,8 @@ class SessionControllerContractTest {
                             .accept(MediaType.APPLICATION_JSON)
                             .content(toJson(request)))
                     .andExpect(status().isUnauthorized())
-                    .andExpect(jsonPath("$.message").value("User not found"))
-                    .andExpect(jsonPath("$.status").value(401));
+                    .andExpect(jsonPath("$.message").value(equalTo("User not found")))
+                    .andExpect(jsonPath("$.status").value(equalTo(401)));
         }
     }
 
@@ -155,7 +156,7 @@ class SessionControllerContractTest {
         @DisplayName("returns 200 and JSON with message and sessionId when authorized")
         void whenAuthorized_returns200AndResponseDto() throws Exception {
             ChatRequestDto request = new ChatRequestDto("Follow-up", null, null, TEST_EMAIL);
-            ChatResponseDto<String> response = new ChatResponseDto<>("AI reply", SESSION_ID);
+            ChatResponse<String> response = new ChatResponse<>("AI reply", SESSION_ID);
 
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             doReturn(response).when(chatService).sendMessage(eq(SESSION_ID), eq("Follow-up"), eq(restUser), any(), eq(false));
@@ -165,8 +166,8 @@ class SessionControllerContractTest {
                             .content(toJson(request)))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.message").value("AI reply"))
-                    .andExpect(jsonPath("$.sessionId").value(SESSION_ID));
+                    .andExpect(jsonPath("$.message").value(equalTo("AI reply")))
+                    .andExpect(jsonPath("$.sessionId").value(equalTo(SESSION_ID)));
         }
 
         @Test
@@ -189,9 +190,9 @@ class SessionControllerContractTest {
         @Test
         @DisplayName("returns 200 and JSON array of sessions when authorized")
         void whenAuthorized_returns200AndSessionList() throws Exception {
-            List<ChatSessionDto> sessions = List.of(
-                    new ChatSessionDto("s1", "Chat 1", OffsetDateTime.now()),
-                    new ChatSessionDto("s2", "Chat 2", OffsetDateTime.now())
+            List<ChatSession> sessions = List.of(
+                    new ChatSession("s1", "Chat 1", OffsetDateTime.now()),
+                    new ChatSession("s2", "Chat 2", OffsetDateTime.now())
             );
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             when(chatService.getSessions(restUser)).thenReturn(sessions);
@@ -199,11 +200,11 @@ class SessionControllerContractTest {
             mockMvc.perform(get(BASE_URL).param("email", TEST_EMAIL))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.length()").value(2))
-                    .andExpect(jsonPath("$[0].sessionId").value("s1"))
-                    .andExpect(jsonPath("$[0].name").value("Chat 1"))
+                    .andExpect(jsonPath("$.length()").value(equalTo(2)))
+                    .andExpect(jsonPath("$[0].sessionId").value(equalTo("s1")))
+                    .andExpect(jsonPath("$[0].name").value(equalTo("Chat 1")))
                     .andExpect(jsonPath("$[0].createdAt").exists())
-                    .andExpect(jsonPath("$[1].sessionId").value("s2"));
+                    .andExpect(jsonPath("$[1].sessionId").value(equalTo("s2")));
         }
 
         @Test
@@ -221,9 +222,9 @@ class SessionControllerContractTest {
         @Test
         @DisplayName("returns 200 and JSON with sessionId and messages when authorized")
         void whenAuthorized_returns200AndHistory() throws Exception {
-            List<ChatMessageDto> messages = List.of(
-                    new ChatMessageDto("USER", "Hello"),
-                    new ChatMessageDto("ASSISTANT", "Hi there")
+            List<ChatMessage> messages = List.of(
+                    new ChatMessage("USER", "Hello"),
+                    new ChatMessage("ASSISTANT", "Hi there")
             );
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             when(chatService.getChatHistory(SESSION_ID, restUser)).thenReturn(messages);
@@ -231,12 +232,12 @@ class SessionControllerContractTest {
             mockMvc.perform(get(BASE_URL + "/" + SESSION_ID + "/messages").param("email", TEST_EMAIL))
                     .andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.sessionId").value(SESSION_ID))
-                    .andExpect(jsonPath("$.messages.length()").value(2))
-                    .andExpect(jsonPath("$.messages[0].role").value("USER"))
-                    .andExpect(jsonPath("$.messages[0].content").value("Hello"))
-                    .andExpect(jsonPath("$.messages[1].role").value("ASSISTANT"))
-                    .andExpect(jsonPath("$.messages[1].content").value("Hi there"));
+                    .andExpect(jsonPath("$.sessionId").value(equalTo(SESSION_ID)))
+                    .andExpect(jsonPath("$.messages.length()").value(equalTo(2)))
+                    .andExpect(jsonPath("$.messages[0].role").value(equalTo("USER")))
+                    .andExpect(jsonPath("$.messages[0].content").value(equalTo("Hello")))
+                    .andExpect(jsonPath("$.messages[1].role").value(equalTo("ASSISTANT")))
+                    .andExpect(jsonPath("$.messages[1].content").value(equalTo("Hi there")));
         }
 
         @Test
@@ -291,7 +292,7 @@ class SessionControllerContractTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                     .andExpect(jsonPath("$.message").exists())
-                    .andExpect(jsonPath("$.status").value(400));
+                    .andExpect(jsonPath("$.status").value(equalTo(400)));
         }
     }
 
@@ -315,7 +316,7 @@ class SessionControllerContractTest {
                     .andExpect(status().isForbidden())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                     .andExpect(jsonPath("$.message").exists())
-                    .andExpect(jsonPath("$.status").value(403));
+                    .andExpect(jsonPath("$.status").value(equalTo(403)));
         }
     }
 
@@ -328,7 +329,7 @@ class SessionControllerContractTest {
         void whenAuthorized_returnsSseStream() throws Exception {
             ChatRequestDto request = new ChatRequestDto("Hello", null, null, TEST_EMAIL);
             Flux<String> flux = Flux.just("Hello", " ", "world");
-            ChatResponseDto<Flux<String>> response = new ChatResponseDto<>(flux, SESSION_ID);
+            ChatResponse<Flux<String>> response = new ChatResponse<>(flux, SESSION_ID);
 
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             doReturn(response).when(chatService).sendMessageToNewChat(eq("Hello"), eq(restUser), any(), eq(true));
@@ -375,7 +376,7 @@ class SessionControllerContractTest {
         void whenAuthorized_returnsSseStream() throws Exception {
             ChatRequestDto request = new ChatRequestDto("More", null, null, TEST_EMAIL);
             Flux<String> flux = Flux.just("Response");
-            ChatResponseDto<Flux<String>> response = new ChatResponseDto<>(flux, SESSION_ID);
+            ChatResponse<Flux<String>> response = new ChatResponse<>(flux, SESSION_ID);
 
             when(restAuthorizationService.authorize(eq(TEST_EMAIL), anyString())).thenReturn(restUser);
             doReturn(response).when(chatService).sendMessage(eq(SESSION_ID), eq("More"), eq(restUser), any(), eq(true));

@@ -7,10 +7,10 @@ import io.github.ngirchev.opendaimon.common.model.RequestType;
 import io.github.ngirchev.opendaimon.common.model.ResponseStatus;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
-import io.github.ngirchev.opendaimon.rest.dto.admin.ConversationSummaryDto;
-import io.github.ngirchev.opendaimon.rest.dto.admin.MessageDetailDto;
-import io.github.ngirchev.opendaimon.rest.dto.admin.MessageSummaryDto;
-import io.github.ngirchev.opendaimon.rest.dto.admin.PageResponseDto;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminConversationSummary;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminMessageDetail;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminMessageSummary;
+import io.github.ngirchev.opendaimon.rest.service.model.AdminPageResponse;
 import io.github.ngirchev.opendaimon.rest.exception.UnauthorizedException;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.repository.AdminConversationRepository;
@@ -64,10 +64,10 @@ class AdminQueryServiceTest {
         Page<ConversationThread> page = new PageImpl<>(List.of(t), pageable, 1);
         when(adminConversationRepository.findAllWithFilters(any(), any(), any(), eq(pageable))).thenReturn(page);
 
-        PageResponseDto<ConversationSummaryDto> result = service.listConversations(null, null, null, pageable);
+        AdminPageResponse<AdminConversationSummary> result = service.listConversations(null, null, null, pageable);
 
         assertThat(result.content()).hasSize(1);
-        ConversationSummaryDto dto = result.content().get(0);
+        AdminConversationSummary dto = result.content().get(0);
         assertThat(dto.id()).isEqualTo(10L);
         assertThat(dto.threadKey()).isEqualTo("key-10");
         assertThat(dto.scopeKind()).isEqualTo(ThreadScopeKind.USER.name());
@@ -97,7 +97,7 @@ class AdminQueryServiceTest {
         when(adminConversationRepository.findByIdWithUser(10L)).thenReturn(Optional.of(t));
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(t)).thenReturn(List.of(m1, m2));
 
-        List<MessageSummaryDto> result = service.listMessages(10L);
+        List<AdminMessageSummary> result = service.listMessages(10L);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).role()).isEqualTo("USER");
@@ -116,7 +116,7 @@ class AdminQueryServiceTest {
         when(adminConversationRepository.findByIdWithUser(10L)).thenReturn(Optional.of(t));
         when(messageRepository.findByThreadOrderBySequenceNumberAsc(t)).thenReturn(List.of(m));
 
-        List<MessageSummaryDto> result = service.listMessages(10L);
+        List<AdminMessageSummary> result = service.listMessages(10L);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).contentPreview()).hasSize(201);
@@ -141,7 +141,7 @@ class AdminQueryServiceTest {
         m.setMetadata(Map.of("client_ip", "127.0.0.1"));
         when(messageRepository.findById(5L)).thenReturn(Optional.of(m));
 
-        MessageDetailDto dto = service.getMessage(5L);
+        AdminMessageDetail dto = service.getMessage(5L);
 
         assertThat(dto.id()).isEqualTo(5L);
         assertThat(dto.threadId()).isEqualTo(10L);

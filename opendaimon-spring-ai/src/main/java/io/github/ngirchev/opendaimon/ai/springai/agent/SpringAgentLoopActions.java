@@ -260,7 +260,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                         ctx.setCurrentTextResponse(text);
                         log.info("Agent think: final answer, length={}", text.length());
                         log.debug("Agent think: final answer text:\n{}", text);
-                        messages.add(output);
+                        messages.add(new AssistantMessage(text));
                     }
                 }
             }

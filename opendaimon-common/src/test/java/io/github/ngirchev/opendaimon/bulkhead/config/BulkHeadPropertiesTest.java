@@ -1,5 +1,9 @@
 package io.github.ngirchev.opendaimon.bulkhead.config;
 
+import jakarta.validation.Validation;
+import jakarta.validation.ValidatorFactory;
+import org.hibernate.validator.HibernateValidator;
+import org.hibernate.validator.messageinterpolation.ParameterMessageInterpolator;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -34,6 +38,16 @@ class BulkHeadPropertiesTest {
 
     @Autowired
     private BulkHeadProperties properties;
+
+    @Test
+    void testValidationProvider_ShouldBeAvailableForConfigurationPropertiesBinding() {
+        try (ValidatorFactory validatorFactory = Validation.byProvider(HibernateValidator.class)
+                .configure()
+                .messageInterpolator(new ParameterMessageInterpolator())
+                .buildValidatorFactory()) {
+            assertNotNull(validatorFactory.getValidator(), "Validation provider must create a validator");
+        }
+    }
 
     @Test
     void testBulkHeadProperties_ShouldLoadAllInstances() {

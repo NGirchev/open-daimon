@@ -1,0 +1,6 @@
+io.github.ngirchev.opendaimon.common.config.CoreAutoConfig
+io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig
+io.github.ngirchev.opendaimon.common.storage.config.StorageAutoConfig
+io.github.ngirchev.opendaimon.ai.springai.config.SpringAIAutoConfig
+io.github.ngirchev.opendaimon.ai.springai.config.RAGAutoConfig
+io.github.ngirchev.opendaimon.ai.springai.config.AgentAutoConfig

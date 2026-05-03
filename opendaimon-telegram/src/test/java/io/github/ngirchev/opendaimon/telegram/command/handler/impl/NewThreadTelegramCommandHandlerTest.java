@@ -1,8 +1,7 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 
-import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
-import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
+import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
@@ -25,8 +24,6 @@ import org.springframework.context.support.ReloadableResourceBundleMessageSource
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
-
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -51,8 +48,6 @@ class NewThreadTelegramCommandHandlerTest {
     @Mock
     private ConversationThreadService threadService;
     @Mock
-    private ConversationThreadRepository threadRepository;
-    @Mock
     private TelegramUserService userService;
     @Mock
     private ObjectProvider<PersistentKeyboardService> persistentKeyboardServiceProvider;
@@ -72,7 +67,7 @@ class NewThreadTelegramCommandHandlerTest {
 
         handler = new NewThreadTelegramCommandHandler(
                 botProvider, typingIndicatorService, messageLocalizationService,
-                threadService, threadRepository, userService, persistentKeyboardServiceProvider);
+                threadService, userService, persistentKeyboardServiceProvider);
     }
 
     @Test
@@ -134,7 +129,7 @@ class NewThreadTelegramCommandHandlerTest {
         telegramUser.setTelegramId(100L);
         telegramUser.setLanguageCode("en");
         when(userService.getOrCreateUser(from)).thenReturn(telegramUser);
-        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.empty());
+        when(threadService.closeCurrentThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(false);
 
         ConversationThread newThread = new ConversationThread();
         newThread.setThreadKey("thread-key-abcdef12");
@@ -148,8 +143,8 @@ class NewThreadTelegramCommandHandlerTest {
         assertNotNull(result);
         assertTrue(result.contains("New conversation started"));
         assertTrue(result.contains("Thread ID:"));
+        verify(threadService).closeCurrentThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
         verify(threadService).createNewThread(telegramUser, ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
-        verify(threadRepository).findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
     }
 
     @Test
@@ -165,10 +160,7 @@ class NewThreadTelegramCommandHandlerTest {
         telegramUser.setLanguageCode("en");
         when(userService.getOrCreateUser(from)).thenReturn(telegramUser);
 
-        ConversationThread oldThread = new ConversationThread();
-        oldThread.setId(1L);
-        oldThread.setThreadKey("old-key");
-        when(threadRepository.findMostRecentActiveThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(Optional.of(oldThread));
+        when(threadService.closeCurrentThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID)).thenReturn(true);
 
         ConversationThread newThread = new ConversationThread();
         newThread.setThreadKey("new-thread-key-12");
@@ -181,7 +173,7 @@ class NewThreadTelegramCommandHandlerTest {
 
         assertNotNull(result);
         assertTrue(result.contains("Previous conversation history was saved"));
-        verify(threadService).closeThread(oldThread);
+        verify(threadService).closeCurrentThread(ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
         verify(threadService).createNewThread(telegramUser, ThreadScopeKind.TELEGRAM_CHAT, CHAT_ID);
     }
 

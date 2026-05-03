@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.rest.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -180,8 +181,8 @@ public class RestAutoConfig {
     @ConditionalOnMissingBean
     public AdminAttachmentService adminAttachmentService(
             OpenDaimonMessageRepository messageRepository,
-            FileStorageService fileStorageService) {
-        return new AdminAttachmentService(messageRepository, fileStorageService);
+            ObjectProvider<FileStorageService> fileStorageServiceProvider) {
+        return new AdminAttachmentService(messageRepository, fileStorageServiceProvider.getIfAvailable());
     }
 
     @Bean
@@ -208,4 +209,3 @@ public class RestAutoConfig {
         return new AdminMeController();
     }
 }
-

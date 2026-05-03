@@ -101,6 +101,8 @@ If `springAiProperties.mock = true` → return mock response immediately, no mod
 
 Web tools (`WebTools` / Serper) are attached to the prompt when:
 - command requests `WEB` in **required** (`modelCapabilities`) or **optional** (`optionalCapabilities`).
+- `web_search` is disabled when `open-daimon.ai.spring-ai.serper.api.key` is blank;
+  in that case it returns an empty search result without calling Serper.
 
 ---
 
@@ -540,6 +542,12 @@ or try again."`). This guarantees the Telegram path
 never sees an orphan "⚠️ reached iteration limit" status line with no body text. If
 the warn message ever shows up in `logs/`, it flags a bug in the
 `handleMaxIterations` fallback chain rather than being normal steady state.
+
+Final-answer cleanup strips model reasoning before both delivery and chat-memory
+persistence. The sanitizer handles provider metadata, `<think>...</think>` blocks,
+or plaintext `THINK:`/`Thought:` prefixes. If a plaintext reasoning prefix has no
+clear answer boundary, the cleaned answer is treated as empty so the retry/fallback
+path runs instead of saving or sending reasoning as assistant text.
 
 ### WebClient codec — `webToolsWebClient` bean
 

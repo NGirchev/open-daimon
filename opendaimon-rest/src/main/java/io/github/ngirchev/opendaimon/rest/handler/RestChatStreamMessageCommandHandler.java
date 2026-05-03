@@ -16,6 +16,8 @@ import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.command.ICommandHandler;
 import io.github.ngirchev.opendaimon.common.model.*;
 import io.github.ngirchev.opendaimon.common.service.*;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommand;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommandType;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.service.RestMessageService;
 import io.github.ngirchev.opendaimon.rest.service.RestUserService;
@@ -32,7 +34,8 @@ import static io.github.ngirchev.opendaimon.common.service.AIUtils.*;
 @Slf4j
 @RequiredArgsConstructor
 public class RestChatStreamMessageCommandHandler implements
-        ICommandHandler<RestChatCommandType, RestChatCommand, Flux<String>> {
+        ICommandHandler<RestChatCommandType,
+                RestChatCommand, Flux<String>> {
 
     private final RestMessageService restMessageService;
     private final RestUserService restUserService;
@@ -62,12 +65,12 @@ public class RestChatStreamMessageCommandHandler implements
             String lang = RestChatHandlerSupport.getRequestLanguage(command);
             RestUser user = restUserService.findById(command.userId())
                     .orElseThrow(() -> new RuntimeException(support.getMessageLocalizationService().getMessage("rest.user.not.found", lang, command.userId())));
-            String assistantRoleContent = command.chatRequestDto().assistantRole() != null
-                    ? command.chatRequestDto().assistantRole()
+            String assistantRoleContent = command.assistantRole() != null
+                    ? command.assistantRole()
                     : null;
             userMessage = restMessageService.saveUserMessage(
                     user,
-                    command.chatRequestDto().message(),
+                    command.message(),
                     RequestType.TEXT,
                     assistantRoleContent,
                     command.request());

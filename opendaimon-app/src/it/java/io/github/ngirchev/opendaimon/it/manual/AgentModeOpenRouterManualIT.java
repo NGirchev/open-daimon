@@ -1,6 +1,5 @@
 package io.github.ngirchev.opendaimon.it.manual;
 
-import io.github.ngirchev.dotenv.DotEnvLoader;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
@@ -9,6 +8,8 @@ import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
+import io.github.ngirchev.opendaimon.it.manual.support.ManualScenarioCache;
+import io.github.ngirchev.opendaimon.it.manual.support.ManualTestPrerequisites;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
@@ -25,12 +26,12 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,7 +50,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -107,11 +107,8 @@ import static org.mockito.Mockito.reset;
         }
 )
 @ActiveProfiles({"integration-test", "manual-openrouter"})
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AgentModeOpenRouterManualIT extends AbstractContainerIT {
-
-    static {
-        DotEnvLoader.loadDotEnv(Path.of("../.env"));
-    }
 
     private static final Long ADMIN_CHAT_ID = 350009010L;
     private static final Long REGULAR_CHAT_ID = 350009012L;
@@ -134,6 +131,11 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
     static final AtomicInteger TOOL_CALL_COUNT = new AtomicInteger(0);
 
     private static final MockWebServer mockWebServer = createMockWebServer();
+
+    private final ManualScenarioCache<HandledCommandResult> adminReactWebSearchScenario =
+            ManualScenarioCache.of(this::runAdminReactWebSearchScenario);
+    private final ManualScenarioCache<HandledCommandResult> regularSimpleScenario =
+            ManualScenarioCache.of(this::runRegularSimpleScenario);
 
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
@@ -164,12 +166,7 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
 
     @BeforeAll
     static void requireOpenRouterKey() {
-        DotEnvLoader.loadDotEnv(Path.of("../.env"));
-        String openRouterKey = System.getProperty("OPENROUTER_KEY", System.getenv("OPENROUTER_KEY"));
-        Assumptions.assumeTrue(
-                openRouterKey != null && !openRouterKey.isBlank() && !openRouterKey.equals("sk-placeholder"),
-                "Skipping manual test: OPENROUTER_KEY not set in .env or environment"
-        );
+        ManualTestPrerequisites.requireOpenRouterKey();
     }
 
     @AfterAll
@@ -200,30 +197,13 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
     @Test
     @Timeout(3 * 60)
     @DisplayName("B1: ADMIN agent uses REACT strategy and invokes web_search via OpenRouter")
-    void admin_agentReact_invokesWebSearch() {
-        TelegramCommand command = createMessageCommand(
-                ADMIN_CHAT_ID,
-                1,
-                "What is the latest version of Spring Boot released in 2026? Search the internet."
-        );
-
-        messageHandler.handle(command);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
-                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
-
-        String assistantReply = latestAssistantReply(thread);
-
+    void admin_agentReact_invokesWebSearch() throws Exception {
         // The primary goal is to verify that ADMIN activates REACT strategy.
         // LLM may occasionally return an empty response (known quirk in batch runs).
         // All outcomes confirm the pipeline ran end-to-end.
-        List<OpenDaimonMessage> assistantMessages = messageRepository
-                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
+        HandledCommandResult result = adminReactWebSearchScenario.get();
 
-        assertThat(assistantMessages)
+        assertThat(result.assistantMessages())
                 .as("Handler must save an assistant message (even on agent FAILED state)")
                 .isNotEmpty();
     }
@@ -273,35 +253,18 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
     @Test
     @Timeout(3 * 60)
     @DisplayName("B3: Agent response saved to DB with correct structure (OpenRouter)")
-    void agentResponse_persistedToDb() {
-        TelegramCommand command = createMessageCommand(
-                ADMIN_CHAT_ID,
-                3,
-                "Answer in one word: is the agent working?"
-        );
+    void agentResponse_persistedToDb() throws Exception {
+        HandledCommandResult result = regularSimpleScenario.get();
 
-        messageHandler.handle(command);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
-                .orElseThrow();
-
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow();
-
-        List<OpenDaimonMessage> userMessages = messageRepository
-                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
-        List<OpenDaimonMessage> assistantMessages = messageRepository
-                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
-
-        assertThat(userMessages)
+        assertThat(result.userMessages())
                 .as("User message should be saved")
                 .hasSize(1);
 
-        assertThat(assistantMessages)
+        assertThat(result.assistantMessages())
                 .as("Assistant message should be saved")
                 .hasSize(1);
 
-        assertThat(assistantMessages.getFirst().getContent())
+        assertThat(result.assistantMessages().getFirst().getContent())
                 .as("Assistant content should not be blank")
                 .isNotBlank();
     }
@@ -430,32 +393,18 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
     @Test
     @Timeout(3 * 60)
     @DisplayName("B4: REGULAR agent uses SIMPLE strategy without tools (OpenRouter)")
-    void regular_agentSimple_noTools() {
-        TelegramCommand command = createMessageCommand(
-                REGULAR_CHAT_ID,
-                4,
-                "Tell me a short joke"
-        );
+    void regular_agentSimple_noTools() throws Exception {
+        HandledCommandResult result = regularSimpleScenario.get();
 
-        messageHandler.handle(command);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(REGULAR_CHAT_ID)
-                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
-
-        String assistantReply = latestAssistantReply(thread);
-
-        assertThat(assistantReply)
+        assertThat(result.assistantReply())
                 .as("SIMPLE agent should produce a non-blank response")
                 .isNotBlank();
 
-        assertThat(WEB_SEARCH_CALLED.get())
+        assertThat(result.webSearchCalled())
                 .as("REGULAR (CHAT-only) should NOT invoke web_search")
                 .isFalse();
 
-        assertThat(FETCH_URL_CALLED.get())
+        assertThat(result.fetchUrlCalled())
                 .as("REGULAR (CHAT-only) should NOT invoke fetch_url")
                 .isFalse();
     }
@@ -550,6 +499,47 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
 
     // --- Helpers ---
 
+    private HandledCommandResult runAdminReactWebSearchScenario() {
+        TelegramCommand command = createMessageCommand(
+                ADMIN_CHAT_ID,
+                1,
+                "What is the latest version of Spring Boot released in 2026? Search the internet."
+        );
+        return handleCommand(command, ADMIN_CHAT_ID);
+    }
+
+    private HandledCommandResult runRegularSimpleScenario() {
+        TelegramCommand command = createMessageCommand(
+                REGULAR_CHAT_ID,
+                4,
+                "Tell me a short joke"
+        );
+        return handleCommand(command, REGULAR_CHAT_ID);
+    }
+
+    private HandledCommandResult handleCommand(TelegramCommand command, Long chatId) {
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(chatId)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+        List<OpenDaimonMessage> userMessages = messageRepository
+                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
+        List<OpenDaimonMessage> assistantMessages = messageRepository
+                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
+        String assistantReply = assistantMessages.isEmpty() ? "" : assistantMessages.getLast().getContent();
+        return new HandledCommandResult(
+                userMessages,
+                assistantMessages,
+                assistantReply,
+                WEB_SEARCH_CALLED.get(),
+                FETCH_URL_CALLED.get(),
+                HTTP_GET_CALLED.get(),
+                TOOL_CALL_COUNT.get()
+        );
+    }
+
     private TelegramCommand createMessageCommand(Long chatId, int messageId, String text) {
         return createMessageCommand(chatId, messageId, text, "en");
     }
@@ -630,6 +620,17 @@ class AgentModeOpenRouterManualIT extends AbstractContainerIT {
             throw new RuntimeException("Failed to start MockWebServer", e);
         }
         return server;
+    }
+
+    private record HandledCommandResult(
+            List<OpenDaimonMessage> userMessages,
+            List<OpenDaimonMessage> assistantMessages,
+            String assistantReply,
+            boolean webSearchCalled,
+            boolean fetchUrlCalled,
+            boolean httpGetCalled,
+            int toolCallCount
+    ) {
     }
 
     @SpringBootConfiguration

@@ -17,7 +17,8 @@ import java.util.regex.Pattern;
  * <p>Two related families of markup are handled:
  * <ul>
  *   <li>{@code <think>…</think>} reasoning blocks — extracted for the
- *       reasoning stream, then removed from the answer text.</li>
+ *       reasoning stream, then removed from the answer text. Plaintext
+ *       {@code THINK:}/{@code Thought:} prefixes are treated the same way.</li>
  *   <li>{@code <tool_call>…</tool_call>} and its loose fallback inner tags
  *       ({@code <name>}, {@code <arg_key>}, {@code <arg_value>}, bare tool
  *       names on their own line) — stripped unconditionally because they are
@@ -56,6 +57,15 @@ final class AgentTextSanitizer {
     /** Matches a bare tool-like name on its own line (e.g. {@code http_get}, {@code web_search}). */
     private static final Pattern BARE_TOOL_NAME_PATTERN =
             Pattern.compile("(?m)^\\s*\\w+_\\w+\\s*$");
+    /** Matches plaintext reasoning prefixes emitted by some models instead of tags/metadata. */
+    private static final Pattern PLAINTEXT_THINK_PREFIX_PATTERN =
+            Pattern.compile("(?is)^\\s*(?:THINK|Thought)\\s*:\\s*");
+    /** Common model-authored boundary between plaintext reasoning and the answer. */
+    private static final Pattern PLAINTEXT_FINAL_MARKER_PATTERN =
+            Pattern.compile("(?im)^\\s*(?:FINAL(?:_ANSWER)?|Answer|Response)\\s*:\\s*");
+    /** Blank line boundary between plaintext reasoning and the visible answer. */
+    private static final Pattern BLANK_LINE_PATTERN =
+            Pattern.compile("\\R\\s*\\R");
 
     private AgentTextSanitizer() {
         throw new AssertionError("static utility, do not instantiate");
@@ -64,11 +74,12 @@ final class AgentTextSanitizer {
     /**
      * Attempts to extract reasoning/thinking content from the LLM response.
      *
-     * <p>Two sources are checked:
+     * <p>Sources are checked in priority order:
      * <ol>
      *   <li>Generation metadata key "thinking" (Spring AI Ollama 1.1+ with think=true)</li>
      *   <li>Generation metadata key "reasoningContent" (OpenRouter/Anthropic)</li>
      *   <li>{@code <think>...</think>} tags in text output (older Ollama or custom models)</li>
+     *   <li>Plaintext {@code THINK:}/{@code Thought:} prefix blocks</li>
      * </ol>
      *
      * @return reasoning text, or null if not available
@@ -94,9 +105,11 @@ final class AgentTextSanitizer {
             var output = response.getResult().getOutput();
             if (output != null && output.getText() != null) {
                 String rawText = output.getText();
-                if (rawText.contains("<think>")) {
-                    log.info("AgentTextSanitizer.extractReasoning: found <think> tags, textLength={}", rawText.length());
-                    return extractThinkTags(rawText);
+                String extracted = extractThinkTags(rawText);
+                if (extracted != null) {
+                    log.info("AgentTextSanitizer.extractReasoning: found reasoning markup, textLength={}",
+                            rawText.length());
+                    return extracted;
                 }
             }
         } catch (Exception e) {
@@ -106,8 +119,9 @@ final class AgentTextSanitizer {
     }
 
     /**
-     * Extracts content from {@code <think>...</think>} tags (Ollama thinking mode).
-     * Returns the thinking text, or null if no tags found.
+     * Extracts content from {@code <think>...</think>} tags or plaintext
+     * {@code THINK:}/{@code Thought:} prefixes.
+     * Returns the thinking text, or null if no reasoning marker is found.
      */
     static String extractThinkTags(String text) {
         if (text == null) {
@@ -116,7 +130,7 @@ final class AgentTextSanitizer {
         int start = text.indexOf("<think>");
         int end = text.indexOf("</think>");
         if (start < 0 || end < 0 || end <= start) {
-            return null;
+            return extractPlaintextThinkBlock(text);
         }
         String thinking = text.substring(start + "<think>".length(), end).trim();
         return thinking.isEmpty() ? null : thinking;
@@ -132,6 +146,9 @@ final class AgentTextSanitizer {
      *   <li>Close without open: drops from start of text up to and including {@code </think>}.
      *       The open tag was lost (stream corruption, upstream sanitizer, or partial tag emit);
      *       text ahead of the orphan close is reasoning that must not leak to the user.</li>
+     *   <li>Plaintext {@code THINK:}/{@code Thought:} prefix: drops the reasoning block.
+     *       If no answer boundary can be found, returns an empty string so the caller can
+     *       handle it as an empty response instead of leaking reasoning.</li>
      * </ul>
      *
      * <p>Diverges from {@link StreamingAnswerFilter} on the orphan-close case: the
@@ -146,7 +163,7 @@ final class AgentTextSanitizer {
         int start = text.indexOf("<think>");
         int end = text.indexOf("</think>");
         if (start < 0 && end < 0) {
-            return text;
+            return stripPlaintextThinkPrefix(text);
         }
         if (start < 0) {
             return text.substring(end + "</think>".length()).trim();
@@ -156,6 +173,46 @@ final class AgentTextSanitizer {
         }
         return (text.substring(0, start) + text.substring(end + "</think>".length())).trim();
     }
+
+    private static String extractPlaintextThinkBlock(String text) {
+        var prefix = PLAINTEXT_THINK_PREFIX_PATTERN.matcher(text);
+        if (!prefix.find()) {
+            return null;
+        }
+        int contentStart = prefix.end();
+        Boundary boundary = plaintextAnswerBoundary(text, contentStart);
+        String reasoning = boundary != null
+                ? text.substring(contentStart, boundary.reasoningEnd())
+                : text.substring(contentStart);
+        reasoning = reasoning.trim();
+        return reasoning.isEmpty() ? null : reasoning;
+    }
+
+    private static String stripPlaintextThinkPrefix(String text) {
+        var prefix = PLAINTEXT_THINK_PREFIX_PATTERN.matcher(text);
+        if (!prefix.find()) {
+            return text;
+        }
+        Boundary boundary = plaintextAnswerBoundary(text, prefix.end());
+        if (boundary == null) {
+            return "";
+        }
+        return text.substring(boundary.answerStart()).trim();
+    }
+
+    private static Boundary plaintextAnswerBoundary(String text, int searchFrom) {
+        var marker = PLAINTEXT_FINAL_MARKER_PATTERN.matcher(text);
+        if (marker.find(searchFrom)) {
+            return new Boundary(marker.start(), marker.end());
+        }
+        var blankLine = BLANK_LINE_PATTERN.matcher(text);
+        if (blankLine.find(searchFrom)) {
+            return new Boundary(blankLine.start(), blankLine.end());
+        }
+        return null;
+    }
+
+    private record Boundary(int reasoningEnd, int answerStart) {}
 
     /**
      * Strips raw XML tool call markup that some models emit in text responses
