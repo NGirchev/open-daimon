@@ -93,6 +93,18 @@ memories = true
 
 Hooks should remain optional for building and testing OpenDaimon. A fresh agent must still be able to work from `AGENTS.md`, the Maven project, and the MCP templates.
 
+## Codex Subagents
+
+Project-level subagent behavior is documented in `AGENTS.md`, not in a committed personal `~/.codex/config.toml`.
+
+For this repository, small explicitly delegated side tasks should use the Spark-backed Codex model:
+
+```text
+model: gpt-5.3-codex-spark
+```
+
+Use it for narrow lookup, verification, or small disjoint patches. Keep larger design work, risky edits, and immediate blockers on the main model unless the user asks for broader delegation.
+
 ## Smoke Check
 
 From the repository root, start a new Codex session and check:

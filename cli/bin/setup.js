@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { input, password, select, checkbox, confirm } from '@inquirer/prompts';
-import { execSync, spawn } from 'child_process';
+import { execFileSync, execSync, spawn } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, rmSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -18,6 +18,15 @@ const APP_IMAGE = USE_LOCAL_IMAGE ? 'open-daimon:local' : `ghcr.io/ngirchev/open
 function checkCommand(cmd) {
   try {
     execSync(`${cmd} --version`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function dockerImageExists(image) {
+  try {
+    execFileSync('docker', ['image', 'inspect', image], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -49,7 +58,15 @@ function spawnAsync(cmd, args, cwd) {
   return new Promise((resolve) => {
     const proc = spawn(cmd, args, { stdio: 'inherit', cwd });
     proc.on('close', resolve);
+    proc.on('error', () => resolve(1));
   });
+}
+
+async function runCommand(cmd, args, cwd) {
+  const code = await spawnAsync(cmd, args, cwd);
+  if (code !== 0) {
+    throw new Error(`Command failed: ${[cmd, ...args].join(' ')}`);
+  }
 }
 
 async function waitForApp(url, timeoutMs = 120000) {
@@ -393,14 +410,28 @@ async function main() {
     default: true,
   });
   if (doStart) {
-    console.log('\nDownloading images (this may take a few minutes on first run)...');
-    await spawnAsync(composeCmd[0], [...composeCmd.slice(1), 'pull'], TARGET_DIR);
+    if (USE_LOCAL_IMAGE) {
+      if (!dockerImageExists(APP_IMAGE)) {
+        console.error(`\nLocal Docker image ${APP_IMAGE} was not found.`);
+        console.error('Build it from the open-daimon repository root first.');
+        console.error('If you are in the repository cli/ directory, run:');
+        console.error('  OPEN_DAIMON_REPO="$(cd .. && pwd)"');
+        console.error(`  docker build -t ${APP_IMAGE} "$OPEN_DAIMON_REPO"`);
+        console.error('\nThen start the generated stack from this directory:');
+        console.error('  docker compose up -d');
+        process.exit(1);
+      }
+      console.log(`\nUsing local Docker image ${APP_IMAGE}.`);
+    } else {
+      console.log('\nDownloading images (this may take a few minutes on first run)...');
+      await runCommand(composeCmd[0], [...composeCmd.slice(1), 'pull'], TARGET_DIR);
+    }
 
     console.log('\nStarting containers...');
-    await spawnAsync(composeCmd[0], [...composeCmd.slice(1), 'up', '-d'], TARGET_DIR);
+    await runCommand(composeCmd[0], [...composeCmd.slice(1), 'up', '-d'], TARGET_DIR);
 
     console.log('\nContainer status:');
-    await spawnAsync(composeCmd[0], [...composeCmd.slice(1), 'ps'], TARGET_DIR);
+    await runCommand(composeCmd[0], [...composeCmd.slice(1), 'ps'], TARGET_DIR);
 
     await waitForApp('http://localhost:8080/actuator/health');
   }

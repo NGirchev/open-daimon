@@ -3,7 +3,7 @@ slug: archunit-rules
 title: "ArchUnit Architecture Rules"
 owner: ngirchev
 created: 2026-04-28
-updated: 2026-05-01
+updated: 2026-05-03
 status: done
 base_branch: fsm
 ---
@@ -33,6 +33,8 @@ Out of scope:
 - `opendaimon-ui`
 - `opendaimon-gateway-mock`
 - application runtime wiring beyond the existing cross-module `ArchitectureTest`
+
+`opendaimon-ui` and `opendaimon-gateway-mock` are intentionally out of scope for module-local ArchUnit suites. They are thin support modules without independent repository/domain/service layering. For those modules, use compile checks, dependency analysis/enforcer checks, and focused behavior tests when behavior changes. Reconsider ArchUnit only if either module grows stable internal architectural boundaries that need executable enforcement.
 
 ## Rule Set
 

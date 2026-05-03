@@ -28,8 +28,6 @@ public class SpringAIProperties {
      */
     private OpenRouterApp openrouterApp = new OpenRouterApp();
 
-    private HttpLogs httpLogs = new HttpLogs();
-    
     private Serper serper = new Serper();
 
     private Models models = new Models();
@@ -116,7 +114,6 @@ public class SpringAIProperties {
         @Getter
         @Setter
         public static class Api {
-            @NotBlank(message = "API key for Serper cannot be blank")
             private String key;
             
             @NotBlank(message = "Serper API URL cannot be blank")
@@ -131,16 +128,6 @@ public class SpringAIProperties {
         private List<SpringAIModelConfig> list = new ArrayList<>();
     }
 
-    @Getter
-    @Setter
-    public static class HttpLogs {
-        /**
-         * Log call stack of "who made the AI HTTP request" (once at startup).
-         * Disabled by default as it looks like an exception in logs and is noisy.
-         */
-        private Boolean callsiteStacktraceEnabled = false;
-    }
-    
     private Timeouts timeouts = new Timeouts();
     
     @Getter

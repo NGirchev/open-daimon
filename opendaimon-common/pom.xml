@@ -116,6 +116,11 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- Logging API (impl provided by client/app) -->
         <dependency>
@@ -263,6 +268,8 @@
                         <!-- ArchUnit JUnit engine is discovered by JUnit Platform at runtime;
                              no test class imports it directly. -->
                         <ignored>com.tngtech.archunit:archunit-junit5-engine</ignored>
+                        <!-- Flyway loads database support modules through runtime service discovery. -->
+                        <ignored>org.flywaydb:flyway-database-postgresql</ignored>
                     </ignoredUnusedDeclaredDependencies>
                 </configuration>
             </plugin>

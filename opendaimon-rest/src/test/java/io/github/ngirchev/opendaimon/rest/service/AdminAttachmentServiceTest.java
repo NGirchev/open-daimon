@@ -102,6 +102,16 @@ class AdminAttachmentServiceTest {
     }
 
     @Test
+    void shouldReturnEmptyWhenStorageIsDisabled() {
+        service = new AdminAttachmentService(messageRepository, null);
+
+        Optional<AdminAttachmentService.ResolvedAttachment> resolved = service.resolve(42L, "abc123");
+
+        assertThat(resolved).isEmpty();
+        verify(messageRepository, never()).findById(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
     void shouldFallbackDefaultMimeWhenMissing() {
         OpenDaimonMessage message = messageWithAttachments(List.of(
                 Map.of("storageKey", "abc123")

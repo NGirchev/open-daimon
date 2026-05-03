@@ -20,6 +20,7 @@
     <modules>
         <module>opendaimon-spring-ai</module>
         <module>opendaimon-common</module>
+        <module>opendaimon-spring-boot-starter</module>
         <module>opendaimon-ui</module>
         <module>opendaimon-rest</module>
         <module>opendaimon-telegram</module>

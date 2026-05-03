@@ -559,7 +559,7 @@ Both messages are sent as replies to the original user message.
      such as a missing web-search query are compacted for the user while the
      full observation remains available to the agent loop.
 5. `MAX_ITERATIONS`: model confirms the terminal output first, strips any trailing partial-answer overlay from status, then appends `⚠️ reached iteration limit`.
-6. `FINAL_ANSWER` (or terminal max-iterations fallback): model confirms final answer and the view creates/edits answer message. The trailing partial-answer overlay (when a candidate was actually rendered as the status tail) is stripped from `statusHtml` so the status message does not freeze with a stale fragment (e.g. `<i>На ос</i>`) next to the freshly delivered answer. In `HIDE_REASONING`, a trailing reasoning overlay is also removed on confirmation; in `SHOW_ALL`, reasoning overlays are preserved. If the overlay was the only status content, it is replaced with a `✅` marker because Telegram rejects empty edits.
+6. `FINAL_ANSWER` (or terminal max-iterations fallback): model confirms final answer and the view creates/edits answer message. The trailing partial-answer overlay (when a candidate was actually rendered as the status tail) is stripped from `statusHtml` so the status message does not freeze with a stale fragment (e.g. `<i>На ос</i>`) next to the freshly delivered answer. In `HIDE_REASONING`, a trailing reasoning overlay is also removed on confirmation; in `SHOW_ALL`, reasoning overlays are preserved. If the overlay was the only status content, it is replaced with `✅ Done` because Telegram rejects empty edits and renders lone emoji as oversized messages.
 
 ### Thinking modes
 

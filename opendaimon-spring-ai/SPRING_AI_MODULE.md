@@ -101,6 +101,8 @@ If `springAiProperties.mock = true` → return mock response immediately, no mod
 
 Web tools (`WebTools` / Serper) are attached to the prompt when:
 - command requests `WEB` in **required** (`modelCapabilities`) or **optional** (`optionalCapabilities`).
+- `web_search` is disabled when `open-daimon.ai.spring-ai.serper.api.key` is blank;
+  in that case it returns an empty search result without calling Serper.
 
 ---
 

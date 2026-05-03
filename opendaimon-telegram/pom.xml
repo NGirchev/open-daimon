@@ -209,6 +209,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit</artifactId>
             <version>${archunit.version}</version>
@@ -255,6 +260,9 @@
                 <artifactId>maven-dependency-plugin</artifactId>
                 <configuration>
                     <ignoredUnusedDeclaredDependencies>
+                        <!-- JUnit Jupiter engine is required by IDE/JUnit Platform runtime discovery;
+                             test classes import only the API. -->
+                        <ignored>org.junit.jupiter:junit-jupiter-engine</ignored>
                         <!-- ArchUnit JUnit engine is discovered by JUnit Platform at runtime;
                              no test class imports it directly. -->
                         <ignored>com.tngtech.archunit:archunit-junit5-engine</ignored>

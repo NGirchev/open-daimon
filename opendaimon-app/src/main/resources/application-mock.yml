@@ -15,10 +15,6 @@ open-daimon:
         REGULAR:
           maxConcurrentCalls: 1
           maxWaitDuration: 500ms
-    admin:
-      enabled: ${ADMIN_ENABLED:true}
-      telegram-id: ${ADMIN_TELEGRAM_ID:}
-      rest-email: ${ADMIN_REST_EMAIL:}
     assistant-role: role.content.default
     max-output-tokens: 1000
     max-user-message-tokens: 4000

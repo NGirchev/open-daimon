@@ -8,6 +8,7 @@ ARG APP_VERSION=1.0.0-SNAPSHOT
 COPY pom.xml .
 COPY opendaimon-common/pom.xml ./opendaimon-common/
 COPY opendaimon-spring-ai/pom.xml ./opendaimon-spring-ai/
+COPY opendaimon-spring-boot-starter/pom.xml ./opendaimon-spring-boot-starter/
 COPY opendaimon-ui/pom.xml ./opendaimon-ui/
 COPY opendaimon-rest/pom.xml ./opendaimon-rest/
 COPY opendaimon-telegram/pom.xml ./opendaimon-telegram/
@@ -43,4 +44,3 @@ EXPOSE 8080
 
 # Run application
 ENTRYPOINT ["java", "-jar", "app.jar"]
-

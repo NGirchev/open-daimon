@@ -3,9 +3,11 @@
 > **Fixture test:** `ImagePdfVisionCacheFixtureIT` — run with `./mvnw clean verify -pl opendaimon-app -am -Pfixture`
 >
 > **Manual tests:**
-> - `ImagePdfVisionRagOllamaManualIT` — `image-based-pdf-sample.pdf` with OCR via gemma3:4b
+> - `ImagePdfVisionRagOllamaManualIT`, `ImagePdfVisionRagOpenRouterManualIT` — `image-based-pdf-sample.pdf` with OCR via a vision model
 >
-> Run with: `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=ImagePdfVisionRagOllamaManualIT -Dfailsafe.failIfNoSpecifiedTests=false -Dmanual.ollama.e2e=true`
+> Run with `-Dmanual.ollama.e2e=true` for `ImagePdfVisionRagOllamaManualIT` or
+> `-Dmanual.openrouter.e2e=true` for `ImagePdfVisionRagOpenRouterManualIT`:
+> `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=<TestClass> -Dfailsafe.failIfNoSpecifiedTests=false ...`
 
 When a user uploads an image-only PDF (scan, certificate, etc.), the system detects it
 before the gateway call, renders pages as images, extracts text via a vision-capable model,

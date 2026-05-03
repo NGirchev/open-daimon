@@ -6,7 +6,9 @@
 > - `TextPdfRagOllamaManualIT`, `TextPdfRagOpenRouterManualIT` — single-page `sample.pdf` with follow-up RAG
 > - `ImagesWithTextPdfVisionRagOllamaManualIT`, `ImagesWithTextPdfVisionRagOpenRouterManualIT` — 3-page `images_with_text.pdf` with cross-chunk RAG retrieval
 >
-> Run with: `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=<TestClass> -Dfailsafe.failIfNoSpecifiedTests=false -Dmanual.ollama.e2e=true`
+> Run with `-Dmanual.ollama.e2e=true` for `*OllamaManualIT` classes or
+> `-Dmanual.openrouter.e2e=true` for `*OpenRouterManualIT` classes:
+> `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=<TestClass> -Dfailsafe.failIfNoSpecifiedTests=false ...`
 
 When a user uploads a PDF with a text layer (selectable text), the system extracts text
 via PDFBox, indexes chunks in VectorStore, and builds an augmented prompt for the LLM.

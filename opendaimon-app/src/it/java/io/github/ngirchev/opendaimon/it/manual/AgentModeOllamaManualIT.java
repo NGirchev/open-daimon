@@ -12,6 +12,8 @@ import io.github.ngirchev.opendaimon.common.model.MessageRole;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
+import io.github.ngirchev.opendaimon.it.manual.support.ManualScenarioCache;
+import io.github.ngirchev.opendaimon.it.manual.support.ManualTestPrerequisites;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
@@ -28,12 +30,12 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,10 +54,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboard;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
@@ -71,7 +69,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -104,6 +101,7 @@ import org.mockito.ArgumentCaptor;
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
 @SpringBootTest(classes = AgentModeOllamaManualIT.TestConfig.class)
 @ActiveProfiles({"integration-test", "manual-ollama"})
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @Slf4j
 class AgentModeOllamaManualIT extends AbstractContainerIT {
 
@@ -136,6 +134,11 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
 
     private static final MockWebServer mockWebServer = createMockWebServer();
 
+    private final ManualScenarioCache<HandledCommandResult> adminReactWebSearchScenario =
+            ManualScenarioCache.of(this::runAdminReactWebSearchScenario);
+    private final ManualScenarioCache<HandledCommandResult> regularSimpleScenario =
+            ManualScenarioCache.of(this::runRegularSimpleScenario);
+
     @Autowired
     private MessageTelegramCommandHandler messageHandler;
 
@@ -165,7 +168,7 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
 
     @BeforeAll
     static void checkOllama() {
-        requireLocalOllamaWithModels();
+        ManualTestPrerequisites.requireLocalOllamaWithModels(REQUIRED_OLLAMA_MODELS, OLLAMA_TIMEOUT);
     }
 
     @AfterAll
@@ -200,21 +203,7 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
     @Test
     @Timeout(3 * 60)
     @DisplayName("ADMIN: agent uses REACT strategy and invokes web_search tool")
-    void admin_agentReact_invokesWebSearch() {
-        TelegramCommand command = createMessageCommand(
-                ADMIN_CHAT_ID,
-                1,
-                "Какая последняя версия Spring Boot вышла в 2026 году? Поищи в интернете."
-        );
-
-        messageHandler.handle(command);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
-                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
-
+    void admin_agentReact_invokesWebSearch() throws Exception {
         // The primary goal of this test is to verify that ADMIN users activate
         // REACT strategy (not SIMPLE). With a 3B model, the LLM may occasionally:
         //   - invoke tools and produce a response (ideal path)
@@ -222,10 +211,9 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
         //   - return an empty response causing agent FAILED state (known 3B quirk)
         // All three outcomes confirm that REACT was activated and the pipeline
         // ran end-to-end. We verify at least one assistant message was persisted.
-        List<OpenDaimonMessage> assistantMessages = messageRepository
-                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
+        HandledCommandResult result = adminReactWebSearchScenario.get();
 
-        assertThat(assistantMessages)
+        assertThat(result.assistantMessages())
                 .as("Handler must save an assistant message (even on agent FAILED state)")
                 .isNotEmpty();
     }
@@ -235,32 +223,18 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
     @Test
     @Timeout(3 * 60)
     @DisplayName("REGULAR: agent uses SIMPLE strategy without tools")
-    void regular_agentSimple_noTools() {
-        TelegramCommand command = createMessageCommand(
-                REGULAR_CHAT_ID,
-                2,
-                "Привет, расскажи анекдот"
-        );
+    void regular_agentSimple_noTools() throws Exception {
+        HandledCommandResult result = regularSimpleScenario.get();
 
-        messageHandler.handle(command);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(REGULAR_CHAT_ID)
-                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
-
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
-
-        String assistantReply = latestAssistantReply(thread);
-
-        assertThat(assistantReply)
+        assertThat(result.assistantReply())
                 .as("SIMPLE agent should produce a non-blank response")
                 .isNotBlank();
 
-        assertThat(WEB_SEARCH_CALLED.get())
+        assertThat(result.webSearchCalled())
                 .as("REGULAR (CHAT-only) should NOT invoke web_search")
                 .isFalse();
 
-        assertThat(FETCH_URL_CALLED.get())
+        assertThat(result.fetchUrlCalled())
                 .as("REGULAR (CHAT-only) should NOT invoke fetch_url")
                 .isFalse();
     }
@@ -270,35 +244,18 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
     @Test
     @Timeout(3 * 60)
     @DisplayName("Agent response saved to DB with correct structure")
-    void agentResponse_persistedToDb() {
-        TelegramCommand command = createMessageCommand(
-                ADMIN_CHAT_ID,
-                3,
-                "Скажи одним словом: работает ли агент?"
-        );
+    void agentResponse_persistedToDb() throws Exception {
+        HandledCommandResult result = regularSimpleScenario.get();
 
-        messageHandler.handle(command);
-
-        TelegramUser user = telegramUserRepository.findByTelegramId(ADMIN_CHAT_ID)
-                .orElseThrow();
-
-        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
-                .orElseThrow();
-
-        List<OpenDaimonMessage> userMessages = messageRepository
-                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
-        List<OpenDaimonMessage> assistantMessages = messageRepository
-                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
-
-        assertThat(userMessages)
+        assertThat(result.userMessages())
                 .as("User message should be saved")
                 .hasSize(1);
 
-        assertThat(assistantMessages)
+        assertThat(result.assistantMessages())
                 .as("Assistant message should be saved")
                 .hasSize(1);
 
-        assertThat(assistantMessages.getFirst().getContent())
+        assertThat(result.assistantMessages().getFirst().getContent())
                 .as("Assistant content should not be blank")
                 .isNotBlank();
     }
@@ -706,6 +663,47 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
 
     // --- Helpers ---
 
+    private HandledCommandResult runAdminReactWebSearchScenario() {
+        TelegramCommand command = createMessageCommand(
+                ADMIN_CHAT_ID,
+                1,
+                "Какая последняя версия Spring Boot вышла в 2026 году? Поищи в интернете."
+        );
+        return handleCommand(command, ADMIN_CHAT_ID);
+    }
+
+    private HandledCommandResult runRegularSimpleScenario() {
+        TelegramCommand command = createMessageCommand(
+                REGULAR_CHAT_ID,
+                2,
+                "Привет, расскажи анекдот"
+        );
+        return handleCommand(command, REGULAR_CHAT_ID);
+    }
+
+    private HandledCommandResult handleCommand(TelegramCommand command, Long chatId) {
+        messageHandler.handle(command);
+
+        TelegramUser user = telegramUserRepository.findByTelegramId(chatId)
+                .orElseThrow(() -> new IllegalStateException("Telegram user should be created"));
+        ConversationThread thread = threadRepository.findMostRecentActiveThread(user)
+                .orElseThrow(() -> new IllegalStateException("Active thread should exist"));
+        List<OpenDaimonMessage> userMessages = messageRepository
+                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.USER);
+        List<OpenDaimonMessage> assistantMessages = messageRepository
+                .findByThreadAndRoleOrderBySequenceNumberAsc(thread, MessageRole.ASSISTANT);
+        String assistantReply = assistantMessages.isEmpty() ? "" : assistantMessages.getLast().getContent();
+        return new HandledCommandResult(
+                userMessages,
+                assistantMessages,
+                assistantReply,
+                WEB_SEARCH_CALLED.get(),
+                FETCH_URL_CALLED.get(),
+                HTTP_GET_CALLED.get(),
+                TOOL_CALL_COUNT.get()
+        );
+    }
+
     private TelegramCommand createMessageCommand(Long chatId, int messageId, String text) {
         Update update = new Update();
 
@@ -783,37 +781,15 @@ class AgentModeOllamaManualIT extends AbstractContainerIT {
         return server;
     }
 
-    static void requireLocalOllamaWithModels() {
-        String baseUrl = resolveOllamaBaseUrl();
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(OLLAMA_TIMEOUT)
-                .build();
-        HttpRequest request = HttpRequest.newBuilder()
-                .GET()
-                .timeout(OLLAMA_TIMEOUT)
-                .uri(URI.create(baseUrl + "/api/tags"))
-                .build();
-        try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            boolean statusOk = response.statusCode() == 200;
-            boolean modelsPresent = REQUIRED_OLLAMA_MODELS.stream().allMatch(response.body()::contains);
-            Assumptions.assumeTrue(statusOk && modelsPresent,
-                    "Skipping: Ollama/models unavailable at " + baseUrl + ". Required: " + REQUIRED_OLLAMA_MODELS);
-        } catch (Exception ex) {
-            Assumptions.assumeTrue(false,
-                    "Skipping: cannot connect to Ollama at " + baseUrl + ". " + ex.getMessage());
-        }
-    }
-
-    private static String resolveOllamaBaseUrl() {
-        String baseUrl = System.getenv("OLLAMA_BASE_URL");
-        if (baseUrl == null || baseUrl.isBlank()) {
-            baseUrl = "http://localhost:11434";
-        }
-        if (baseUrl.endsWith("/")) {
-            return baseUrl.substring(0, baseUrl.length() - 1);
-        }
-        return baseUrl;
+    private record HandledCommandResult(
+            List<OpenDaimonMessage> userMessages,
+            List<OpenDaimonMessage> assistantMessages,
+            String assistantReply,
+            boolean webSearchCalled,
+            boolean fetchUrlCalled,
+            boolean httpGetCalled,
+            int toolCallCount
+    ) {
     }
 
     @SpringBootConfiguration

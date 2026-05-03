@@ -46,10 +46,13 @@
 - [ ] Provider Registry — replace ProviderType enum with String + Strategy pattern ([plan](docs/provider-registry-plan.md))
 - [ ] Different models in the flow
 - [ ] Add balance loader
+- [ ] Do not show the embedding models (add hide param for models to application.yml)
 - [x] WebTools need to parse result — JSoup-based HTML parsing in `WebTools.java:5,173` strips markup and returns clean text to the model
-- [ ] **opendaimon-spring-boot-starter** — auto-configuration starter for easy integration 
-  - [ ] New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
-  - [ ] Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
+- [x] **opendaimon-spring-boot-starter** — auto-configuration starter for easy integration
+  - [x] New module `opendaimon-spring-boot-starter` with `AutoConfiguration.imports`
+  - [x] Minimal dependency: `opendaimon-common` + `opendaimon-spring-ai`
+  - [x] Standalone consumer example outside the published reactor (`starter-consumer-example`)
+  - [x] Consumer example with REST API, Spring AI, dotenv loading, and opt-in OpenRouter contract test
   - [x] **Module hygiene & ArchUnit** — enforce clean module boundaries before publishing to Maven Central (see `AGENTS.md` § Project Nature)
   - [x] **`./mvnw dependency:analyze` reactor-wide** — fix every `Used undeclared dependencies` and `Unused declared dependencies` finding, then wire `maven-dependency-plugin:analyze-only` into the `verify` phase with `failOnWarning=true` so future undeclared / unused deps break CI. First known cases: `opendaimon-telegram` uses Caffeine in `TelegramChatPacerImpl` without declaring it (transitively via `opendaimon-common`); `opendaimon-spring-ai` re-declares Caffeine that already comes through `opendaimon-common` — keep the declaration (per "declare what you use") and verify nothing else falls in the same trap.
   - [x] **ArchUnit test module** — inter-module boundary rules (`opendaimon-telegram` ↛ `opendaimon-rest`, `opendaimon-rest` ↛ `opendaimon-telegram`, only `opendaimon-app` may depend on multiple delivery-channel modules), per-module layering (`config` → `service` → `repository`, never the reverse), and a guard that forbids `@Service` / `@Component` beans plus concrete `@Repository` classes outside test sources while allowing Spring Data repository interfaces.

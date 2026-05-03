@@ -223,6 +223,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
             <scope>test</scope>
@@ -298,6 +303,9 @@
                         <ignored>net.logstash.logback:logstash-logback-encoder</ignored>
                         <ignored>org.apache.pdfbox:pdfbox-io</ignored>
                         <ignored>org.springframework.boot:spring-boot-testcontainers</ignored>
+                        <!-- JUnit Jupiter engine is required by IDE/JUnit Platform runtime discovery;
+                             test classes import only the API. -->
+                        <ignored>org.junit.jupiter:junit-jupiter-engine</ignored>
                         <ignored>org.testcontainers:junit-jupiter</ignored>
                         <ignored>com.h2database:h2</ignored>
                         <ignored>com.tngtech.archunit:archunit-junit5</ignored>

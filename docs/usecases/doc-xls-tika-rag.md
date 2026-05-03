@@ -4,7 +4,9 @@
 > - `DocRagOllamaManualIT`, `DocRagOpenRouterManualIT` — DOC files
 > - `XlsRagOllamaManualIT`, `XlsRagOpenRouterManualIT` — XLS files
 >
-> Run with: `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=<TestClass> -Dfailsafe.failIfNoSpecifiedTests=false -Dmanual.ollama.e2e=true`
+> Run with `-Dmanual.ollama.e2e=true` for `*OllamaManualIT` classes or
+> `-Dmanual.openrouter.e2e=true` for `*OpenRouterManualIT` classes:
+> `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=<TestClass> -Dfailsafe.failIfNoSpecifiedTests=false ...`
 
 When a user uploads a DOC, XLS, DOCX, XLSX or other office document, the system extracts
 text via Apache Tika (through Spring AI's `TikaDocumentReader`), indexes chunks in

@@ -24,6 +24,8 @@
 [![Spring Boot 3.3.3](https://img.shields.io/badge/Spring%20Boot-3.3.3-6DB33F?logo=springboot)](https://spring.io/projects/spring-boot)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/NGirchev/open-daimon/blob/master/LICENSE)
 
+![Screen Recording 2026-05-03 at 23.28.03.gif](Screen%20Recording%202026-05-03%20at%2023.28.03.gif)
+
 ## Quick Setup
 
 **Option 1 — One command (recommended):**
