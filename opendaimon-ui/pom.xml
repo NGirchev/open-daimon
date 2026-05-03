@@ -98,6 +98,17 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <configuration>
+                    <ignoredUnusedDeclaredDependencies>
+                        <!-- UI templates and view names require Thymeleaf auto-configuration at runtime;
+                             bytecode analysis cannot see resource-backed MVC view rendering. -->
+                        <ignored>org.springframework.boot:spring-boot-starter-thymeleaf</ignored>
+                    </ignoredUnusedDeclaredDependencies>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>
