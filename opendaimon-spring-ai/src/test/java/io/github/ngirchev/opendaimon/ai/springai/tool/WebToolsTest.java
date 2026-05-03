@@ -27,6 +27,8 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class WebToolsTest {
 
+    private static final String PUBLIC_TEST_URL = "https://93.184.216.34";
+
     @Mock
     private WebClient webClient;
 
@@ -34,7 +36,7 @@ class WebToolsTest {
     private WebClient.RequestHeadersUriSpec getSpec;
 
     @Mock
-    private WebClient.RequestBodySpec postSpec;
+    private WebClient.RequestBodyUriSpec postSpec;
 
     @Mock
     private WebClient.RequestHeadersSpec getRequestHeadersSpec;
@@ -123,7 +125,7 @@ class WebToolsTest {
                     .setResponseCode(200)
                     .setHeader("Content-Type", "text/html")
                     .setBody("<html><body><p>Hello world</p></body></html>"));
-            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search");
+            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search", true);
 
             String result = realWebTools.fetchUrl(server.url("/article").toString());
 
@@ -149,7 +151,7 @@ class WebToolsTest {
                     .setResponseCode(200)
                     .setHeader("Content-Type", "text/html")
                     .setBody("<html><body><main>Readable fallback page</main></body></html>"));
-            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search");
+            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search", true);
 
             String result = realWebTools.fetchUrl(server.url("/cloudflare").toString());
 
@@ -171,7 +173,7 @@ class WebToolsTest {
             server.enqueue(new MockResponse()
                     .setResponseCode(403)
                     .setBody("blocked"));
-            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search");
+            WebTools realWebTools = new WebTools(WebClient.builder().build(), "test-key", "https://serper.dev/search", true);
 
             String result = realWebTools.fetchUrl(server.url("/regular-403").toString());
 
@@ -189,7 +191,7 @@ class WebToolsTest {
         when(getRequestHeadersSpec.retrieve()).thenReturn(responseSpec);
         when(responseSpec.bodyToMono(eq(String.class))).thenReturn(Mono.just("").timeout(Duration.ofSeconds(6)));
 
-        String result = webTools.fetchUrl("https://empty.com");
+        String result = webTools.fetchUrl(PUBLIC_TEST_URL + "/empty");
 
         assertEquals("", result);
     }
@@ -207,7 +209,7 @@ class WebToolsTest {
         when(responseSpec.bodyToMono(eq(String.class)))
                 .thenReturn(Mono.error(forbidden));
 
-        String result = webTools.fetchUrl("https://researchgate.net/blocked");
+        String result = webTools.fetchUrl(PUBLIC_TEST_URL + "/blocked");
 
         assertEquals("HTTP error 403 Forbidden", result);
     }
@@ -223,7 +225,7 @@ class WebToolsTest {
         when(responseSpec.bodyToMono(eq(String.class)))
                 .thenReturn(Mono.error(new RuntimeException("boom")));
 
-        String result = webTools.fetchUrl("https://down.example.com");
+        String result = webTools.fetchUrl(PUBLIC_TEST_URL + "/down");
 
         assertEquals("Error: boom", result);
     }
@@ -238,7 +240,7 @@ class WebToolsTest {
         when(responseSpec.bodyToMono(eq(String.class)))
                 .thenReturn(Mono.just("   ").timeout(Duration.ofSeconds(6)));
 
-        String result = webTools.fetchUrl("https://blank.example.com");
+        String result = webTools.fetchUrl(PUBLIC_TEST_URL + "/blank");
 
         assertEquals("", result);
     }
@@ -249,6 +251,22 @@ class WebToolsTest {
         String result = webTools.fetchUrl("ftp://example.com/resource");
 
         assertThat(result).startsWith("Error: " + WebTools.REASON_INVALID_URL);
+        verify(webClient, never()).get();
+    }
+
+    @Test
+    void shouldBlockLoopbackFetchUrlBeforeNetworkCall() {
+        String result = webTools.fetchUrl("http://127.0.0.1:8080/admin");
+
+        assertThat(result).startsWith("Error: " + WebTools.REASON_BLOCKED_URL);
+        verify(webClient, never()).get();
+    }
+
+    @Test
+    void shouldBlockMetadataFetchUrlBeforeNetworkCall() {
+        String result = webTools.fetchUrl("http://169.254.169.254/latest/meta-data");
+
+        assertThat(result).startsWith("Error: " + WebTools.REASON_BLOCKED_URL);
         verify(webClient, never()).get();
     }
 
@@ -267,11 +285,12 @@ class WebToolsTest {
         when(responseSpec.bodyToMono(eq(String.class)))
                 .thenReturn(Mono.error(okButUndecodable));
 
-        String result = webTools.fetchUrl("https://hackernoon.com/huge-article");
+        String url = PUBLIC_TEST_URL + "/huge-article";
+        String result = webTools.fetchUrl(url);
 
         assertThat(result)
                 .startsWith("Error: " + WebTools.REASON_UNREADABLE_2XX)
-                .contains("https://hackernoon.com/huge-article");
+                .contains(url);
     }
 
     @Test
@@ -288,9 +307,27 @@ class WebToolsTest {
                 .thenReturn(Mono.error(new org.springframework.core.io.buffer.DataBufferLimitException(
                         "Exceeded limit of 2097152 bytes")));
 
-        String result = webTools.fetchUrl("https://example.com/10mb.html");
+        String result = webTools.fetchUrl(PUBLIC_TEST_URL + "/10mb.html");
 
         assertThat(result).startsWith("Error: " + WebTools.REASON_TOO_LARGE);
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void shouldReturnErrorStringWhenWebSearchTransportFails() {
+        when(webClient.post()).thenReturn(postSpec);
+        when(postSpec.uri(anyString())).thenReturn(postSpec);
+        when(postSpec.contentType(any())).thenReturn(postSpec);
+        when(postSpec.header(anyString(), anyString())).thenReturn(postSpec);
+        when(postSpec.bodyValue(any())).thenReturn(postRequestHeadersSpec);
+        when(postRequestHeadersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.bodyToMono(any(Class.class))).thenReturn(Mono.error(new RuntimeException("serper down")));
+
+        Object result = webTools.webSearch("current java news");
+
+        assertThat(result).isInstanceOf(String.class);
+        assertThat((String) result).startsWith("Error: " + WebTools.REASON_SEARCH_FAILED);
+        assertThat((String) result).contains("serper down");
     }
 
     private static MockWebServer startServer() throws IOException {

@@ -147,6 +147,7 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
             case UNSUPPORTED_CAPABILITY -> handleCapabilityError(ctx, command, message);
             case SUMMARIZATION_FAILED -> handleSummarizationFailed(command, message);
             case EMPTY_RESPONSE -> handleEmptyResponse(ctx, command, message);
+            case TELEGRAM_DELIVERY_FAILED -> handleTelegramDeliveryFailed(ctx, command, message);
             case GENERAL -> handleGeneralError(ctx, command, message);
         }
     }
@@ -214,6 +215,17 @@ public class MessageTelegramCommandHandler extends AbstractTelegramCommandHandle
         String userMessage = messageLocalizationService.getMessage(
                 "common.error.processing", command.languageCode());
         sendErrorMessage(command.telegramId(), userMessage, message.getMessageId());
+    }
+
+    private void handleTelegramDeliveryFailed(MessageHandlerContext ctx, TelegramCommand command, Message message) {
+        Exception e = ctx.getException();
+        log.error("Telegram final answer delivery failed",
+                e != null ? e : new IllegalStateException("Missing delivery failure exception"));
+        String userMessage = messageLocalizationService.getMessage(
+                "common.error.processing", command.languageCode());
+        saveErrorResponse(ctx, userMessage);
+        Integer replyToMessageId = message != null ? message.getMessageId() : null;
+        sendErrorMessage(command.telegramId(), userMessage, replyToMessageId);
     }
 
     private void handleGeneralError(MessageHandlerContext ctx, TelegramCommand command, Message message) {

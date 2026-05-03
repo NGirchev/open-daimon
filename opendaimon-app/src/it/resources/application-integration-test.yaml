@@ -82,10 +82,10 @@ open-daimon:
             url: https://openrouter.ai/api
           refresh-initial-delay: 5s
           refresh-interval: 1h
-          filters:
-            include-model-ids:
-              - meta-llama/llama-3.3-70b-instruct:free
-              - mistralai/mistral-small-3.1-24b-instruct:free
+          whitelist:
+            - include-model-ids:
+                - meta-llama/llama-3.3-70b-instruct:free
+                - mistralai/mistral-small-3.1-24b-instruct:free
           ranking:
             enabled: true
             retry-max-attempts: 3

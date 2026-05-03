@@ -483,7 +483,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         String text = ctx.getCurrentTextResponse();
         String sanitized = sanitizeDeadUrls(ctx, text);
         ctx.setFinalAnswer(sanitized);
-        saveConversationHistory(ctx);
+        saveConversationHistory(ctx, sanitized);
         cleanup(ctx);
         log.info("Agent answer: final answer set, length={}",
                 ctx.getFinalAnswer() != null ? ctx.getFinalAnswer().length() : 0);
@@ -820,7 +820,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
      * Persists the current user message and final assistant answer to
      * {@link ChatMemory} so they are available in subsequent turns.
      */
-    private void saveConversationHistory(AgentContext ctx) {
+    private void saveConversationHistory(AgentContext ctx, String assistantText) {
         if (chatMemory == null || ctx.getConversationId() == null) {
             return;
         }
@@ -828,7 +828,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             String conversationId = ctx.getConversationId();
             chatMemory.add(conversationId, List.of(
                     new UserMessage(ctx.getTask()),
-                    new AssistantMessage(ctx.getCurrentTextResponse())
+                    new AssistantMessage(assistantText)
             ));
             log.info("Agent answer: saved user+assistant messages to ChatMemory");
         } catch (Exception e) {

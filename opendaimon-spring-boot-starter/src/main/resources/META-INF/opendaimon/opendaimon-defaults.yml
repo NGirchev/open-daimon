@@ -153,4 +153,4 @@ open-daimon:
     stream-timeout-seconds: 600
     tools:
       http-api:
-        enabled: true
+        enabled: false

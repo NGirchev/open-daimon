@@ -6,13 +6,8 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.UnknownHostException;
 import java.time.Duration;
-import java.util.List;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * Agent tool for making HTTP API requests.
@@ -31,16 +26,6 @@ public class HttpApiTool {
 
     private static final int MAX_RESPONSE_LENGTH = 8000;
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
-
-    /**
-     * Patterns matching hostnames that resolve to private/internal IP ranges.
-     * These are blocked to prevent SSRF attacks against internal infrastructure.
-     */
-    private static final List<Pattern> BLOCKED_HOST_PATTERNS = List.of(
-            Pattern.compile("^localhost$", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("^.*\\.local$", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("^metadata\\.google\\.internal$", Pattern.CASE_INSENSITIVE)
-    );
 
     private final WebClient webClient;
     private final Set<String> allowedDomains;
@@ -148,44 +133,7 @@ public class HttpApiTool {
      * and must match the domain allowlist if one is configured.
      */
     private String validateUrl(String url) {
-        if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
-            return "Invalid URL. Must start with http:// or https://";
-        }
-        try {
-            URI uri = URI.create(url);
-            String host = uri.getHost();
-            if (host == null || host.isBlank()) {
-                return "Invalid URL: no host";
-            }
-
-            // Check hostname blocklist
-            for (Pattern pattern : BLOCKED_HOST_PATTERNS) {
-                if (pattern.matcher(host).matches()) {
-                    return "Blocked host: " + host;
-                }
-            }
-
-            // Check domain allowlist (if configured)
-            if (!allowedDomains.isEmpty()
-                    && allowedDomains.stream().noneMatch(d -> d.equalsIgnoreCase(host))) {
-                return "Host not in allowlist: " + host;
-            }
-
-            // Resolve IP and block private/loopback ranges
-            InetAddress address = InetAddress.getByName(host);
-            if (address.isLoopbackAddress()
-                    || address.isSiteLocalAddress()
-                    || address.isLinkLocalAddress()
-                    || address.isAnyLocalAddress()) {
-                return "Blocked: private/loopback IP for host " + host;
-            }
-
-        } catch (UnknownHostException e) {
-            return "Cannot resolve host: " + e.getMessage();
-        } catch (IllegalArgumentException e) {
-            return "Malformed URL: " + e.getMessage();
-        }
-        return null; // valid
+        return ToolUrlValidator.validatePublicHttpUrl(url, allowedDomains);
     }
 
     private String truncate(String text) {

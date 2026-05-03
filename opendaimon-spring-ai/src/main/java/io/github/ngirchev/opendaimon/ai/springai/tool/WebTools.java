@@ -1,6 +1,5 @@
 package io.github.ngirchev.opendaimon.ai.springai.tool;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -20,7 +19,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 @Slf4j
-@RequiredArgsConstructor
 public class WebTools {
 
     private static final Duration FETCH_TIMEOUT = Duration.ofSeconds(6);
@@ -42,11 +40,25 @@ public class WebTools {
     public static final String REASON_TOO_LARGE = "page_too_large";
     public static final String REASON_UNREADABLE_2XX = "unreadable_2xx";
     public static final String REASON_INVALID_URL = "invalid_url";
+    public static final String REASON_BLOCKED_URL = "blocked_url";
+    public static final String REASON_SEARCH_FAILED = "web_search_failed";
     public static final String REASON_TIMEOUT = "timeout";
 
     private final WebClient webClient;
     private final String apiKey;
     private final String apiUrl;
+    private final boolean allowLoopbackForTests;
+
+    public WebTools(WebClient webClient, String apiKey, String apiUrl) {
+        this(webClient, apiKey, apiUrl, false);
+    }
+
+    WebTools(WebClient webClient, String apiKey, String apiUrl, boolean allowLoopbackForTests) {
+        this.webClient = webClient;
+        this.apiKey = apiKey;
+        this.apiUrl = apiUrl;
+        this.allowLoopbackForTests = allowLoopbackForTests;
+    }
 
     @Tool(
         name = "web_search",
@@ -118,12 +130,14 @@ public class WebTools {
             return new SearchResult(query, hits);
         } catch (WebClientResponseException e) {
             String errorBody = e.getResponseBodyAsString();
-            log.error("WebTools.webSearch failed (status: {}): {}. Response body: {}. Returning empty result for query=[{}].",
+            log.error("WebTools.webSearch failed (status: {}): {}. Response body: {}. Returning structured error for query=[{}].",
                 e.getStatusCode(), e.getMessage(), errorBody, query);
-            return new SearchResult(query, List.of());
+            return "Error: " + REASON_SEARCH_FAILED + " — HTTP " + e.getStatusCode().value()
+                    + " while searching for query: " + query;
         } catch (Exception e) {
-            log.error("WebTools.webSearch failed: {}. Returning empty result for query=[{}].", e.getMessage(), query, e);
-            return new SearchResult(query, List.of());
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            log.error("WebTools.webSearch failed: {}. Returning structured error for query=[{}].", msg, query, e);
+            return "Error: " + REASON_SEARCH_FAILED + " — " + msg;
         }
     }
 
@@ -132,9 +146,12 @@ public class WebTools {
         description = "Fetch a selected HTTP(S) URL and return cleaned main text. Use web_search for discovery; do not retry a failed URL."
     )
     public String fetchUrl(String url) {
-        if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
+        String urlError = ToolUrlValidator.validatePublicHttpUrl(url, allowLoopbackForTests);
+        if (urlError != null) {
             log.warn("WebTools.fetchUrl: url=[{}] is not a valid HTTP(S) URL. Skipping.", url);
-            return "Error: " + REASON_INVALID_URL + " — not an http(s) URL";
+            String reason = urlError.startsWith("Invalid URL") || urlError.startsWith("Malformed URL")
+                    ? REASON_INVALID_URL : REASON_BLOCKED_URL;
+            return "Error: " + reason + " — " + urlError;
         }
         try {
             log.info("WebTools fetchUrl: {}", url);

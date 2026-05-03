@@ -1,12 +1,17 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent;
 import io.github.ngirchev.opendaimon.common.agent.AgentStreamEvent.EventType;
 import io.github.ngirchev.opendaimon.common.agent.AgentToolResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -23,8 +28,11 @@ import org.springframework.ai.chat.prompt.Prompt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Verifies the textual-failure heuristic in {@link SpringAgentLoopActions#observe(AgentContext)}.
@@ -211,5 +219,30 @@ class SpringAgentLoopActionsObserveTest {
         assertThat(stored.getResult().getOutput().getToolCalls()).hasSize(1);
         assertThat(stored.getResult().getOutput().getToolCalls().getFirst().name())
                 .isEqualTo("web_search");
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void answerShouldSaveSanitizedFinalAnswerToChatMemory() {
+        ChatModel chatModel = mock(ChatModel.class);
+        ToolCallingManager toolCallingManager = mock(ToolCallingManager.class);
+        ChatMemory chatMemory = mock(ChatMemory.class);
+        UrlLivenessChecker urlLivenessChecker = mock(UrlLivenessChecker.class);
+        SpringAgentLoopActions actionsWithMemory = new SpringAgentLoopActions(
+                chatModel, toolCallingManager, List.of(), chatMemory, Duration.ofSeconds(30), urlLivenessChecker);
+        AgentContext answerCtx = new AgentContext(
+                "question", "conv-history", Map.of(AICommand.LANGUAGE_CODE_FIELD, "ru"), 5, Set.of());
+        answerCtx.setCurrentTextResponse("raw [dead](https://93.184.216.34/dead)");
+        when(urlLivenessChecker.stripDeadLinks(answerCtx.getCurrentTextResponse(), "ru"))
+                .thenReturn("raw [link unavailable]");
+
+        actionsWithMemory.answer(answerCtx);
+
+        ArgumentCaptor<List<Message>> messagesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chatMemory).add(eq("conv-history"), messagesCaptor.capture());
+        assertThat(answerCtx.getFinalAnswer()).isEqualTo("raw [link unavailable]");
+        assertThat(messagesCaptor.getValue().get(1))
+                .isInstanceOfSatisfying(AssistantMessage.class,
+                        msg -> assertThat(msg.getText()).isEqualTo("raw [link unavailable]"));
     }
 }

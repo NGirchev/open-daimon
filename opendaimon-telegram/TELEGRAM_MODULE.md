@@ -588,6 +588,9 @@ Final answer delivery uses reliable Telegram sender methods:
 - retry once when budget allows
 - if final edit fails, fallback to fresh `sendMessage`
 - if both fail, FSM sets `MessageHandlerErrorType.TELEGRAM_DELIVERY_FAILED` and enters `ERROR`
+- `MessageTelegramCommandHandler` dispatches `TELEGRAM_DELIVERY_FAILED` explicitly:
+  it logs the delivery failure, persists an assistant error row when possible, and
+  attempts one short localized error message instead of silently dropping the terminal state.
 
 Final status cleanup is reliable too: `flushFinal()` edits the status message
 with `editHtmlReliable(...)` before sending/editing the answer. If Telegram
@@ -600,6 +603,8 @@ answer.
 ### Length handling
 
 - status message rotation uses `TelegramProgressBatcher.selectContentToFlush(...)`
+- agent final answers and non-agent Spring streaming chunks are split by converted
+  Telegram HTML length, not raw markdown length
 - final answer uses chunked send when the converted Telegram HTML would exceed `maxMessageLength`
 - split prefers paragraph boundaries, flushes the current paragraph buffer before overflow,
   and hard-cuts oversized paragraphs so every sent HTML chunk stays within Telegram limits

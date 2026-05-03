@@ -154,6 +154,11 @@ subscriptions; anyone who needs trusted group access (e.g. family or team) witho
 - **Observability**: Prometheus, Grafana, Elasticsearch, Kibana; custom metrics
 - **Distribution**: Maven Central, Docker images, CI and SonarCloud
 
+## Security and Compatibility Caveats
+
+> ⚠️ **Warning**: `opendaimon-rest` is **not secure by design** in the current baseline.  
+> Do **not** expose it directly to end users or as a public API without a dedicated security-hardening pass.
+
 ## User Priorities and Bulkhead
 
 The system uses a **Bulkhead pattern** to manage AI request limits based on user priority.

@@ -54,6 +54,7 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -780,39 +781,96 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         }
     }
 
-    /**
-     * Splits text by double newlines (paragraphs), converts each to HTML,
-     * and sends via the provided sender. Respects Telegram max message length.
-     */
     private void sendTextByParagraphs(String text, java.util.function.Consumer<String> sender) {
         int maxLength = telegramProperties.getMaxMessageLength();
-        String[] paragraphs = text.split("\n\n");
+        for (String chunk : splitMarkdownByHtmlLength(text, maxLength)) {
+            sender.accept(AIUtils.convertMarkdownToHtml(chunk));
+        }
+    }
+
+    /**
+     * Splits markdown by the final Telegram HTML payload length, not by raw markdown
+     * length. Markdown escaping and tag conversion can expand text after splitting.
+     */
+    private List<String> splitMarkdownByHtmlLength(String text, int maxLength) {
+        List<String> chunks = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            return chunks;
+        }
+        String[] paragraphs = text.split("\n\n", -1);
         StringBuilder buffer = new StringBuilder();
 
         for (String paragraph : paragraphs) {
-            // Split a single oversized paragraph on sentence/word/hard boundaries
-            // so no outgoing chunk exceeds maxLength. Mirrors AIUtils.splitBlockByMaxLength.
-            while (paragraph.length() > maxLength) {
-                if (!buffer.isEmpty()) {
-                    sender.accept(AIUtils.convertMarkdownToHtml(buffer.toString().trim()));
-                    buffer.setLength(0);
-                }
-                int splitAt = AIUtils.findSplitPoint(paragraph, maxLength);
-                sender.accept(AIUtils.convertMarkdownToHtml(paragraph.substring(0, splitAt).trim()));
-                paragraph = paragraph.substring(splitAt);
-            }
-            if (buffer.length() + paragraph.length() + 2 > maxLength && !buffer.isEmpty()) {
-                sender.accept(AIUtils.convertMarkdownToHtml(buffer.toString().trim()));
+            String candidate = buffer.isEmpty() ? paragraph : buffer + "\n\n" + paragraph;
+            if (fitsTelegramHtml(candidate, maxLength)) {
                 buffer.setLength(0);
+                buffer.append(candidate);
+                continue;
             }
-            if (!buffer.isEmpty()) {
-                buffer.append("\n\n");
+
+            flushMarkdownBuffer(buffer, chunks);
+            if (fitsTelegramHtml(paragraph, maxLength)) {
+                buffer.append(paragraph);
+            } else {
+                splitOversizedMarkdown(paragraph, chunks, maxLength);
             }
-            buffer.append(paragraph);
         }
 
+        flushMarkdownBuffer(buffer, chunks);
+        return chunks;
+    }
+
+    private void splitOversizedMarkdown(String text, List<String> chunks, int maxLength) {
+        String remaining = text.stripLeading();
+        while (!remaining.isBlank()) {
+            if (fitsTelegramHtml(remaining, maxLength)) {
+                chunks.add(remaining.trim());
+                return;
+            }
+            int splitAt = findMarkdownSplitPointForHtmlLimit(remaining, maxLength);
+            if (splitAt <= 0) {
+                splitAt = Math.min(remaining.length(), Math.max(1, maxLength / 2));
+            }
+            String chunk = remaining.substring(0, splitAt).trim();
+            if (!chunk.isEmpty()) {
+                chunks.add(chunk);
+            }
+            remaining = remaining.substring(splitAt).stripLeading();
+        }
+    }
+
+    private int findMarkdownSplitPointForHtmlLimit(String text, int maxLength) {
+        int low = 1;
+        int high = text.length();
+        int best = 0;
+
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            if (fitsTelegramHtml(text.substring(0, mid), maxLength)) {
+                best = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        if (best <= 0) {
+            return 0;
+        }
+        return AIUtils.findSplitPoint(text.substring(0, best), best);
+    }
+
+    private boolean fitsTelegramHtml(String markdown, int maxLength) {
+        return AIUtils.convertMarkdownToHtml(markdown.trim()).length() <= maxLength;
+    }
+
+    private static void flushMarkdownBuffer(StringBuilder buffer, List<String> chunks) {
         if (!buffer.isEmpty()) {
-            sender.accept(AIUtils.convertMarkdownToHtml(buffer.toString().trim()));
+            String chunk = buffer.toString().trim();
+            if (!chunk.isEmpty()) {
+                chunks.add(chunk);
+                buffer.setLength(0);
+            }
         }
     }
 
@@ -916,9 +974,10 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
                     aiStreamResponse.chatResponse(),
                     maxMessageLength,
                     s -> {
-                        String htmlText = AIUtils.convertMarkdownToHtml(s);
-                        ctx.getStreamingParagraphSender().accept(htmlText);
-                        replyToMessageId[0] = null;
+                        sendTextByParagraphs(s, htmlText -> {
+                            ctx.getStreamingParagraphSender().accept(htmlText);
+                            replyToMessageId[0] = null;
+                        });
                     }
             );
             ctx.setUsefulResponseData(AIUtils.extractSpringAiUsefulData(chatResponse));

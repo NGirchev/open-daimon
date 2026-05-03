@@ -1,3 +1,9 @@
+- [ ] Security and stability backlog split by module
+  - [ ] REST module
+    - [ ] Critical: admin auth bypass via email-only login (`opendaimon-ui/.../UIAuthController.java:38` + `opendaimon-rest/.../SessionAdminAuthenticationFilter.java:59`). Add real credential/identity proof and test that admin email without credential is rejected on `/api/v1/admin/**`.
+    - [ ] High: REST starter installs global permissive `SecurityFilterChain` (`opendaimon-rest/.../AdminSecurityConfig.java:32`) without `securityMatcher`, disables CSRF, and sets `anyRequest().permitAll()`. Scope chain to REST/admin endpoints and avoid breaking consumer app security chains.
+    - [ ] High: admin attachment proxy may serve active content same-origin (`opendaimon-rest/.../AdminAttachmentController.java:50`) by trusting metadata MIME + `inline`; block/sanitize `text/html`/SVG and enforce safe download behavior.
+    - [ ] Medium: public REST API breaking change (`RestChatCommand` package move and `ChatService` public return type changes). Restore compatibility or introduce explicit versioned migration path.
 - [ ] add web authentication module
 - [x] add web application module
 - [ ] mobile app from web version

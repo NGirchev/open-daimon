@@ -480,6 +480,10 @@ URL that is worth opening. Runtime behavior is defensive because the model canno
 in advance which sites will block a plain HTTP client:
 
 - Every fetch sends browser-like `User-Agent`, `Accept`, and `Accept-Language` headers.
+- Before any network call, `fetch_url` applies the same public-HTTP URL guard as
+  `HttpApiTool`: localhost, `.local`, metadata hostnames, loopback, site-local,
+  IPv6 unique-local (`fc00::/7`), link-local, and any-local addresses are
+  rejected with an Error-prefixed `REASON_BLOCKED_URL` observation.
 - A normal non-2xx response remains a single failed tool observation:
   `"HTTP error <code> <status>"`.
 - A 403 with Cloudflare's `cf-mitigated: challenge` header gets one internal retry with
@@ -678,7 +682,7 @@ exception into the textual `"Exception occurred in tool: web_search (…)"` stri
 returns an **Error-prefixed string** rather than a success-shaped empty
 `SearchResult`. The return signature is `Object` so the method can yield
 either a `SearchResult` (success / API-key not configured) or a `String`
-(structured error for bad input). The error text is:
+(structured error for bad input or API/transport failure). The bad-input error text is:
 
 > `"Error: argument 'query' is required and must not be blank. Retry
 > web_search with a non-empty 'query' field containing the search terms.
@@ -688,6 +692,10 @@ Rationale: a success-shaped `{"query":"","hits":[]}` is indistinguishable
 from "search ran, 0 results" and the model therefore cannot self-correct.
 An Error-prefixed string is matched by
 `ToolObservationClassifier.isTextualToolFailure()` and surfaced to the
+agent as a failed observation. Real Serper API/transport failures follow the
+same rule and return `Error: web_search_failed — ...` instead of a successful
+empty result, so the model can distinguish "search failed" from "search found
+no hits".
 model as a failure observation with explicit retry instructions, which
 lets it self-correct on the next iteration (put a non-empty `query` into
 the tool_call arguments). Aligns with the design decision recorded in

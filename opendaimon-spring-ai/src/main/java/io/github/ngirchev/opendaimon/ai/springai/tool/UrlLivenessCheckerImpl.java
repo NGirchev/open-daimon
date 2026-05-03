@@ -11,13 +11,9 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -56,18 +52,6 @@ public class UrlLivenessCheckerImpl implements UrlLivenessChecker {
 
     /** Per-answer upper bound on concurrent HEAD/GET probes. */
     private static final int PROBE_CONCURRENCY = 5;
-
-    /**
-     * Hostnames that resolve (or can resolve) to private/internal/metadata services.
-     * Kept in sync with {@code HttpApiTool.BLOCKED_HOST_PATTERNS} — any change to
-     * that list should be mirrored here so the final-answer sanitizer and the
-     * agent tool enforce the same SSRF boundary.
-     */
-    private static final List<Pattern> BLOCKED_HOST_PATTERNS = List.of(
-            Pattern.compile("^localhost$", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("^.*\\.local$", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("^metadata\\.google\\.internal$", Pattern.CASE_INSENSITIVE)
-    );
 
     private final WebClient webClient;
     private final Duration timeout;
@@ -299,42 +283,7 @@ public class UrlLivenessCheckerImpl implements UrlLivenessChecker {
      *                      Production callers must pass {@code false}.
      */
     static boolean isUrlSafeToProbe(String url, boolean allowLoopback) {
-        if (url == null || (!url.startsWith("http://") && !url.startsWith("https://"))) {
-            log.info("UrlLivenessChecker: skipping non-http(s) url='{}'", url);
-            return false;
-        }
-        try {
-            URI uri = URI.create(url);
-            String host = uri.getHost();
-            if (host == null || host.isBlank()) {
-                return false;
-            }
-            if (!allowLoopback) {
-                for (Pattern pattern : BLOCKED_HOST_PATTERNS) {
-                    if (pattern.matcher(host).matches()) {
-                        log.info("UrlLivenessChecker: blocked host url='{}' host='{}'", url, host);
-                        return false;
-                    }
-                }
-            }
-            InetAddress address = InetAddress.getByName(host);
-            boolean internal = address.isLoopbackAddress()
-                    || address.isSiteLocalAddress()
-                    || address.isLinkLocalAddress()
-                    || address.isAnyLocalAddress();
-            if (internal && !allowLoopback) {
-                log.info("UrlLivenessChecker: blocked private/loopback url='{}' ip='{}'",
-                        url, address.getHostAddress());
-                return false;
-            }
-            return true;
-        } catch (UnknownHostException e) {
-            log.debug("UrlLivenessChecker: cannot resolve host for url='{}': {}", url, e.getMessage());
-            return false;
-        } catch (IllegalArgumentException e) {
-            log.debug("UrlLivenessChecker: malformed url='{}': {}", url, e.getMessage());
-            return false;
-        }
+        return ToolUrlValidator.logAndIsUrlSafeToProbe(url, allowLoopback);
     }
 
     private static String stripTrailingPunctuation(String url) {

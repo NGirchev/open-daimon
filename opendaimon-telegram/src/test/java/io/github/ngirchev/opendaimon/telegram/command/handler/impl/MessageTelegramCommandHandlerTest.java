@@ -62,6 +62,7 @@ import java.util.Set;
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.CHOICES;
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.MESSAGE;
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.CONTENT;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -774,6 +775,61 @@ class MessageTelegramCommandHandlerTest {
                 eq(telegramUser), eq("Streamed reply"), anyString(), eq("Role"), anyInt(), any(), eq(thread));
         verify(messageService).updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
         verify(telegramBot).sendMessage(eq(CHAT_ID), contains("Streamed reply"), any(), any());
+    }
+
+    @Test
+    void handleInner_whenSpringAIStreamHtmlEscapingExpandsText_thenSendsChunksBelowTelegramLimit() throws Exception {
+        telegramProperties.setMaxMessageLength(120);
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        User from = new User(200L, "user", false);
+        message.setFrom(from);
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setTelegramId(200L);
+        telegramUser.setId(1L);
+        AssistantRole role = new AssistantRole();
+        role.setId(10L);
+        role.setContent("Role");
+        ConversationThread thread = new ConversationThread();
+        thread.setThreadKey("tk");
+        thread.setUser(telegramUser);
+        OpenDaimonMessage userMessage = new OpenDaimonMessage();
+        userMessage.setUser(telegramUser);
+        userMessage.setAssistantRole(role);
+        userMessage.setThread(thread);
+
+        when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
+        when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
+                .thenReturn(userMessage);
+
+        AICommand aiCommand = mock(AICommand.class);
+        when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
+        when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
+
+        String rawText = "<".repeat(100);
+        ChatResponse chatResponse = createChatResponse(rawText);
+        when(aiGateway.generateResponse(aiCommand)).thenReturn(new SpringAIStreamResponse(Flux.just(chatResponse)));
+
+        OpenDaimonMessage assistantMessage = new OpenDaimonMessage();
+        when(telegramMessageService.saveAssistantMessage(
+                eq(telegramUser), eq(rawText), anyString(), eq("Role"), anyInt(), any(), eq(thread)))
+                .thenReturn(assistantMessage);
+
+        TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.MESSAGE), update, "Hello");
+        command.languageCode("en");
+
+        assertNull(handler.handleInner(command));
+
+        ArgumentCaptor<String> sentHtml = ArgumentCaptor.forClass(String.class);
+        verify(telegramBot, atLeast(2)).sendMessage(eq(CHAT_ID), sentHtml.capture(), any(), any());
+        assertThat(sentHtml.getAllValues())
+                .hasSizeGreaterThan(1)
+                .allSatisfy(html -> assertThat(html.length()).isLessThanOrEqualTo(120));
     }
 
     private static ChatResponse createChatResponse(String text) {
