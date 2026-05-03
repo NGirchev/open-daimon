@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * from Spring context (as in the real application).
  */
 @Slf4j
-@Disabled("Manual test: run locally to verify streaming by paragraphs to console")
+//@Disabled("Manual test: run locally to verify streaming by paragraphs to console")
 @SpringBootTest(classes = SpringAIOllamaDnsIT.TestConfig.class)
 @ComponentScan(
     basePackages = "org.springframework.ai",
@@ -91,7 +91,7 @@ class SpringAIOllamaDnsIT {
         // Note: chunk size in streaming is not configurable via Ollama params;
         // num_batch does not affect stream chunk size; num_predict limits tokens (we skip it to avoid cutting generation)
         var responseFlux = ChatClient.builder(ollamaChatModel).build().prompt()
-                .user("What is bigger: 9.11 or 9.9? Explain briefly.")
+                .user("Write a short tale")
                 .stream()
                 .chatResponse();
         ChatResponse response = AIUtils.processStreamingResponse(responseFlux, text -> {
@@ -119,7 +119,7 @@ class SpringAIOllamaDnsIT {
     void testStreamParagraphToConsole() {
         // Note: chunk size in streaming is not configurable via Ollama params
         var responseFlux = ChatClient.builder(ollamaChatModel).build().prompt()
-                .user("What is bigger: 9.11 or 9.9? Explain briefly.")
+                .user("Write a short tale")
                 .stream()
                 .chatResponse();
         ChatResponse chatResponse = AIUtils.processStreamingResponseByParagraphs(responseFlux, 4096, text -> {

@@ -36,17 +36,23 @@ This is the closest simulation to what an end-user runs. It verifies:
 
 Pass `--local-image` to the wizard — it generates `docker-compose.yml` with `open-daimon:local` and `pull_policy: never` instead of pulling from the internet.
 
-**Step 1** — build the local image from the repository root:
+**Step 1** — build the local image from the repository root or from the repository `cli/` directory:
 
 ```bash
-cd ..
-docker build -t open-daimon:local .
+OPEN_DAIMON_REPO="$(git -C . rev-parse --show-toplevel)"
+docker build -t open-daimon:local "$OPEN_DAIMON_REPO"
+```
+
+Verify that Docker can see the image before running the wizard:
+
+```bash
+docker image inspect open-daimon:local >/dev/null
 ```
 
 **Step 2** — pack the wizard:
 
 ```bash
-cd cli
+cd "$OPEN_DAIMON_REPO/cli"
 npm pack --pack-destination /tmp/
 ```
 
@@ -56,6 +62,10 @@ npm pack --pack-destination /tmp/
 cd /tmp/test-pack
 npx file:/tmp/ngirchev-open-daimon-1.0.1.tgz --local-image
 ```
+
+If you choose `Start the stack now?`, the wizard checks that `open-daimon:local` exists before `docker compose up -d`.
+If the image is missing, it stops with the build command instead of partially creating containers and failing with
+`No such image: open-daimon:local`.
 
 ---
 
@@ -143,7 +153,7 @@ Wizard input:
 | Admin Telegram ID | `123456789` |
 | AI provider | **Ollama** |
 | Ollama URL | *(press Enter to accept default `http://localhost:11434`)* |
-| Pull qwen2.5:3b? | No (or Yes if Ollama is running) |
+| Pull qwen3.5:4b? | No (or Yes if Ollama is running) |
 | Serper? | No |
 | Services | uncheck all |
 | DB password | `mypassword` |
@@ -170,7 +180,7 @@ cat /tmp/test-ollama/application-local.yml
 - `SPRING_PROFILES_ACTIVE=local`
 - `prometheus.yml` must NOT be created (monitoring not selected)
 - `logstash.conf` must NOT be created (logging not selected)
-- `application-local.yml` contains `provider-type: OLLAMA`, `qwen2.5:3b`, `nomic-embed-text:v1.5`
+- `application-local.yml` contains `provider-type: OLLAMA`, `qwen3.5:4b`, `nomic-embed-text:v1.5`
 - `spring.ai.ollama.base-url: ${OLLAMA_BASE_URL:http://localhost:11434}`
 
 ---

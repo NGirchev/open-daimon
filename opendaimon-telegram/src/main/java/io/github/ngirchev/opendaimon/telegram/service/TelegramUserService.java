@@ -9,6 +9,7 @@ import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserObject;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserService;
 import io.github.ngirchev.opendaimon.common.model.AssistantRole;
+import io.github.ngirchev.opendaimon.common.model.ThinkingMode;
 import io.github.ngirchev.opendaimon.common.service.AssistantRoleService;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUserSession;
@@ -28,6 +29,8 @@ public class TelegramUserService implements IUserService {
     private final TelegramUserRepository telegramUserRepository;
     private final TelegramUserSessionService telegramUserSessionService;
     private final AssistantRoleService assistantRoleService;
+    /** Default value for {@code agentModeEnabled} on new users. Sourced from {@code open-daimon.agent.enabled}. */
+    private final boolean defaultAgentModeEnabled;
 
     @Override
     public Optional<IUserObject> findById(Long id) {
@@ -136,6 +139,40 @@ public class TelegramUserService implements IUserService {
     }
 
     /**
+     * Updates the per-user thinking-visibility mode.
+     *
+     * @param telegramId   Telegram user id
+     * @param thinkingMode new mode — {@code SHOW_ALL}, {@code HIDE_REASONING}, or {@code SILENT}
+     */
+    @Transactional
+    public void updateThinkingMode(Long telegramId, ThinkingMode thinkingMode) {
+        TelegramUser user = telegramUserRepository.findByTelegramId(telegramId)
+                .orElseThrow(() -> new RuntimeException(USER_NOT_FOUND));
+        user.setThinkingMode(thinkingMode);
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
+        telegramUserRepository.save(user);
+    }
+
+    /**
+     * Updates the per-user agent mode flag.
+     *
+     * @param telegramId Telegram user id
+     * @param enabled    {@code true} to enable agent mode, {@code false} for regular (gateway) mode
+     */
+    @Transactional
+    public void updateAgentMode(Long telegramId, boolean enabled) {
+        TelegramUser user = telegramUserRepository.findByTelegramId(telegramId)
+                .orElseThrow(() -> new RuntimeException(USER_NOT_FOUND));
+        user.setAgentModeEnabled(enabled);
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        user.setLastActivityAt(now);
+        telegramUserRepository.save(user);
+    }
+
+    /**
      * Updates the bot status in the user's current session.
      *
      * @param user      user
@@ -144,6 +181,23 @@ public class TelegramUserService implements IUserService {
     @Transactional
     public void updateUserSession(TelegramUser user, String botStatus) {
         telegramUserSessionService.updateSessionStatus(user, botStatus);
+    }
+
+    /**
+     * Persists the chat-scoped command menu version marker for the user.
+     * Used by lazy per-chat menu reconciliation after a deployment changes the enabled command set.
+     *
+     * @param telegramId Telegram user id
+     * @param hash       new menu version hash, or {@code null} to reset
+     */
+    @Transactional
+    public void updateMenuVersionHash(Long telegramId, String hash) {
+        TelegramUser user = telegramUserRepository.findByTelegramId(telegramId)
+                .orElseThrow(() -> new RuntimeException(USER_NOT_FOUND));
+        user.setMenuVersionHash(hash);
+        OffsetDateTime now = OffsetDateTime.now();
+        user.setUpdatedAt(now);
+        telegramUserRepository.save(user);
     }
 
     @Transactional
@@ -186,6 +240,7 @@ public class TelegramUserService implements IUserService {
         user.setLastActivityAt(now);
         user.setIsBlocked(false);
         user.setIsAdmin(false);
+        user.setAgentModeEnabled(defaultAgentModeEnabled);
         return telegramUserRepository.save(user);
     }
 

@@ -5,7 +5,7 @@ import io.github.ngirchev.opendaimon.ai.springai.config.RAGProperties;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.ai.springai.service.DocumentProcessingService;
-import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPreprocessor;
+import io.github.ngirchev.opendaimon.ai.springai.service.SpringDocumentPipelineActions;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -58,7 +58,7 @@ class ImagePdfVisionCacheFixtureIT {
 
         @Bean
         public EmbeddingModel embeddingModel() {
-            return new DeterministicEmbeddingModel();
+            return new DeterministicEmbeddingModel(EMBEDDING_DIMENSIONS);
         }
 
         @Bean
@@ -222,14 +222,14 @@ class ImagePdfVisionCacheFixtureIT {
     @DisplayName("stripModelInternalTokens — removes gemma3 internal tokens from vision output")
     void stripModelInternalTokens_removesInternalTokens() {
         String dirty = "U.S. Department of Justice\nAntitrust Division\n<start_of_image>";
-        String clean = SpringDocumentPreprocessor.stripModelInternalTokens(dirty);
+        String clean = SpringDocumentPipelineActions.stripModelInternalTokens(dirty);
         assertThat(clean).isEqualTo("U.S. Department of Justice\nAntitrust Division");
 
         String withMultiple = "<start_of_turn>Extract text<end_of_turn><start_of_image>Hello World<end_of_image>";
-        assertThat(SpringDocumentPreprocessor.stripModelInternalTokens(withMultiple)).isEqualTo("Extract textHello World");
+        assertThat(SpringDocumentPipelineActions.stripModelInternalTokens(withMultiple)).isEqualTo("Extract textHello World");
 
-        assertThat(SpringDocumentPreprocessor.stripModelInternalTokens(null)).isNull();
-        assertThat(SpringDocumentPreprocessor.stripModelInternalTokens("  <start_of_image>  ")).isEmpty();
+        assertThat(SpringDocumentPipelineActions.stripModelInternalTokens(null)).isNull();
+        assertThat(SpringDocumentPipelineActions.stripModelInternalTokens("  <start_of_image>  ")).isEmpty();
     }
 
     /**
@@ -244,7 +244,7 @@ class ImagePdfVisionCacheFixtureIT {
     void modelSelection_autoWithVision_findsVisionModel() {
         // Production-like model config: separate text and vision models
         SpringAIModelConfig textModel = new SpringAIModelConfig();
-        textModel.setName("qwen2.5:3b");
+        textModel.setName("qwen3.5:4b");
         textModel.setCapabilities(Set.of(
                 ModelCapabilities.AUTO, ModelCapabilities.CHAT,
                 ModelCapabilities.TOOL_CALLING, ModelCapabilities.SUMMARIZATION));
@@ -283,25 +283,4 @@ class ImagePdfVisionCacheFixtureIT {
      * Returns deterministic unit vectors so pipeline mechanics are tested
      * without real semantic matching.
      */
-    static class DeterministicEmbeddingModel implements EmbeddingModel {
-
-        @Override
-        public EmbeddingResponse call(EmbeddingRequest request) {
-            var embeddings = IntStream.range(0, request.getInstructions().size())
-                    .mapToObj(i -> new Embedding(unitVector(), i))
-                    .toList();
-            return new EmbeddingResponse(embeddings);
-        }
-
-        @Override
-        public float[] embed(Document document) {
-            return unitVector();
-        }
-
-        private float[] unitVector() {
-            float[] vector = new float[EMBEDDING_DIMENSIONS];
-            Arrays.fill(vector, 1.0f / (float) Math.sqrt(EMBEDDING_DIMENSIONS));
-            return vector;
-        }
-    }
 }

@@ -13,14 +13,13 @@ import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.service.CommandSyncService;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
-import io.github.ngirchev.opendaimon.rest.handler.RestChatCommand;
-import io.github.ngirchev.opendaimon.rest.handler.RestChatCommandType;
-import io.github.ngirchev.opendaimon.rest.dto.ChatRequestDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatResponseDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatSessionDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatMessageDto;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommand;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommandType;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.exception.UnauthorizedException;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatMessage;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatResponse;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatSession;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -45,7 +44,7 @@ public class ChatService {
      * Sends message to new chat (creates new session)
      */
     @Transactional
-    public <T> ChatResponseDto<T> sendMessageToNewChat(String message, RestUser user, HttpServletRequest request, boolean isStream) {
+    public <T> ChatResponse<T> sendMessageToNewChat(String message, RestUser user, HttpServletRequest request, boolean isStream) {
         // Close current active thread (if any)
         threadRepository.findMostRecentActiveThread(user)
                 .ifPresent(conversationThreadService::closeThread);
@@ -54,7 +53,7 @@ public class ChatService {
         ConversationThread thread = conversationThreadService.createNewThread(user);
 
         // Send message
-        return new ChatResponseDto<>(
+        return new ChatResponse<>(
                 sendMessageInternal(thread.getThreadKey(), message, user, request, isStream),
                 thread.getThreadKey()
         );
@@ -64,7 +63,7 @@ public class ChatService {
      * Sends message to existing session
      */
     @Transactional
-    public <T> ChatResponseDto<T> sendMessage(String sessionId, String message, RestUser user, HttpServletRequest request, boolean isStream) {
+    public <T> ChatResponse<T> sendMessage(String sessionId, String message, RestUser user, HttpServletRequest request, boolean isStream) {
         ConversationThread thread = getThreadBySessionId(sessionId);
 
         // Verify thread belongs to user
@@ -76,7 +75,7 @@ public class ChatService {
         conversationThreadService.activateThread(user, thread);
 
         // Send message
-        return new ChatResponseDto<>(
+        return new ChatResponse<>(
                 sendMessageInternal(thread.getThreadKey(), message, user, request, isStream),
                 thread.getThreadKey()
         );
@@ -87,9 +86,11 @@ public class ChatService {
      */
     private <T> T sendMessageInternal(String sessionId, String message, RestUser user, HttpServletRequest request, boolean isStream) {
         // Create ChatRequest and send via existing handler
-        ChatRequestDto chatRequestDto = new ChatRequestDto(message, null, null, user.getEmail());
         RestChatCommand command = new RestChatCommand(
-                chatRequestDto,
+                message,
+                null,
+                null,
+                user.getEmail(),
                 isStream ? RestChatCommandType.STREAM : RestChatCommandType.MESSAGE,
                 request,
                 user.getId()
@@ -102,11 +103,11 @@ public class ChatService {
      * Gets list of all user sessions
      */
     @Transactional(readOnly = true)
-    public List<ChatSessionDto> getSessions(RestUser user) {
+    public List<ChatSession> getSessions(RestUser user) {
         List<ConversationThread> threads = threadRepository.findByUserOrderByLastActivityAtDesc(user);
 
         return threads.stream()
-                .map(thread -> new ChatSessionDto(
+                .map(thread -> new ChatSession(
                         thread.getThreadKey(),
                         thread.getTitle() != null ? thread.getTitle() : "Untitled",
                         thread.getCreatedAt()
@@ -118,7 +119,7 @@ public class ChatService {
      * Gets message history for session
      */
     @Transactional(readOnly = true)
-    public List<ChatMessageDto> getChatHistory(String sessionId, RestUser user) {
+    public List<ChatMessage> getChatHistory(String sessionId, RestUser user) {
         ConversationThread thread = getThreadBySessionId(sessionId);
 
         // Verify thread belongs to user
@@ -130,7 +131,7 @@ public class ChatService {
 
         return messages.stream()
                 .filter(msg -> msg.getRole() != MessageRole.SYSTEM) // Exclude system messages
-                .map(msg -> new ChatMessageDto(
+                .map(msg -> new ChatMessage(
                         msg.getRole().name(),
                         msg.getContent()
                 ))
@@ -168,4 +169,3 @@ public class ChatService {
         return userPriorityService.getUserPriority(userId);
     }
 }
-

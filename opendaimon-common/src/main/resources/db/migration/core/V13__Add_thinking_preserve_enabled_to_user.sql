@@ -1,0 +1,2 @@
+ALTER TABLE "user"
+    ADD COLUMN IF NOT EXISTS thinking_preserve_enabled BOOLEAN DEFAULT FALSE;

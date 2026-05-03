@@ -16,6 +16,7 @@
   <configuration default="false" name="Application" type="Application" factoryName="Application" nameIsGenerated="true">
     <option name="MAIN_CLASS_NAME" value="io.github.ngirchev.opendaimon.Application" />
     <module name="opendaimon-app" />
+    <option name="PROGRAM_PARAMETERS" value=" -Djavax.net.ssl.trustStoreType=KeychainStore -Djavax.net.ssl.trustStore=NONE " />
     <extension name="coverage">
       <pattern>
         <option name="PATTERN" value="io.github.ngirchev.opendaimon.*" />

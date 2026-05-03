@@ -22,7 +22,7 @@ import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
 import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
 import io.github.ngirchev.opendaimon.common.service.AIUtils;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 
 import io.github.ngirchev.opendaimon.common.model.Attachment;
 import io.github.ngirchev.opendaimon.common.model.AttachmentType;
@@ -73,7 +73,6 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.*;
 )
 @ActiveProfiles("integration-test")
 @Import({
-        TestDatabaseConfiguration.class,
         CoreFlywayConfig.class,
         CoreJpaConfig.class,
         SpringAIFlywayConfig.class
@@ -84,7 +83,7 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.*;
         "open-daimon.common.bulkhead.enabled=false",
         "open-daimon.ai.spring-ai.mock=false"
 })
-class SpringAIGatewayOpenRouterIT {
+class SpringAIGatewayOpenRouterIT extends AbstractContainerIT {
 
     static {
         DotEnvLoader.loadDotEnv(Path.of("../.env"));

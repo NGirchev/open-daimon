@@ -15,7 +15,7 @@ import io.github.ngirchev.opendaimon.rest.config.RestFlywayConfig;
 import io.github.ngirchev.opendaimon.rest.config.RestJpaConfig;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.repository.RestUserRepository;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -37,7 +37,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({
-        TestDatabaseConfiguration.class,
         CoreJpaConfig.class,
         RestJpaConfig.class,
         CoreFlywayConfig.class,
@@ -46,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestPropertySource(properties = {
         "open-daimon.rest.enabled=true"
 })
-class RestOpenDaimonMessageRepositoryIT {
+class RestOpenDaimonMessageRepositoryIT extends AbstractContainerIT {
 
     @Autowired
     private OpenDaimonMessageRepository messageRepository;

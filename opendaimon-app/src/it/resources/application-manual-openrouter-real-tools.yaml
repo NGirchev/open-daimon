@@ -1,0 +1,54 @@
+# Dedicated profile for AgentStreamingRealToolsManualIT.
+# Requires OPENROUTER_KEY + SERPER_KEY in .env. No local Ollama needed.
+# Layered on top of application-integration-test.yaml — overrides/extends
+# only the properties this test cares about (chat model list with
+# z-ai/glm-4.5v, Serper live endpoint, OpenAI API base pointed at OpenRouter).
+
+spring:
+  ai:
+    openai:
+      base-url: https://openrouter.ai/api
+      api-key: ${OPENROUTER_KEY:sk-placeholder}
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaAutoConfiguration
+
+open-daimon:
+  ai:
+    spring-ai:
+      enabled: true
+      mock: false
+      openrouter-auto-rotation:
+        models:
+          enabled: false
+      rag:
+        enabled: false
+      serper:
+        api:
+          key: ${SERPER_KEY:sk-placeholder}
+          url: https://google.serper.dev/search
+      models:
+        list:
+          # Explicit model that reproduces the production <tool_call> leak.
+          # Must be registered so DelegatingAgentChatModel does not fall back
+          # to openrouter/auto and pick a different backend.
+          - name: "z-ai/glm-4.5v"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - VISION
+            provider-type: OPENAI
+            priority: 1
+          - name: "openrouter/auto"
+            capabilities:
+              - AUTO
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - SUMMARIZATION
+              - VISION
+            provider-type: OPENAI
+            priority: 2

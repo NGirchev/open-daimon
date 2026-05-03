@@ -1,3 +1,9 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   # OpenDaimon application
   opendaimon-app:
@@ -34,6 +40,8 @@ services:
       - SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD:-postgres}
       # MinIO (use service name from docker-compose)
       - MINIO_ENDPOINT=http://minio:9000
+      # Redis (use service name from docker-compose)
+      - REDIS_HOST=redis
       # Config override: place application.yml next to docker-compose.yml.
       # optional: prefix = if file is absent, uses bundled defaults.
       - SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/app/config/application.yml
@@ -44,6 +52,7 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - open-daimon-network
 
@@ -59,6 +68,7 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - open-daimon-network
 
@@ -75,6 +85,7 @@ services:
     depends_on:
       - prometheus
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - open-daimon-network
 
@@ -96,6 +107,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - open-daimon-network
 
@@ -111,6 +123,7 @@ services:
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - open-daimon-network
 
@@ -124,6 +137,7 @@ services:
     depends_on:
       - elasticsearch
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - open-daimon-network
 
@@ -145,6 +159,24 @@ services:
       timeout: 20s
       retries: 3
     restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - open-daimon-network
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: open-daimon-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    logging: *default-logging
     networks:
       - open-daimon-network
 
@@ -158,6 +190,7 @@ services:
     depends_on:
       - elasticsearch
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - open-daimon-network
 
@@ -206,6 +239,7 @@ volumes:
   postgres-data:
   prometheus-data:
   minio-data:
+  redis-data:
 
 networks:
   open-daimon-network:

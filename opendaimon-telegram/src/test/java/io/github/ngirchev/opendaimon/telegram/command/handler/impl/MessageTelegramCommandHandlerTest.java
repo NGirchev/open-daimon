@@ -1,5 +1,6 @@
 package io.github.ngirchev.opendaimon.telegram.command.handler.impl;
 
+import io.github.ngirchev.fsm.impl.extended.ExDomainFsm;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.ai.AIGateways;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -17,6 +18,14 @@ import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerContext;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerEvent;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerFsmFactory;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.MessageHandlerState;
+import io.github.ngirchev.opendaimon.telegram.service.fsm.TelegramMessageHandlerActions;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageSender;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramAgentStreamView;
+import io.github.ngirchev.opendaimon.telegram.service.TelegramChatPacer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,7 +53,7 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import io.github.ngirchev.opendaimon.telegram.service.PersistentKeyboardService;
-import io.github.ngirchev.opendaimon.telegram.service.UserModelPreferenceService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 
 import java.util.List;
 import java.util.Map;
@@ -53,6 +62,7 @@ import java.util.Set;
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.CHOICES;
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.MESSAGE;
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.CONTENT;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -83,7 +93,7 @@ class MessageTelegramCommandHandlerTest {
     @Mock
     private AIRequestPipeline aiRequestPipeline;
     @Mock
-    private UserModelPreferenceService userModelPreferenceService;
+    private ChatSettingsService chatSettingsService;
     @Mock
     private PersistentKeyboardService persistentKeyboardService;
     @Mock
@@ -96,7 +106,7 @@ class MessageTelegramCommandHandlerTest {
     private MessageTelegramCommandHandler handler;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
         messageSource.setBasenames("classpath:messages/common", "classpath:messages/telegram");
         messageSource.setDefaultEncoding("UTF-8");
@@ -109,11 +119,29 @@ class MessageTelegramCommandHandlerTest {
 
         ObjectProvider<TelegramBot> botProvider = mock(ObjectProvider.class);
         when(botProvider.getObject()).thenReturn(telegramBot);
+        when(botProvider.getIfAvailable()).thenReturn(telegramBot);
+        TelegramChatPacer telegramChatPacer = mock(TelegramChatPacer.class);
+        when(telegramChatPacer.tryReserve(anyLong())).thenReturn(true);
+        when(telegramChatPacer.reserve(anyLong(), anyLong())).thenReturn(true);
 
-        handler = new MessageTelegramCommandHandler(botProvider, typingIndicatorService, messageLocalizationService,
-                telegramUserService, telegramUserSessionService, telegramMessageService, aiGatewayRegistry,
-                messageService, aiRequestPipeline, telegramProperties, userModelPreferenceService,
-                persistentKeyboardService, replyImageAttachmentService);
+        TelegramMessageSender messageSender = new TelegramMessageSender(
+                botProvider, messageLocalizationService, persistentKeyboardService, telegramChatPacer);
+        TelegramAgentStreamView agentStreamView = new TelegramAgentStreamView(
+                messageSender, telegramChatPacer, telegramProperties);
+
+        TelegramMessageHandlerActions actions = new TelegramMessageHandlerActions(
+                telegramUserService, telegramUserSessionService,
+                telegramMessageService, aiGatewayRegistry, messageService,
+                aiRequestPipeline, telegramProperties, chatSettingsService,
+                persistentKeyboardService, replyImageAttachmentService, messageSender,
+                null, agentStreamView, 10, false);
+
+        ExDomainFsm<MessageHandlerContext, MessageHandlerState, MessageHandlerEvent> handlerFsm =
+                MessageHandlerFsmFactory.create(actions);
+
+        handler = new MessageTelegramCommandHandler(
+                botProvider, typingIndicatorService, messageLocalizationService,
+                handlerFsm, telegramMessageService, telegramProperties, persistentKeyboardService);
     }
 
     @Test
@@ -747,6 +775,61 @@ class MessageTelegramCommandHandlerTest {
                 eq(telegramUser), eq("Streamed reply"), anyString(), eq("Role"), anyInt(), any(), eq(thread));
         verify(messageService).updateMessageStatus(assistantMessage, ResponseStatus.SUCCESS);
         verify(telegramBot).sendMessage(eq(CHAT_ID), contains("Streamed reply"), any(), any());
+    }
+
+    @Test
+    void handleInner_whenSpringAIStreamHtmlEscapingExpandsText_thenSendsChunksBelowTelegramLimit() throws Exception {
+        telegramProperties.setMaxMessageLength(120);
+        Update update = new Update();
+        Message message = new Message();
+        message.setMessageId(1);
+        User from = new User(200L, "user", false);
+        message.setFrom(from);
+        update.setMessage(message);
+
+        TelegramUser telegramUser = new TelegramUser();
+        telegramUser.setTelegramId(200L);
+        telegramUser.setId(1L);
+        AssistantRole role = new AssistantRole();
+        role.setId(10L);
+        role.setContent("Role");
+        ConversationThread thread = new ConversationThread();
+        thread.setThreadKey("tk");
+        thread.setUser(telegramUser);
+        OpenDaimonMessage userMessage = new OpenDaimonMessage();
+        userMessage.setUser(telegramUser);
+        userMessage.setAssistantRole(role);
+        userMessage.setThread(thread);
+
+        when(telegramUserService.getOrCreateUser(from)).thenReturn(telegramUser);
+        when(telegramUserSessionService.getOrCreateSession(telegramUser)).thenReturn(null);
+        when(telegramMessageService.saveUserMessage(any(), any(), anyString(), any(), isNull(), any(), anyLong(), any()))
+                .thenReturn(userMessage);
+
+        AICommand aiCommand = mock(AICommand.class);
+        when(aiCommand.modelCapabilities()).thenReturn(Set.of(ModelCapabilities.CHAT));
+        when(aiRequestPipeline.prepareCommand(any(), any())).thenReturn(aiCommand);
+        when(aiGatewayRegistry.getSupportedAiGateways(aiCommand)).thenReturn(List.of(aiGateway));
+
+        String rawText = "<".repeat(100);
+        ChatResponse chatResponse = createChatResponse(rawText);
+        when(aiGateway.generateResponse(aiCommand)).thenReturn(new SpringAIStreamResponse(Flux.just(chatResponse)));
+
+        OpenDaimonMessage assistantMessage = new OpenDaimonMessage();
+        when(telegramMessageService.saveAssistantMessage(
+                eq(telegramUser), eq(rawText), anyString(), eq("Role"), anyInt(), any(), eq(thread)))
+                .thenReturn(assistantMessage);
+
+        TelegramCommand command = new TelegramCommand(200L, CHAT_ID, new TelegramCommandType(TelegramCommand.MESSAGE), update, "Hello");
+        command.languageCode("en");
+
+        assertNull(handler.handleInner(command));
+
+        ArgumentCaptor<String> sentHtml = ArgumentCaptor.forClass(String.class);
+        verify(telegramBot, atLeast(2)).sendMessage(eq(CHAT_ID), sentHtml.capture(), any(), any());
+        assertThat(sentHtml.getAllValues())
+                .hasSizeGreaterThan(1)
+                .allSatisfy(html -> assertThat(html.length()).isLessThanOrEqualTo(120));
     }
 
     private static ChatResponse createChatResponse(String text) {

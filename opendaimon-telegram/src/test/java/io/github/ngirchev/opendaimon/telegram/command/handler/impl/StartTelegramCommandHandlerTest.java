@@ -5,7 +5,7 @@ import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
-import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramSupportedCommandProvider;
+import io.github.ngirchev.opendaimon.telegram.command.TelegramSupportedCommandProvider;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

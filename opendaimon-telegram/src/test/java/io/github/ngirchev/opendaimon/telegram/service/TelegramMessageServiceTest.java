@@ -51,6 +51,10 @@ class TelegramMessageServiceTest {
     private ObjectProvider<StorageProperties> storagePropertiesProvider;
     @Mock
     private ObjectProvider<TelegramMessageService> selfProvider;
+    @Mock
+    private io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup chatOwnerLookup;
+    @Mock
+    private io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService chatSettingsService;
 
     private TelegramMessageService telegramMessageService;
     private TelegramUser telegramUser;
@@ -67,7 +71,9 @@ class TelegramMessageServiceTest {
                 messageLocalizationService,
                 storagePropertiesProvider,
                 conversationThreadService,
-                selfProvider);
+                selfProvider,
+                chatOwnerLookup,
+                chatSettingsService);
         when(selfProvider.getObject()).thenReturn(telegramMessageService);
         telegramUser = new TelegramUser();
         telegramUser.setId(1L);
@@ -75,7 +81,7 @@ class TelegramMessageServiceTest {
         thread.setId(50L);
         assistantRole = new AssistantRole();
         assistantRole.setId(10L);
-        when(telegramUserService.getOrCreateAssistantRole(any(TelegramUser.class), any())).thenReturn(assistantRole);
+        when(chatSettingsService.getOrCreateAssistantRole(any(), any())).thenReturn(assistantRole);
         when(coreCommonProperties.getAssistantRole()).thenReturn("Default role");
         when(conversationThreadService.getOrCreateThread(any(TelegramUser.class))).thenReturn(thread);
     }
@@ -117,7 +123,7 @@ class TelegramMessageServiceTest {
 
     @Test
     void saveUserMessage_withCustomRole_usesCustomRole() {
-        when(telegramUserService.getOrCreateAssistantRole(eq(telegramUser), eq("Custom role")))
+        when(chatSettingsService.getOrCreateAssistantRole(any(), eq("Custom role")))
                 .thenReturn(assistantRole);
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveUserMessage(any(), any(), any(), eq(assistantRole), any(), any(), any(), any()))
@@ -127,7 +133,7 @@ class TelegramMessageServiceTest {
                 telegramUser, null, "Hi", RequestType.TEXT, "Custom role", null);
 
         assertNotNull(result);
-        verify(telegramUserService).getOrCreateAssistantRole(telegramUser, "Custom role");
+        verify(chatSettingsService).getOrCreateAssistantRole(any(), eq("Custom role"));
     }
 
     @Test
@@ -222,7 +228,7 @@ class TelegramMessageServiceTest {
 
     @Test
     void saveAssistantErrorMessage_withCustomRole_usesCustomRole() {
-        when(telegramUserService.getOrCreateAssistantRole(eq(telegramUser), eq("Custom")))
+        when(chatSettingsService.getOrCreateAssistantRole(any(), eq("Custom")))
                 .thenReturn(assistantRole);
         OpenDaimonMessage saved = new OpenDaimonMessage();
         when(messageService.saveAssistantErrorMessage(any(), any(), any(), eq(assistantRole), any(), any()))
@@ -231,6 +237,6 @@ class TelegramMessageServiceTest {
         telegramMessageService.saveAssistantErrorMessage(
                 telegramUser, "Err", "svc", "Custom", "data");
 
-        verify(telegramUserService).getOrCreateAssistantRole(telegramUser, "Custom");
+        verify(chatSettingsService).getOrCreateAssistantRole(any(), eq("Custom"));
     }
 }

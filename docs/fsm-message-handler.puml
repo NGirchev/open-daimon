@@ -1,0 +1,45 @@
+@startuml Message Handler FSM
+!theme plain
+skinparam backgroundColor white
+skinparam state {
+    BackgroundColor<<terminal>> #90EE90
+    BackgroundColor<<error>> #FFB6C1
+}
+
+title Telegram Message Handler FSM
+
+[*] --> RECEIVED
+
+RECEIVED --> USER_RESOLVED : HANDLE\n//resolveUser()//
+
+USER_RESOLVED --> INPUT_VALIDATED : //validateInput()//
+
+INPUT_VALIDATED --> ERROR : [isEmpty]
+INPUT_VALIDATED --> MESSAGE_SAVED : [hasInput]\n//saveMessage()//
+
+MESSAGE_SAVED --> METADATA_PREPARED : //prepareMetadata()//
+
+METADATA_PREPARED --> COMMAND_CREATED : //createCommand()//
+
+COMMAND_CREATED --> ERROR : [hasError]
+COMMAND_CREATED --> RESPONSE_GENERATED : [success]\n//generateResponse()//
+
+note right of RESPONSE_GENERATED
+  Includes:
+  • Guardrail retry
+  • Empty content retry
+  • Streaming paragraph send
+end note
+
+RESPONSE_GENERATED --> ERROR : [hasError or noResponse]
+RESPONSE_GENERATED --> RESPONSE_SAVED : [hasResponse]\n//saveResponse()//
+
+RESPONSE_SAVED --> COMPLETED
+
+state COMPLETED <<terminal>> : Handler sends response\n(streaming keyboard or\nnon-streaming text+keyboard)
+state ERROR <<error>> : Handler dispatches to\ntyped error handler\nbased on errorType
+
+COMPLETED --> [*]
+ERROR --> [*]
+
+@enduml

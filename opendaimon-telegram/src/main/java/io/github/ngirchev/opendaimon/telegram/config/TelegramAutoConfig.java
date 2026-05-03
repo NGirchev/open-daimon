@@ -10,9 +10,11 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.telegram.telegrambots.bots.DefaultBotOptions;
+import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.config.BulkHeadAutoConfig;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsOwnerResolver;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramCommandSyncService;
@@ -33,8 +35,9 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
         TelegramFlywayConfig.class,
         TelegramServiceConfig.class,
         TelegramCommandHandlerConfig.class,
+        TelegramCacheConfig.class,
 })
-@ConditionalOnProperty(name = "open-daimon.telegram.enabled", havingValue = "true")
+@ConditionalOnProperty(name = FeatureToggle.Module.TELEGRAM_ENABLED, havingValue = "true")
 public class TelegramAutoConfig {
 
     @Bean
@@ -45,7 +48,9 @@ public class TelegramAutoConfig {
                                    MessageLocalizationService messageLocalizationService,
                                    ObjectProvider<TelegramFileService> fileServiceProvider,
                                    ObjectProvider<FileUploadProperties> fileUploadPropertiesProvider,
-                                   ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider) {
+                                   ObjectProvider<TelegramMessageCoalescingService> messageCoalescingServiceProvider,
+                                   ObjectProvider<TelegramBotMenuService> menuServiceProvider,
+                                   ObjectProvider<ChatSettingsOwnerResolver> ownerResolverProvider) {
         Integer socketTimeoutSec = properties.getLongPollingSocketTimeoutSeconds();
         Integer getUpdatesTimeoutSec = properties.getGetUpdatesTimeoutSeconds();
         DefaultBotOptions options = new DefaultBotOptions();
@@ -60,7 +65,8 @@ public class TelegramAutoConfig {
             options.setRequestConfig(requestConfig);
         }
         return new TelegramBot(properties, options, commandSyncService, userService,
-                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider, messageCoalescingServiceProvider);
+                messageLocalizationService, fileServiceProvider, fileUploadPropertiesProvider,
+                messageCoalescingServiceProvider, menuServiceProvider, ownerResolverProvider);
     }
 
     @Bean
@@ -69,4 +75,5 @@ public class TelegramAutoConfig {
                                                      ObjectProvider<TelegramBotMenuService> menuServiceProvider) {
         return new TelegramBotRegistrar(telegramBot, menuServiceProvider);
     }
+
 }

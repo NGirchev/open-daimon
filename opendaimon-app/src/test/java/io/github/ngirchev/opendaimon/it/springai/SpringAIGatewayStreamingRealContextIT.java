@@ -3,15 +3,21 @@ package io.github.ngirchev.opendaimon.it.springai;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.Bean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
@@ -22,7 +28,7 @@ import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
 import io.github.ngirchev.opendaimon.common.ai.response.SpringAIStreamResponse;
 import io.github.ngirchev.opendaimon.common.config.CoreFlywayConfig;
 import io.github.ngirchev.opendaimon.common.config.CoreJpaConfig;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -50,11 +56,11 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         properties = {"spring.main.banner-mode=off"}
 )
 @Import({
-        TestDatabaseConfiguration.class,
         CoreFlywayConfig.class,
         CoreJpaConfig.class,
         SpringAIFlywayConfig.class
 })
+@ActiveProfiles("integration-test")
 @TestPropertySource(properties = {
         "spring.autoconfigure.exclude=org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration",
         "spring.ai.ollama.base-url=http://127.0.0.1:0",
@@ -80,7 +86,7 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         "open-daimon.ai.spring-ai.enabled=true",
         "open-daimon.ai.spring-ai.mock=false",
         "open-daimon.ai.spring-ai.timeouts.response-timeout-seconds=600",
-        "open-daimon.ai.spring-ai.timeouts.stream-timeout-seconds=600",
+        "open-daimon.agent.stream-timeout-seconds=600",
         "open-daimon.ai.spring-ai.openrouter-auto-rotation.models.enabled=false",
         "open-daimon.ai.spring-ai.serper.api.key=test-key",
         "open-daimon.ai.spring-ai.serper.api.url=https://example.com",
@@ -96,14 +102,13 @@ import static io.github.ngirchev.opendaimon.common.ai.ModelCapabilities.CHAT;
         "open-daimon.rest.enabled=false",
         "open-daimon.ui.enabled=false"
 })
-class SpringAIGatewayStreamingRealContextIT {
+class SpringAIGatewayStreamingRealContextIT extends AbstractContainerIT {
 
     private static MockWebServer mockWebServer;
 
     @BeforeAll
     static void startMockServer() throws IOException {
-        mockWebServer = new MockWebServer();
-        mockWebServer.start();
+        ensureMockServerStarted();
     }
 
     @AfterAll
@@ -115,8 +120,24 @@ class SpringAIGatewayStreamingRealContextIT {
 
     @DynamicPropertySource
     static void setOpenAiBaseUrl(DynamicPropertyRegistry registry) {
-        registry.add("spring.ai.openai.base-url", () -> mockWebServer.url("/").toString());
+        registry.add("spring.ai.openai.base-url", SpringAIGatewayStreamingRealContextIT::mockServerBaseUrl);
         registry.add("spring.ai.openai.api-key", () -> "test");
+    }
+
+    private static synchronized void ensureMockServerStarted() throws IOException {
+        if (mockWebServer == null) {
+            mockWebServer = new MockWebServer();
+            mockWebServer.start();
+        }
+    }
+
+    private static String mockServerBaseUrl() {
+        try {
+            ensureMockServerStarted();
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to start OpenAI mock server", e);
+        }
+        return mockWebServer.url("/").toString();
     }
 
     @Autowired
@@ -218,5 +239,21 @@ class SpringAIGatewayStreamingRealContextIT {
             "org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration"
     })
     static class TestConfig {
+        @Bean
+        OpenAiChatModel openAiChatModel(ToolCallingManager toolCallingManager) {
+            OpenAiApi openAiApi = OpenAiApi.builder()
+                    .baseUrl(mockServerBaseUrl())
+                    .apiKey("test")
+                    .completionsPath("/v1/chat/completions")
+                    .build();
+
+            return OpenAiChatModel.builder()
+                    .openAiApi(openAiApi)
+                    .defaultOptions(OpenAiChatOptions.builder()
+                            .model("openrouter/auto")
+                            .build())
+                    .toolCallingManager(toolCallingManager)
+                    .build();
+        }
     }
 }

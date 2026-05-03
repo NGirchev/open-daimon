@@ -187,8 +187,28 @@ public class ConversationThreadService {
     }
 
     /**
+     * Returns all threads for a scope, newest activity first.
+     */
+    @Transactional(readOnly = true)
+    public List<ConversationThread> findThreads(ThreadScopeKind scopeKind, Long scopeId) {
+        validateScope(scopeKind, scopeId);
+        return threadRepository.findByScopeKindAndScopeIdOrderByLastActivityAtDesc(scopeKind, scopeId);
+    }
+
+    /**
+     * Closes the current active thread for a scope if one exists.
+     */
+    public boolean closeCurrentThread(ThreadScopeKind scopeKind, Long scopeId) {
+        validateScope(scopeKind, scopeId);
+        Optional<ConversationThread> currentThread = threadRepository.findMostRecentActiveThread(scopeKind, scopeId);
+        currentThread.ifPresent(this::closeThread);
+        return currentThread.isPresent();
+    }
+
+    /**
      * Finds thread by key.
      */
+    @Transactional(readOnly = true)
     public Optional<ConversationThread> findByThreadKey(String threadKey) {
         return threadRepository.findByThreadKey(threadKey);
     }

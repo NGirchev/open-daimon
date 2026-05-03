@@ -9,9 +9,9 @@ import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageReposito
 import io.github.ngirchev.opendaimon.common.repository.ConversationThreadRepository;
 import io.github.ngirchev.opendaimon.common.service.CommandSyncService;
 import io.github.ngirchev.opendaimon.common.service.ConversationThreadService;
-import io.github.ngirchev.opendaimon.rest.dto.ChatMessageDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatResponseDto;
-import io.github.ngirchev.opendaimon.rest.dto.ChatSessionDto;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatMessage;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatResponse;
+import io.github.ngirchev.opendaimon.rest.service.model.ChatSession;
 import io.github.ngirchev.opendaimon.rest.exception.UnauthorizedException;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import jakarta.servlet.http.HttpServletRequest;
@@ -82,7 +82,7 @@ class ChatServiceTest {
             when(conversationThreadService.createNewThread(currentUser)).thenReturn(thread);
             when(commandSyncService.syncAndHandle(any(), any())).thenReturn("AI response");
 
-            ChatResponseDto<String> result = service.sendMessageToNewChat("Hello", currentUser, request, false);
+            ChatResponse<String> result = service.sendMessageToNewChat("Hello", currentUser, request, false);
 
             assertEquals("AI response", result.message());
             assertEquals("session-123", result.sessionId());
@@ -98,7 +98,7 @@ class ChatServiceTest {
             when(conversationThreadService.createNewThread(currentUser)).thenReturn(thread);
             when(commandSyncService.syncAndHandle(any(), any())).thenReturn("OK");
 
-            ChatResponseDto<String> result = service.sendMessageToNewChat("Hi", currentUser, request, false);
+            ChatResponse<String> result = service.sendMessageToNewChat("Hi", currentUser, request, false);
 
             assertEquals("OK", result.message());
             verify(conversationThreadService).closeThread(activeThread);
@@ -115,7 +115,7 @@ class ChatServiceTest {
             when(threadRepository.findByThreadKey("session-123")).thenReturn(Optional.of(thread));
             when(commandSyncService.syncAndHandle(any(), any())).thenReturn("Reply");
 
-            ChatResponseDto<String> result = service.sendMessage("session-123", "Hi", currentUser, request, false);
+            ChatResponse<String> result = service.sendMessage("session-123", "Hi", currentUser, request, false);
 
             assertEquals("Reply", result.message());
             assertEquals("session-123", result.sessionId());
@@ -153,7 +153,7 @@ class ChatServiceTest {
             thread.setTitle(null);
             when(threadRepository.findByUserOrderByLastActivityAtDesc(currentUser)).thenReturn(List.of(thread));
 
-            List<ChatSessionDto> result = service.getSessions(currentUser);
+            List<ChatSession> result = service.getSessions(currentUser);
 
             assertEquals(1, result.size());
             assertEquals("session-123", result.get(0).sessionId());
@@ -165,7 +165,7 @@ class ChatServiceTest {
         void whenThreadHasTitle_usesIt() {
             when(threadRepository.findByUserOrderByLastActivityAtDesc(currentUser)).thenReturn(List.of(thread));
 
-            List<ChatSessionDto> result = service.getSessions(currentUser);
+            List<ChatSession> result = service.getSessions(currentUser);
 
             assertEquals("Test", result.get(0).name());
         }
@@ -190,7 +190,7 @@ class ChatServiceTest {
             when(messageRepository.findByThreadOrderBySequenceNumberAsc(thread))
                     .thenReturn(List.of(systemMsg, userMsg, assistantMsg));
 
-            List<ChatMessageDto> result = service.getChatHistory("session-123", currentUser);
+            List<ChatMessage> result = service.getChatHistory("session-123", currentUser);
 
             assertEquals(2, result.size());
             assertEquals("USER", result.get(0).role());

@@ -16,7 +16,8 @@ import io.github.ngirchev.opendaimon.common.model.RequestType;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
-import io.github.ngirchev.opendaimon.rest.dto.ChatRequestDto;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommand;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommandType;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.rest.service.RestMessageService;
@@ -109,15 +110,13 @@ class RestChatMessageCommandHandlerTest {
 
         @Test
         void whenRestChatCommandWithMessageType_returnsTrue() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("hi", null, null, null, RestChatCommandType.MESSAGE, request, 1L);
             assertTrue(handler.canHandle(command));
         }
 
         @Test
         void whenRestChatCommandWithStreamType_returnsFalse() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("hi", null, null, null), RestChatCommandType.STREAM, request, 1L);
+            RestChatCommand command = new RestChatCommand("hi", null, null, null, RestChatCommandType.STREAM, request, 1L);
             assertFalse(handler.canHandle(command));
         }
 
@@ -131,8 +130,7 @@ class RestChatMessageCommandHandlerTest {
 
         @Test
         void whenCommandTypeNull_returnsFalse() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("hi", null, null, null), null, request, 1L);
+            RestChatCommand command = new RestChatCommand("hi", null, null, null, null, request, 1L);
             assertFalse(handler.canHandle(command));
         }
     }
@@ -153,8 +151,7 @@ class RestChatMessageCommandHandlerTest {
 
         @Test
         void whenSuccess_returnsResponseAndSavesAssistantMessage() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("Hello", null, null, "user@test.com"), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("Hello", null, null, "user@test.com", RestChatCommandType.MESSAGE, request, 1L);
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(eq(user), eq("Hello"), eq(RequestType.TEXT), eq(null), eq(request)))
                     .thenReturn(userMessage);
@@ -172,8 +169,7 @@ class RestChatMessageCommandHandlerTest {
 
         @Test
         void whenResponseContentEmpty_savesErrorAndThrowsRuntimeException() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("Hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("Hi", null, null, null, RestChatCommandType.MESSAGE, request, 1L);
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(any(), any(), any(), any(), any())).thenReturn(userMessage);
             when(aiRequestPipeline.prepareCommand(eq(command), any())).thenReturn(aiCommand);
@@ -187,8 +183,7 @@ class RestChatMessageCommandHandlerTest {
 
         @Test
         void whenUserNotFound_throwsRuntimeException() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("Hi", null, null, null), RestChatCommandType.MESSAGE, request, 99L);
+            RestChatCommand command = new RestChatCommand("Hi", null, null, null, RestChatCommandType.MESSAGE, request, 99L);
             when(restUserService.findById(99L)).thenReturn(Optional.empty());
             when(support.getMessageLocalizationService()).thenReturn(messageLocalizationService);
             when(messageLocalizationService.getMessage(eq("rest.user.not.found"), any(), eq(99L))).thenReturn("User not found");
@@ -198,8 +193,7 @@ class RestChatMessageCommandHandlerTest {
 
         @Test
         void whenAccessDeniedException_thrownAsIs() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("Hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("Hi", null, null, null, RestChatCommandType.MESSAGE, request, 1L);
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(any(), any(), any(), any(), any())).thenReturn(userMessage);
             when(aiRequestPipeline.prepareCommand(eq(command), any())).thenReturn(aiCommand);
@@ -212,8 +206,7 @@ class RestChatMessageCommandHandlerTest {
 
         @Test
         void whenUserMessageTooLongException_thrownAsIs() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("Hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("Hi", null, null, null, RestChatCommandType.MESSAGE, request, 1L);
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(any(), any(), any(), any(), any())).thenThrow(new UserMessageTooLongException("too long"));
 
@@ -223,8 +216,7 @@ class RestChatMessageCommandHandlerTest {
 
         @Test
         void whenGenericException_callsSupportHandleProcessingErrorAndRethrows() {
-            RestChatCommand command = new RestChatCommand(
-                    new ChatRequestDto("Hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("Hi", null, null, null, RestChatCommandType.MESSAGE, request, 1L);
             when(restUserService.findById(1L)).thenReturn(Optional.of(user));
             when(restMessageService.saveUserMessage(any(), any(), any(), any(), any())).thenReturn(userMessage);
             when(aiRequestPipeline.prepareCommand(eq(command), any())).thenReturn(aiCommand);

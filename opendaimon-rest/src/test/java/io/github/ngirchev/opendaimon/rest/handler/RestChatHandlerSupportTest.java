@@ -1,6 +1,5 @@
 package io.github.ngirchev.opendaimon.rest.handler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.common.SupportedLanguages;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
@@ -9,7 +8,8 @@ import io.github.ngirchev.opendaimon.common.model.AssistantRole;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
-import io.github.ngirchev.opendaimon.rest.dto.ChatRequestDto;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommand;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommandType;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,14 +58,14 @@ class RestChatHandlerSupportTest {
         @Test
         void whenRequestHasLocale_returnsLanguageCode() {
             HttpServletRequest request = mockRequestWithLocale(Locale.ENGLISH);
-            RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("hi", null, null, null, RestChatCommandType.MESSAGE, request, 1L);
 
             assertEquals("en", RestChatHandlerSupport.getRequestLanguage(command));
         }
 
         @Test
         void whenRequestNull_returnsDefaultLanguage() {
-            RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, null, 1L);
+            RestChatCommand command = new RestChatCommand("hi", null, null, null, RestChatCommandType.MESSAGE, null, 1L);
 
             assertEquals(SupportedLanguages.DEFAULT_LANGUAGE, RestChatHandlerSupport.getRequestLanguage(command));
         }
@@ -73,7 +73,7 @@ class RestChatHandlerSupportTest {
         @Test
         void whenLocaleNull_returnsDefaultLanguage() {
             HttpServletRequest request = mockRequestWithLocale(null);
-            RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("hi", null, null, null, RestChatCommandType.MESSAGE, request, 1L);
 
             assertEquals(SupportedLanguages.DEFAULT_LANGUAGE, RestChatHandlerSupport.getRequestLanguage(command));
         }
@@ -119,7 +119,7 @@ class RestChatHandlerSupportTest {
     class SerializeToJson {
 
         @Test
-        void whenMapValid_returnsJsonString() throws JsonProcessingException {
+        void whenMapValid_returnsJsonString() throws Exception {
             Map<String, Object> map = Map.of("key", "value");
             when(objectMapper.writeValueAsString(map)).thenReturn("{\"key\":\"value\"}");
 
@@ -137,7 +137,7 @@ class RestChatHandlerSupportTest {
         }
 
         @Test
-        void whenWriteValueThrows_returnsNull() throws JsonProcessingException {
+        void whenWriteValueThrows_returnsNull() throws Exception {
             Map<String, Object> map = Map.of("x", "y");
             when(objectMapper.writeValueAsString(map)).thenThrow(new RuntimeException("serialization failed"));
 
@@ -150,9 +150,9 @@ class RestChatHandlerSupportTest {
     class HandleProcessingError {
 
         @Test
-        void whenUserMessageNotNull_savesAssistantErrorMessageAndReturnsRuntimeException() throws JsonProcessingException {
+        void whenUserMessageNotNull_savesAssistantErrorMessageAndReturnsRuntimeException() throws Exception {
             HttpServletRequest request = mockRequestWithLocale(Locale.ENGLISH);
-            RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, request, 1L);
+            RestChatCommand command = new RestChatCommand("hi", null, null, null, RestChatCommandType.MESSAGE, request, 1L);
             RestUser user = new RestUser();
             AssistantRole role = new AssistantRole();
             role.setContent("Role content");
@@ -172,7 +172,7 @@ class RestChatHandlerSupportTest {
 
         @Test
         void whenUserMessageNull_doesNotCallSaveAssistantErrorMessage() {
-            RestChatCommand command = new RestChatCommand(new ChatRequestDto("hi", null, null, null), RestChatCommandType.MESSAGE, null, 1L);
+            RestChatCommand command = new RestChatCommand("hi", null, null, null, RestChatCommandType.MESSAGE, null, 1L);
             when(messageLocalizationService.getMessage(eq("rest.error.processing"), eq(SupportedLanguages.DEFAULT_LANGUAGE), any())).thenReturn("Error");
 
             RuntimeException result = support.handleProcessingError(command, null, Set.of(), new RuntimeException("x"));
@@ -181,7 +181,7 @@ class RestChatHandlerSupportTest {
         }
 
         @Test
-        void whenModelCapabilitiesEmpty_usesChatInMetadata() throws JsonProcessingException {
+        void whenModelCapabilitiesEmpty_usesChatInMetadata() throws Exception {
             when(objectMapper.writeValueAsString(any())).thenAnswer(inv -> {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> m = inv.getArgument(0);
@@ -189,7 +189,7 @@ class RestChatHandlerSupportTest {
                 return "{}";
             });
             when(messageLocalizationService.getMessage(any(), any(), any())).thenReturn("Err");
-            RestChatCommand command = new RestChatCommand(new ChatRequestDto("h", null, null, null), RestChatCommandType.MESSAGE, null, 1L);
+            RestChatCommand command = new RestChatCommand("h", null, null, null, RestChatCommandType.MESSAGE, null, 1L);
 
             support.handleProcessingError(command, null, Set.of(), new IllegalStateException("x"));
         }

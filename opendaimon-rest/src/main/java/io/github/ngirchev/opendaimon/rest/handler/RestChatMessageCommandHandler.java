@@ -16,6 +16,8 @@ import io.github.ngirchev.opendaimon.common.model.ResponseStatus;
 import io.github.ngirchev.opendaimon.common.service.*;
 import io.github.ngirchev.opendaimon.bulkhead.exception.AccessDeniedException;
 import io.github.ngirchev.opendaimon.common.exception.UserMessageTooLongException;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommand;
+import io.github.ngirchev.opendaimon.rest.command.RestChatCommandType;
 import io.github.ngirchev.opendaimon.rest.model.RestUser;
 import io.github.ngirchev.opendaimon.rest.service.RestMessageService;
 import io.github.ngirchev.opendaimon.rest.service.RestUserService;
@@ -31,7 +33,8 @@ import static io.github.ngirchev.opendaimon.common.service.AIUtils.*;
 @Slf4j
 @RequiredArgsConstructor
 public class RestChatMessageCommandHandler implements
-        ICommandHandler<RestChatCommandType, RestChatCommand, String> {
+        ICommandHandler<RestChatCommandType,
+                RestChatCommand, String> {
 
     private final RestMessageService restMessageService;
     private final RestUserService restUserService;
@@ -61,12 +64,12 @@ public class RestChatMessageCommandHandler implements
             String lang = RestChatHandlerSupport.getRequestLanguage(command);
             RestUser user = restUserService.findById(command.userId())
                     .orElseThrow(() -> new RuntimeException(support.getMessageLocalizationService().getMessage("rest.user.not.found", lang, command.userId())));
-            String assistantRoleContent = command.chatRequestDto().assistantRole() != null
-                    ? command.chatRequestDto().assistantRole()
+            String assistantRoleContent = command.assistantRole() != null
+                    ? command.assistantRole()
                     : null;
             userMessage = restMessageService.saveUserMessage(
                     user,
-                    command.chatRequestDto().message(),
+                    command.message(),
                     RequestType.TEXT,
                     assistantRoleContent,
                     command.request());
@@ -92,7 +95,7 @@ public class RestChatMessageCommandHandler implements
             AIResponse aiResponse = aiGateway.generateResponse(aiCommand);
             String newRagDocIds = aiCommand.metadata().get(AICommand.RAG_DOCUMENT_IDS_FIELD);
             String newRagFilenames = aiCommand.metadata().get(AICommand.RAG_FILENAMES_FIELD);
-            if (newRagFilenames != null) {
+            if (newRagFilenames != null && newRagDocIds != null) {
                 messageService.updateRagMetadata(userMessage,
                         Arrays.asList(newRagDocIds.split(",")),
                         Arrays.asList(newRagFilenames.split(",")));

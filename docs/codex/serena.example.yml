@@ -1,0 +1,29 @@
+# Copy selected values into ~/.serena/serena_config.yml.
+# This file is a workstation template, not a repository runtime config.
+
+language_backend: LSP
+line_ending: native
+
+gui_log_window: false
+web_dashboard: true
+web_dashboard_listen_address: 127.0.0.1
+web_dashboard_open_on_launch: false
+web_dashboard_interface:
+
+jetbrains_plugin_server_address: 127.0.0.1
+log_level: 20
+trace_lsp_communication: false
+tool_timeout: 240
+default_max_tool_answer_chars: 150000
+token_count_estimator: CHAR_COUNT
+symbol_info_budget: 10
+
+project_serena_folder_location: "$projectDir/.serena"
+
+default_modes:
+  - interactive
+  - editing
+
+# Optional. Serena updates this list automatically after activation.
+projects:
+  - <absolute-path-to-open-daimon>

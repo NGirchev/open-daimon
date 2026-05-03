@@ -1,0 +1,71 @@
+@startuml Agent ReAct Execution Sequence
+!theme plain
+skinparam backgroundColor white
+skinparam sequenceMessageAlign center
+
+title Agent Framework — ReAct Execution Flow (FSM-based)
+
+actor User
+participant "TelegramBot" as Bot
+participant "MessageHandler\n(FSM)" as MsgHandler
+participant "TelegramMessage\nHandlerActions" as Actions
+participant "StrategyDelegating\nAgentExecutor" as Strategy
+participant "ReActAgent\nExecutor" as ReAct
+participant "FSM\n(ExDomainFsm)" as FSM
+participant "SpringAgent\nLoopActions" as LoopActions
+participant "ChatModel\n(LLM)" as LLM
+participant "ToolCalling\nManager" as Tools
+participant "SummarizingChat\nMemory" as Memory
+
+User -> Bot: Send message
+Bot -> MsgHandler: TelegramCommand
+MsgHandler -> Actions: generateResponse(ctx)
+
+note over Actions: agentExecutor != null\n→ generateAgentResponse()
+
+Actions -> Strategy: AgentRequest\n(strategy=AUTO)
+
+alt Tools available
+    Strategy -> ReAct: execute(request)
+else No tools
+    Strategy -> Strategy: SimpleChainExecutor\n(single LLM call)
+end
+
+ReAct -> ReAct: new AgentContext(task, maxIter=10)
+ReAct -> FSM: handle(ctx, START)
+
+group FSM auto-transitions
+    FSM -> LoopActions: **think(ctx)**
+    LoopActions -> Memory: get(conversationId)
+    Memory --> LoopActions: prior messages\n(+ rolling summary as SystemMessage)
+    LoopActions -> LoopActions: build system prompt\n+ merge summary
+    LoopActions -> LLM: chatModel.stream(prompt)
+    LLM --> LoopActions: tool call: http_get("...")
+
+    FSM -> LoopActions: **executeTool(ctx)**
+    LoopActions -> Tools: executeToolCalls(prompt, response)
+    Tools --> LoopActions: observation text
+
+    FSM -> LoopActions: **observe(ctx)**
+    LoopActions -> LoopActions: recordStep(iteration=0)
+    LoopActions -> LoopActions: incrementIteration()
+
+    FSM -> LoopActions: **think(ctx)** [loop back]
+    LoopActions -> LLM: chatModel.call(prompt + history)
+    LLM --> LoopActions: final answer text
+
+    FSM -> LoopActions: **answer(ctx)**
+    LoopActions -> LoopActions: setFinalAnswer(text)
+    LoopActions -> Memory: add(conversationId, [user, assistant])
+end
+
+FSM --> ReAct: ctx.state = COMPLETED
+ReAct -> ReAct: ctx.toResult()
+ReAct --> Strategy: AgentResult\n(answer, steps, COMPLETED)
+Strategy --> Actions: AgentResult
+Actions -> Actions: ctx.setResponseText(answer)
+Actions --> MsgHandler: (ctx populated)
+MsgHandler -> Bot: sendMessage(chatId, text)
+Bot --> User: Agent response
+
+@enduml

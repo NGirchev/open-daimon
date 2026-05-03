@@ -27,36 +27,41 @@
 
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-
-        <pdfbox.version>3.0.5</pdfbox.version>
     </properties>
 
     <dependencies>
-        <!-- Project Dependencies -->
+        <!-- Internal modules: runtime composition of OpenDaimon. main code does not
+             import them directly; their auto-configs activate at runtime, and IT tests
+             use their @Bean types via Spring DI. -->
         <dependency>
             <groupId>io.github.ngirchev</groupId>
             <artifactId>opendaimon-telegram</artifactId>
             <version>${project.version}</version>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>io.github.ngirchev</groupId>
             <artifactId>opendaimon-rest</artifactId>
             <version>${project.version}</version>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>io.github.ngirchev</groupId>
             <artifactId>opendaimon-ui</artifactId>
             <version>${project.version}</version>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>io.github.ngirchev</groupId>
             <artifactId>opendaimon-spring-ai</artifactId>
             <version>${project.version}</version>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>io.github.ngirchev</groupId>
             <artifactId>opendaimon-gateway-mock</artifactId>
             <version>${project.version}</version>
+            <scope>runtime</scope>
         </dependency>
 
         <dependency>
@@ -64,39 +69,62 @@
             <artifactId>dotenv</artifactId>
         </dependency>
 
-        <!-- Spring Boot-->
+        <!-- Spring Boot core (Application class) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+
+        <!-- Spring core (FlywayConfig @Configuration) -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+
+        <!-- Boot starters (autoconfig glue, not directly imported) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Redis (optional in opendaimon-telegram, must be explicitly included for runtime) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
-        <!-- Swagger -->
+        <!-- Swagger UI (autoconfig only) -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
-        <dependency>
-            <groupId>jakarta.xml.bind</groupId>
-            <artifactId>jakarta.xml.bind-api</artifactId>
-        </dependency>
-
-        <!-- Database dependencies -->
+        <!-- Database (runtime drivers + Flyway plugin) -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -105,41 +133,108 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-        </dependency>
-        
         <!-- MinIO (optional in opendaimon-common, must be explicitly included for runtime) -->
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
-            <version>${minio.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- OkHttp (required by MinIO client at runtime) -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
-        <!-- Logstash encoder for sending logs to Logstash via TCP -->
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!-- Logback (used directly in ExceptionMessageConverter) -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-core</artifactId>
+        </dependency>
+        <!-- Logstash encoder for sending logs to Logstash via TCP (runtime config only) -->
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
-            <version>7.4</version>
+            <scope>runtime</scope>
         </dependency>
 
-        <!-- test-->
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- PDFBox (runtime, used by spring-ai-pdf-document-reader) -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox-io</artifactId>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
+            <artifactId>spring-boot-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-test-autoconfigure</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -158,26 +253,70 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- PDFBox for RAG (runtime, used by spring-ai-pdf-document-reader) -->
         <dependency>
-            <groupId>org.apache.pdfbox</groupId>
-            <artifactId>pdfbox</artifactId>
-            <version>${pdfbox.version}</version>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.apache.pdfbox</groupId>
-            <artifactId>pdfbox-io</artifactId>
-            <version>${pdfbox.version}</version>
-        </dependency>
-
     </dependencies>
 
     <build>
         <plugins>
+            <!-- opendaimon-app is the runtime composition: IT tests transitively reference
+                 Spring + Spring AI types via internal modules (opendaimon-telegram/rest/ui/spring-ai).
+                 Suppress noise from analyze-only here so the gate stays useful for library
+                 modules without bloating this aggregator's pom with duplicate leaf declarations. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <configuration>
+                    <ignoredUsedUndeclaredDependencies>
+                        <ignored>org.springframework:*</ignored>
+                        <ignored>org.springframework.boot:*</ignored>
+                        <ignored>org.springframework.data:*</ignored>
+                        <ignored>org.springframework.ai:*</ignored>
+                        <ignored>org.telegram:*</ignored>
+                        <ignored>io.projectreactor:*</ignored>
+                        <ignored>io.micrometer:*</ignored>
+                        <ignored>io.github.ngirchev:*</ignored>
+                        <ignored>jakarta.persistence:*</ignored>
+                        <ignored>com.tngtech.archunit:*</ignored>
+                    </ignoredUsedUndeclaredDependencies>
+                    <ignoredUnusedDeclaredDependencies>
+                        <ignored>io.github.ngirchev:opendaimon-ui</ignored>
+                        <ignored>org.springframework.boot:spring-boot-starter-*</ignored>
+                        <ignored>org.springdoc:springdoc-openapi-starter-webmvc-ui</ignored>
+                        <ignored>org.postgresql:postgresql</ignored>
+                        <ignored>org.flywaydb:flyway-database-postgresql</ignored>
+                        <ignored>io.minio:minio</ignored>
+                        <ignored>com.squareup.okhttp3:okhttp</ignored>
+                        <ignored>net.logstash.logback:logstash-logback-encoder</ignored>
+                        <ignored>org.apache.pdfbox:pdfbox-io</ignored>
+                        <ignored>org.springframework.boot:spring-boot-testcontainers</ignored>
+                        <!-- JUnit Jupiter engine is required by IDE/JUnit Platform runtime discovery;
+                             test classes import only the API. -->
+                        <ignored>org.junit.jupiter:junit-jupiter-engine</ignored>
+                        <ignored>org.testcontainers:junit-jupiter</ignored>
+                        <ignored>com.h2database:h2</ignored>
+                        <ignored>com.tngtech.archunit:archunit-junit5</ignored>
+                    </ignoredUnusedDeclaredDependencies>
+                    <ignoredNonTestScopedDependencies>
+                        <ignored>org.springframework:spring-core</ignored>
+                        <ignored>org.springframework:spring-beans</ignored>
+                    </ignoredNonTestScopedDependencies>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

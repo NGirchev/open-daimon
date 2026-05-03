@@ -45,6 +45,12 @@
         <appender-ref ref="FILE"/>
     </logger>
 
+    <!-- Telegram long-polling connection errors — message only, no stacktrace -->
+    <logger name="org.telegram.telegrambots.updatesreceivers.DefaultBotSession" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE_NO_STACKTRACE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
     <logger name="reactor.core.publisher" level="WARN"/>
 
     <logger name="org.springframework.web.reactive.function.client" level="WARN"/>

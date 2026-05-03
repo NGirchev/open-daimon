@@ -4,11 +4,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
@@ -16,6 +18,7 @@ import io.github.ngirchev.opendaimon.telegram.command.TelegramCommandType;
 import io.github.ngirchev.opendaimon.telegram.command.handler.AbstractTelegramCommandHandlerWithResponseSend;
 import io.github.ngirchev.opendaimon.telegram.command.handler.TelegramCommandHandlerException;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotMenuService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
@@ -31,23 +34,32 @@ import static io.github.ngirchev.opendaimon.common.SupportedLanguages.SUPPORTED_
 public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
 
     private static final String CALLBACK_PREFIX = "LANG_";
+    private static final String CALLBACK_CANCEL = CALLBACK_PREFIX + "CANCEL";
 
     private final TelegramUserService telegramUserService;
     private final TelegramBotMenuService menuService;
+    private final ChatSettingsService chatSettingsService;
 
     public LanguageTelegramCommandHandler(ObjectProvider<TelegramBot> telegramBotProvider,
                                           TypingIndicatorService typingIndicatorService,
                                           MessageLocalizationService messageLocalizationService,
                                           TelegramUserService telegramUserService,
-                                          TelegramBotMenuService menuService) {
+                                          TelegramBotMenuService menuService,
+                                          ChatSettingsService chatSettingsService) {
         super(telegramBotProvider, typingIndicatorService, messageLocalizationService);
         this.telegramUserService = telegramUserService;
         this.menuService = menuService;
+        this.chatSettingsService = chatSettingsService;
     }
 
     @Override
     public String getSupportedCommandText(String languageCode) {
         return messageLocalizationService.getMessage("telegram.command.language.desc", languageCode);
+    }
+
+    @Override
+    protected boolean shouldShowTypingIndicator(TelegramCommand command) {
+        return false;
     }
 
     @Override
@@ -76,11 +88,11 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
             throw new TelegramCommandHandlerException(command.telegramId(), "Message is required for language command");
         }
         TelegramUser user = telegramUserService.getOrCreateUser(message.getFrom());
-        String currentLang = user.getLanguageCode() != null ? user.getLanguageCode() : DEFAULT_LANGUAGE;
+        User owner = TelegramCommand.resolveOwner(command,user);
+        String currentLang = owner.getLanguageCode() != null ? owner.getLanguageCode() : DEFAULT_LANGUAGE;
         String currentLabel = languageLabel(currentLang, command.languageCode());
         String currentMsg = messageLocalizationService.getMessage("telegram.language.current", command.languageCode(), currentLabel);
-        sendMessage(command.telegramId(), currentMsg);
-        sendLanguageMenu(command.telegramId(), command.languageCode());
+        sendLanguageMenu(command.telegramId(), command.languageCode(), currentMsg);
         return null;
     }
 
@@ -90,37 +102,60 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
         if (callbackData == null || !callbackData.startsWith(CALLBACK_PREFIX)) {
             throw new TelegramCommandHandlerException(command.telegramId(), "Invalid callback data");
         }
+        if (CALLBACK_CANCEL.equals(callbackData)) {
+            ackCallback(cq.getId(), "");
+            deleteMenuMessage(command.telegramId(), cq);
+            return;
+        }
         String langCode = callbackData.substring(CALLBACK_PREFIX.length());
         if (langCode.isBlank()) {
             ackCallback(cq.getId(), "❌");
             return;
         }
         String normalized = langCode.toLowerCase().split("-")[0];
-        log.warn("WHAT THE LANGUAGE: {}", normalized);
         if (!SUPPORTED_LANGUAGES.contains(normalized)) {
             ackCallback(cq.getId(), "❌");
             sendErrorMessage(command.telegramId(), messageLocalizationService.getMessage("telegram.language.unknown", command.languageCode()));
             return;
         }
-        telegramUserService.updateLanguageCode(cq.getFrom().getId(), normalized);
+        User owner = TelegramCommand.resolveOwner(command,telegramUserService.getOrCreateUser(cq.getFrom()));
+        chatSettingsService.updateLanguageCode(owner, normalized);
         menuService.setupBotMenuForUser(command.telegramId(), normalized);
         String label = languageLabel(normalized, normalized);
         String updatedMsg = messageLocalizationService.getMessage("telegram.language.updated", normalized, label);
         ackCallback(cq.getId(), updatedMsg);
-        sendMessage(command.telegramId(), updatedMsg);
+        deleteMenuMessage(command.telegramId(), cq);
+        sendConfirmationMessage(command.telegramId(), updatedMsg);
     }
 
-    private void sendLanguageMenu(Long chatId, String languageCode) {
+    /**
+     * Posts a persistent confirmation message into the chat so the user sees the
+     * selected language in conversation history (not just as a transient toast).
+     */
+    private void sendConfirmationMessage(Long chatId, String text) {
+        try {
+            SendMessage msg = new SendMessage(chatId.toString(), text);
+            telegramBotProvider.getObject().execute(msg);
+        } catch (Exception e) {
+            log.warn("Failed to send language confirmation message: {}", e.getMessage());
+        }
+    }
+
+    private void sendLanguageMenu(Long chatId, String languageCode, String currentMsg) {
         try {
             String labelRu = messageLocalizationService.getMessage("telegram.language.label.ru", RU);
             String labelEn = messageLocalizationService.getMessage("telegram.language.label.en", EN);
-            List<InlineKeyboardButton> row = List.of(
+            List<InlineKeyboardButton> languageRow = List.of(
                     buttonForLang(RU, labelRu),
                     buttonForLang(EN, labelEn)
             );
-            InlineKeyboardMarkup markup = new InlineKeyboardMarkup(List.of(row));
+            String closeLabel = messageLocalizationService.getMessage("telegram.language.close", languageCode);
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup(List.of(
+                    languageRow,
+                    List.of(button(closeLabel, CALLBACK_CANCEL))
+            ));
             String selectText = messageLocalizationService.getMessage("telegram.language.select", languageCode);
-            SendMessage msg = new SendMessage(chatId.toString(), selectText);
+            SendMessage msg = new SendMessage(chatId.toString(), currentMsg + "\n\n" + selectText);
             msg.setReplyMarkup(markup);
             telegramBotProvider.getObject().execute(msg);
         } catch (Exception e) {
@@ -131,6 +166,12 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
     private InlineKeyboardButton buttonForLang(String code, String label) {
         InlineKeyboardButton button = new InlineKeyboardButton(label);
         button.setCallbackData(CALLBACK_PREFIX + code);
+        return button;
+    }
+
+    private InlineKeyboardButton button(String label, String callbackData) {
+        InlineKeyboardButton button = new InlineKeyboardButton(label);
+        button.setCallbackData(callbackData);
         return button;
     }
 
@@ -154,6 +195,17 @@ public class LanguageTelegramCommandHandler extends AbstractTelegramCommandHandl
             telegramBotProvider.getObject().execute(ack);
         } catch (Exception e) {
             throw new TelegramCommandHandlerException("Failed to ack callback", e);
+        }
+    }
+
+    private void deleteMenuMessage(Long chatId, CallbackQuery callbackQuery) {
+        if (callbackQuery.getMessage() instanceof Message menuMessage) {
+            try {
+                telegramBotProvider.getObject().execute(
+                        new DeleteMessage(chatId.toString(), menuMessage.getMessageId()));
+            } catch (Exception e) {
+                log.warn("Failed to delete language menu message: {}", e.getMessage());
+            }
         }
     }
 }

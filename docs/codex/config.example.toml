@@ -1,0 +1,68 @@
+# Copy selected sections into ~/.codex/config.toml on a workstation that should
+# use the same Codex project setup for OpenDaimon.
+#
+# Keep real user paths and account-specific preferences in ~/.codex/config.toml.
+# Do not commit the copied file back to the repository.
+
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+plan_mode_reasoning_effort = "xhigh"
+service_tier = "fast"
+
+[projects."<absolute-path-to-open-daimon>"]
+trust_level = "trusted"
+
+[features]
+codex_hooks = true
+memories = true
+terminal_resize_reflow = true
+
+[tui]
+status_line = [
+  "model-with-reasoning",
+  "context-remaining",
+  "current-dir",
+  "model-name",
+  "project-root",
+  "git-branch",
+  "five-hour-limit",
+  "weekly-limit",
+  "used-tokens",
+  "total-input-tokens",
+  "total-output-tokens"
+]
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+
+[mcp_servers.serena]
+command = "uvx"
+args = [
+  "--from",
+  "git+https://github.com/oraios/serena",
+  "serena",
+  "start-mcp-server",
+  "--context",
+  "codex",
+  "--project-from-cwd"
+]
+
+[mcp_servers.serena.tools.edit_memory]
+approval_mode = "approve"
+
+[mcp_servers.serena.tools.write_memory]
+approval_mode = "approve"
+
+[mcp_servers.exa]
+url = "https://mcp.exa.ai/mcp"
+
+[mcp_servers.jetbrains]
+command = "npx"
+args = ["-y", "mcp-remote", "http://127.0.0.1:64342/sse"]
+
+[mcp_servers.jetbrains.tools.get_project_modules]
+approval_mode = "approve"
+
+[mcp_servers.jetbrains.tools.get_all_open_file_paths]
+approval_mode = "approve"

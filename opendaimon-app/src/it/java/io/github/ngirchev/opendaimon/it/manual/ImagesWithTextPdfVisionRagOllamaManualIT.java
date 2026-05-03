@@ -17,20 +17,19 @@ import io.github.ngirchev.opendaimon.telegram.command.handler.impl.MessageTelegr
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramBotRegistrar;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import io.github.ngirchev.opendaimon.it.manual.config.OllamaSimpleManualTestConfig;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.SpringBootConfiguration;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -79,12 +78,12 @@ import static org.mockito.Mockito.reset;
  */
 @Tag("manual")
 @EnabledIfSystemProperty(named = "manual.ollama.e2e", matches = "true")
-@SpringBootTest(classes = ImagesWithTextPdfVisionRagOllamaManualIT.TestConfig.class)
+@SpringBootTest(
+        classes = OllamaSimpleManualTestConfig.class,
+        properties = "open-daimon.agent.enabled=false"
+)
 @ActiveProfiles({"integration-test", "manual-ollama"})
-@Import({
-        TestDatabaseConfiguration.class
-})
-class ImagesWithTextPdfVisionRagOllamaManualIT {
+class ImagesWithTextPdfVisionRagOllamaManualIT extends AbstractContainerIT {
     private static final Long TEST_CHAT_ID = 350009005L;
     private static final String PDF_RESOURCE = "attachments/images_with_text.pdf";
     private static final Duration OLLAMA_TIMEOUT = Duration.ofSeconds(5);
@@ -242,6 +241,7 @@ class ImagesWithTextPdfVisionRagOllamaManualIT {
         assertThat(firstAssistantReply)
                 .as("First answer should not be blank")
                 .isNotBlank();
+
         assertThat(firstAssistantReply.toLowerCase())
                 .as("First answer should mention at least one author from the paper")
                 .containsAnyOf("pekka", "nikander", "jane", "long", "aalto", "usenix association");
@@ -340,10 +340,5 @@ class ImagesWithTextPdfVisionRagOllamaManualIT {
             return baseUrl.substring(0, baseUrl.length() - 1);
         }
         return baseUrl;
-    }
-
-    @SpringBootConfiguration
-    @EnableAutoConfiguration
-    static class TestConfig {
     }
 }

@@ -6,7 +6,7 @@ import io.github.ngirchev.opendaimon.telegram.config.TelegramFlywayConfig;
 import io.github.ngirchev.opendaimon.telegram.config.TelegramJpaConfig;
 import io.github.ngirchev.opendaimon.telegram.model.TelegramUser;
 import io.github.ngirchev.opendaimon.telegram.repository.TelegramUserRepository;
-import io.github.ngirchev.opendaimon.test.TestDatabaseConfiguration;
+import io.github.ngirchev.opendaimon.test.AbstractContainerIT;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -23,13 +23,12 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({
-        TestDatabaseConfiguration.class,
         CoreJpaConfig.class,
         TelegramJpaConfig.class,
         CoreFlywayConfig.class,
         TelegramFlywayConfig.class
 })
-class TelegramUserRepositoryIT {
+class TelegramUserRepositoryIT extends AbstractContainerIT {
 
     @Autowired
     private TelegramUserRepository telegramUserRepository;

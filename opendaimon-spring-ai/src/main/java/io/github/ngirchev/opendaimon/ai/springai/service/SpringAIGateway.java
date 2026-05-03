@@ -23,6 +23,7 @@ import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
+import io.github.ngirchev.opendaimon.common.ai.lang.LanguageInstructions;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.response.AIResponse;
@@ -164,6 +165,7 @@ public class SpringAIGateway implements AIGateway {
             }
             List<SpringAIModelConfig> candidates = springAIModelRegistry
                     .getCandidatesByCapabilities(requiredForSelection, null, userPriority);
+            candidates = preferTextOnlyModelsForTextPayload(candidates, requiresVisionForPayload);
             // Prefer models that also cover optional capabilities (stable sort — preserves priority order within same score)
             Set<ModelCapabilities> optional = command.optionalCapabilities();
             if (!optional.isEmpty() && !candidates.isEmpty()) {
@@ -360,7 +362,8 @@ public class SpringAIGateway implements AIGateway {
 
     private void addSystemAndUserMessagesIfNeeded(List<Message> messages, OpenDaimonChatOptions chatOptions, AICommand command) {
         if (StringUtils.hasText(chatOptions.systemRole())) {
-            String systemRole = appendLanguageInstruction(chatOptions.systemRole(), command);
+            String systemRole = appendToolCallingInstruction(
+                    appendLanguageInstruction(chatOptions.systemRole(), command), command);
             boolean alreadyPresent = messages.stream()
                     .filter(SystemMessage.class::isInstance)
                     .map(SystemMessage.class::cast)
@@ -455,19 +458,39 @@ public class SpringAIGateway implements AIGateway {
             return systemRole;
         }
         String languageCode = command.metadata().get(AICommand.LANGUAGE_CODE_FIELD);
-        if (languageCode == null || languageCode.isBlank()) {
+        return LanguageInstructions.displayName(languageCode)
+                .map(name -> systemRole
+                        + "\nPrefer responding in " + name + " (" + languageCode + ")."
+                        + " When quoting text from documents or context, preserve the original language exactly.")
+                .orElse(systemRole);
+    }
+
+    /**
+     * Adds a tool-calling discipline instruction to the system prompt when the command
+     * routes through a tool-capable tier. Mitigates model quirk where the LLM emits a
+     * tool_call with empty/null arguments mid-stream (observed for z-ai/glm-4.5v via
+     * OpenRouter under reasoning mode). Applied for ALL models that have WEB or
+     * TOOL_CALLING in their required or optional capabilities — universal guard, no
+     * per-model branching.
+     */
+    private String appendToolCallingInstruction(String systemRole, AICommand command) {
+        if (command == null) {
             return systemRole;
         }
-        String languageName = switch (languageCode.toLowerCase()) {
-            case "ru" -> "Russian";
-            case "en" -> "English";
-            case "de" -> "German";
-            case "fr" -> "French";
-            case "es" -> "Spanish";
-            case "zh" -> "Chinese";
-            default -> languageCode;
-        };
-        return systemRole + "\nPrefer responding in " + languageName + " (" + languageCode + "). When quoting text from documents or context, preserve the original language exactly.";
+        boolean toolCapable =
+                command.modelCapabilities().contains(ModelCapabilities.WEB)
+                || command.modelCapabilities().contains(ModelCapabilities.TOOL_CALLING)
+                || command.optionalCapabilities().contains(ModelCapabilities.WEB)
+                || command.optionalCapabilities().contains(ModelCapabilities.TOOL_CALLING);
+        if (!toolCapable) {
+            return systemRole;
+        }
+        return systemRole
+                + "\nWhen calling any tool, you MUST provide all required parameters"
+                + " with concrete non-empty values. Never emit a tool call with empty"
+                + " or null arguments. For web_search, always include a non-empty"
+                + " `query` string describing what to search. For fetch_url, always"
+                + " include a valid http(s) `url`.";
     }
 
     private UserPriority resolveUserPriority(AICommand command) {
@@ -588,6 +611,33 @@ public class SpringAIGateway implements AIGateway {
                 .filter(UserMessage.class::isInstance)
                 .map(UserMessage.class::cast)
                 .anyMatch(message -> message.getMedia() != null && !message.getMedia().isEmpty());
+    }
+
+    /**
+     * For text-only payloads in AUTO mode, prefer non-VISION candidates when available.
+     *
+     * <p>This avoids routing plain follow-up questions to compact multimodal models when
+     * dedicated text models are configured in the same pool.
+     */
+    private List<SpringAIModelConfig> preferTextOnlyModelsForTextPayload(
+            List<SpringAIModelConfig> candidates,
+            boolean requiresVisionForPayload
+    ) {
+        if (requiresVisionForPayload || candidates == null || candidates.isEmpty()) {
+            return candidates;
+        }
+        List<SpringAIModelConfig> textOnlyCandidates = candidates.stream()
+                .filter(model -> model.getCapabilities() == null
+                        || !model.getCapabilities().contains(ModelCapabilities.VISION))
+                .toList();
+        if (textOnlyCandidates.isEmpty()) {
+            return candidates;
+        }
+        if (textOnlyCandidates.size() != candidates.size()) {
+            log.info("AUTO selection: text-only payload, preferring non-VISION models ({} of {} candidates)",
+                    textOnlyCandidates.size(), candidates.size());
+        }
+        return textOnlyCandidates;
     }
 
 }

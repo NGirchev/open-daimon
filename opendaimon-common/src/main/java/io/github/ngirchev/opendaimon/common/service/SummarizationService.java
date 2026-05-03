@@ -5,11 +5,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
+import io.github.ngirchev.opendaimon.common.model.User;
+import java.util.Optional;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,6 +42,7 @@ public class SummarizationService {
     private final AIGatewayRegistry aiGatewayRegistry;
     private final CoreCommonProperties coreCommonProperties;
     private final ObjectMapper objectMapper;
+    private final ChatOwnerLookup chatOwnerLookup;
     
     // Sync by threadKey to prevent concurrent summarization
     private final Set<String> ongoingSummarizations = ConcurrentHashMap.newKeySet();
@@ -92,11 +97,25 @@ public class SummarizationService {
         }
         log.debug("Summarizing {} messages for thread {}", messages.size(), thread.getThreadKey());
         String dialogTextStr = buildDialogTextForSummarization(thread, messages);
-        SummaryResult result = callAiAndParseSummaryResult(dialogTextStr);
+        SummaryResult result = callAiAndParseSummaryResult(dialogTextStr, thread);
         // Unified summary: the model already sees the previous summary in buildDialogText
         // and produces a single unified summary (not a continuation).
         threadService.updateThreadSummary(thread, result.summary(), result.memoryBullets());
         log.info("Successfully summarized {} messages for thread {}", messages.size(), thread.getThreadKey());
+    }
+
+    /**
+     * Returns the preferred model of the chat-scoped owner (group entity for group chats,
+     * user entity for private chats). Empty when the thread has no chat scope, when no
+     * owner is resolvable, or when the owner has not picked a model yet (AUTO routing).
+     */
+    private Optional<String> resolveChatOwnerPreferredModel(ConversationThread thread) {
+        if (thread == null || thread.getScopeKind() != ThreadScopeKind.TELEGRAM_CHAT || thread.getScopeId() == null) {
+            return Optional.empty();
+        }
+        Optional<User> owner = chatOwnerLookup.findByChatId(thread.getScopeId());
+        return owner.map(User::getPreferredModelId)
+                .filter(id -> id != null && !id.isBlank());
     }
 
     private String buildDialogTextForSummarization(ConversationThread thread, List<OpenDaimonMessage> messages) {
@@ -121,12 +140,18 @@ public class SummarizationService {
         return dialogText.toString();
     }
 
-    private SummaryResult callAiAndParseSummaryResult(String dialogTextStr) {
+    private SummaryResult callAiAndParseSummaryResult(String dialogTextStr, ConversationThread thread) {
         String summarizationPrompt = coreCommonProperties.getSummarization().getPrompt();
         // Summarization does not need reasoning — disable it explicitly to avoid
         // failures on small free models with tight budget constraints (max_price=0.5).
         // Pass empty body + null for maxReasoningTokens via metadata to prevent reasoning from being added.
+        //
+        // Seed the chat's preferred model id so group chats summarize with the group's
+        // explicit model choice (fixing "HTTP 400 model is required" regression where
+        // AUTO-routing produced an empty request body for certain tariffs).
         Map<String, String> summarizationMetadata = new HashMap<>();
+        resolveChatOwnerPreferredModel(thread)
+                .ifPresent(modelId -> summarizationMetadata.put(AICommand.PREFERRED_MODEL_ID_FIELD, modelId));
         ChatAICommand summaryCommand = new ChatAICommand(
                 Set.of(SUMMARIZATION), Set.of(), 0.3, coreCommonProperties.getSummarization().getMaxOutputTokens(), null,
                 summarizationPrompt, dialogTextStr, false, summarizationMetadata, new HashMap<>(), List.of());

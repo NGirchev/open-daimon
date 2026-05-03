@@ -1,0 +1,33 @@
+@startuml Message Coalescing FSM
+!theme plain
+skinparam backgroundColor white
+skinparam state {
+    BackgroundColor<<terminal>> #90EE90
+    BackgroundColor<<wait>> #FFFACD
+}
+
+title Message Coalescing Decision FSM
+
+[*] --> RECEIVED
+
+RECEIVED --> ENABLED_CHECKED : EVALUATE\n//checkEnabled()//
+
+ENABLED_CHECKED --> PROCESS_SINGLE : [disabled or noKey]
+ENABLED_CHECKED --> PENDING_CHECKED : [enabled]\n//checkPending()//
+
+PENDING_CHECKED --> PROCESS_MERGED : [canMerge]\n//merge()//
+PENDING_CHECKED --> PROCESS_BOTH : [pendingNoMerge]\n//flushBoth()//
+PENDING_CHECKED --> WAIT_FOR_PAIR : [firstCandidate]\n//holdCandidate()//
+PENDING_CHECKED --> PROCESS_SINGLE : [else]\n//processSingle()//
+
+state PROCESS_SINGLE <<terminal>> : Process update as-is
+state PROCESS_MERGED <<terminal>> : Two updates merged
+state PROCESS_BOTH <<terminal>> : Flush pending +\nprocess current
+state WAIT_FOR_PAIR <<wait>> : Hold and wait\nfor timeout/pair
+
+PROCESS_SINGLE --> [*]
+PROCESS_MERGED --> [*]
+PROCESS_BOTH --> [*]
+WAIT_FOR_PAIR --> [*]
+
+@enduml

@@ -1,4 +1,4 @@
-package io.github.ngirchev.opendaimon.telegram.command.handler;
+package io.github.ngirchev.opendaimon.telegram.command;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -8,7 +8,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
@@ -37,6 +36,9 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramMessageService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserService;
 import io.github.ngirchev.opendaimon.telegram.service.TelegramUserSessionService;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
+import io.github.ngirchev.opendaimon.telegram.service.UserRecentModelService;
+import io.github.ngirchev.opendaimon.telegram.service.ChatSettingsService;
+import io.github.ngirchev.opendaimon.common.repository.UserRepository;
 
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
@@ -52,7 +54,6 @@ import static org.mockito.Mockito.mock;
 @SpringBootTest(classes = {
         TelegramCommandHandlerConfig.class
 })
-@ActiveProfiles("test")
 @Import(StartTelegramTextCommandHandlerProviderTest.TestConfig.class)
 @TestPropertySource(properties = {
         "open-daimon.telegram.enabled=true",
@@ -65,7 +66,8 @@ import static org.mockito.Mockito.mock;
         "open-daimon.telegram.token=test-token",
         "open-daimon.telegram.username=test-bot",
         "open-daimon.telegram.commands.model-enabled=true",
-        "open-daimon.telegram.commands.language-enabled=true"
+        "open-daimon.telegram.commands.language-enabled=true",
+        "open-daimon.agent.max-iterations=10"
 })
 class StartTelegramTextCommandHandlerProviderTest {
 
@@ -300,6 +302,20 @@ class StartTelegramTextCommandHandlerProviderTest {
         public TelegramBotMenuService telegramBotMenuService() {
             return mock(TelegramBotMenuService.class);
         }
+
+        @Bean
+        public UserRecentModelService userRecentModelService() {
+            return mock(UserRecentModelService.class);
+        }
+
+        @Bean
+        public ChatSettingsService chatSettingsService() {
+            return mock(ChatSettingsService.class);
+        }
+
+        @Bean
+        public UserRepository userRepository() {
+            return mock(UserRepository.class);
+        }
     }
 }
-

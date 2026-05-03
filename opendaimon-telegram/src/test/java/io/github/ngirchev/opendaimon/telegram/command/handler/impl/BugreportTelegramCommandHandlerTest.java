@@ -19,6 +19,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.MessageSource;
 import org.springframework.context.support.ReloadableResourceBundleMessageSource;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Chat;
 import org.telegram.telegrambots.meta.api.objects.Message;
@@ -30,8 +31,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -99,6 +103,7 @@ class BugreportTelegramCommandHandlerTest {
         Chat chat = new Chat();
         chat.setId(CHAT_ID);
         cqMessage.setChat(chat);
+        cqMessage.setMessageId(77);
         cq.setMessage(cqMessage);
         cq.setFrom(new User(100L, "u", false));
 
@@ -115,9 +120,66 @@ class BugreportTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
-        verify(telegramBot).showTyping(CHAT_ID);
-        verify(telegramBot, times(2)).execute(any(org.telegram.telegrambots.meta.api.methods.BotApiMethod.class));
+        verify(telegramBot, never()).showTyping(anyLong());
+        verify(telegramBot, times(3)).execute(any(org.telegram.telegrambots.meta.api.methods.BotApiMethod.class));
+        verify(telegramBot).execute(any(DeleteMessage.class));
         verify(telegramUserService).updateUserSession(telegramUser, TelegramCommand.BUGREPORT + "/ERROR");
+    }
+
+    @Test
+    void handleInner_whenCallbackAny_doesNotShowTyping() throws TelegramApiException {
+        CallbackQuery cq = new CallbackQuery();
+        cq.setId("cq-nt");
+        cq.setData("ERROR");
+        Message cqMessage = new Message();
+        Chat chat = new Chat();
+        chat.setId(CHAT_ID);
+        cqMessage.setChat(chat);
+        cqMessage.setMessageId(77);
+        cq.setMessage(cqMessage);
+        cq.setFrom(new User(100L, "u", false));
+
+        Update update = new Update();
+        update.setCallbackQuery(cq);
+
+        TelegramUser telegramUser = new TelegramUser();
+        TelegramUserSession session = new TelegramUserSession();
+        session.setTelegramUser(telegramUser);
+        when(telegramUserService.getOrCreateSession(cq.getFrom())).thenReturn(session);
+
+        TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
+                new TelegramCommandType(TelegramCommand.BUGREPORT), update);
+
+        handler.handleInner(command);
+
+        verify(telegramBot, never()).showTyping(anyLong());
+    }
+
+    @Test
+    void handleInner_whenCallbackCancel_thenDeletesMenuAndDoesNotTouchSession() throws TelegramApiException {
+        CallbackQuery cq = new CallbackQuery();
+        cq.setId("cq-cancel");
+        cq.setData("BUG_CANCEL");
+        Message cqMessage = new Message();
+        Chat chat = new Chat();
+        chat.setId(CHAT_ID);
+        cqMessage.setChat(chat);
+        cqMessage.setMessageId(77);
+        cq.setMessage(cqMessage);
+        cq.setFrom(new User(100L, "u", false));
+
+        Update update = new Update();
+        update.setCallbackQuery(cq);
+
+        TelegramCommand command = new TelegramCommand(100L, CHAT_ID,
+                new TelegramCommandType(TelegramCommand.BUGREPORT), update);
+
+        handler.handleInner(command);
+
+        verify(telegramBot).execute(any(DeleteMessage.class));
+        verify(telegramBot).execute(any(org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery.class));
+        verify(telegramUserService, never()).updateUserSession(any(), anyString());
+        verify(telegramBot, never()).showTyping(anyLong());
     }
 
     @Test
@@ -129,6 +191,7 @@ class BugreportTelegramCommandHandlerTest {
         Chat chat = new Chat();
         chat.setId(CHAT_ID);
         cqMessage.setChat(chat);
+        cqMessage.setMessageId(77);
         cq.setMessage(cqMessage);
         cq.setFrom(new User(100L, "u", false));
 
@@ -144,6 +207,7 @@ class BugreportTelegramCommandHandlerTest {
 
         handler.handleInner(command);
 
+        verify(telegramBot).execute(any(DeleteMessage.class));
         verify(telegramUserService).updateUserSession(session.getTelegramUser(), TelegramCommand.BUGREPORT + "/IMPROVEMENT");
     }
 

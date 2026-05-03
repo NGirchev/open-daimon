@@ -33,7 +33,13 @@ import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.ConversationThread;
 import io.github.ngirchev.opendaimon.common.model.MessageRole;
+import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
 import io.github.ngirchev.opendaimon.common.model.User;
+import org.mockito.ArgumentCaptor;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import java.util.Optional;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -65,7 +71,8 @@ class SummarizationServiceTest {
             threadService,
             aiGatewayRegistry,
             coreCommonProperties,
-            objectMapper
+            objectMapper,
+            io.github.ngirchev.opendaimon.common.service.ChatOwnerLookup.NOOP
         );
     }
 
@@ -119,6 +126,64 @@ class SummarizationServiceTest {
 
         verify(mockGateway, times(2)).generateResponse(any(AICommand.class));
         verify(threadService).updateThreadSummary(eq(thread), eq("Test summary"), anyList());
+    }
+
+    /**
+     * Regression for Bug 2026-04-11: summarization in group chats failed with HTTP 400
+     * "model is required" because the {@code ChatAICommand.metadata} was empty and
+     * {@code SpringAIGateway} dispatched an AUTO request without the {@code model} field.
+     * The fix seeds the chat owner's {@code preferredModelId} via {@link ChatOwnerLookup}.
+     */
+    @Test
+    void shouldSeedPreferredModelFromChatOwnerIntoSummarizationMetadata() {
+        long groupChatId = -1001234567890L;
+        User groupOwner = new User();
+        groupOwner.setPreferredModelId("openrouter/claude-sonnet-4");
+        ChatOwnerLookup lookup = chatId -> chatId.equals(groupChatId) ? Optional.of(groupOwner) : Optional.empty();
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        SummarizationService withLookup = new SummarizationService(
+                threadService, aiGatewayRegistry, coreCommonProperties, objectMapper, lookup);
+
+        ConversationThread thread = createThread(1000L);
+        thread.setScopeKind(ThreadScopeKind.TELEGRAM_CHAT);
+        thread.setScopeId(groupChatId);
+
+        AIGateway mockGateway = mock(AIGateway.class);
+        when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(mockGateway));
+        when(mockGateway.generateResponse(any(AICommand.class)))
+                .thenReturn(responseWithContent("{\"summary\": \"s\", \"memory_bullets\": []}"));
+
+        withLookup.summarizeThread(thread, List.of(createUserMessage("hi"), createAssistantMessage("hi")));
+
+        ArgumentCaptor<AICommand> captor = ArgumentCaptor.forClass(AICommand.class);
+        verify(mockGateway).generateResponse(captor.capture());
+        assertEquals("openrouter/claude-sonnet-4",
+                captor.getValue().metadata().get(AICommand.PREFERRED_MODEL_ID_FIELD));
+    }
+
+    @Test
+    void shouldNotSeedPreferredModelWhenThreadScopeIsNotTelegramChat() {
+        ChatOwnerLookup lookup = mock(ChatOwnerLookup.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        SummarizationService withLookup = new SummarizationService(
+                threadService, aiGatewayRegistry, coreCommonProperties, objectMapper, lookup);
+
+        ConversationThread thread = createThread(1000L);
+        thread.setScopeKind(ThreadScopeKind.USER);
+        thread.setScopeId(42L);
+
+        AIGateway mockGateway = mock(AIGateway.class);
+        when(aiGatewayRegistry.getSupportedAiGateways(any())).thenReturn(List.of(mockGateway));
+        when(mockGateway.generateResponse(any(AICommand.class)))
+                .thenReturn(responseWithContent("{\"summary\": \"s\", \"memory_bullets\": []}"));
+
+        withLookup.summarizeThread(thread, List.of(createUserMessage("hi"), createAssistantMessage("ok")));
+
+        verify(lookup, never()).findByChatId(any());
+        ArgumentCaptor<AICommand> captor = ArgumentCaptor.forClass(AICommand.class);
+        verify(mockGateway).generateResponse(captor.capture());
+        assertFalse(captor.getValue().metadata().containsKey(AICommand.PREFERRED_MODEL_ID_FIELD));
     }
 
     @Test

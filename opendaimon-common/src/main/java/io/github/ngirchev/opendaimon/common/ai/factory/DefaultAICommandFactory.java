@@ -98,6 +98,15 @@ public class DefaultAICommandFactory implements AICommandFactory<AICommand, ICom
                         default -> coreCommonProperties.getChatRouting().getRegular();
                     };
             String fixedModelId = metadata.get(PREFERRED_MODEL_ID_FIELD);
+            // Fallback: if the preferred model is not in the registry, clear it
+            // so auto-selection picks the best available model instead of silently
+            // degrading with empty capabilities.
+            if (StringUtils.hasText(fixedModelId) && modelDescriptionCache != null
+                    && modelDescriptionCache.getCapabilities(fixedModelId).isEmpty()) {
+                log.warn("Preferred model '{}' not found in registry, falling back to auto-selection", fixedModelId);
+                fixedModelId = null;
+                metadata.remove(PREFERRED_MODEL_ID_FIELD);
+            }
             // max_price is an OpenRouter routing hint — only meaningful for auto model selection.
             // When the user explicitly picks a model, do not send max_price so OpenRouter doesn't
             // reject a valid paid model because the tier cap is lower than its completion price.

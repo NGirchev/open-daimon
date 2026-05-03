@@ -4,7 +4,9 @@
 > - `ObjectsImageVisionOllamaManualIT`, `ObjectsImageVisionOpenRouterManualIT` — photo of objects
 > - `GreekImageVisionOllamaManualIT`, `GreekImageVisionOpenRouterManualIT` — image with Greek text
 >
-> Run with: `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=<TestClass> -Dfailsafe.failIfNoSpecifiedTests=false -Dmanual.ollama.e2e=true`
+> Run with `-Dmanual.ollama.e2e=true` for `*OllamaManualIT` classes or
+> `-Dmanual.openrouter.e2e=true` for `*OpenRouterManualIT` classes:
+> `./mvnw -pl opendaimon-app -am clean test-compile failsafe:integration-test failsafe:verify -Dit.test=<TestClass> -Dfailsafe.failIfNoSpecifiedTests=false ...`
 
 When a user uploads a JPEG/PNG image (not a PDF), the system sends it directly to a
 vision-capable model as a `Media` object. **No RAG indexing is performed** — images bypass
@@ -192,7 +194,7 @@ sequenceDiagram
    The model must infer context from the conversation, not from VectorStore chunks.
 
 6. **Model switch between turns** — the first message uses a VISION-capable model (e.g.
-   `gemma3:4b`), but the follow-up may use a different TEXT-only model (e.g. `qwen2.5:3b`)
+   `gemma3:4b`), but the follow-up may use a different TEXT-only model (e.g. `qwen3.5:4b`)
    since no images are present. The conversation history bridges the context gap.
 
 7. **Attachment context in ChatMemory** — `addAttachmentContextToMessagesAndMemory()` adds a

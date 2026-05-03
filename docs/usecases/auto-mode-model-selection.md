@@ -114,7 +114,7 @@ sequenceDiagram
     participant Ollama as OllamaChatModel
     participant OR as OpenAiChatModel<br/>(OpenRouter)
 
-    Note over Reg: Registry contains both providers:<br/>OLLAMA: qwen2.5:3b, gemma3:4b<br/>OPENAI: openrouter/auto, meta-llama/...
+    Note over Reg: Registry contains both providers:<br/>OLLAMA: qwen3.5:4b, gemma3:4b<br/>OPENAI: openrouter/auto, meta-llama/...
 
     Note over Reg: Init Phase
 
@@ -135,7 +135,7 @@ sequenceDiagram
         Note over Reg: Paid OpenRouter models now available
     end
 
-    Reg-->>PF: Best candidate (e.g. qwen2.5:3b OLLAMA)
+    Reg-->>PF: Best candidate (e.g. qwen3.5:4b OLLAMA)
 
     alt Provider = OLLAMA
         PF->>Ollama: ChatClient via OllamaChatModel
@@ -152,15 +152,15 @@ sequenceDiagram
     participant PF as SpringAIPromptFactory
     participant Ollama as OllamaChatModel
 
-    Note over Reg: Registry: OLLAMA models only<br/>qwen2.5:3b [CHAT, TOOL_CALLING, WEB]<br/>gemma3:4b [VISION, CHAT]<br/>nomic-embed-text:v1.5 [EMBEDDING]
+    Note over Reg: Registry: OLLAMA models only<br/>qwen3.5:4b [CHAT, TOOL_CALLING, WEB]<br/>gemma3:4b [VISION, CHAT]<br/>nomic-embed-text:v1.5 [EMBEDDING]
 
     Note over Reg: No OpenRouter API configured<br/>→ no refreshOpenRouterModels()
 
     alt User sends text message
         Reg->>Reg: Required: [CHAT]
-        Reg->>Reg: Candidates: qwen2.5:3b, gemma3:4b
-        Reg->>Reg: Sort by priority → qwen2.5:3b wins
-        Reg-->>PF: qwen2.5:3b (OLLAMA)
+        Reg->>Reg: Candidates: qwen3.5:4b, gemma3:4b
+        Reg->>Reg: Sort by priority → qwen3.5:4b wins
+        Reg-->>PF: qwen3.5:4b (OLLAMA)
     else User sends image (or image-only PDF with failed OCR)
         Reg->>Reg: Required: [CHAT, VISION]
         Note over Reg: VISION added by DefaultAICommandFactory<br/>when IMAGE attachments present
