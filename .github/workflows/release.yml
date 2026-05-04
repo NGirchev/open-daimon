@@ -2,6 +2,7 @@
 # Requires repository secrets: GPG_PRIVATE_KEY, GPG_PASSPHRASE, and Central Portal token (see CONTRIBUTING.md).
 #
 # Manual run: enter the release version (e.g. 1.1.0). If empty, version from pom.xml is used without -SNAPSHOT.
+# If next development version is empty, patch is bumped automatically (1.1.0 -> 1.1.1-SNAPSHOT).
 # Tag run (e.g. push v1.1.0): version is taken from the tag (v1.1.0 -> 1.1.0).
 
 name: Release to Maven Central
@@ -10,12 +11,19 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g. 1.0.0). Leave empty to use version from pom.xml.'
+        description: 'Release version (e.g. 1.1.0). Leave empty to use version from pom.xml.'
+        required: false
+        type: string
+      next_version:
+        description: 'Next development version (e.g. 1.1.1-SNAPSHOT). Leave empty to bump patch automatically.'
         required: false
         type: string
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
   release:
@@ -27,6 +35,7 @@ jobs:
 
       - name: Resolve release version
         id: version
+        shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
             echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
@@ -37,6 +46,27 @@ jobs:
             echo "version=${VER%-SNAPSHOT}" >> "$GITHUB_OUTPUT"
           fi
           echo "Resolved version: $(cat $GITHUB_OUTPUT | grep '^version=' | cut -d= -f2-)"
+
+      - name: Resolve next development version
+        id: next-version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.next_version }}" ]; then
+            NEXT_VERSION="${{ github.event.inputs.next_version }}"
+          else
+            RELEASE_VERSION="${{ steps.version.outputs.version }}"
+            if [[ ! "$RELEASE_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "Cannot derive next development version from '$RELEASE_VERSION'. Provide next_version explicitly."
+              exit 1
+            fi
+            NEXT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))-SNAPSHOT"
+          fi
+          if [[ ! "$NEXT_VERSION" =~ -SNAPSHOT$ ]]; then
+            echo "next_version must end with -SNAPSHOT: $NEXT_VERSION"
+            exit 1
+          fi
+          echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved next development version: $NEXT_VERSION"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -84,3 +114,21 @@ jobs:
 
       - name: Deploy to Maven Central
         run: mvn -B -Drevision=${{ steps.version.outputs.version }} clean deploy -P release,central -DskipTests
+
+      - name: Set next development version
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin master
+          git switch -C master origin/master
+          git pull --ff-only origin master
+          NEXT_VERSION="${{ steps.next-version.outputs.version }}"
+          perl -0pi -e "s|<revision>[^<]+</revision>|<revision>$NEXT_VERSION</revision>|" pom.xml opendaimon-starter-consumer-example/pom.xml telegram-utils/pom.xml
+          if git diff --quiet -- pom.xml opendaimon-starter-consumer-example/pom.xml telegram-utils/pom.xml; then
+            echo "Default revision is already $NEXT_VERSION"
+            exit 0
+          fi
+          git add pom.xml opendaimon-starter-consumer-example/pom.xml telegram-utils/pom.xml
+          git commit -m "chore: prepare next development version $NEXT_VERSION"
+          git push origin master

@@ -554,7 +554,7 @@ variables or use a `.env` file in the current directory (see [Environment variab
 java -jar opendaimon-app/target/opendaimon-app-<version>.jar
 ```
 
-JAR name follows the Maven `revision` property from the parent POM (e.g. `1.1.0-SNAPSHOT`). Use Java 21: `java -version`.
+JAR name follows the Maven `revision` property from the parent POM. Use Java 21: `java -version`.
 
 ### DB migrations
 
