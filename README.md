@@ -21,7 +21,7 @@
 [![SonarCloud Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=NGirchev_open-daimon&metric=sqale_index)](https://sonarcloud.io/summary/new_code?project=NGirchev_open-daimon)
 
 [![Java 21](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk)](https://openjdk.org/)
-[![Spring Boot 3.3.3](https://img.shields.io/badge/Spring%20Boot-3.3.3-6DB33F?logo=springboot)](https://spring.io/projects/spring-boot)
+[![Spring Boot 3.5.13](https://img.shields.io/badge/Spring%20Boot-3.5.13-6DB33F?logo=springboot)](https://spring.io/projects/spring-boot)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/NGirchev/open-daimon/blob/master/LICENSE)
 
 ![Screen Recording 2026-05-03 at 23.28.03.gif](Screen%20Recording%202026-05-03%20at%2023.28.03.gif)
@@ -84,6 +84,10 @@ subscriptions; anyone who needs trusted group access (e.g. family or team) witho
 
 - **Spring AI as a library** — Integrate conversational AI into your apps with agent-style capabilities; plug in only
   the modules you need (Telegram, REST, UI, Spring AI).
+- **FSM-based ReAct agent runtime** — The agent path has an explicit FSM loop: think, call tools, observe results,
+  iterate, and produce a final answer.
+- **Spring Boot starter** — External applications can use `opendaimon-spring-boot-starter` to get OpenDaimon defaults
+  without importing module configuration manually.
 - **Easy to customize for business** — Configure the chat agent (prompts, roles, memory, RAG) via properties and
   optional extensions; no need to fork the whole project.
 - **Resilience and prioritization** — Built-in bulkhead (Resilience4j) and **two user tiers**: VIP and regular (plus
@@ -92,8 +96,8 @@ subscriptions; anyone who needs trusted group access (e.g. family or team) witho
   configurable.
 - **Open, modular architecture** — Spring Boot auto-configurations let you enable/disable features and replace
   components without touching core code.
-- **Ready-made interfaces** — Telegram bot, REST API, and Web UI out of the box; **two UI languages** supported; *
-  *default and custom system roles** for the assistant.
+- **Ready-made interfaces** — Telegram bot, REST API, and Web UI out of the box; **two UI languages** supported;
+  **default and custom system roles** for the assistant.
 - **Foundation for pipelines** — Solid base for building pipelines and integrations with various systems and AI
   providers for chatbots and automation.
 
@@ -108,6 +112,10 @@ subscriptions; anyone who needs trusted group access (e.g. family or team) witho
 ### Technical highlights
 
 - **Streaming** — SSE for REST and Web UI; Telegram receives replies as they are generated (chunk-by-chunk).
+- **Telegram agent UX** — Agent mode has separate progress/status rendering and final-answer delivery, plus per-user
+  `/mode` and `/thinking` controls.
+- **Model selection UX** — Large Telegram model lists are grouped into Recent, Local/Ollama, Vision, Free, and All
+  categories; dialog menus include localized cancel/close buttons.
 - **OpenRouter intelligence** — Automatic retry with model switch on rate limits (429) or errors; capability-based model
   selection (chat, tool calling, web, vision); optional **free-model rotation** with scheduled registry refresh so
   VIP/regular users can use free OpenRouter models without manual switching.
@@ -143,8 +151,11 @@ subscriptions; anyone who needs trusted group access (e.g. family or team) witho
 ## Features
 
 - **Multiple interfaces**: Telegram bot, REST API, Web UI
+- **Agent runtime**: FSM-based ReAct loop, tool calls, observations, streaming progress, and final-answer cleanup
 - **Spring AI integration**: OpenRouter, Ollama, chat memory, optional RAG; OpenRouter retry and free-model rotation
+- **Spring Boot starter**: starter dependency with OpenDaimon defaults for external Spring Boot applications
 - **Streaming**: SSE (REST/UI) and chunk-by-chunk replies in Telegram
+- **Telegram UX**: per-user `/mode` and `/thinking`, grouped model selection, recent models, and cancel/close buttons
 - **Multimodal**: image uploads (MinIO + vision models), optional PDF RAG (embeddings, similarity search)
 - **Modular architecture**: enable only the modules you need; extensible via Spring auto-configurations
 - **Request prioritization**: bulkhead (ADMIN/VIP/REGULAR) and per-user concurrency; trusted Telegram groups for shared
@@ -273,7 +284,7 @@ bot), the placeholder is used.
 
 ## Tech stack
 
-- **Java 21** (LTS), **Spring Boot 3.3.3**
+- **Java 21** (LTS), **Spring Boot 3.5.13**
 - **PostgreSQL 17.0** with Flyway migrations
 - **Prometheus + Grafana** for metrics, **Elasticsearch + Kibana** for logging
 
@@ -291,6 +302,8 @@ graph TD
     rest[opendaimon-rest] --> common
     ui[opendaimon-ui] --> rest
     springai[opendaimon-spring-ai] --> common
+    starter[opendaimon-spring-boot-starter] --> common
+    starter --> springai
     mock[opendaimon-gateway-mock] --> common
 ```
 
@@ -303,7 +316,24 @@ graph TD
 | `opendaimon-rest`         | REST API (controllers, Swagger)                  | `opendaimon-common` |
 | `opendaimon-ui`           | Web UI (Thymeleaf)                               | `opendaimon-rest`   |
 | `opendaimon-spring-ai`    | Spring AI (OpenRouter, Ollama, chat memory, RAG) | `opendaimon-common` |
+| `opendaimon-spring-boot-starter` | Starter with OpenDaimon defaults for external Spring Boot apps | `opendaimon-common`, `opendaimon-spring-ai` |
 | `opendaimon-gateway-mock` | Mock AI provider for tests                       | `opendaimon-common` |
+
+### Example: Spring Boot starter
+
+Recommended dependency for external Spring Boot applications that want common OpenDaimon defaults and Spring AI wiring:
+
+```xml
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>opendaimon-spring-boot-starter</artifactId>
+    <version>${opendaimon.version}</version>
+</dependency>
+```
+
+Add delivery modules such as `opendaimon-rest` or `opendaimon-telegram` explicitly when your application needs those
+interfaces. See [opendaimon-starter-consumer-example](opendaimon-starter-consumer-example/README.md) for a standalone
+consumer project.
 
 ### Example: Telegram bot + Spring AI
 
