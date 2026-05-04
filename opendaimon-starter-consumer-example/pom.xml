@@ -6,7 +6,7 @@
 
     <groupId>io.github.ngirchev.opendaimon.examples</groupId>
     <artifactId>opendaimon-starter-consumer-example</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>${revision}</version>
 
     <name>OpenDaimon Starter Consumer Example</name>
     <description>Standalone consumer smoke test for the OpenDaimon Spring Boot starter.</description>
@@ -16,7 +16,8 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
 
-        <open-daimon.version>1.0.0-SNAPSHOT</open-daimon.version>
+        <revision>1.1.0-SNAPSHOT</revision>
+        <open-daimon.version>${revision}</open-daimon.version>
         <spring-boot.version>3.5.13</spring-boot.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <dotenv.version>1.0.5</dotenv.version>

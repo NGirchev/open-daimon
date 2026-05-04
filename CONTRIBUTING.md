@@ -109,12 +109,14 @@ Also configure **Central Portal** credentials in GitHub secrets if the release w
 ### Manual release (local)
 
 ```bash
-mvn -B release:prepare -Darguments="-DskipTests"
-git checkout v1.0.0   # use the tag created
-mvn clean deploy -P release -DskipTests
+./mvnw -B -Drevision=1.1.0 clean deploy -P release,central -DskipTests
+git tag v1.1.0
 git push origin master
 git push --tags
 ```
+
+During normal development the reactor defaults to `1.1.0-SNAPSHOT` through the Maven CI-friendly `revision`
+property. Override it for release or smoke builds with `-Drevision=<version>`.
 
 ## Documentation
 

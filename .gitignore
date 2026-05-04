@@ -28,6 +28,7 @@
 /.env
 /target/
 *.class
+**/.flattened-pom.xml
 /.claude/worktrees/*
 /.claude/*.lock
 /scripts/ollama-check-vision.ps1

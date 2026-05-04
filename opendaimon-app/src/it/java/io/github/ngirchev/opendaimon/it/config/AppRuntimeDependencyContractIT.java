@@ -7,6 +7,7 @@ import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
 import javax.xml.parsers.DocumentBuilderFactory;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -77,7 +78,15 @@ class AppRuntimeDependencyContractIT {
     }
 
     private static List<String> packagedLibraries() throws Exception {
-        Path jarPath = Path.of("target", "opendaimon-app-1.0.0-SNAPSHOT.jar");
+        Path jarPath;
+        try (var jars = Files.list(Path.of("target"))) {
+            jarPath = jars
+                    .filter(path -> path.getFileName().toString().matches("opendaimon-app-[^-].*\\.jar"))
+                    .filter(path -> !path.getFileName().toString().contains("-sources"))
+                    .filter(path -> !path.getFileName().toString().contains("-javadoc"))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Packaged opendaimon-app jar was not found"));
+        }
         try (JarFile jar = new JarFile(jarPath.toFile())) {
             return jar.stream()
                     .map(entry -> entry.getName())

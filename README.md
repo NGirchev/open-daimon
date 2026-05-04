@@ -415,12 +415,12 @@ docker-compose up -d postgres prometheus grafana
   build tool for Java). Then in the project folder run:
   ```bash
   mvn clean install
-  java -jar opendaimon-app/target/opendaimon-app-1.0.0-SNAPSHOT.jar
+  java -jar opendaimon-app/target/opendaimon-app-<version>.jar
   ```
 - **If someone gave you a ready JAR file:** put the JAR in a folder, put your `.env` in the same folder (or set the same
   variables in the environment), then run:
   ```bash
-  java -jar opendaimon-app-1.0.0-SNAPSHOT.jar
+  java -jar opendaimon-app-<version>.jar
   ```
 
 The app will start. You can open the Web UI or use the Telegram bot according to your configuration. For more options (
@@ -521,10 +521,10 @@ After `mvn clean install` (or `mvn clean package -pl opendaimon-app -am`), run t
 variables or use a `.env` file in the current directory (see [Environment variables](#environment-variables)).
 
 ```bash
-java -jar opendaimon-app/target/opendaimon-app-1.0.0-SNAPSHOT.jar
+java -jar opendaimon-app/target/opendaimon-app-<version>.jar
 ```
 
-JAR name follows the project version from the parent POM (e.g. `1.0.0-SNAPSHOT`). Use Java 21: `java -version`.
+JAR name follows the Maven `revision` property from the parent POM (e.g. `1.1.0-SNAPSHOT`). Use Java 21: `java -version`.
 
 ### DB migrations
 
