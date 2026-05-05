@@ -31,6 +31,7 @@
 **/.flattened-pom.xml
 /.claude/worktrees/*
 /.claude/*.lock
+/.claude/settings.local.json
 /scripts/ollama-check-vision.ps1
 /opendaimon.code-workspace
 
