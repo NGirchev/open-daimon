@@ -8,6 +8,7 @@ ARG APP_VERSION=1.1.0-SNAPSHOT
 COPY pom.xml .
 COPY opendaimon-common/pom.xml ./opendaimon-common/
 COPY opendaimon-spring-ai/pom.xml ./opendaimon-spring-ai/
+COPY opendaimon-mcp/pom.xml ./opendaimon-mcp/
 COPY opendaimon-spring-boot-starter/pom.xml ./opendaimon-spring-boot-starter/
 COPY opendaimon-ui/pom.xml ./opendaimon-ui/
 COPY opendaimon-rest/pom.xml ./opendaimon-rest/
@@ -18,6 +19,7 @@ COPY opendaimon-app/pom.xml ./opendaimon-app/
 # Copy source code
 COPY opendaimon-common/src ./opendaimon-common/src
 COPY opendaimon-spring-ai/src ./opendaimon-spring-ai/src
+COPY opendaimon-mcp/src ./opendaimon-mcp/src
 COPY opendaimon-ui/src ./opendaimon-ui/src
 COPY opendaimon-rest/src ./opendaimon-rest/src
 COPY opendaimon-telegram/src ./opendaimon-telegram/src
@@ -31,10 +33,14 @@ RUN mvn -Drevision=${APP_VERSION} clean package -DskipTests -B
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
+RUN apk add --no-cache nodejs npm
+
 ARG APP_VERSION=1.1.0-SNAPSHOT
 
 # Copy JAR from build stage
 COPY --from=build /app/opendaimon-app/target/opendaimon-app-${APP_VERSION}.jar app.jar
+
+RUN mkdir -p /app/mcp-filesystem
 
 # Expose port
 EXPOSE 8080

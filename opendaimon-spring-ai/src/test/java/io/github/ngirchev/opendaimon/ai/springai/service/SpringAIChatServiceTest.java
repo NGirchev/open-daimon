@@ -66,6 +66,7 @@ class SpringAIChatServiceTest {
                 any(),
                 anyBoolean(),
                 any(),
+                any(),
                 any())).thenReturn(requestSpec);
 
         OpenDaimonChatOptions options = new OpenDaimonChatOptions(0.7, 1000, "System", "User", false, Map.of());
@@ -96,6 +97,7 @@ class SpringAIChatServiceTest {
                 any(),
                 anyBoolean(),
                 any(),
+                any(),
                 isNull())).thenReturn(requestSpec);
 
         List<Message> messages = List.of();
@@ -124,6 +126,7 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 anyBoolean(),
+                any(),
                 any(),
                 any())).thenReturn(requestSpec);
 
@@ -162,13 +165,14 @@ class SpringAIChatServiceTest {
                 any(),
                 anyBoolean(),
                 any(),
+                any(),
                 isNull())).thenReturn(requestSpec);
         Map<String, Object> options = Map.of("model", "options-model-name");
         Map<String, Object> body = Map.of("options", options, "messages", List.<Map<String, Object>>of());
         AIResponse response = chatService.callChatFromBody(configWithNullName, body, null, false, List.of());
         assertNotNull(response);
         assertEquals("From options model", ((SpringAIResponse) response).chatResponse().getResult().getOutput().getText());
-        verify(promptFactory).preparePrompt(eq(configWithNullName), eq("options-model-name"), eq(body), any(), anyBoolean(), any(), isNull());
+        verify(promptFactory).preparePrompt(eq(configWithNullName), eq("options-model-name"), eq(body), any(), anyBoolean(), any(), any(), isNull());
     }
 
     @Test
@@ -186,6 +190,7 @@ class SpringAIChatServiceTest {
                 any(),
                 anyBoolean(),
                 any(),
+                any(),
                 any())).thenReturn(requestSpec);
 
         OpenDaimonChatOptions options = new OpenDaimonChatOptions(0.7, 1000, "System", "User", false, Map.of());
@@ -202,6 +207,7 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 eq(true),
+                any(),
                 any(),
                 eq(options));
     }
@@ -222,6 +228,7 @@ class SpringAIChatServiceTest {
                 any(),
                 anyBoolean(),
                 any(),
+                any(),
                 any())).thenReturn(requestSpec);
 
         OpenDaimonChatOptions options = new OpenDaimonChatOptions(0.7, 1000, null, "Hi", true, Map.of());
@@ -238,6 +245,7 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 eq(true),
+                any(),
                 any(),
                 eq(options));
     }
@@ -257,6 +265,7 @@ class SpringAIChatServiceTest {
                 any(),
                 anyBoolean(),
                 any(),
+                any(),
                 any())).thenReturn(requestSpec);
 
         OpenDaimonChatOptions options = new OpenDaimonChatOptions(0.7, 1000, "System", "User", false, Map.of());
@@ -274,6 +283,7 @@ class SpringAIChatServiceTest {
                 any(),
                 eq(false),
                 any(),
+                any(),
                 eq(options));
     }
 
@@ -281,7 +291,7 @@ class SpringAIChatServiceTest {
     void callChat_webClientResponseException_thrown() {
         org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec requestSpec =
                 mock(org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec.class, RETURNS_DEEP_STUBS);
-        when(promptFactory.preparePrompt(eq(modelConfig), any(), any(), any(), anyBoolean(), any(), any())).thenReturn(requestSpec);
+        when(promptFactory.preparePrompt(eq(modelConfig), any(), any(), any(), anyBoolean(), any(), any(), any())).thenReturn(requestSpec);
         WebClientResponseException error = WebClientResponseException.create(429, "Too Many Requests",
                 org.springframework.http.HttpHeaders.EMPTY, "rate limit".getBytes(java.nio.charset.StandardCharsets.UTF_8),
                 java.nio.charset.StandardCharsets.UTF_8);

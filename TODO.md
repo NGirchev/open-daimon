@@ -29,7 +29,7 @@
 - [ ] Telegram RAG Module
 - [ ] Ability to read telegram chat history if needed
 - [ ] OpenCode Module (Claude)
-- [ ] MCP Module
+- [x] MCP Module — `opendaimon-mcp` adds Spring AI MCP client runtime support; external `ToolCallbackProvider` tools are merged into agent and normal Spring AI tool-calling flows with role-based `open-daimon.mcp.tool-access` filtering and built-in-first deduplication. Docker runtime includes opt-in filesystem MCP sandbox at `/app/mcp-filesystem`, restricted to ADMIN by default.
 - [ ] Voice recognition
 - [ ] Agent publication news module
 - [ ] UI Dashboard with full administration functionality

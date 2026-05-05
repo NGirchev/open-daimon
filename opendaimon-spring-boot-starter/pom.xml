@@ -41,6 +41,11 @@
             <artifactId>opendaimon-spring-ai</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>io.github.ngirchev</groupId>
+            <artifactId>opendaimon-mcp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- Spring -->
         <dependency>
@@ -76,6 +81,7 @@
                              source analysis cannot see resource-only aggregation. -->
                         <ignored>io.github.ngirchev:opendaimon-common</ignored>
                         <ignored>io.github.ngirchev:opendaimon-spring-ai</ignored>
+                        <ignored>io.github.ngirchev:opendaimon-mcp</ignored>
                     </ignoredUnusedDeclaredDependencies>
                 </configuration>
             </plugin>

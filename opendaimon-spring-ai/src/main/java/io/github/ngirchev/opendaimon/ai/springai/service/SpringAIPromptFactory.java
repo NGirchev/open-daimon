@@ -1,6 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.service;
 
 import lombok.extern.slf4j.Slf4j;
+import io.github.ngirchev.opendaimon.ai.springai.config.McpToolAccessProperties;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -15,13 +16,20 @@ import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.ai.ollama.api.ThinkOption;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.ObjectProvider;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
+import io.github.ngirchev.opendaimon.ai.springai.tool.ExternalToolCallbacks;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +54,9 @@ public class SpringAIPromptFactory {
     private final WebTools webTools;
     private final ChatMemory chatMemory;
     private final SpringAIModelType springAIModelType;
+    private final ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders;
+    private final boolean externalToolsEnabled;
+    private final McpToolAccessProperties mcpToolAccessProperties;
 
     /**
      * Production constructor. Clients are resolved lazily on first use — after the full
@@ -58,13 +69,42 @@ public class SpringAIPromptFactory {
             ObjectProvider<OpenAiChatModel> openAiChatModelProvider,
             WebTools webTools,
             ChatMemory chatMemory,
-            SpringAIModelType springAIModelType
+            SpringAIModelType springAIModelType,
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            boolean externalToolsEnabled,
+            McpToolAccessProperties mcpToolAccessProperties
     ) {
         this.ollamaChatModelProvider = ollamaChatModelProvider;
         this.openAiChatModelProvider = openAiChatModelProvider;
         this.webTools = webTools;
         this.chatMemory = chatMemory;
         this.springAIModelType = springAIModelType;
+        this.externalToolCallbackProviders = externalToolCallbackProviders;
+        this.externalToolsEnabled = externalToolsEnabled;
+        this.mcpToolAccessProperties = mcpToolAccessProperties != null ? mcpToolAccessProperties : new McpToolAccessProperties();
+    }
+
+    public SpringAIPromptFactory(
+            ObjectProvider<OllamaChatModel> ollamaChatModelProvider,
+            ObjectProvider<OpenAiChatModel> openAiChatModelProvider,
+            WebTools webTools,
+            ChatMemory chatMemory,
+            SpringAIModelType springAIModelType
+    ) {
+        this(ollamaChatModelProvider, openAiChatModelProvider, webTools, chatMemory, springAIModelType, null, false, new McpToolAccessProperties());
+    }
+
+    public SpringAIPromptFactory(
+            ObjectProvider<OllamaChatModel> ollamaChatModelProvider,
+            ObjectProvider<OpenAiChatModel> openAiChatModelProvider,
+            WebTools webTools,
+            ChatMemory chatMemory,
+            SpringAIModelType springAIModelType,
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            boolean externalToolsEnabled
+    ) {
+        this(ollamaChatModelProvider, openAiChatModelProvider, webTools, chatMemory, springAIModelType,
+                externalToolCallbackProviders, externalToolsEnabled, new McpToolAccessProperties());
     }
 
     /**
@@ -75,7 +115,10 @@ public class SpringAIPromptFactory {
             ChatClient openAiChatClient,
             WebTools webTools,
             ChatMemory chatMemory,
-            SpringAIModelType springAIModelType
+            SpringAIModelType springAIModelType,
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            boolean externalToolsEnabled,
+            McpToolAccessProperties mcpToolAccessProperties
     ) {
         this.ollamaChatModelProvider = null;
         this.openAiChatModelProvider = null;
@@ -84,6 +127,32 @@ public class SpringAIPromptFactory {
         this.webTools = webTools;
         this.chatMemory = chatMemory;
         this.springAIModelType = springAIModelType;
+        this.externalToolCallbackProviders = externalToolCallbackProviders;
+        this.externalToolsEnabled = externalToolsEnabled;
+        this.mcpToolAccessProperties = mcpToolAccessProperties != null ? mcpToolAccessProperties : new McpToolAccessProperties();
+    }
+
+    public SpringAIPromptFactory(
+            ChatClient ollamaChatClient,
+            ChatClient openAiChatClient,
+            WebTools webTools,
+            ChatMemory chatMemory,
+            SpringAIModelType springAIModelType
+    ) {
+        this(ollamaChatClient, openAiChatClient, webTools, chatMemory, springAIModelType, null, false, new McpToolAccessProperties());
+    }
+
+    public SpringAIPromptFactory(
+            ChatClient ollamaChatClient,
+            ChatClient openAiChatClient,
+            WebTools webTools,
+            ChatMemory chatMemory,
+            SpringAIModelType springAIModelType,
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            boolean externalToolsEnabled
+    ) {
+        this(ollamaChatClient, openAiChatClient, webTools, chatMemory, springAIModelType,
+                externalToolCallbackProviders, externalToolsEnabled, new McpToolAccessProperties());
     }
 
     public ChatClient.ChatClientRequestSpec preparePrompt(
@@ -92,6 +161,35 @@ public class SpringAIPromptFactory {
             Map<String, Object> body,
             Object conversationId,
             boolean webEnabled,
+            List<Message> messages,
+            OpenDaimonChatOptions chatOptions
+    ) {
+        return preparePrompt(modelConfig, modelName, body, conversationId, webEnabled, Map.of(), messages, chatOptions);
+    }
+
+    public ChatClient.ChatClientRequestSpec preparePrompt(
+            SpringAIModelConfig modelConfig,
+            String modelName,
+            Map<String, Object> body,
+            Object conversationId,
+            boolean webEnabled,
+            boolean externalToolsAllowed,
+            List<Message> messages,
+            OpenDaimonChatOptions chatOptions
+    ) {
+        Map<String, String> metadata = externalToolsAllowed
+                ? Map.of(AICommand.USER_PRIORITY_FIELD, UserPriority.ADMIN.name())
+                : Map.of();
+        return preparePrompt(modelConfig, modelName, body, conversationId, webEnabled, metadata, messages, chatOptions);
+    }
+
+    public ChatClient.ChatClientRequestSpec preparePrompt(
+            SpringAIModelConfig modelConfig,
+            String modelName,
+            Map<String, Object> body,
+            Object conversationId,
+            boolean webEnabled,
+            Map<String, String> metadata,
             List<Message> messages,
             OpenDaimonChatOptions chatOptions
     ) {
@@ -107,7 +205,7 @@ public class SpringAIPromptFactory {
                     .advisors(new MessageOrderingAdvisor());
         }
         addSystemMessagesIfPresent(promptBuilder, messages);
-        addWebToolsIfEnabled(promptBuilder, webEnabled);
+        addToolsIfEnabled(promptBuilder, webEnabled, metadata);
         addUserOrAllMessages(promptBuilder, messages);
 
         return promptBuilder;
@@ -127,11 +225,22 @@ public class SpringAIPromptFactory {
         }
     }
 
-    private void addWebToolsIfEnabled(ChatClient.ChatClientRequestSpec promptBuilder, boolean webEnabled) {
-        if (webEnabled) {
-            promptBuilder.tools(webTools);
-            log.debug("Web tools added to prompt (web_search, fetch_url). Model may invoke them.");
-        } else {
+    private void addToolsIfEnabled(ChatClient.ChatClientRequestSpec promptBuilder, boolean webEnabled, Map<String, String> metadata) {
+        List<ToolCallback> builtInCallbacks = webEnabled
+                ? Arrays.asList(ToolCallbacks.from(webTools))
+                : List.of();
+        List<ToolCallback> callbacks = ExternalToolCallbacks.merge(
+                builtInCallbacks,
+                externalToolCallbackProviders,
+                externalToolsEnabled).stream()
+                .filter(callback -> ExternalToolCallbacks.isAllowedFor(callback, metadata, mcpToolAccessProperties))
+                .toList();
+        if (!callbacks.isEmpty()) {
+            ToolCallback[] toolCallbacks = callbacks.toArray(ToolCallback[]::new);
+            promptBuilder.toolCallbacks(toolCallbacks);
+            log.debug("Tools added to prompt: {} (webEnabled={}, external-enabled={}).",
+                    callbacks.size(), webEnabled, externalToolsEnabled);
+        } else if (!webEnabled) {
             log.debug("Web tools NOT added to prompt (webEnabled=false). Serper/fetch_url are only registered when the AI command requests WEB in required or optional capabilities.");
         }
     }

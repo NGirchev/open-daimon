@@ -43,12 +43,14 @@ public class SpringAIChatService {
         String modelForStream = resolveModelName(modelConfig, chatOptions != null ? chatOptions.body() : null);
         Object conversationId = command != null ? command.metadata().get(AICommand.THREAD_KEY_FIELD) : null;
         boolean webEnabled = webToolsEnabled(command);
+        Map<String, String> metadata = command != null && command.metadata() != null ? command.metadata() : Map.of();
         var promptBuilder = promptFactory.preparePrompt(
                 modelConfig,
                 modelForStream,
                 chatOptions != null ? chatOptions.body() : null,
                 conversationId,
                 webEnabled,
+                metadata,
                 messages,
                 chatOptions
         );
@@ -131,8 +133,9 @@ public class SpringAIChatService {
     ) {
         Object conversationId = command != null ? command.metadata().get(AICommand.THREAD_KEY_FIELD) : null;
         boolean webEnabled = webToolsEnabled(command);
+        Map<String, String> metadata = command != null && command.metadata() != null ? command.metadata() : Map.of();
         Map<String, Object> body = chatOptions != null ? chatOptions.body() : null;
-        return callChatOnce(modelConfig, body, conversationId, webEnabled, messages, chatOptions);
+        return callChatOnce(modelConfig, body, conversationId, webEnabled, metadata, messages, chatOptions);
     }
 
     private AIResponse callChatOnce(
@@ -140,6 +143,7 @@ public class SpringAIChatService {
             Map<String, Object> body,
             Object conversationId,
             boolean webEnabled,
+            Map<String, String> metadata,
             List<Message> messages,
             OpenDaimonChatOptions chatOptions
     ) {
@@ -150,6 +154,7 @@ public class SpringAIChatService {
                 body,
                 conversationId,
                 webEnabled,
+                metadata != null ? metadata : Map.of(),
                 messages,
                 chatOptions
         );
@@ -224,7 +229,7 @@ public class SpringAIChatService {
             boolean webEnabled,
             List<Message> messages
     ) {
-        return callChatOnce(modelConfig, requestBody, conversationId, webEnabled, messages, null);
+        return callChatOnce(modelConfig, requestBody, conversationId, webEnabled, Map.of(), messages, null);
     }
 
     private Flux<ChatResponse> trackStreamIfPossible(String modelId, Flux<ChatResponse> flux) {

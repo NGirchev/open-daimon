@@ -12,6 +12,7 @@ import io.github.ngirchev.opendaimon.ai.springai.agent.StrategyDelegatingAgentEx
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
 import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.ai.springai.retry.SpringAIModelRegistry;
+import io.github.ngirchev.opendaimon.ai.springai.tool.ExternalToolCallbacks;
 import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
@@ -29,9 +30,11 @@ import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -63,7 +66,7 @@ import java.util.List;
 @AutoConfiguration
 @AutoConfigureAfter(SpringAIAutoConfig.class)
 @ConditionalOnProperty(name = FeatureToggle.Module.AGENT_ENABLED, havingValue = "true")
-@EnableConfigurationProperties(AgentProperties.class)
+@EnableConfigurationProperties({AgentProperties.class, McpToolAccessProperties.class})
 public class AgentAutoConfig {
 
     /**
@@ -91,7 +94,8 @@ public class AgentAutoConfig {
             ObjectProvider<ChatMemory> chatMemoryProvider,
             ObjectProvider<UrlLivenessChecker> urlLivenessCheckerProvider,
             PriorityRequestExecutor priorityRequestExecutor,
-            AgentProperties agentProperties) {
+            AgentProperties agentProperties,
+            McpToolAccessProperties mcpToolAccessProperties) {
         Duration streamTimeout = Duration.ofSeconds(agentProperties.getStreamTimeoutSeconds());
         return new SpringAgentLoopActions(
                 agentChatModel,
@@ -100,7 +104,8 @@ public class AgentAutoConfig {
                 chatMemoryProvider.getIfAvailable(),
                 streamTimeout,
                 urlLivenessCheckerProvider.getIfAvailable(),
-                priorityRequestExecutor);
+                priorityRequestExecutor,
+                mcpToolAccessProperties);
     }
 
     @Bean("agentLoopFsm")
@@ -167,14 +172,21 @@ public class AgentAutoConfig {
     @ConditionalOnMissingBean(name = "agentToolCallbacks")
     public List<ToolCallback> agentToolCallbacks(
             ObjectProvider<WebTools> webToolsProvider,
-            ObjectProvider<HttpApiTool> httpApiToolProvider) {
-        List<ToolCallback> callbacks = new ArrayList<>();
+            ObjectProvider<HttpApiTool> httpApiToolProvider,
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            @Value("${" + FeatureToggle.Module.MCP_ENABLED + ":true}") boolean externalToolsEnabled) {
+        List<ToolCallback> builtInCallbacks = new ArrayList<>();
         webToolsProvider.ifAvailable(tools ->
-                callbacks.addAll(Arrays.asList(ToolCallbacks.from(tools))));
+                builtInCallbacks.addAll(Arrays.asList(ToolCallbacks.from(tools))));
         httpApiToolProvider.ifAvailable(tool ->
-                callbacks.addAll(Arrays.asList(ToolCallbacks.from(tool))));
-        log.info("Agent tool callbacks registered: {}", callbacks.size());
-        return List.copyOf(callbacks);
+                builtInCallbacks.addAll(Arrays.asList(ToolCallbacks.from(tool))));
+        List<ToolCallback> callbacks = ExternalToolCallbacks.merge(
+                builtInCallbacks,
+                externalToolCallbackProviders,
+                externalToolsEnabled);
+        log.info("Agent tool callbacks registered: {} (built-in={}, external-enabled={})",
+                callbacks.size(), builtInCallbacks.size(), externalToolsEnabled);
+        return callbacks;
     }
 
     // --- Built-in agent tools ---

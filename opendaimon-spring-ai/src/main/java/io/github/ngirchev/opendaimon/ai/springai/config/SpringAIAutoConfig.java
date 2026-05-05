@@ -60,6 +60,7 @@ import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessCheckerImpl;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.resolution.DelegatingToolCallbackResolver;
 import org.springframework.ai.tool.resolution.SpringBeanToolCallbackResolver;
 import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
@@ -83,7 +84,7 @@ import io.github.ngirchev.opendaimon.common.service.SummarizationService;
     "org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration"
 })
 @AutoConfigureBefore(name = "org.springframework.ai.model.tool.autoconfigure.ToolCallingAutoConfiguration")
-@EnableConfigurationProperties({SpringAIProperties.class, OpenRouterModelsProperties.class})
+@EnableConfigurationProperties({SpringAIProperties.class, OpenRouterModelsProperties.class, McpToolAccessProperties.class})
 @Import(SpringAIFlywayConfig.class)
 @ConditionalOnProperty(name = FeatureToggle.Module.SPRING_AI_ENABLED, havingValue = "true")
 public class SpringAIAutoConfig {
@@ -158,11 +159,22 @@ public class SpringAIAutoConfig {
             ObjectProvider<OpenAiChatModel> openAiChatModelProvider,
             WebTools webTools,
             ChatMemory chatMemory,
-            SpringAIModelType springAIModelType
+            SpringAIModelType springAIModelType,
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            @Value("${" + FeatureToggle.Module.MCP_ENABLED + ":true}") boolean externalToolsEnabled,
+            McpToolAccessProperties mcpToolAccessProperties
     ) {
         // Providers are stored and resolved lazily on first request — ordering relative to
         // OllamaChatAutoConfiguration / OpenAiChatAutoConfiguration does not matter.
-        return new SpringAIPromptFactory(ollamaChatModelProvider, openAiChatModelProvider, webTools, chatMemory, springAIModelType);
+        return new SpringAIPromptFactory(
+                ollamaChatModelProvider,
+                openAiChatModelProvider,
+                webTools,
+                chatMemory,
+                springAIModelType,
+                externalToolCallbackProviders,
+                externalToolsEnabled,
+                mcpToolAccessProperties);
     }
 
     @Bean

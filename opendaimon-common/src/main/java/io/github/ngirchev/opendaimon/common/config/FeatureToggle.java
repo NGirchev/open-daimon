@@ -31,6 +31,7 @@ public final class FeatureToggle {
         public static final String REST_ENABLED = "open-daimon.rest.enabled";
         public static final String UI_ENABLED = "open-daimon.ui.enabled";
         public static final String AGENT_ENABLED = "open-daimon.agent.enabled";
+        public static final String MCP_ENABLED = "open-daimon.mcp.enabled";
         public static final String GATEWAY_MOCK_ENABLED = "open-daimon.ai.gateway-mock.enabled";
     }
 
@@ -107,6 +108,7 @@ public final class FeatureToggle {
         REST(Module.REST_ENABLED),
         UI(Module.UI_ENABLED),
         AGENT(Module.AGENT_ENABLED),
+        MCP(Module.MCP_ENABLED),
         GATEWAY_MOCK(Module.GATEWAY_MOCK_ENABLED),
         // Feature
         RAG(Feature.RAG_ENABLED),

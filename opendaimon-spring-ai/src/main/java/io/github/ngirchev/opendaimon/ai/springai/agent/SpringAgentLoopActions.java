@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.ngirchev.opendaimon.ai.springai.agent.RawToolCallParser.RawToolCall;
 import io.github.ngirchev.opendaimon.ai.springai.agent.ToolObservationClassifier.Classification;
+import io.github.ngirchev.opendaimon.ai.springai.config.McpToolAccessProperties;
+import io.github.ngirchev.opendaimon.ai.springai.tool.ExternalToolCallbacks;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.bulkhead.service.PriorityRequestExecutor;
@@ -94,6 +96,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final RawToolCallParser rawToolCallParser;
     private final SummaryModelInvoker summaryModelInvoker;
     private final PriorityRequestExecutor priorityRequestExecutor;
+    private final McpToolAccessProperties mcpToolAccessProperties;
 
     private static final String KEY_CONVERSATION_HISTORY = "spring.conversationHistory";
     private static final String KEY_LAST_PROMPT = "spring.lastPrompt";
@@ -130,6 +133,18 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                                   Duration streamTimeout,
                                   UrlLivenessChecker urlLivenessChecker,
                                   PriorityRequestExecutor priorityRequestExecutor) {
+        this(chatModel, toolCallingManager, toolCallbacks, chatMemory, streamTimeout,
+                urlLivenessChecker, priorityRequestExecutor, new McpToolAccessProperties());
+    }
+
+    public SpringAgentLoopActions(ChatModel chatModel,
+                                  ToolCallingManager toolCallingManager,
+                                  List<ToolCallback> toolCallbacks,
+                                  ChatMemory chatMemory,
+                                  Duration streamTimeout,
+                                  UrlLivenessChecker urlLivenessChecker,
+                                  PriorityRequestExecutor priorityRequestExecutor,
+                                  McpToolAccessProperties mcpToolAccessProperties) {
         this.chatModel = chatModel;
         this.toolCallingManager = toolCallingManager;
         this.toolCallbacks = toolCallbacks != null ? List.copyOf(toolCallbacks) : List.of();
@@ -137,6 +152,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         this.streamTimeout = Objects.requireNonNull(streamTimeout, "streamTimeout must not be null");
         this.urlLivenessChecker = urlLivenessChecker;
         this.priorityRequestExecutor = priorityRequestExecutor;
+        this.mcpToolAccessProperties = mcpToolAccessProperties != null ? mcpToolAccessProperties : new McpToolAccessProperties();
         this.rawToolCallParser = new RawToolCallParser(this.toolCallbacks);
         this.summaryModelInvoker = new SummaryModelInvoker(chatModel, priorityRequestExecutor);
     }
@@ -583,6 +599,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
             }
         }
         return resolved.stream()
+                .filter(callback -> ExternalToolCallbacks.isAllowedFor(callback, ctx.getMetadata(), mcpToolAccessProperties))
                 .map(callback -> guardFetchUrlCallback(ctx, callback))
                 .toList();
     }
