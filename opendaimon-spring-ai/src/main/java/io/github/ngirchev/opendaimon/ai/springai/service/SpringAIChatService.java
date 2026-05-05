@@ -43,6 +43,7 @@ public class SpringAIChatService {
         String modelForStream = resolveModelName(modelConfig, chatOptions != null ? chatOptions.body() : null);
         Object conversationId = command != null ? command.metadata().get(AICommand.THREAD_KEY_FIELD) : null;
         boolean webEnabled = webToolsEnabled(command);
+        boolean externalToolsAllowed = externalToolsAllowed(command);
         Map<String, String> metadata = command != null && command.metadata() != null ? command.metadata() : Map.of();
         var promptBuilder = promptFactory.preparePrompt(
                 modelConfig,
@@ -50,6 +51,7 @@ public class SpringAIChatService {
                 chatOptions != null ? chatOptions.body() : null,
                 conversationId,
                 webEnabled,
+                externalToolsAllowed,
                 metadata,
                 messages,
                 chatOptions
@@ -133,9 +135,10 @@ public class SpringAIChatService {
     ) {
         Object conversationId = command != null ? command.metadata().get(AICommand.THREAD_KEY_FIELD) : null;
         boolean webEnabled = webToolsEnabled(command);
+        boolean externalToolsAllowed = externalToolsAllowed(command);
         Map<String, String> metadata = command != null && command.metadata() != null ? command.metadata() : Map.of();
         Map<String, Object> body = chatOptions != null ? chatOptions.body() : null;
-        return callChatOnce(modelConfig, body, conversationId, webEnabled, metadata, messages, chatOptions);
+        return callChatOnce(modelConfig, body, conversationId, webEnabled, externalToolsAllowed, metadata, messages, chatOptions);
     }
 
     private AIResponse callChatOnce(
@@ -143,6 +146,7 @@ public class SpringAIChatService {
             Map<String, Object> body,
             Object conversationId,
             boolean webEnabled,
+            boolean externalToolsAllowed,
             Map<String, String> metadata,
             List<Message> messages,
             OpenDaimonChatOptions chatOptions
@@ -154,6 +158,7 @@ public class SpringAIChatService {
                 body,
                 conversationId,
                 webEnabled,
+                externalToolsAllowed,
                 metadata != null ? metadata : Map.of(),
                 messages,
                 chatOptions
@@ -229,7 +234,7 @@ public class SpringAIChatService {
             boolean webEnabled,
             List<Message> messages
     ) {
-        return callChatOnce(modelConfig, requestBody, conversationId, webEnabled, Map.of(), messages, null);
+        return callChatOnce(modelConfig, requestBody, conversationId, webEnabled, false, Map.of(), messages, null);
     }
 
     private Flux<ChatResponse> trackStreamIfPossible(String modelId, Flux<ChatResponse> flux) {
@@ -250,6 +255,14 @@ public class SpringAIChatService {
         }
         return command.modelCapabilities().contains(ModelCapabilities.WEB)
                 || command.optionalCapabilities().contains(ModelCapabilities.WEB);
+    }
+
+    private static boolean externalToolsAllowed(AICommand command) {
+        if (command == null) {
+            return false;
+        }
+        return command.modelCapabilities().contains(ModelCapabilities.TOOL_CALLING)
+                || command.optionalCapabilities().contains(ModelCapabilities.TOOL_CALLING);
     }
 
     private void logStreamError(Throwable error, String modelName, Map<String, Object> body) {

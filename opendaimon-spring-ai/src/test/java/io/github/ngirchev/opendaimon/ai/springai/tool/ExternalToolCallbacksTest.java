@@ -52,6 +52,17 @@ class ExternalToolCallbacksTest {
         assertEquals(builtIn, callbacks.getFirst());
     }
 
+    @Test
+    void merge_ignoresExternalCallbacksWithReservedBuiltInNames() {
+        ToolCallback reservedExternal = toolCallback("fetch_url");
+        List<ToolCallback> callbacks = ExternalToolCallbacks.merge(
+                List.of(),
+                providers(provider(reservedExternal)),
+                true);
+
+        assertEquals(List.of(), toolNames(callbacks));
+    }
+
     private static List<String> toolNames(List<ToolCallback> callbacks) {
         return callbacks.stream()
                 .map(callback -> callback.getToolDefinition().name())

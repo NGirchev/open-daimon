@@ -272,6 +272,7 @@ class SpringAIPromptFactoryTest {
                 null,
                 false,
                 true,
+                Map.of(AICommand.USER_PRIORITY_FIELD, UserPriority.ADMIN.name()),
                 List.of(new UserMessage("Use the external tool if needed")),
                 new OpenDaimonChatOptions(0.7, 1000, null, "Use the external tool if needed", false, Map.of())
         );
@@ -285,6 +286,43 @@ class SpringAIPromptFactoryTest {
         ToolCallingChatOptions toolOptions = (ToolCallingChatOptions) options;
         assertTrue(toolOptions.getToolCallbacks().stream()
                 .anyMatch(callback -> "mcp_search".equals(callback.getToolDefinition().name())));
+    }
+
+    @Test
+    void preparePrompt_withExternalToolsAllowedButNoPriority_doesNotAddExternalToolCallbacks() {
+        ToolCallback externalTool = toolCallback("mcp_search");
+        ToolCallbackProvider provider = mock(ToolCallbackProvider.class);
+        when(provider.getToolCallbacks()).thenReturn(new ToolCallback[]{externalTool});
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ToolCallbackProvider> providers = mock(ObjectProvider.class);
+        when(providers.orderedStream()).thenReturn(Stream.of(provider));
+        SpringAIPromptFactory factory = new SpringAIPromptFactory(
+                chatClient,
+                chatClient,
+                webTools,
+                null,
+                springAIModelType,
+                providers,
+                true);
+
+        var spec = factory.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                null,
+                null,
+                false,
+                true,
+                List.of(new UserMessage("Do not infer admin access")),
+                new OpenDaimonChatOptions(0.7, 1000, null, "Do not infer admin access", false, Map.of())
+        );
+
+        spec.call().chatResponse();
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(ollamaChatModel).call(captor.capture());
+
+        if (captor.getValue().getOptions() instanceof ToolCallingChatOptions toolOptions) {
+            assertTrue(toolOptions.getToolCallbacks() == null || toolOptions.getToolCallbacks().isEmpty());
+        }
     }
 
     @Test
@@ -348,6 +386,7 @@ class SpringAIPromptFactoryTest {
                 null,
                 null,
                 false,
+                true,
                 Map.of(AICommand.USER_PRIORITY_FIELD, UserPriority.REGULAR.name()),
                 List.of(new UserMessage("Use shared tools only")),
                 new OpenDaimonChatOptions(0.7, 1000, null, "Use shared tools only", false, Map.of())

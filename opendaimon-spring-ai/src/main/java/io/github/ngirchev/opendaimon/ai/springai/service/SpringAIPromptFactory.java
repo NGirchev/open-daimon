@@ -23,7 +23,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
 import io.github.ngirchev.opendaimon.ai.springai.tool.ExternalToolCallbacks;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
-import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
@@ -177,10 +176,7 @@ public class SpringAIPromptFactory {
             List<Message> messages,
             OpenDaimonChatOptions chatOptions
     ) {
-        Map<String, String> metadata = externalToolsAllowed
-                ? Map.of(AICommand.USER_PRIORITY_FIELD, UserPriority.ADMIN.name())
-                : Map.of();
-        return preparePrompt(modelConfig, modelName, body, conversationId, webEnabled, metadata, messages, chatOptions);
+        return preparePrompt(modelConfig, modelName, body, conversationId, webEnabled, externalToolsAllowed, Map.of(), messages, chatOptions);
     }
 
     public ChatClient.ChatClientRequestSpec preparePrompt(
@@ -189,6 +185,20 @@ public class SpringAIPromptFactory {
             Map<String, Object> body,
             Object conversationId,
             boolean webEnabled,
+            Map<String, String> metadata,
+            List<Message> messages,
+            OpenDaimonChatOptions chatOptions
+    ) {
+        return preparePrompt(modelConfig, modelName, body, conversationId, webEnabled, false, metadata, messages, chatOptions);
+    }
+
+    public ChatClient.ChatClientRequestSpec preparePrompt(
+            SpringAIModelConfig modelConfig,
+            String modelName,
+            Map<String, Object> body,
+            Object conversationId,
+            boolean webEnabled,
+            boolean externalToolsAllowed,
             Map<String, String> metadata,
             List<Message> messages,
             OpenDaimonChatOptions chatOptions
@@ -205,7 +215,7 @@ public class SpringAIPromptFactory {
                     .advisors(new MessageOrderingAdvisor());
         }
         addSystemMessagesIfPresent(promptBuilder, messages);
-        addToolsIfEnabled(promptBuilder, webEnabled, metadata);
+        addToolsIfEnabled(promptBuilder, webEnabled, externalToolsAllowed, metadata);
         addUserOrAllMessages(promptBuilder, messages);
 
         return promptBuilder;
@@ -225,21 +235,24 @@ public class SpringAIPromptFactory {
         }
     }
 
-    private void addToolsIfEnabled(ChatClient.ChatClientRequestSpec promptBuilder, boolean webEnabled, Map<String, String> metadata) {
+    private void addToolsIfEnabled(ChatClient.ChatClientRequestSpec promptBuilder,
+                                   boolean webEnabled,
+                                   boolean externalToolsAllowed,
+                                   Map<String, String> metadata) {
         List<ToolCallback> builtInCallbacks = webEnabled
                 ? Arrays.asList(ToolCallbacks.from(webTools))
                 : List.of();
         List<ToolCallback> callbacks = ExternalToolCallbacks.merge(
                 builtInCallbacks,
                 externalToolCallbackProviders,
-                externalToolsEnabled).stream()
+                externalToolsEnabled && externalToolsAllowed).stream()
                 .filter(callback -> ExternalToolCallbacks.isAllowedFor(callback, metadata, mcpToolAccessProperties))
                 .toList();
         if (!callbacks.isEmpty()) {
             ToolCallback[] toolCallbacks = callbacks.toArray(ToolCallback[]::new);
             promptBuilder.toolCallbacks(toolCallbacks);
-            log.debug("Tools added to prompt: {} (webEnabled={}, external-enabled={}).",
-                    callbacks.size(), webEnabled, externalToolsEnabled);
+            log.debug("Tools added to prompt: {} (webEnabled={}, external-enabled={}, external-allowed={}).",
+                    callbacks.size(), webEnabled, externalToolsEnabled, externalToolsAllowed);
         } else if (!webEnabled) {
             log.debug("Web tools NOT added to prompt (webEnabled=false). Serper/fetch_url are only registered when the AI command requests WEB in required or optional capabilities.");
         }

@@ -12,8 +12,11 @@ exposed as Spring AI `ToolCallbackProvider` beans.
 OpenDaimon consumes those callbacks in `opendaimon-spring-ai`:
 
 - Agent mode merges MCP callbacks into `agentToolCallbacks`.
-- The normal Spring AI prompt flow adds MCP callbacks to prompts when available.
+- The normal Spring AI prompt flow adds MCP callbacks to prompts only when the
+  command requests `TOOL_CALLING` in required or optional capabilities.
 - External MCP tools are exposed according to `open-daimon.mcp.tool-access` rules.
+  The rules use command `userPriority` metadata; missing or unknown priority
+  denies external MCP tools.
   Filesystem MCP tools are ADMIN-only by default; other MCP tools can be exposed
   to VIP/REGULAR users when the rules allow it.
 - Built-in tools (`web_search`, `fetch_url`, `http_get`, `http_post`) remain
@@ -121,4 +124,5 @@ Filesystem MCP list_directory result: [{"text":"[FILE] alpha.txt\n[DIR] nested"}
 
 OpenDaimon deduplicates tool callbacks by `ToolDefinition.name()` while preserving
 registration order. Built-in tools are registered first, so an external MCP tool
-with the same name is ignored.
+with the same name is ignored. External callbacks with reserved built-in names are
+also ignored when the corresponding built-in tool is not currently enabled.

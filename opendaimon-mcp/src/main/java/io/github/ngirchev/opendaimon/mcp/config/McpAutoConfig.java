@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Bean;
 
 @Slf4j
 @AutoConfiguration
-@AutoConfigureAfter(name = "org.springframework.ai.autoconfigure.mcp.client.McpClientAutoConfiguration")
+@AutoConfigureAfter(name = "org.springframework.ai.mcp.client.common.autoconfigure.McpClientAutoConfiguration")
 @ConditionalOnProperty(name = FeatureToggle.Module.MCP_ENABLED, havingValue = "true", matchIfMissing = true)
 public class McpAutoConfig {
 

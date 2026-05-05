@@ -428,8 +428,12 @@ OpenDaimon tool discovery has two sources:
 
 `AgentAutoConfig#agentToolCallbacks` merges built-in callbacks with external
 provider callbacks. The normal `SpringAIPromptFactory` path performs the same
-merge before adding callbacks to `ChatClient` prompts. External MCP tools are
-then filtered by `open-daimon.mcp.tool-access` rules before the model sees them.
+merge before adding callbacks to `ChatClient` prompts, but external MCP callbacks
+are only considered when the command requests `TOOL_CALLING` in required or
+optional capabilities. External MCP tools are then filtered by
+`open-daimon.mcp.tool-access` rules using the command `userPriority` metadata
+before the model sees them. Missing or unknown priority denies external MCP
+tools.
 
 `open-daimon.mcp.enabled=false` disables OpenDaimon's consumption of external
 provider callbacks. Spring AI MCP client creation itself is controlled by
@@ -446,7 +450,9 @@ available to regular users.
 
 Tool callbacks are deduplicated by `ToolDefinition.name()` with first-wins
 semantics. Built-in tools are registered first, so an MCP tool named `fetch_url`
-or `web_search` will not replace the OpenDaimon built-in implementation.
+or `web_search` will not replace the OpenDaimon built-in implementation. External
+callbacks with reserved built-in names are ignored even when the corresponding
+built-in tool is not currently enabled for the prompt.
 
 ### Tool failure detection
 

@@ -37,7 +37,7 @@ public final class ExternalToolCallbacks {
                     .map(ToolCallbackProvider::getToolCallbacks)
                     .filter(callbacks -> callbacks != null && callbacks.length > 0)
                     .flatMap(Arrays::stream)
-                    .forEach(callback -> addCallback(callbacksByName, callback));
+                    .forEach(callback -> addExternalCallback(callbacksByName, callback));
         }
         return List.copyOf(callbacksByName.values());
     }
@@ -95,5 +95,17 @@ public final class ExternalToolCallbacks {
         if (previous != null && previous != callback) {
             log.warn("Ignoring duplicate tool callback '{}'. Keeping the first registered callback.", name);
         }
+    }
+
+    private static void addExternalCallback(Map<String, ToolCallback> callbacksByName, ToolCallback callback) {
+        if (callback == null || callback.getToolDefinition() == null || callback.getToolDefinition().name() == null) {
+            return;
+        }
+        String name = callback.getToolDefinition().name();
+        if (BUILT_IN_TOOL_NAMES.contains(name) && !callbacksByName.containsKey(name)) {
+            log.warn("Ignoring external tool callback '{}' because the name is reserved for OpenDaimon built-in tools.", name);
+            return;
+        }
+        addCallback(callbacksByName, callback);
     }
 }
