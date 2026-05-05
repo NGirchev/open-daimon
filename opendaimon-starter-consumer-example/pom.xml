@@ -16,7 +16,7 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
 
-        <revision>1.1.0-SNAPSHOT</revision>
+        <revision>1.1.1-SNAPSHOT</revision>
         <open-daimon.version>${revision}</open-daimon.version>
         <spring-boot.version>3.5.13</spring-boot.version>
         <testcontainers.version>1.21.4</testcontainers.version>
