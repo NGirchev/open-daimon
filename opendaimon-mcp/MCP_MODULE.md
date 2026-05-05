@@ -42,9 +42,9 @@ Rules are evaluated in order by Java regular expression against
 rule use `default-roles`. Built-in OpenDaimon tools are not governed by these MCP
 rules.
 
-Spring AI MCP client creation is controlled by Spring AI properties. The bundled
-runtime and starter defaults keep client creation disabled until an application
-opts in:
+Spring AI MCP client creation is controlled by Spring AI properties. OpenDaimon
+defaults keep client creation enabled; applications can disable it with
+`MCP_CLIENT_ENABLED=false` or `spring.ai.mcp.client.enabled=false`:
 
 ```yaml
 spring:
@@ -82,7 +82,9 @@ spring:
               endpoint: /mcp
 ```
 
-The bundled Docker setup includes an opt-in filesystem MCP connection:
+The bundled `opendaimon-app` setup includes the default filesystem MCP stdio
+connection. The published starter defaults enable MCP client support but do not
+define a concrete filesystem stdio connection for downstream applications:
 
 ```yaml
 spring:
@@ -100,7 +102,7 @@ spring:
                 - ${MCP_FILESYSTEM_ROOT:/app/mcp-filesystem}
 ```
 
-Enable it in Docker with `MCP_CLIENT_ENABLED=true`. The runtime image includes
+Disable it in Docker with `MCP_CLIENT_ENABLED=false`. The runtime image includes
 Node.js/npm so `npx` can start the server. The server runs inside the OpenDaimon
 container and sees only the container filesystem plus mounted volumes. The
 compose file mounts `./mcp-filesystem` to `/app/mcp-filesystem`; keep that root

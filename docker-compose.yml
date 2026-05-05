@@ -42,8 +42,8 @@ services:
       - MINIO_ENDPOINT=http://minio:9000
       # Redis (use service name from docker-compose)
       - REDIS_HOST=redis
-      # MCP filesystem server (admin-only in OpenDaimon tool exposure). Disabled by default.
-      - MCP_CLIENT_ENABLED=${MCP_CLIENT_ENABLED:-false}
+      # MCP filesystem server (admin-only in OpenDaimon tool exposure). Enabled by default.
+      - MCP_CLIENT_ENABLED=${MCP_CLIENT_ENABLED:-true}
       - MCP_FILESYSTEM_ROOT=/app/mcp-filesystem
       # Config override: place application.yml next to docker-compose.yml.
       # optional: prefix = if file is absent, uses bundled defaults.

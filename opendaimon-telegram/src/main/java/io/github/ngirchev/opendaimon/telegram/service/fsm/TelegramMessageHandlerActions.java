@@ -309,6 +309,9 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
         TelegramCommand command = ctx.getCommand();
         Map<String, String> metadata = ctx.getMetadata();
         AICommand aiCommand = ctx.getAiCommand();
+        Map<String, String> agentMetadata = aiCommand != null && aiCommand.metadata() != null
+                ? aiCommand.metadata()
+                : metadata;
         Long chatId = command.telegramId();
 
         try {
@@ -351,8 +354,8 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
             }
             AgentRequest request = new AgentRequest(
                     agentTask,
-                    metadata.get(THREAD_KEY_FIELD),
-                    metadata,
+                    agentMetadata.get(THREAD_KEY_FIELD),
+                    agentMetadata,
                     agentMaxIterations,
                     Set.of(),
                     strategy,

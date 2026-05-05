@@ -372,7 +372,7 @@ spring:
   ai:
     mcp:
       client:
-        enabled: ${MCP_CLIENT_ENABLED:false}
+        enabled: ${MCP_CLIENT_ENABLED:true}
         name: open-daimon
         version: ${OPEN_DAIMON_VERSION:dev}
         type: SYNC

@@ -438,7 +438,10 @@ tools.
 `open-daimon.mcp.enabled=false` disables OpenDaimon's consumption of external
 provider callbacks. Spring AI MCP client creation itself is controlled by
 `spring.ai.mcp.client.*`; bundled defaults keep `spring.ai.mcp.client.enabled`
-false until an application explicitly configures MCP connections.
+true, while concrete MCP server connections are supplied by the application
+configuration. The bundled `opendaimon-app` configures the filesystem stdio
+server; the published starter defaults do not start a concrete stdio server for
+downstream applications.
 
 External provider callbacks are role-filtered. `SpringAIChatService` passes
 command metadata to `SpringAIPromptFactory`, and `SpringAgentLoopActions#resolveEffectiveTools`

@@ -194,7 +194,7 @@ See the canonical specification in **[## Agent Mode — REACT Loop Telegram UX](
 2. A separate **answer message** that is created only when the final user answer is confirmed (`FINAL_ANSWER` or `MAX_ITERATIONS` fallback).
 3. Streaming `PARTIAL_ANSWER` chunks are kept in a Java-side model buffer and rendered as status overlay while the iteration is still open.
 
-Implementation: `TelegramMessageHandlerActions` feeds provider-neutral stream events into `TelegramAgentStreamModel` and flushes snapshots through `TelegramAgentStreamView`. Flush cadence is configured via `open-daimon.telegram.agent-stream-view.*` and enforced per chat by `TelegramChatPacer`. Assistant response is persisted in DB; keyboard status is sent afterwards.
+Implementation: `TelegramMessageHandlerActions` feeds provider-neutral stream events into `TelegramAgentStreamModel` and flushes snapshots through `TelegramAgentStreamView`. The `AgentRequest` receives pipeline-enriched `AICommand.metadata()` so downstream agent tools see fields added by `AIRequestPipeline`, including `userPriority` used by MCP tool-access rules. Flush cadence is configured via `open-daimon.telegram.agent-stream-view.*` and enforced per chat by `TelegramChatPacer`. Assistant response is persisted in DB; keyboard status is sent afterwards.
 
 ---
 
