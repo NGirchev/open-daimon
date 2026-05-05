@@ -19,6 +19,7 @@
 
     <artifactId>opendaimon-common</artifactId>
     <name>OpenDaimon Common</name>
+    <description>Core domain, persistence, prioritization, metrics, and shared AI agent contracts for the OpenDaimon framework.</description>
 
     <properties>
         <java.version>21</java.version>

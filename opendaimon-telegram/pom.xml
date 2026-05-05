@@ -19,6 +19,7 @@
 
     <artifactId>opendaimon-telegram</artifactId>
     <name>OpenDaimon Telegram</name>
+    <description>Telegram assistant module for OpenDaimon AI agents, supporting personal use, trusted group chats, streaming replies, and model selection UX.</description>
 
     <properties>
         <java.version>21</java.version>

@@ -19,6 +19,7 @@
 
     <artifactId>opendaimon-rest</artifactId>
     <name>OpenDaimon REST</name>
+    <description>REST and SSE API module for exposing OpenDaimon AI agent conversations to Spring Boot applications.</description>
 
     <properties>
         <java.version>21</java.version>

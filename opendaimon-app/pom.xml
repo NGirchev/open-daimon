@@ -19,6 +19,7 @@
 
     <artifactId>opendaimon-app</artifactId>
     <name>OpenDaimon App</name>
+    <description>Ready-to-run self-hosted OpenDaimon application with Telegram assistant, REST/Web UI, Spring AI, and observability.</description>
 
     <properties>
         <java.version>21</java.version>

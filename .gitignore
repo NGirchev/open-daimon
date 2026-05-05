@@ -50,3 +50,4 @@
 /opendaimon-app/logs/opendaimon.log
 /application.yml
 /.remember/
+/.m2repo/

@@ -19,6 +19,7 @@
 
     <artifactId>opendaimon-ui</artifactId>
     <name>OpenDaimon UI</name>
+    <description>Web UI module for the OpenDaimon self-hosted AI assistant and agent framework.</description>
 
     <properties>
         <java.version>21</java.version>
