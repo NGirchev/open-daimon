@@ -13,6 +13,7 @@ import io.github.ngirchev.opendaimon.common.config.FeatureToggle;
 import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.agent.AgentExecutor;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolCatalogService;
 import io.github.ngirchev.opendaimon.common.config.CoreCommonProperties;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.common.service.*;
@@ -140,6 +141,23 @@ public class TelegramCommandHandlerConfig {
         return new ThinkingTelegramCommandHandler(telegramBotProvider,
                 typingIndicatorService, messageLocalizationService, telegramUserService, telegramBotMenuService,
                 chatSettingsService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MCP, havingValue = "true", matchIfMissing = true)
+    public McpTelegramCommandHandler mcpTelegramCommandHandler(
+            ObjectProvider<TelegramBot> telegramBotProvider,
+            TypingIndicatorService typingIndicatorService,
+            MessageLocalizationService messageLocalizationService,
+            ObjectProvider<ExternalToolCatalogService> externalToolCatalogServiceProvider,
+            IUserPriorityService userPriorityService) {
+        return new McpTelegramCommandHandler(
+                telegramBotProvider,
+                typingIndicatorService,
+                messageLocalizationService,
+                externalToolCatalogServiceProvider,
+                userPriorityService);
     }
 
     @Bean

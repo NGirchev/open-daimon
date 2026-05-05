@@ -597,7 +597,7 @@ public class TelegramMessageHandlerActions implements MessageHandlerActions {
     }
 
     private Mono<Void> appendToolCallBlock(MessageHandlerContext ctx, String toolName, String args) {
-        String label = ToolLabels.label(toolName);
+        String label = TelegramHtmlEscaper.escape(ToolLabels.label(toolName));
         String escapedArgs = args == null || args.isBlank()
                 ? ""
                 : TelegramHtmlEscaper.escape(ToolLabels.truncateArg(args));

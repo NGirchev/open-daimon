@@ -58,6 +58,8 @@ import io.github.ngirchev.opendaimon.ai.springai.tool.UnknownToolFallbackResolve
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessCheckerImpl;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
+import io.github.ngirchev.opendaimon.ai.springai.tool.SpringAIExternalToolCatalogService;
+import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolCatalogService;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -172,6 +174,18 @@ public class SpringAIAutoConfig {
                 webTools,
                 chatMemory,
                 springAIModelType,
+                externalToolCallbackProviders,
+                externalToolsEnabled,
+                mcpToolAccessProperties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ExternalToolCatalogService externalToolCatalogService(
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            @Value("${" + FeatureToggle.Module.MCP_ENABLED + ":true}") boolean externalToolsEnabled,
+            McpToolAccessProperties mcpToolAccessProperties) {
+        return new SpringAIExternalToolCatalogService(
                 externalToolCallbackProviders,
                 externalToolsEnabled,
                 mcpToolAccessProperties);

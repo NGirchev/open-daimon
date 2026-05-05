@@ -1166,7 +1166,7 @@ class TelegramMessageHandlerActionsAgentTest {
             verify(messageSender, atLeastOnce())
                     .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
             String finalHtml = editCaptor.getValue();
-            assertThat(finalHtml).contains("🔧 <b>Tool:</b> Searching the web");
+            assertThat(finalHtml).contains("🔧 <b>Tool:</b> Searching the web (web_search)");
             assertThat(finalHtml).contains("<b>Query:</b>");
             // The label is HTML bold — no unformatted "Tool:" or "Query:" leaking through.
             assertThat(finalHtml).doesNotContain("🔧 Tool:");

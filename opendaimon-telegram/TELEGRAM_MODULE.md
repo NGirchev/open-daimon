@@ -139,6 +139,7 @@ Handlers sorted by `priority()` (lower = first). First handler where `canHandle(
 | `RoleTelegramCommandHandler` | `/role` | 0 |
 | `LanguageTelegramCommandHandler` | `/language` | 0 |
 | `ModelTelegramCommandHandler` | `/model` | 0 |
+| `McpTelegramCommandHandler` | `/mcp` | 0 |
 | `BugreportTelegramCommandHandler` | `/bugreport` | 0 |
 | `HistoryTelegramCommandHandler` | `/history` | 0 |
 | `ThreadsTelegramCommandHandler` | `/threads` | 0 |
@@ -146,6 +147,11 @@ Handlers sorted by `priority()` (lower = first). First handler where `canHandle(
 | `BackoffCommandHandler` | any | `LOWEST_PRECEDENCE` |
 
 Each handler is conditional on `open-daimon.telegram.commands.<command>-enabled` (default: true).
+
+`/mcp` lists external MCP tools visible to the current invoker. It delegates to the
+common `ExternalToolCatalogService` SPI, so Telegram never applies MCP access policy
+itself. The Spring AI implementation filters tools through the same
+`open-daimon.mcp.tool-access` rules used by real tool execution.
 
 ---
 

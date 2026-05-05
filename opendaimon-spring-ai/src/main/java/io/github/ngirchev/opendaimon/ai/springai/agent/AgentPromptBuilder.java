@@ -84,7 +84,7 @@ public final class AgentPromptBuilder {
     public static String buildUserMessage(AgentContext ctx) {
         List<AgentStepResult> history = ctx.getStepHistory();
         if (history.isEmpty()) {
-            return ctx.getTask();
+            return appendLanguageInstructionToUserMessage(ctx.getTask(), ctx.getMetadata());
         }
 
         var sb = new StringBuilder();
@@ -112,6 +112,16 @@ public final class AgentPromptBuilder {
         sb.append("Based on the above steps and observations, continue solving the task. ");
         sb.append("Either call another tool or provide your final answer.");
 
-        return sb.toString();
+        return appendLanguageInstructionToUserMessage(sb.toString(), ctx.getMetadata());
+    }
+
+    private static String appendLanguageInstructionToUserMessage(String message, Map<String, String> metadata) {
+        if (metadata == null) return message;
+        String code = metadata.get(AICommand.LANGUAGE_CODE_FIELD);
+        return LanguageInstructions.displayName(code)
+                .map(name -> message
+                        + "\n\nAnswer language: " + name + " (" + code + ")."
+                        + " Follow this language for the final answer even if earlier conversation turns used another language.")
+                .orElse(message);
     }
 }
