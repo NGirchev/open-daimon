@@ -86,8 +86,10 @@ subscriptions; anyone who needs trusted group access (e.g. family or team) witho
   the modules you need (Telegram, REST, UI, Spring AI).
 - **FSM-based ReAct agent runtime** — The agent path has an explicit FSM loop: think, call tools, observe results,
   iterate, and produce a final answer.
-- **Spring Boot starter** — External applications can use `opendaimon-spring-boot-starter` to get OpenDaimon defaults
-  without importing module configuration manually.
+- **Spring Boot starter** — External applications can use
+  [`opendaimon-spring-boot-starter`](#use-the-spring-boot-starter-in-another-app) to get OpenDaimon defaults without
+  importing module configuration manually; the standalone
+  [`opendaimon-starter-consumer-example`](opendaimon-starter-consumer-example/README.md) shows the consumer setup.
 - **Easy to customize for business** — Configure the chat agent (prompts, roles, memory, RAG) via properties and
   optional extensions; no need to fork the whole project.
 - **Resilience and prioritization** — Built-in bulkhead (Resilience4j) and **two user tiers**: VIP and regular (plus
@@ -135,7 +137,7 @@ subscriptions; anyone who needs trusted group access (e.g. family or team) witho
 - [User Priorities and Bulkhead](#user-priorities-and-bulkhead)
 - [Requirements](#requirements)
 - [Tech stack](#tech-stack)
-- [Modules](#modules)
+- [Modules](#modules) — [Spring Boot starter](#use-the-spring-boot-starter-in-another-app)
 - [Quick start](#quick-start) — [Running the app (no Java experience)](#running-the-app-no-java-experience)
 - [Build and run](#build-and-run)
 - [Server deployment](#server-deployment)
@@ -153,7 +155,8 @@ subscriptions; anyone who needs trusted group access (e.g. family or team) witho
 - **Multiple interfaces**: Telegram bot, REST API, Web UI
 - **Agent runtime**: FSM-based ReAct loop, tool calls, observations, streaming progress, and final-answer cleanup
 - **Spring AI integration**: OpenRouter, Ollama, chat memory, optional RAG; OpenRouter retry and free-model rotation
-- **Spring Boot starter**: starter dependency with OpenDaimon defaults for external Spring Boot applications
+- **Spring Boot starter**: starter dependency with OpenDaimon defaults for external Spring Boot applications, plus a
+  standalone consumer example
 - **Streaming**: SSE (REST/UI) and chunk-by-chunk replies in Telegram
 - **Telegram UX**: per-user `/mode` and `/thinking`, grouped model selection, recent models, and cancel/close buttons
 - **Multimodal**: image uploads (MinIO + vision models), optional PDF RAG (embeddings, similarity search)
@@ -309,17 +312,22 @@ graph TD
 
 ### Module overview
 
-| Module                    | Description                                      | Depends on          |
-|---------------------------|--------------------------------------------------|---------------------|
-| `opendaimon-common`       | Core: entities, services, request prioritization | —                   |
-| `opendaimon-telegram`     | Telegram Bot interface                           | `opendaimon-common` |
-| `opendaimon-rest`         | REST API (controllers, Swagger)                  | `opendaimon-common` |
-| `opendaimon-ui`           | Web UI (Thymeleaf)                               | `opendaimon-rest`   |
-| `opendaimon-spring-ai`    | Spring AI (OpenRouter, Ollama, chat memory, RAG) | `opendaimon-common` |
-| `opendaimon-spring-boot-starter` | Starter with OpenDaimon defaults for external Spring Boot apps | `opendaimon-common`, `opendaimon-spring-ai` |
-| `opendaimon-gateway-mock` | Mock AI provider for tests                       | `opendaimon-common` |
+| Module                            | Description                                                   | Depends on                                  |
+|-----------------------------------|---------------------------------------------------------------|---------------------------------------------|
+| `opendaimon-common`               | Core: entities, services, request prioritization              | —                                           |
+| `opendaimon-telegram`             | Telegram Bot interface                                        | `opendaimon-common`                         |
+| `opendaimon-rest`                 | REST API (controllers, Swagger)                               | `opendaimon-common`                         |
+| `opendaimon-ui`                   | Web UI (Thymeleaf)                                            | `opendaimon-rest`                           |
+| `opendaimon-spring-ai`            | Spring AI (OpenRouter, Ollama, chat memory, RAG)              | `opendaimon-common`                         |
+| `opendaimon-spring-boot-starter`  | Starter with OpenDaimon defaults for external Spring Boot apps | `opendaimon-common`, `opendaimon-spring-ai` |
+| `opendaimon-gateway-mock`         | Mock AI provider for tests                                    | `opendaimon-common`                         |
+| `opendaimon-app`                  | Bundled runnable application                                  | Telegram, REST, UI, Spring AI, mock gateway |
 
-### Example: Spring Boot starter
+`opendaimon-starter-consumer-example` is a standalone consumer project, not a published OpenDaimon module and not part
+of the root Maven reactor. It exists to verify that a normal external Spring Boot app can consume the starter without
+manual OpenDaimon configuration imports.
+
+### Use the Spring Boot starter in another app
 
 Recommended dependency for external Spring Boot applications that want common OpenDaimon defaults and Spring AI wiring:
 
@@ -332,24 +340,35 @@ Recommended dependency for external Spring Boot applications that want common Op
 ```
 
 Add delivery modules such as `opendaimon-rest` or `opendaimon-telegram` explicitly when your application needs those
-interfaces. See [opendaimon-starter-consumer-example](opendaimon-starter-consumer-example/README.md) for a standalone
-consumer project.
+interfaces:
+
+```xml
+<dependency>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>opendaimon-rest</artifactId>
+    <version>${opendaimon.version}</version>
+</dependency>
+```
+
+The starter brings `opendaimon-common`, `opendaimon-spring-ai`, OpenDaimon auto-configuration imports, and low-priority
+defaults from `META-INF/opendaimon/opendaimon-defaults.yml`. Your application still owns normal Spring Boot
+infrastructure such as web, JPA, validation, datasource, and secret configuration. For a complete external-app setup,
+see [opendaimon-starter-consumer-example](opendaimon-starter-consumer-example/README.md).
 
 ### Example: Telegram bot + Spring AI
 
 Minimal setup for a Telegram bot with AI:
 
 ```xml
-
 <dependency>
     <groupId>io.github.ngirchev</groupId>
     <artifactId>opendaimon-telegram</artifactId>
     <version>${opendaimon.version}</version>
 </dependency>
 <dependency>
-<groupId>io.github.ngirchev</groupId>
-<artifactId>opendaimon-spring-ai</artifactId>
-<version>${opendaimon.version}</version>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>opendaimon-spring-ai</artifactId>
+    <version>${opendaimon.version}</version>
 </dependency>
 ```
 
@@ -358,16 +377,15 @@ Minimal setup for a Telegram bot with AI:
 No Telegram; REST and browser UI only:
 
 ```xml
-
 <dependency>
     <groupId>io.github.ngirchev</groupId>
     <artifactId>opendaimon-ui</artifactId>
     <version>${opendaimon.version}</version>
 </dependency>
 <dependency>
-<groupId>io.github.ngirchev</groupId>
-<artifactId>opendaimon-spring-ai</artifactId>
-<version>${opendaimon.version}</version>
+    <groupId>io.github.ngirchev</groupId>
+    <artifactId>opendaimon-spring-ai</artifactId>
+    <version>${opendaimon.version}</version>
 </dependency>
 ```
 
@@ -376,7 +394,6 @@ No Telegram; REST and browser UI only:
 Use the assembled application module (includes Telegram, REST, UI, Spring AI, gateway-mock):
 
 ```xml
-
 <dependency>
     <groupId>io.github.ngirchev</groupId>
     <artifactId>opendaimon-app</artifactId>
@@ -554,7 +571,7 @@ variables or use a `.env` file in the current directory (see [Environment variab
 java -jar opendaimon-app/target/opendaimon-app-<version>.jar
 ```
 
-JAR name follows the Maven `revision` property from the parent POM (e.g. `1.1.0-SNAPSHOT`). Use Java 21: `java -version`.
+JAR name follows the Maven `revision` property from the parent POM. Use Java 21: `java -version`.
 
 ### DB migrations
 
@@ -757,18 +774,24 @@ File -> Invalidate Caches / Restart
 - **[SECURITY.md](SECURITY.md)** — How to report security vulnerabilities
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** — Server deployment guide
 - **[MODULAR_MIGRATIONS.md](docs/MODULAR_MIGRATIONS.md)** — Flyway modular migrations
+- **[opendaimon-starter-consumer-example](opendaimon-starter-consumer-example/README.md)** — Standalone external
+  Spring Boot consumer example for the starter
 
 ## Project structure
 
 ```text
 open-daimon/
 ├── opendaimon-common/        # Core module with shared logic
+├── opendaimon-spring-ai/     # Spring AI integration
+├── opendaimon-spring-boot-starter/
+│                             # Starter for external Spring Boot applications
 ├── opendaimon-telegram/      # Telegram Bot interface
 ├── opendaimon-rest/          # REST API interface
 ├── opendaimon-ui/            # Web UI interface
-├── opendaimon-spring-ai/     # Spring AI integration
 ├── opendaimon-gateway-mock/  # Mock provider for tests
-└── opendaimon-app/           # Main application module
+├── opendaimon-app/           # Bundled runnable application
+└── opendaimon-starter-consumer-example/
+                              # Standalone consumer example, outside the root reactor
 ```
 
 ## Additional commands
