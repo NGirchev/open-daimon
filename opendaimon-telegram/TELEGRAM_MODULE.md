@@ -139,7 +139,7 @@ Handlers sorted by `priority()` (lower = first). First handler where `canHandle(
 | `RoleTelegramCommandHandler` | `/role` | 0 |
 | `LanguageTelegramCommandHandler` | `/language` | 0 |
 | `ModelTelegramCommandHandler` | `/model` | 0 |
-| `McpTelegramCommandHandler` | `/mcp` | 0 |
+| `ToolsTelegramCommandHandler` | `/tools` | 0 |
 | `BugreportTelegramCommandHandler` | `/bugreport` | 0 |
 | `HistoryTelegramCommandHandler` | `/history` | 0 |
 | `ThreadsTelegramCommandHandler` | `/threads` | 0 |
@@ -148,14 +148,15 @@ Handlers sorted by `priority()` (lower = first). First handler where `canHandle(
 
 Each handler is conditional on `open-daimon.telegram.commands.<command>-enabled` (default: true).
 
-`/mcp` lists external MCP tools visible to the current invoker. It delegates to the
-common `ExternalToolCatalogService` SPI, so Telegram never applies MCP access policy
-itself. The Spring AI implementation filters tools through the same
-`open-daimon.mcp.tool-access` rules used by real tool execution. Tools are grouped
-by configured MCP source display name when present (for example,
-`@modelcontextprotocol/server-filesystem@0.2.0 - read_file, list_directory`),
-otherwise by MCP client connection name, so the output identifies which MCP server
-provides each tool.
+`/tools` lists all tools visible to the current invoker. It delegates to the
+common `ExternalToolCatalogService` SPI, so Telegram never applies tool access
+policy itself. Built-in tools are grouped by their built-in source names, while
+MCP tools are filtered through the same `open-daimon.mcp.tool-access` rules used
+by real tool execution and rendered with an `mcp:` source prefix. MCP tools are
+grouped by configured source display name when present (for example,
+`mcp: @modelcontextprotocol/server-filesystem@0.2.0 - read_file, list_directory`),
+otherwise by MCP client connection name, so the output identifies which MCP
+server provides each tool.
 
 ---
 

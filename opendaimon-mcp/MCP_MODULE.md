@@ -22,9 +22,10 @@ OpenDaimon consumes those callbacks in `opendaimon-spring-ai`:
 - Built-in tools (`web_search`, `fetch_url`, `http_get`, `http_post`) remain
   available independently of MCP.
 
-Telegram exposes `/mcp` to show the external MCP tools available to the current
-user. The command uses the same `open-daimon.mcp.tool-access` mapping as runtime
-tool execution, so ADMIN-only tools are not displayed to VIP or REGULAR users.
+Telegram exposes `/tools` to show the tools available to the current user.
+MCP tools are marked with an `mcp:` source prefix and use the same
+`open-daimon.mcp.tool-access` mapping as runtime tool execution, so ADMIN-only
+tools are not displayed to VIP or REGULAR users.
 
 ## Configuration
 

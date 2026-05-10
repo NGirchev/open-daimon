@@ -5,11 +5,13 @@ import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolAccessContext;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolCatalogService;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolDescriptor;
+import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolSourceType;
 import io.modelcontextprotocol.client.McpSyncClient;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.Arrays;
@@ -19,6 +21,11 @@ import java.util.Map;
 
 public class SpringAIExternalToolCatalogService implements ExternalToolCatalogService {
 
+    private static final String SOURCE_WEBTOOLS = "webtools";
+    private static final String SOURCE_HTTP_API = "http-api";
+
+    private final ObjectProvider<WebTools> webToolsProvider;
+    private final ObjectProvider<HttpApiTool> httpApiToolProvider;
     private final ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders;
     private final ObjectProvider<McpSyncClient> mcpSyncClients;
     private final List<String> configuredMcpConnectionNames;
@@ -26,11 +33,15 @@ public class SpringAIExternalToolCatalogService implements ExternalToolCatalogSe
     private final McpToolAccessProperties mcpToolAccessProperties;
 
     public SpringAIExternalToolCatalogService(
+            ObjectProvider<WebTools> webToolsProvider,
+            ObjectProvider<HttpApiTool> httpApiToolProvider,
             ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
             ObjectProvider<McpSyncClient> mcpSyncClients,
             List<String> configuredMcpConnectionNames,
             boolean externalToolsEnabled,
             McpToolAccessProperties mcpToolAccessProperties) {
+        this.webToolsProvider = webToolsProvider;
+        this.httpApiToolProvider = httpApiToolProvider;
         this.externalToolCallbackProviders = externalToolCallbackProviders;
         this.mcpSyncClients = mcpSyncClients;
         this.configuredMcpConnectionNames = configuredMcpConnectionNames != null
@@ -40,12 +51,26 @@ public class SpringAIExternalToolCatalogService implements ExternalToolCatalogSe
                 ? mcpToolAccessProperties : new McpToolAccessProperties();
     }
 
+    public SpringAIExternalToolCatalogService(
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            ObjectProvider<McpSyncClient> mcpSyncClients,
+            List<String> configuredMcpConnectionNames,
+            boolean externalToolsEnabled,
+            McpToolAccessProperties mcpToolAccessProperties) {
+        this(null, null, externalToolCallbackProviders, mcpSyncClients,
+                configuredMcpConnectionNames, externalToolsEnabled, mcpToolAccessProperties);
+    }
+
     @Override
     public List<ExternalToolDescriptor> listAvailableTools(ExternalToolAccessContext context) {
-        if (!externalToolsEnabled || externalToolCallbackProviders == null || context == null) {
+        if (context == null) {
             return List.of();
         }
         Map<String, ExternalToolDescriptor> toolsByName = new LinkedHashMap<>();
+        addBuiltInTools(toolsByName);
+        if (!externalToolsEnabled || externalToolCallbackProviders == null) {
+            return List.copyOf(toolsByName.values());
+        }
         Map<String, String> sourceByToolName = resolveSourceByToolName();
         Map<String, String> metadata = context.userPriority() != null
                 ? Map.of(AICommand.USER_PRIORITY_FIELD, context.userPriority().name())
@@ -56,8 +81,19 @@ public class SpringAIExternalToolCatalogService implements ExternalToolCatalogSe
                 .flatMap(Arrays::stream)
                 .filter(callback -> !ExternalToolCallbacks.isBuiltInTool(callback))
                 .filter(callback -> ExternalToolCallbacks.isAllowedFor(callback, metadata, mcpToolAccessProperties))
-                .forEach(callback -> addDescriptor(toolsByName, callback, sourceByToolName));
+                .forEach(callback -> addMcpDescriptor(toolsByName, callback, sourceByToolName));
         return List.copyOf(toolsByName.values());
+    }
+
+    private void addBuiltInTools(Map<String, ExternalToolDescriptor> toolsByName) {
+        if (webToolsProvider != null) {
+            webToolsProvider.ifAvailable(webTools -> Arrays.stream(ToolCallbacks.from(webTools))
+                    .forEach(callback -> addBuiltInDescriptor(toolsByName, callback, SOURCE_WEBTOOLS)));
+        }
+        if (httpApiToolProvider != null) {
+            httpApiToolProvider.ifAvailable(httpApiTool -> Arrays.stream(ToolCallbacks.from(httpApiTool))
+                    .forEach(callback -> addBuiltInDescriptor(toolsByName, callback, SOURCE_HTTP_API)));
+        }
     }
 
     private Map<String, String> resolveSourceByToolName() {
@@ -109,17 +145,43 @@ public class SpringAIExternalToolCatalogService implements ExternalToolCatalogSe
         return client.getClientInfo() != null ? client.getClientInfo().name() : null;
     }
 
-    private void addDescriptor(Map<String, ExternalToolDescriptor> toolsByName, ToolCallback callback,
-                               Map<String, String> sourceByToolName) {
-        if (callback == null || callback.getToolDefinition() == null) {
-            return;
-        }
-        ToolDefinition definition = callback.getToolDefinition();
-        if (definition.name() == null || definition.name().isBlank()) {
+    private static void addBuiltInDescriptor(Map<String, ExternalToolDescriptor> toolsByName, ToolCallback callback,
+                                             String sourceName) {
+        ToolDefinition definition = toolDefinition(callback);
+        if (definition == null) {
             return;
         }
         toolsByName.putIfAbsent(definition.name(),
-                new ExternalToolDescriptor(definition.name(), definition.description(), resolveSourceName(definition.name(), sourceByToolName)));
+                new ExternalToolDescriptor(
+                        definition.name(),
+                        definition.description(),
+                        sourceName,
+                        ExternalToolSourceType.BUILT_IN));
+    }
+
+    private void addMcpDescriptor(Map<String, ExternalToolDescriptor> toolsByName, ToolCallback callback,
+                                  Map<String, String> sourceByToolName) {
+        ToolDefinition definition = toolDefinition(callback);
+        if (definition == null) {
+            return;
+        }
+        toolsByName.putIfAbsent(definition.name(),
+                new ExternalToolDescriptor(
+                        definition.name(),
+                        definition.description(),
+                        resolveSourceName(definition.name(), sourceByToolName),
+                        ExternalToolSourceType.MCP));
+    }
+
+    private static ToolDefinition toolDefinition(ToolCallback callback) {
+        if (callback == null || callback.getToolDefinition() == null) {
+            return null;
+        }
+        ToolDefinition definition = callback.getToolDefinition();
+        if (definition.name() == null || definition.name().isBlank()) {
+            return null;
+        }
+        return definition;
     }
 
     private String resolveSourceName(String toolName, Map<String, String> sourceByToolName) {

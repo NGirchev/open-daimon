@@ -6,6 +6,7 @@ import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolAccessContext;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolCatalogService;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolDescriptor;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolSourceDescriptor;
+import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolSourceType;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
@@ -32,7 +33,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-class McpTelegramCommandHandlerTest {
+class ToolsTelegramCommandHandlerTest {
 
     private static final long USER_ID = 2L;
     private static final long CHAT_ID = 42L;
@@ -44,19 +45,19 @@ class McpTelegramCommandHandlerTest {
     @Mock private ExternalToolCatalogService catalogService;
     @Mock private IUserPriorityService userPriorityService;
 
-    private McpTelegramCommandHandler handler;
+    private ToolsTelegramCommandHandler handler;
 
     @BeforeEach
     void setUp() {
-        when(messageLocalizationService.getMessage(eq("telegram.command.mcp.desc"), anyString()))
-                .thenReturn("/mcp - list available MCP tools");
-        when(messageLocalizationService.getMessage(eq("telegram.mcp.unavailable"), anyString()))
-                .thenReturn("MCP tools are not configured.");
-        when(messageLocalizationService.getMessage(eq("telegram.mcp.empty"), anyString(), any()))
-                .thenAnswer(inv -> "No MCP tools are available for " + inv.getArgument(2));
-        when(messageLocalizationService.getMessage(eq("telegram.mcp.header"), anyString(), any()))
-                .thenAnswer(inv -> "Available MCP tools for " + inv.getArgument(2) + ":");
-        handler = new McpTelegramCommandHandler(
+        when(messageLocalizationService.getMessage(eq("telegram.command.tools.desc"), anyString()))
+                .thenReturn("/tools - list available tools");
+        when(messageLocalizationService.getMessage(eq("telegram.tools.unavailable"), anyString()))
+                .thenReturn("Tools are not configured.");
+        when(messageLocalizationService.getMessage(eq("telegram.tools.empty"), anyString(), any()))
+                .thenAnswer(inv -> "No tools are available for " + inv.getArgument(2));
+        when(messageLocalizationService.getMessage(eq("telegram.tools.header"), anyString(), any()))
+                .thenAnswer(inv -> "Available tools for " + inv.getArgument(2) + ":");
+        handler = new ToolsTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
                 messageLocalizationService,
@@ -65,18 +66,18 @@ class McpTelegramCommandHandlerTest {
     }
 
     @Test
-    void canHandleMcpCommand() {
-        assertThat(handler.canHandle(command(TelegramCommand.MCP))).isTrue();
-        assertThat(handler.canHandle(command(TelegramCommand.MODEL))).isFalse();
+    void canHandleToolsCommandOnly() {
+        assertThat(handler.canHandle(command(TelegramCommand.TOOLS))).isTrue();
+        assertThat(handler.canHandle(command("/mcp"))).isFalse();
     }
 
     @Test
     void shouldReturnUnavailableWhenCatalogMissing() {
         when(catalogProvider.getIfAvailable()).thenReturn(null);
 
-        String response = handler.handleInner(command(TelegramCommand.MCP));
+        String response = handler.handleInner(command(TelegramCommand.TOOLS));
 
-        assertThat(response).isEqualTo("MCP tools are not configured.");
+        assertThat(response).isEqualTo("Tools are not configured.");
     }
 
     @Test
@@ -86,24 +87,34 @@ class McpTelegramCommandHandlerTest {
         when(catalogService.listAvailableToolSources(new ExternalToolAccessContext(USER_ID, UserPriority.REGULAR)))
                 .thenReturn(List.of());
 
-        String response = handler.handleInner(command(TelegramCommand.MCP));
+        String response = handler.handleInner(command(TelegramCommand.TOOLS));
 
         assertThat(response).contains("REGULAR");
     }
 
     @Test
-    void shouldRenderAvailableToolsEscaped() {
+    void shouldRenderBuiltInAndMcpToolsEscaped() {
         when(catalogProvider.getIfAvailable()).thenReturn(catalogService);
         when(userPriorityService.getUserPriority(USER_ID)).thenReturn(UserPriority.ADMIN);
         when(catalogService.listAvailableToolSources(new ExternalToolAccessContext(USER_ID, UserPriority.ADMIN)))
-                .thenReturn(List.of(new ExternalToolSourceDescriptor("filesystem",
-                        List.of(new ExternalToolDescriptor("read_file", "Read <files>")))));
+                .thenReturn(List.of(
+                        new ExternalToolSourceDescriptor("webtools", ExternalToolSourceType.BUILT_IN,
+                                List.of(new ExternalToolDescriptor(
+                                        "web_search", "Search <web>", "webtools", ExternalToolSourceType.BUILT_IN))),
+                        new ExternalToolSourceDescriptor("@modelcontextprotocol/server-filesystem@0.2.0",
+                                ExternalToolSourceType.MCP,
+                                List.of(new ExternalToolDescriptor(
+                                        "read_file", "Read <files>",
+                                        "@modelcontextprotocol/server-filesystem@0.2.0",
+                                        ExternalToolSourceType.MCP)))));
 
-        String response = handler.handleInner(command(TelegramCommand.MCP));
+        String response = handler.handleInner(command(TelegramCommand.TOOLS));
 
         assertThat(response)
-                .contains("Available MCP tools for ADMIN:")
-                .contains("• filesystem - read_file")
+                .contains("Available tools for ADMIN:")
+                .contains("• webtools - web_search")
+                .contains("• mcp: @modelcontextprotocol/server-filesystem@0.2.0 - read_file")
+                .doesNotContain("Search &lt;web&gt;")
                 .doesNotContain("Read &lt;files&gt;");
     }
 
@@ -112,15 +123,17 @@ class McpTelegramCommandHandlerTest {
         when(catalogProvider.getIfAvailable()).thenReturn(catalogService);
         when(userPriorityService.getUserPriority(USER_ID)).thenReturn(UserPriority.ADMIN);
         when(catalogService.listAvailableToolSources(new ExternalToolAccessContext(USER_ID, UserPriority.ADMIN)))
-                .thenReturn(List.of(new ExternalToolSourceDescriptor("custom-server",
+                .thenReturn(List.of(new ExternalToolSourceDescriptor("custom-server", ExternalToolSourceType.MCP,
                         List.of(new ExternalToolDescriptor(
                                 "custom_tool",
-                                "First second third fourth fifth sixth seventh eighth ninth")))));
+                                "First second third fourth fifth sixth seventh eighth ninth",
+                                "custom-server",
+                                ExternalToolSourceType.MCP)))));
 
-        String response = handler.handleInner(command(TelegramCommand.MCP));
+        String response = handler.handleInner(command(TelegramCommand.TOOLS));
 
         assertThat(response)
-                .contains("• custom-server - custom_tool")
+                .contains("• mcp: custom-server - custom_tool")
                 .doesNotContain("First second");
     }
 
@@ -132,12 +145,13 @@ class McpTelegramCommandHandlerTest {
                 .mapToObj(i -> new ExternalToolDescriptor(
                         "very_long_external_tool_name_" + i,
                         "Very long description ".repeat(100),
-                        "server"))
+                        "server",
+                        ExternalToolSourceType.MCP))
                 .toList();
         when(catalogService.listAvailableToolSources(new ExternalToolAccessContext(USER_ID, UserPriority.ADMIN)))
-                .thenReturn(List.of(new ExternalToolSourceDescriptor("server", tools)));
+                .thenReturn(List.of(new ExternalToolSourceDescriptor("server", ExternalToolSourceType.MCP, tools)));
 
-        String response = handler.handleInner(command(TelegramCommand.MCP));
+        String response = handler.handleInner(command(TelegramCommand.TOOLS));
 
         assertThat(response)
                 .hasSizeLessThan(4096)
@@ -147,7 +161,7 @@ class McpTelegramCommandHandlerTest {
     @Test
     void shouldProvideStartMenuDescription() {
         assertThat(handler.getSupportedCommandText("en"))
-                .isEqualTo("/mcp - list available MCP tools");
+                .isEqualTo("/tools - list available tools");
     }
 
     private static TelegramCommand command(String commandText) {

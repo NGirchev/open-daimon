@@ -3,6 +3,7 @@ package io.github.ngirchev.opendaimon.ai.springai.tool;
 import io.github.ngirchev.opendaimon.ai.springai.config.McpToolAccessProperties;
 import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolAccessContext;
+import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolSourceType;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.junit.jupiter.api.Test;
@@ -10,11 +11,15 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -117,6 +122,33 @@ class SpringAIExternalToolCatalogServiceTest {
         assertThat(tools).isEmpty();
     }
 
+    @Test
+    void shouldListBuiltInAndMcpToolsWithSourceTypes() {
+        ObjectProvider<ToolCallbackProvider> providers = providers(toolCallback("read_file"));
+        SpringAIExternalToolCatalogService service = new SpringAIExternalToolCatalogService(
+                webToolsProvider(),
+                httpApiToolProvider(),
+                providers,
+                mcpClients(mcpClient("read_file")),
+                List.of("@modelcontextprotocol/server-filesystem@0.2.0"),
+                true,
+                new McpToolAccessProperties());
+
+        var tools = service.listAvailableTools(new ExternalToolAccessContext(1L, UserPriority.ADMIN));
+
+        assertThat(tools)
+                .extracting("name", "sourceName", "sourceType")
+                .contains(
+                        org.assertj.core.groups.Tuple.tuple("web_search", "webtools", ExternalToolSourceType.BUILT_IN),
+                        org.assertj.core.groups.Tuple.tuple("fetch_url", "webtools", ExternalToolSourceType.BUILT_IN),
+                        org.assertj.core.groups.Tuple.tuple("http_get", "http-api", ExternalToolSourceType.BUILT_IN),
+                        org.assertj.core.groups.Tuple.tuple("http_post", "http-api", ExternalToolSourceType.BUILT_IN),
+                        org.assertj.core.groups.Tuple.tuple(
+                                "read_file",
+                                "@modelcontextprotocol/server-filesystem@0.2.0",
+                                ExternalToolSourceType.MCP));
+    }
+
     private static ObjectProvider<ToolCallbackProvider> providers(ToolCallback... callbacks) {
         ToolCallbackProvider provider = mock(ToolCallbackProvider.class);
         when(provider.getToolCallbacks()).thenReturn(callbacks);
@@ -133,6 +165,26 @@ class SpringAIExternalToolCatalogServiceTest {
         ObjectProvider<McpSyncClient> clients = mock(ObjectProvider.class);
         when(clients.orderedStream()).thenReturn(Stream.of(mcpClients));
         return clients;
+    }
+
+    private static ObjectProvider<WebTools> webToolsProvider() {
+        ObjectProvider<WebTools> provider = mock(ObjectProvider.class);
+        doAnswer(invocation -> {
+            Consumer<WebTools> consumer = invocation.getArgument(0);
+            consumer.accept(new WebTools(mock(WebClient.class), "test-key", "https://serper.dev/search"));
+            return null;
+        }).when(provider).ifAvailable(any());
+        return provider;
+    }
+
+    private static ObjectProvider<HttpApiTool> httpApiToolProvider() {
+        ObjectProvider<HttpApiTool> provider = mock(ObjectProvider.class);
+        doAnswer(invocation -> {
+            Consumer<HttpApiTool> consumer = invocation.getArgument(0);
+            consumer.accept(new HttpApiTool(mock(WebClient.class)));
+            return null;
+        }).when(provider).ifAvailable(any());
+        return provider;
     }
 
     private static McpSyncClient mcpClient(String toolName) {

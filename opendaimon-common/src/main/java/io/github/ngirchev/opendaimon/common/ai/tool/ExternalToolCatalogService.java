@@ -11,12 +11,19 @@ public interface ExternalToolCatalogService {
     default List<ExternalToolSourceDescriptor> listAvailableToolSources(ExternalToolAccessContext context) {
         Map<String, List<ExternalToolDescriptor>> toolsBySource = listAvailableTools(context).stream()
                 .collect(Collectors.groupingBy(
-                        ExternalToolCatalogService::sourceName,
+                        ExternalToolCatalogService::sourceKey,
                         java.util.LinkedHashMap::new,
                         Collectors.toList()));
         return toolsBySource.entrySet().stream()
-                .map(entry -> new ExternalToolSourceDescriptor(entry.getKey(), entry.getValue()))
+                .map(entry -> new ExternalToolSourceDescriptor(
+                        sourceName(entry.getValue().getFirst()),
+                        entry.getValue().getFirst().sourceType(),
+                        entry.getValue()))
                 .toList();
+    }
+
+    private static String sourceKey(ExternalToolDescriptor tool) {
+        return tool.sourceType().name() + "\u0000" + sourceName(tool);
     }
 
     private static String sourceName(ExternalToolDescriptor tool) {

@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolAccessContext;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolCatalogService;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolSourceDescriptor;
+import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolSourceType;
 import io.github.ngirchev.opendaimon.common.command.ICommand;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
@@ -15,10 +16,11 @@ import io.github.ngirchev.opendaimon.telegram.service.TelegramHtmlEscaper;
 import io.github.ngirchev.opendaimon.telegram.service.TypingIndicatorService;
 import org.springframework.beans.factory.ObjectProvider;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class McpTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
+public class ToolsTelegramCommandHandler extends AbstractTelegramCommandHandlerWithResponseSend {
 
     private static final int MAX_RESPONSE_CHARS = 3900;
     private static final int MAX_TOOL_LINE_CHARS = 1000;
@@ -26,7 +28,7 @@ public class McpTelegramCommandHandler extends AbstractTelegramCommandHandlerWit
     private final ObjectProvider<ExternalToolCatalogService> externalToolCatalogServiceProvider;
     private final IUserPriorityService userPriorityService;
 
-    public McpTelegramCommandHandler(
+    public ToolsTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
@@ -47,25 +49,25 @@ public class McpTelegramCommandHandler extends AbstractTelegramCommandHandlerWit
         var commandType = command.commandType();
         return command instanceof TelegramCommand
                 && commandType != null
-                && TelegramCommand.MCP.equals(commandType.command());
+                && TelegramCommand.TOOLS.equals(commandType.command());
     }
 
     @Override
     public String handleInner(TelegramCommand command) {
         ExternalToolCatalogService catalog = externalToolCatalogServiceProvider.getIfAvailable();
         if (catalog == null) {
-            return messageLocalizationService.getMessage("telegram.mcp.unavailable", command.languageCode());
+            return messageLocalizationService.getMessage("telegram.tools.unavailable", command.languageCode());
         }
 
         UserPriority priority = userPriorityService.getUserPriority(command.userId());
         List<ExternalToolSourceDescriptor> sources = catalog.listAvailableToolSources(
                 new ExternalToolAccessContext(command.userId(), priority));
         if (sources.isEmpty()) {
-            return messageLocalizationService.getMessage("telegram.mcp.empty", command.languageCode(), priority);
+            return messageLocalizationService.getMessage("telegram.tools.empty", command.languageCode(), priority);
         }
 
         StringBuilder response = new StringBuilder(messageLocalizationService.getMessage(
-                "telegram.mcp.header", command.languageCode(), priority));
+                "telegram.tools.header", command.languageCode(), priority));
         String line = "\n" + renderToolLine(sources);
         if (response.length() + line.length() > MAX_RESPONSE_CHARS) {
             response.append("\n...");
@@ -77,10 +79,14 @@ public class McpTelegramCommandHandler extends AbstractTelegramCommandHandlerWit
 
     private static String renderToolLine(List<ExternalToolSourceDescriptor> sources) {
         String commands = sources.stream()
-                .sorted(java.util.Comparator.comparing(ExternalToolSourceDescriptor::name))
-                .map(McpTelegramCommandHandler::renderSourceTools)
+                .sorted(Comparator.comparing(ToolsTelegramCommandHandler::sourceSortKey))
+                .map(ToolsTelegramCommandHandler::renderSourceTools)
                 .collect(Collectors.joining("\n"));
         return TelegramHtmlEscaper.escape(truncateToolLine(commands));
+    }
+
+    private static String sourceSortKey(ExternalToolSourceDescriptor source) {
+        return source.sourceType().name() + ":" + source.name();
     }
 
     private static String renderSourceTools(ExternalToolSourceDescriptor source) {
@@ -88,7 +94,14 @@ public class McpTelegramCommandHandler extends AbstractTelegramCommandHandlerWit
                 .map(tool -> tool.name())
                 .sorted()
                 .collect(Collectors.joining(", "));
-        return "• " + source.name() + " - " + commands;
+        return "• " + sourceLabel(source) + " - " + commands;
+    }
+
+    private static String sourceLabel(ExternalToolSourceDescriptor source) {
+        if (ExternalToolSourceType.MCP.equals(source.sourceType())) {
+            return "mcp: " + source.name();
+        }
+        return source.name();
     }
 
     private static String truncateToolLine(String commands) {
@@ -100,6 +113,6 @@ public class McpTelegramCommandHandler extends AbstractTelegramCommandHandlerWit
 
     @Override
     public String getSupportedCommandText(String languageCode) {
-        return messageLocalizationService.getMessage("telegram.command.mcp.desc", languageCode);
+        return messageLocalizationService.getMessage("telegram.command.tools.desc", languageCode);
     }
 }

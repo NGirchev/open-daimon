@@ -443,6 +443,11 @@ configuration. The bundled `opendaimon-app` configures the filesystem stdio
 server; the published starter defaults do not start a concrete stdio server for
 downstream applications.
 
+`SpringAIExternalToolCatalogService` lists the same built-in tools and the
+role-filtered MCP tools for user-facing `/tools` output. MCP entries keep their
+resolved source display name, so Telegram can mark them as `mcp: <source>` while
+showing built-in groups such as `webtools` and `http-api` without an MCP marker.
+
 External provider callbacks are role-filtered. `SpringAIChatService` passes
 command metadata to `SpringAIPromptFactory`, and `SpringAgentLoopActions#resolveEffectiveTools`
 uses the same metadata in agent mode. By default, tools without an explicit rule

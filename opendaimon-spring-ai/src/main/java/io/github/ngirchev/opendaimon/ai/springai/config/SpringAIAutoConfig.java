@@ -58,6 +58,7 @@ import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelRotationAspect;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UnknownToolFallbackResolver;
+import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessCheckerImpl;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
@@ -187,12 +188,16 @@ public class SpringAIAutoConfig {
     @Bean
     @ConditionalOnMissingBean
     public ExternalToolCatalogService externalToolCatalogService(
+            ObjectProvider<WebTools> webToolsProvider,
+            ObjectProvider<HttpApiTool> httpApiToolProvider,
             ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
             ObjectProvider<io.modelcontextprotocol.client.McpSyncClient> mcpSyncClients,
             Environment environment,
             @Value("${" + FeatureToggle.Module.MCP_ENABLED + ":true}") boolean externalToolsEnabled,
             McpToolAccessProperties mcpToolAccessProperties) {
         return new SpringAIExternalToolCatalogService(
+                webToolsProvider,
+                httpApiToolProvider,
                 externalToolCallbackProviders,
                 mcpSyncClients,
                 configuredMcpSourceNames(environment),

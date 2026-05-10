@@ -145,14 +145,14 @@ public class TelegramCommandHandlerConfig {
 
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.MCP, havingValue = "true", matchIfMissing = true)
-    public McpTelegramCommandHandler mcpTelegramCommandHandler(
+    @ConditionalOnProperty(prefix = FeatureToggle.TelegramCommand.PREFIX, name = FeatureToggle.TelegramCommand.TOOLS, havingValue = "true", matchIfMissing = true)
+    public ToolsTelegramCommandHandler toolsTelegramCommandHandler(
             ObjectProvider<TelegramBot> telegramBotProvider,
             TypingIndicatorService typingIndicatorService,
             MessageLocalizationService messageLocalizationService,
             ObjectProvider<ExternalToolCatalogService> externalToolCatalogServiceProvider,
             IUserPriorityService userPriorityService) {
-        return new McpTelegramCommandHandler(
+        return new ToolsTelegramCommandHandler(
                 telegramBotProvider,
                 typingIndicatorService,
                 messageLocalizationService,
