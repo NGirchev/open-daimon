@@ -19,6 +19,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
 import org.springframework.boot.web.reactive.function.client.WebClientCustomizer;
 import org.springframework.boot.web.client.RestClientCustomizer;
@@ -69,6 +72,8 @@ import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.context.support.GenericApplicationContext;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterFreeModelResolver;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelsApiClient;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelStatsRecorder;
@@ -183,12 +188,37 @@ public class SpringAIAutoConfig {
     @ConditionalOnMissingBean
     public ExternalToolCatalogService externalToolCatalogService(
             ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            ObjectProvider<io.modelcontextprotocol.client.McpSyncClient> mcpSyncClients,
+            Environment environment,
             @Value("${" + FeatureToggle.Module.MCP_ENABLED + ":true}") boolean externalToolsEnabled,
             McpToolAccessProperties mcpToolAccessProperties) {
         return new SpringAIExternalToolCatalogService(
                 externalToolCallbackProviders,
+                mcpSyncClients,
+                configuredMcpSourceNames(environment),
                 externalToolsEnabled,
                 mcpToolAccessProperties);
+    }
+
+    private static List<String> configuredMcpSourceNames(Environment environment) {
+        Binder binder = Binder.get(environment);
+        Map<String, String> displayNames = binder.bind("open-daimon.mcp.source-display-names",
+                        Bindable.mapOf(String.class, String.class))
+                .orElse(Map.of());
+        List<String> names = new java.util.ArrayList<>();
+        names.addAll(sourceNames(binder, "spring.ai.mcp.client.stdio.connections", displayNames));
+        names.addAll(sourceNames(binder, "spring.ai.mcp.client.sse.connections", displayNames));
+        names.addAll(sourceNames(binder, "spring.ai.mcp.client.streamable-http.connections", displayNames));
+        return names.stream().distinct().toList();
+    }
+
+    private static List<String> sourceNames(Binder binder, String prefix, Map<String, String> displayNames) {
+        return binder.bind(prefix, Bindable.mapOf(String.class, Object.class))
+                .map(LinkedHashMap::new)
+                .map(map -> map.keySet().stream()
+                        .map(name -> displayNames.getOrDefault(name, name))
+                        .toList())
+                .orElse(List.of());
     }
 
     @Bean

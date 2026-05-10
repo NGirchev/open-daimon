@@ -40,6 +40,18 @@ class SpringAIModelRegistryTest {
                   "supported_parameters": ["tools"]
                 },
                 {
+                  "id": "google/gemma-4-31b-it",
+                  "pricing": {"prompt": "0.00000013", "completion": "0.00000038"},
+                  "architecture": {"input_modalities": ["text", "image"]},
+                  "supported_parameters": ["tools", "response_format"]
+                },
+                {
+                  "id": "deepseek/deepseek-v4-flash",
+                  "pricing": {"prompt": "0.00000014", "completion": "0.00000028"},
+                  "architecture": {"modality": "text->text"},
+                  "supported_parameters": ["tools", "response_format"]
+                },
+                {
                   "id": "google/gemma-3-27b-it:free",
                   "pricing": {"prompt": "0", "completion": "0"},
                   "architecture": {"modality": "text->text"},
@@ -47,6 +59,10 @@ class SpringAIModelRegistryTest {
                 }
               ]
             }
+            """;
+
+    private static final String EMBEDDING_MODELS_JSON = """
+            {"data": []}
             """;
 
     @Mock
@@ -63,6 +79,13 @@ class SpringAIModelRegistryTest {
                 eq(String.class)))
                 .thenReturn(ResponseEntity.status(HttpStatus.OK).body(MODELS_JSON));
 
+        when(restTemplate.exchange(
+                contains("/v1/embeddings/models"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(String.class)))
+                .thenReturn(ResponseEntity.status(HttpStatus.OK).body(EMBEDDING_MODELS_JSON));
+
         OpenRouterModelsApiClient client = new OpenRouterModelsApiClient(restTemplate, new ObjectMapper());
 
         OpenRouterModelsProperties props = new OpenRouterModelsProperties();
@@ -76,7 +99,8 @@ class SpringAIModelRegistryTest {
         // Whitelist entry 1: ADMIN + VIP see paid models by exact ID
         OpenRouterModelsProperties.Whitelist adminVip = new OpenRouterModelsProperties.Whitelist();
         adminVip.setRoles(List.of(UserPriority.ADMIN, UserPriority.VIP));
-        adminVip.setIncludeModelIds(List.of("openai/gpt-5.4", "openai/gpt-5-nano"));
+        adminVip.setIncludeModelIds(List.of(
+                "openai/gpt-5.4", "openai/gpt-5-nano", "google/gemma-4-31b-it", "deepseek/deepseek-v4-flash"));
 
         // Whitelist entry 2: ADMIN + REGULAR see free models by exact ID
         OpenRouterModelsProperties.Whitelist adminRegular = new OpenRouterModelsProperties.Whitelist();
@@ -103,11 +127,11 @@ class SpringAIModelRegistryTest {
 
         assertThat(registry.getAllModels(UserPriority.ADMIN))
                 .extracting(SpringAIModelConfig::getName)
-                .contains("openai/gpt-5.4");
+                .contains("openai/gpt-5.4", "google/gemma-4-31b-it", "deepseek/deepseek-v4-flash");
 
         assertThat(registry.getAllModels(UserPriority.VIP))
                 .extracting(SpringAIModelConfig::getName)
-                .contains("openai/gpt-5.4");
+                .contains("openai/gpt-5.4", "google/gemma-4-31b-it", "deepseek/deepseek-v4-flash");
     }
 
     @Test
@@ -116,7 +140,7 @@ class SpringAIModelRegistryTest {
 
         assertThat(registry.getAllModels(UserPriority.REGULAR))
                 .extracting(SpringAIModelConfig::getName)
-                .doesNotContain("openai/gpt-5.4", "openai/gpt-5-nano");
+                .doesNotContain("openai/gpt-5.4", "openai/gpt-5-nano", "google/gemma-4-31b-it", "deepseek/deepseek-v4-flash");
     }
 
     @Test

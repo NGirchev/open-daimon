@@ -151,6 +151,8 @@ open-daimon:
     enabled: true
   mcp:
     enabled: true
+    source-display-names:
+      filesystem: "@modelcontextprotocol/server-filesystem@0.2.0"
     tool-access:
       # External MCP tools not matched by a rule are available to all allowed tiers.
       # Filesystem MCP tools are restricted to ADMIN by default.
@@ -177,6 +179,8 @@ open-daimon:
             - roles: [ ADMIN, VIP ]
               include-model-ids:
                 - google/gemini-2.5-flash
+                - google/gemma-4-31b-it
+                - deepseek/deepseek-v4-flash
                 - openai/gpt-5-nano
                 - z-ai/glm-5-turbo
                 - qwen/qwen3-vl-235b-a22b-thinking
@@ -252,6 +256,33 @@ open-daimon:
               - THINKING
             provider-type: OPENAI
             priority: 1
+            allowed-roles:
+              - ADMIN
+              - VIP
+          - name: "google/gemma-4-31b-it"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - VISION
+              - STRUCTURED_OUTPUT
+              - THINKING
+            provider-type: OPENAI
+            priority: 1
+            max-reasoning-tokens: 4000
+            allowed-roles:
+              - ADMIN
+              - VIP
+          - name: "deepseek/deepseek-v4-flash"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - STRUCTURED_OUTPUT
+              - THINKING
+            provider-type: OPENAI
+            priority: 1
+            max-reasoning-tokens: 4000
             allowed-roles:
               - ADMIN
               - VIP
@@ -383,11 +414,10 @@ spring:
         stdio:
           connections:
             filesystem:
-              command: npx
+              command: sh
               args:
-                - -y
-                - "@modelcontextprotocol/server-filesystem"
-                - ${MCP_FILESYSTEM_ROOT:/app/mcp-filesystem}
+                - -c
+                - exec ${MCP_FILESYSTEM_COMMAND:npx -y @modelcontextprotocol/server-filesystem} ${MCP_FILESYSTEM_ROOT:/app/mcp-filesystem}
         # sse:
         #   connections:
         #     remote:

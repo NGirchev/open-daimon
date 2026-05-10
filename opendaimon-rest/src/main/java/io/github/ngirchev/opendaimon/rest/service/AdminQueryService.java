@@ -47,8 +47,17 @@ public class AdminQueryService {
     @Transactional(readOnly = true)
     public AdminPageResponse<AdminConversationSummary> listConversations(
             Long userId, ThreadScopeKind scopeKind, Boolean isActive, Pageable pageable) {
+        Long scopeId = null;
+        if (userId != null) {
+            User user = adminUserRepository.findById(userId).orElse(null);
+            if (user != null && TELEGRAM_GROUP_CLASS.equals(user.getClass().getSimpleName())) {
+                scopeKind = ThreadScopeKind.TELEGRAM_CHAT;
+                scopeId = parseLong(invokeTelegramId(user));
+                userId = null;
+            }
+        }
         Page<ConversationThread> page = adminConversationRepository
-                .findAllWithFilters(userId, scopeKind, isActive, pageable);
+                .findAllWithFilters(userId, scopeKind, scopeId, isActive, pageable);
         return AdminPageResponse.from(page.map(this::toConversationSummary));
     }
 
@@ -144,7 +153,7 @@ public class AdminQueryService {
         return new AdminUserSummary(
                 user.getId(),
                 discriminator,
-                user.getUsername(),
+                resolveUsername(user),
                 user.getFirstName(),
                 user.getLastName(),
                 identity,
@@ -154,7 +163,9 @@ public class AdminQueryService {
     }
 
     private static final String TELEGRAM_USER_CLASS = "TelegramUser";
+    private static final String TELEGRAM_GROUP_CLASS = "TelegramGroup";
     private static final String TELEGRAM_ID_GETTER = "getTelegramId";
+    private static final String TELEGRAM_GROUP_TITLE_GETTER = "getTitle";
 
     private String resolveUserType(User user) {
         if (user instanceof RestUser) {
@@ -163,25 +174,49 @@ public class AdminQueryService {
         if (TELEGRAM_USER_CLASS.equals(user.getClass().getSimpleName())) {
             return "TELEGRAM";
         }
+        if (TELEGRAM_GROUP_CLASS.equals(user.getClass().getSimpleName())) {
+            return "TELEGRAM_GROUP";
+        }
         return "USER";
+    }
+
+    private String resolveUsername(User user) {
+        if (TELEGRAM_GROUP_CLASS.equals(user.getClass().getSimpleName())) {
+            return invokeStringGetter(user, TELEGRAM_GROUP_TITLE_GETTER);
+        }
+        return user.getUsername();
     }
 
     private String resolveIdentity(User user) {
         if (user instanceof RestUser ru) {
             return ru.getEmail();
         }
-        if (TELEGRAM_USER_CLASS.equals(user.getClass().getSimpleName())) {
+        if (TELEGRAM_USER_CLASS.equals(user.getClass().getSimpleName())
+                || TELEGRAM_GROUP_CLASS.equals(user.getClass().getSimpleName())) {
             return invokeTelegramId(user);
         }
         return null;
     }
 
     private String invokeTelegramId(User user) {
+        return invokeStringGetter(user, TELEGRAM_ID_GETTER);
+    }
+
+    private String invokeStringGetter(User user, String getter) {
         try {
-            Object v = user.getClass().getMethod(TELEGRAM_ID_GETTER).invoke(user);
+            Object v = user.getClass().getMethod(getter).invoke(user);
             return v != null ? v.toString() : null;
         } catch (ReflectiveOperationException e) {
-            log.debug("Failed to reflect TelegramUser.getTelegramId on {}", user.getClass(), e);
+            log.debug("Failed to reflect {} on {}", getter, user.getClass(), e);
+            return null;
+        }
+    }
+
+    private Long parseLong(String value) {
+        try {
+            return value != null ? Long.parseLong(value) : null;
+        } catch (NumberFormatException e) {
+            log.debug("Failed to parse long value: {}", value);
             return null;
         }
     }

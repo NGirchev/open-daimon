@@ -3,6 +3,8 @@ package io.github.ngirchev.opendaimon.ai.springai.tool;
 import io.github.ngirchev.opendaimon.ai.springai.config.McpToolAccessProperties;
 import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolAccessContext;
+import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.spec.McpSchema;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -25,7 +27,7 @@ class SpringAIExternalToolCatalogServiceTest {
                 toolCallback("read_file"),
                 toolCallback("weather_lookup"));
         SpringAIExternalToolCatalogService service = new SpringAIExternalToolCatalogService(
-                providers, true, new McpToolAccessProperties());
+                providers, mcpClients(), List.of(), true, new McpToolAccessProperties());
 
         var tools = service.listAvailableTools(new ExternalToolAccessContext(1L, UserPriority.REGULAR));
 
@@ -38,7 +40,7 @@ class SpringAIExternalToolCatalogServiceTest {
     void shouldListAdminFilesystemTools() {
         ObjectProvider<ToolCallbackProvider> providers = providers(toolCallback("read_file"));
         SpringAIExternalToolCatalogService service = new SpringAIExternalToolCatalogService(
-                providers, true, new McpToolAccessProperties());
+                providers, mcpClients(), List.of(), true, new McpToolAccessProperties());
 
         var tools = service.listAvailableTools(new ExternalToolAccessContext(1L, UserPriority.ADMIN));
 
@@ -48,10 +50,33 @@ class SpringAIExternalToolCatalogServiceTest {
     }
 
     @Test
+    void shouldUseMcpClientIdentifierAsSourceName() {
+        McpSyncClient client = mock(McpSyncClient.class);
+        when(client.getClientInfo()).thenReturn(new McpSchema.Implementation("filesystem", "1.0.0"));
+
+        String sourceName = SpringAIExternalToolCatalogService.resolveSourceName(client);
+
+        assertThat(sourceName).isEqualTo("filesystem");
+    }
+
+    @Test
+    void shouldUseSingleConfiguredConnectionNameAsSourceFallback() {
+        ObjectProvider<ToolCallbackProvider> providers = providers(toolCallback("read_file"));
+        SpringAIExternalToolCatalogService service = new SpringAIExternalToolCatalogService(
+                providers, mcpClients(), List.of("filesystem"), true, new McpToolAccessProperties());
+
+        var tools = service.listAvailableTools(new ExternalToolAccessContext(1L, UserPriority.ADMIN));
+
+        assertThat(tools)
+                .extracting("sourceName")
+                .containsExactly("filesystem");
+    }
+
+    @Test
     void shouldReturnEmptyWhenExternalToolsDisabled() {
         ObjectProvider<ToolCallbackProvider> providers = providers(toolCallback("weather_lookup"));
         SpringAIExternalToolCatalogService service = new SpringAIExternalToolCatalogService(
-                providers, false, new McpToolAccessProperties());
+                providers, mcpClients(), List.of(), false, new McpToolAccessProperties());
 
         var tools = service.listAvailableTools(new ExternalToolAccessContext(1L, UserPriority.ADMIN));
 
@@ -64,6 +89,16 @@ class SpringAIExternalToolCatalogServiceTest {
         ObjectProvider<ToolCallbackProvider> providers = mock(ObjectProvider.class);
         when(providers.orderedStream()).thenReturn(Stream.of(provider));
         return providers;
+    }
+
+    private static ObjectProvider<McpSyncClient> mcpClients() {
+        return mcpClients(new McpSyncClient[0]);
+    }
+
+    private static ObjectProvider<McpSyncClient> mcpClients(McpSyncClient... mcpClients) {
+        ObjectProvider<McpSyncClient> clients = mock(ObjectProvider.class);
+        when(clients.orderedStream()).thenReturn(Stream.of(mcpClients));
+        return clients;
     }
 
     private static ToolCallback toolCallback(String name) {

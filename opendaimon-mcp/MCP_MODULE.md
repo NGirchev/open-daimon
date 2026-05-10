@@ -99,25 +99,27 @@ spring:
         stdio:
           connections:
             filesystem:
-              command: npx
+              command: sh
               args:
-                - -y
-                - "@modelcontextprotocol/server-filesystem"
-                - ${MCP_FILESYSTEM_ROOT:/app/mcp-filesystem}
+                - -c
+                - exec ${MCP_FILESYSTEM_COMMAND:npx -y @modelcontextprotocol/server-filesystem} ${MCP_FILESYSTEM_ROOT:/app/mcp-filesystem}
 ```
 
 Disable it in Docker with `MCP_CLIENT_ENABLED=false`. The runtime image includes
-Node.js/npm so `npx` can start the server. The server runs inside the OpenDaimon
-container and sees only the container filesystem plus mounted volumes. The
-compose file mounts `./mcp-filesystem` to `/app/mcp-filesystem`; keep that root
-narrow and do not point it at `/`, `/app/config`, or directories containing
-secrets.
+Node.js/npm and preinstalls `@modelcontextprotocol/server-filesystem`; Docker
+sets `MCP_FILESYSTEM_COMMAND=mcp-server-filesystem` so startup does not depend on
+runtime `npx` package resolution. Without that environment variable, the bundled
+configuration falls back to `npx -y @modelcontextprotocol/server-filesystem` for
+local development. The server runs inside the OpenDaimon container and sees only
+the container filesystem plus mounted volumes. The compose file mounts
+`./mcp-filesystem` to `/app/mcp-filesystem`; keep that root narrow and do not
+point it at `/`, `/app/config`, or directories containing secrets.
 
 Even when configured, filesystem MCP tools are made available to ADMIN users by
 the default `tool-access` rule. This is enforced in both agent and normal Spring
 AI prompt flows.
 
-The smoke test `FilesystemMcpSmokeIT` starts `@modelcontextprotocol/server-filesystem`
+The smoke test `FilesystemMcpSmokeTest` starts `@modelcontextprotocol/server-filesystem`
 with `npx`, creates a temporary sandbox containing `alpha.txt` and `nested/`,
 then calls the MCP `list_directory` tool. A successful run prints output like:
 

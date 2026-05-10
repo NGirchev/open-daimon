@@ -5,6 +5,7 @@ import io.github.ngirchev.opendaimon.bulkhead.service.IUserPriorityService;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolAccessContext;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolCatalogService;
 import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolDescriptor;
+import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolSourceDescriptor;
 import io.github.ngirchev.opendaimon.common.service.MessageLocalizationService;
 import io.github.ngirchev.opendaimon.telegram.TelegramBot;
 import io.github.ngirchev.opendaimon.telegram.command.TelegramCommand;
@@ -82,7 +83,7 @@ class McpTelegramCommandHandlerTest {
     void shouldReturnEmptyWhenUserHasNoAllowedTools() {
         when(catalogProvider.getIfAvailable()).thenReturn(catalogService);
         when(userPriorityService.getUserPriority(USER_ID)).thenReturn(UserPriority.REGULAR);
-        when(catalogService.listAvailableTools(new ExternalToolAccessContext(USER_ID, UserPriority.REGULAR)))
+        when(catalogService.listAvailableToolSources(new ExternalToolAccessContext(USER_ID, UserPriority.REGULAR)))
                 .thenReturn(List.of());
 
         String response = handler.handleInner(command(TelegramCommand.MCP));
@@ -94,15 +95,53 @@ class McpTelegramCommandHandlerTest {
     void shouldRenderAvailableToolsEscaped() {
         when(catalogProvider.getIfAvailable()).thenReturn(catalogService);
         when(userPriorityService.getUserPriority(USER_ID)).thenReturn(UserPriority.ADMIN);
-        when(catalogService.listAvailableTools(new ExternalToolAccessContext(USER_ID, UserPriority.ADMIN)))
-                .thenReturn(List.of(new ExternalToolDescriptor("read_file", "Read <files>")));
+        when(catalogService.listAvailableToolSources(new ExternalToolAccessContext(USER_ID, UserPriority.ADMIN)))
+                .thenReturn(List.of(new ExternalToolSourceDescriptor("filesystem",
+                        List.of(new ExternalToolDescriptor("read_file", "Read <files>")))));
 
         String response = handler.handleInner(command(TelegramCommand.MCP));
 
         assertThat(response)
                 .contains("Available MCP tools for ADMIN:")
-                .contains("<code>read_file</code>")
-                .contains("Read &lt;files&gt;");
+                .contains("• filesystem - read_file")
+                .doesNotContain("Read &lt;files&gt;");
+    }
+
+    @Test
+    void shouldRenderToolNamesOnly() {
+        when(catalogProvider.getIfAvailable()).thenReturn(catalogService);
+        when(userPriorityService.getUserPriority(USER_ID)).thenReturn(UserPriority.ADMIN);
+        when(catalogService.listAvailableToolSources(new ExternalToolAccessContext(USER_ID, UserPriority.ADMIN)))
+                .thenReturn(List.of(new ExternalToolSourceDescriptor("custom-server",
+                        List.of(new ExternalToolDescriptor(
+                                "custom_tool",
+                                "First second third fourth fifth sixth seventh eighth ninth")))));
+
+        String response = handler.handleInner(command(TelegramCommand.MCP));
+
+        assertThat(response)
+                .contains("• custom-server - custom_tool")
+                .doesNotContain("First second");
+    }
+
+    @Test
+    void shouldKeepResponseBelowTelegramLimit() {
+        when(catalogProvider.getIfAvailable()).thenReturn(catalogService);
+        when(userPriorityService.getUserPriority(USER_ID)).thenReturn(UserPriority.ADMIN);
+        List<ExternalToolDescriptor> tools = java.util.stream.IntStream.range(0, 500)
+                .mapToObj(i -> new ExternalToolDescriptor(
+                        "very_long_external_tool_name_" + i,
+                        "Very long description ".repeat(100),
+                        "server"))
+                .toList();
+        when(catalogService.listAvailableToolSources(new ExternalToolAccessContext(USER_ID, UserPriority.ADMIN)))
+                .thenReturn(List.of(new ExternalToolSourceDescriptor("server", tools)));
+
+        String response = handler.handleInner(command(TelegramCommand.MCP));
+
+        assertThat(response)
+                .hasSizeLessThan(4096)
+                .contains("...");
     }
 
     @Test

@@ -33,7 +33,10 @@ RUN mvn -Drevision=${APP_VERSION} clean package -DskipTests -B
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-RUN apk add --no-cache nodejs npm
+RUN apk add --no-cache nodejs npm \
+    && npm install -g @modelcontextprotocol/server-filesystem@0.2.0 \
+    && npm install -g zod-to-json-schema@3.23.5 \
+    && npm cache clean --force
 
 ARG APP_VERSION=1.1.0-SNAPSHOT
 

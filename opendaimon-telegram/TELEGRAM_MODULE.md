@@ -151,7 +151,11 @@ Each handler is conditional on `open-daimon.telegram.commands.<command>-enabled`
 `/mcp` lists external MCP tools visible to the current invoker. It delegates to the
 common `ExternalToolCatalogService` SPI, so Telegram never applies MCP access policy
 itself. The Spring AI implementation filters tools through the same
-`open-daimon.mcp.tool-access` rules used by real tool execution.
+`open-daimon.mcp.tool-access` rules used by real tool execution. Tools are grouped
+by configured MCP source display name when present (for example,
+`@modelcontextprotocol/server-filesystem@0.2.0 - read_file, list_directory`),
+otherwise by MCP client connection name, so the output identifies which MCP server
+provides each tool.
 
 ---
 
@@ -387,14 +391,15 @@ Implementation: `TelegramMessageHandlerActions` feeds provider-neutral stream ev
 **Trigger:** `/language`
 **Handler:** `LanguageTelegramCommandHandler` — sends one inline-menu message with current language, ru/en choices, and a localized cancel/close button.
 - This UI-only flow does not start the typing indicator.
+- New group chats start with no stored group language; command mapping falls back to the invoker's language until `/language` stores a chat-scoped value on the `TelegramGroup` row.
 - `LANG_CANCEL` acknowledges the callback and deletes the menu message without changing language.
 
 ---
 
 ### UC-19: `/language` — select via callback
 **Trigger:** `LANG_ru` or `LANG_en` callback
-**Handler:** `TelegramUserService.updateLanguageCode()` → `TelegramBotMenuService.setupBotMenuForUser()` — reloads bot command menu in new language for this user's chat.
-- Confirmation is callback-only (`telegram.language.updated`); the inline menu is deleted and no separate chat message is sent.
+**Handler:** `ChatSettingsService.updateLanguageCode()` → user or group owner (`TelegramUser` in private chats, `TelegramGroup` in groups) → `TelegramBotMenuService.setupBotMenuForUser()` — reloads bot command menu in the new chat language.
+- Confirmation is sent as both callback ack and a chat message (`telegram.language.updated`); the inline menu is deleted.
 
 ---
 

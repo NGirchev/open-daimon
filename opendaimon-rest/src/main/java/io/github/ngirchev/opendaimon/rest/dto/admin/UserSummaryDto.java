@@ -2,7 +2,7 @@ package io.github.ngirchev.opendaimon.rest.dto.admin;
 
 /**
  * Short user info for admin lists and filter dropdown.
- * userType mirrors the JPA discriminator (TELEGRAM, REST, USER).
+ * userType mirrors the JPA discriminator (TELEGRAM, TELEGRAM_GROUP, REST, USER).
  */
 public record UserSummaryDto(
         Long id,
