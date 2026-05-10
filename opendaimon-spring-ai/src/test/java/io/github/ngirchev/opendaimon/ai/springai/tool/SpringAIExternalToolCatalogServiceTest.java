@@ -29,7 +29,7 @@ class SpringAIExternalToolCatalogServiceTest {
     void shouldListAllowedExternalToolsOnly() {
         ObjectProvider<ToolCallbackProvider> providers = providers(
                 toolCallback("web_search"),
-                toolCallback("read_file"),
+                toolCallback("open_daimon_read_file"),
                 toolCallback("weather_lookup"));
         SpringAIExternalToolCatalogService service = new SpringAIExternalToolCatalogService(
                 providers, mcpClients(), List.of(), true, new McpToolAccessProperties());
@@ -43,7 +43,7 @@ class SpringAIExternalToolCatalogServiceTest {
 
     @Test
     void shouldListAdminFilesystemTools() {
-        ObjectProvider<ToolCallbackProvider> providers = providers(toolCallback("read_file"));
+        ObjectProvider<ToolCallbackProvider> providers = providers(toolCallback("open_daimon_read_file"));
         SpringAIExternalToolCatalogService service = new SpringAIExternalToolCatalogService(
                 providers, mcpClients(), List.of(), true, new McpToolAccessProperties());
 
@@ -51,7 +51,7 @@ class SpringAIExternalToolCatalogServiceTest {
 
         assertThat(tools)
                 .extracting("name")
-                .containsExactly("read_file");
+                .containsExactly("open_daimon_read_file");
     }
 
     @Test
