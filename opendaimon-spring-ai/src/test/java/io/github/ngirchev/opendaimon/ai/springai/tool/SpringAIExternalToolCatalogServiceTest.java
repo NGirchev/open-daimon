@@ -50,7 +50,18 @@ class SpringAIExternalToolCatalogServiceTest {
     }
 
     @Test
-    void shouldUseMcpClientIdentifierAsSourceName() {
+    void shouldUseMcpServerIdentifierAsSourceName() {
+        McpSyncClient client = mock(McpSyncClient.class);
+        when(client.getServerInfo()).thenReturn(new McpSchema.Implementation("filesystem-server", "1.0.0"));
+        when(client.getClientInfo()).thenReturn(new McpSchema.Implementation("open-daimon", "1.0.0"));
+
+        String sourceName = SpringAIExternalToolCatalogService.resolveSourceName(client);
+
+        assertThat(sourceName).isEqualTo("filesystem-server");
+    }
+
+    @Test
+    void shouldFallbackToMcpClientIdentifierWhenServerIdentifierMissing() {
         McpSyncClient client = mock(McpSyncClient.class);
         when(client.getClientInfo()).thenReturn(new McpSchema.Implementation("filesystem", "1.0.0"));
 
@@ -70,6 +81,29 @@ class SpringAIExternalToolCatalogServiceTest {
         assertThat(tools)
                 .extracting("sourceName")
                 .containsExactly("filesystem");
+    }
+
+    @Test
+    void shouldUseConfiguredConnectionNamesByMcpClientOrder() {
+        ObjectProvider<ToolCallbackProvider> providers = providers(
+                toolCallback("read_file"),
+                toolCallback("weather_lookup"));
+        SpringAIExternalToolCatalogService service = new SpringAIExternalToolCatalogService(
+                providers,
+                mcpClients(
+                        mcpClient("read_file"),
+                        mcpClient("weather_lookup")),
+                List.of("filesystem", "weather"),
+                true,
+                new McpToolAccessProperties());
+
+        var tools = service.listAvailableTools(new ExternalToolAccessContext(1L, UserPriority.ADMIN));
+
+        assertThat(tools)
+                .extracting("name", "sourceName")
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("read_file", "filesystem"),
+                        org.assertj.core.groups.Tuple.tuple("weather_lookup", "weather"));
     }
 
     @Test
@@ -99,6 +133,17 @@ class SpringAIExternalToolCatalogServiceTest {
         ObjectProvider<McpSyncClient> clients = mock(ObjectProvider.class);
         when(clients.orderedStream()).thenReturn(Stream.of(mcpClients));
         return clients;
+    }
+
+    private static McpSyncClient mcpClient(String toolName) {
+        McpSyncClient client = mock(McpSyncClient.class);
+        McpSchema.Tool tool = McpSchema.Tool.builder()
+                .name(toolName)
+                .description(toolName + " description")
+                .inputSchema(new McpSchema.JsonSchema("object", java.util.Map.of(), List.of(), false, null, null))
+                .build();
+        when(client.listTools()).thenReturn(new McpSchema.ListToolsResult(List.of(tool), null));
+        return client;
     }
 
     private static ToolCallback toolCallback(String name) {

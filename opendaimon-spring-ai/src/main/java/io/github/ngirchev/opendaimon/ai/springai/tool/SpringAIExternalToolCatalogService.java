@@ -65,10 +65,18 @@ public class SpringAIExternalToolCatalogService implements ExternalToolCatalogSe
             return Map.of();
         }
         Map<String, String> sourceByToolName = new LinkedHashMap<>();
-        String singleConfiguredSourceName = singleConfiguredSourceName();
-        mcpSyncClients.orderedStream()
-                .forEach(client -> addClientTools(sourceByToolName, client, singleConfiguredSourceName));
+        List<McpSyncClient> clients = mcpSyncClients.orderedStream().toList();
+        for (int i = 0; i < clients.size(); i++) {
+            addClientTools(sourceByToolName, clients.get(i), configuredSourceName(i, clients.size()));
+        }
         return sourceByToolName;
+    }
+
+    private String configuredSourceName(int clientIndex, int clientCount) {
+        if (configuredMcpConnectionNames.size() == clientCount) {
+            return configuredMcpConnectionNames.get(clientIndex);
+        }
+        return singleConfiguredSourceName();
     }
 
     private String singleConfiguredSourceName() {
@@ -94,11 +102,11 @@ public class SpringAIExternalToolCatalogService implements ExternalToolCatalogSe
     }
 
     static String resolveSourceName(McpSyncClient client) {
-        if (client.getClientInfo() != null && client.getClientInfo().name() != null
-                && !client.getClientInfo().name().isBlank()) {
-            return client.getClientInfo().name();
+        if (client.getServerInfo() != null && client.getServerInfo().name() != null
+                && !client.getServerInfo().name().isBlank()) {
+            return client.getServerInfo().name();
         }
-        return client.getServerInfo() != null ? client.getServerInfo().name() : null;
+        return client.getClientInfo() != null ? client.getClientInfo().name() : null;
     }
 
     private void addDescriptor(Map<String, ExternalToolDescriptor> toolsByName, ToolCallback callback,

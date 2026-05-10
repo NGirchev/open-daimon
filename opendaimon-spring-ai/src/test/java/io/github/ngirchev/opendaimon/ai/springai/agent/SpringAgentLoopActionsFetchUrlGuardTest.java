@@ -102,6 +102,25 @@ class SpringAgentLoopActionsFetchUrlGuardTest {
                 .containsExactly("fetch_url", "weather_lookup");
     }
 
+    @Test
+    void shouldParseRawToolCallsOnlyFromEffectiveTools() {
+        ToolCallback restrictedFilesystem = toolCallback("read_file", arguments -> "secret");
+        SpringAgentLoopActions actions = actionsWith(restrictedFilesystem);
+        String rawCall = """
+                <tool_call>
+                <name>read_file</name>
+                <arg_key>path</arg_key><arg_value>/etc/passwd</arg_value>
+                </tool_call>
+                """;
+
+        assertThat(new RawToolCallParser(actions.resolveEffectiveTools(regularContext()))
+                .tryParseRawToolCall(rawCall))
+                .isNull();
+        assertThat(new RawToolCallParser(actions.resolveEffectiveTools(adminContext()))
+                .tryParseRawToolCall(rawCall))
+                .isNotNull();
+    }
+
     private static SpringAgentLoopActions actionsWith(ToolCallback... callbacks) {
         return new SpringAgentLoopActions(
                 mock(ChatModel.class),

@@ -93,7 +93,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
     private final Duration streamTimeout;
     /** Optional — when set, final-answer text is passed through to strip dead URLs. */
     private final UrlLivenessChecker urlLivenessChecker;
-    private final RawToolCallParser rawToolCallParser;
     private final SummaryModelInvoker summaryModelInvoker;
     private final PriorityRequestExecutor priorityRequestExecutor;
     private final McpToolAccessProperties mcpToolAccessProperties;
@@ -153,7 +152,6 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         this.urlLivenessChecker = urlLivenessChecker;
         this.priorityRequestExecutor = priorityRequestExecutor;
         this.mcpToolAccessProperties = mcpToolAccessProperties != null ? mcpToolAccessProperties : new McpToolAccessProperties();
-        this.rawToolCallParser = new RawToolCallParser(this.toolCallbacks);
         this.summaryModelInvoker = new SummaryModelInvoker(chatModel, priorityRequestExecutor);
     }
 
@@ -251,7 +249,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
                         firstToolCall.name(), firstToolCall.arguments());
             } else {
                 String rawText = AgentTextSanitizer.stripThinkTags(output.getText());
-                RawToolCall rawToolCall = rawToolCallParser.tryParseRawToolCall(rawText);
+                RawToolCall rawToolCall = new RawToolCallParser(effectiveCallbacks).tryParseRawToolCall(rawText);
                 if (rawToolCall != null) {
                     ctx.setCurrentThought("Calling tool (fallback): " + rawToolCall.name());
                     ctx.setCurrentToolName(rawToolCall.name());
@@ -771,7 +769,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
         String toolName = ctx.getCurrentToolName();
         String toolArgs = ctx.getCurrentToolArguments();
 
-        ToolCallback callback = toolCallbacks.stream()
+        ToolCallback callback = resolveEffectiveTools(ctx).stream()
                 .filter(cb -> cb.getToolDefinition().name().equals(toolName))
                 .findFirst()
                 .orElse(null);
@@ -783,7 +781,7 @@ public class SpringAgentLoopActions implements AgentLoopActions {
 
         log.info("Agent executeTool (fallback): tool={}, args={}", toolName, toolArgs);
 
-        String result = guardFetchUrlCallback(ctx, callback).call(toolArgs);
+        String result = callback.call(toolArgs);
         ctx.setToolResult(AgentToolResult.success(toolName, result));
 
         List<Message> messages = getOrCreateHistory(ctx);
