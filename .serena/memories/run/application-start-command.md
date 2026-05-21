@@ -1,0 +1,1 @@
+When the user asks to start/run the application (`запусти приложение`, `запусти` in the context of the app), run it in Docker with a build: `docker compose up --build -d`. Use the repository root as the working directory. After starting, report container status/log hints.
