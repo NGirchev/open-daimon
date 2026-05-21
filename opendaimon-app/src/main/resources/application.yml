@@ -128,6 +128,7 @@ open-daimon:
       language-enabled: true
       model-enabled: true
       mode-enabled: true
+      tools-enabled: true
     cache:
       redis-enabled: false  # FEATURE FLAG - enable distributed Redis cache for session data
     message-coalescing:
@@ -149,6 +150,17 @@ open-daimon:
         emails: ${REST_ACCESS_REGULAR_EMAILS:}  # e.g. "user@example.com"
   ui:
     enabled: true
+  mcp:
+    enabled: true
+    source-display-names:
+      filesystem: "@modelcontextprotocol/server-filesystem@0.2.0"
+    tool-access:
+      # External MCP tools not matched by a rule are available to all allowed tiers.
+      # Filesystem MCP tools are restricted to ADMIN by default.
+      default-roles: [ ADMIN, VIP, REGULAR ]
+      rules:
+        - name-pattern: "^(?:[A-Za-z0-9_]+_)?(read_file|read_text_file|read_media_file|read_multiple_files|write_file|edit_file|create_directory|list_directory|list_directory_with_sizes|directory_tree|move_file|search_files|get_file_info|list_allowed_directories)$"
+          roles: [ ADMIN ]
   ai:
     spring-ai:
       enabled: true
@@ -168,6 +180,8 @@ open-daimon:
             - roles: [ ADMIN, VIP ]
               include-model-ids:
                 - google/gemini-2.5-flash
+                - google/gemma-4-31b-it
+                - deepseek/deepseek-v4-flash
                 - openai/gpt-5-nano
                 - z-ai/glm-5-turbo
                 - qwen/qwen3-vl-235b-a22b-thinking
@@ -243,6 +257,33 @@ open-daimon:
               - THINKING
             provider-type: OPENAI
             priority: 1
+            allowed-roles:
+              - ADMIN
+              - VIP
+          - name: "google/gemma-4-31b-it"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - VISION
+              - STRUCTURED_OUTPUT
+              - THINKING
+            provider-type: OPENAI
+            priority: 1
+            max-reasoning-tokens: 4000
+            allowed-roles:
+              - ADMIN
+              - VIP
+          - name: "deepseek/deepseek-v4-flash"
+            capabilities:
+              - CHAT
+              - TOOL_CALLING
+              - WEB
+              - STRUCTURED_OUTPUT
+              - THINKING
+            provider-type: OPENAI
+            priority: 1
+            max-reasoning-tokens: 4000
             allowed-roles:
               - ADMIN
               - VIP
@@ -361,6 +402,32 @@ spring:
       timeout: 2s
 
   ai:
+    mcp:
+      client:
+        enabled: ${MCP_CLIENT_ENABLED:false}
+        name: open-daimon
+        version: ${OPEN_DAIMON_VERSION:dev}
+        type: SYNC
+        request-timeout: 30s
+        # Filesystem MCP runs inside the OpenDaimon container/process and sees only
+        # that filesystem plus explicitly mounted volumes. OpenDaimon exposes external
+        # MCP tools to ADMIN users only.
+        stdio:
+          connections:
+            filesystem:
+              command: sh
+              args:
+                - -c
+                - exec ${MCP_FILESYSTEM_COMMAND:npx -y @modelcontextprotocol/server-filesystem} ${MCP_FILESYSTEM_ROOT:/app/mcp-filesystem}
+        # sse:
+        #   connections:
+        #     remote:
+        #       url: http://localhost:9000
+        # streamable-http:
+        #   connections:
+        #     remote-http:
+        #       url: http://localhost:9001
+        #       endpoint: /mcp
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
       request-timeout: 600s

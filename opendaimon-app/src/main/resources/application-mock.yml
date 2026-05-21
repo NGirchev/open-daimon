@@ -31,6 +31,7 @@ open-daimon:
       newthread-enabled: true
       history-enabled: true
       threads-enabled: true
+      tools-enabled: true
     message-coalescing:
       enabled: true
       wait-window-ms: 1200

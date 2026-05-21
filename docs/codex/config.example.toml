@@ -13,7 +13,7 @@ service_tier = "fast"
 trust_level = "trusted"
 
 [features]
-codex_hooks = true
+hooks = true
 memories = true
 terminal_resize_reflow = true
 

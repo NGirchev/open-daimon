@@ -286,7 +286,7 @@ public final class TelegramAgentStreamModel {
     }
 
     private String renderToolCallBlock(String toolName, String args) {
-        String label = ToolLabels.label(toolName);
+        String label = TelegramHtmlEscaper.escape(ToolLabels.label(toolName));
         String escapedArgs = args == null || args.isBlank()
                 ? ""
                 : TelegramHtmlEscaper.escape(ToolLabels.truncateArg(args));

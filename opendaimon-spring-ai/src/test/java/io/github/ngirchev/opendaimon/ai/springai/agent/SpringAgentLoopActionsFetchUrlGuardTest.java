@@ -1,5 +1,7 @@
 package io.github.ngirchev.opendaimon.ai.springai.agent;
 
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.agent.AgentContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
@@ -80,11 +82,50 @@ class SpringAgentLoopActionsFetchUrlGuardTest {
         assertThat(calls).hasValue(2);
     }
 
-    private static SpringAgentLoopActions actionsWith(ToolCallback callback) {
+    @Test
+    void shouldExposeExternalToolsOnlyForAdminContext() {
+        ToolCallback builtIn = fetchUrlCallback(arguments -> "ok");
+        ToolCallback external = toolCallback("read_file", arguments -> "secret");
+        ToolCallback sharedExternal = toolCallback("weather_lookup", arguments -> "sunny");
+        SpringAgentLoopActions actions = actionsWith(builtIn, external);
+
+        assertThat(actions.resolveEffectiveTools(context()))
+                .extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("fetch_url");
+        assertThat(actions.resolveEffectiveTools(adminContext()))
+                .extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("fetch_url", "read_file");
+
+        SpringAgentLoopActions sharedActions = actionsWith(builtIn, sharedExternal);
+        assertThat(sharedActions.resolveEffectiveTools(regularContext()))
+                .extracting(callback -> callback.getToolDefinition().name())
+                .containsExactly("fetch_url", "weather_lookup");
+    }
+
+    @Test
+    void shouldParseRawToolCallsOnlyFromEffectiveTools() {
+        ToolCallback restrictedFilesystem = toolCallback("read_file", arguments -> "secret");
+        SpringAgentLoopActions actions = actionsWith(restrictedFilesystem);
+        String rawCall = """
+                <tool_call>
+                <name>read_file</name>
+                <arg_key>path</arg_key><arg_value>/etc/passwd</arg_value>
+                </tool_call>
+                """;
+
+        assertThat(new RawToolCallParser(actions.resolveEffectiveTools(regularContext()))
+                .tryParseRawToolCall(rawCall))
+                .isNull();
+        assertThat(new RawToolCallParser(actions.resolveEffectiveTools(adminContext()))
+                .tryParseRawToolCall(rawCall))
+                .isNotNull();
+    }
+
+    private static SpringAgentLoopActions actionsWith(ToolCallback... callbacks) {
         return new SpringAgentLoopActions(
                 mock(ChatModel.class),
                 mock(ToolCallingManager.class),
-                List.of(callback),
+                List.of(callbacks),
                 null,
                 Duration.ofSeconds(30));
     }
@@ -93,10 +134,24 @@ class SpringAgentLoopActionsFetchUrlGuardTest {
         return new AgentContext("task", "conversation", Map.of(), 5, Set.of());
     }
 
+    private static AgentContext adminContext() {
+        return new AgentContext("task", "conversation",
+                Map.of(AICommand.USER_PRIORITY_FIELD, UserPriority.ADMIN.name()), 5, Set.of());
+    }
+
+    private static AgentContext regularContext() {
+        return new AgentContext("task", "conversation",
+                Map.of(AICommand.USER_PRIORITY_FIELD, UserPriority.REGULAR.name()), 5, Set.of());
+    }
+
     private static ToolCallback fetchUrlCallback(Function<String, String> behavior) {
+        return toolCallback("fetch_url", behavior);
+    }
+
+    private static ToolCallback toolCallback(String name, Function<String, String> behavior) {
         ToolDefinition definition = ToolDefinition.builder()
-                .name("fetch_url")
-                .description("Fetch a URL")
+                .name(name)
+                .description(name + " description")
                 .inputSchema("{\"type\":\"object\"}")
                 .build();
         return new ToolCallback() {

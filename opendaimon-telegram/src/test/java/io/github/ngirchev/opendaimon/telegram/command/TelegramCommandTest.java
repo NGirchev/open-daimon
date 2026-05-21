@@ -92,5 +92,6 @@ class TelegramCommandTest {
         assertEquals("/history", TelegramCommand.HISTORY);
         assertEquals("/threads", TelegramCommand.THREADS);
         assertEquals("/language", TelegramCommand.LANGUAGE);
+        assertEquals("/tools", TelegramCommand.TOOLS);
     }
 }

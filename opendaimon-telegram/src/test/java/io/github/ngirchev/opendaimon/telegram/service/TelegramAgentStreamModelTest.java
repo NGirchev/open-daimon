@@ -254,6 +254,30 @@ class TelegramAgentStreamModelTest {
     }
 
     @Test
+    @DisplayName("should render raw tool name in the status label")
+    void shouldRenderRawToolNameInStatusLabel() {
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+
+        model.apply(AgentStreamEvent.toolCall("web_search", "{\"query\":\"telegram limits\"}", 0));
+
+        assertThat(model.statusHtml())
+                .contains("🔧 <b>Tool:</b> Searching the web (web_search)")
+                .contains("telegram limits");
+    }
+
+    @Test
+    @DisplayName("should render unknown MCP tool by raw name")
+    void shouldRenderUnknownMcpToolByRawName() {
+        TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);
+
+        model.apply(AgentStreamEvent.toolCall("filesystem_read", "{\"path\":\"/tmp/file.txt\"}", 0));
+
+        assertThat(model.statusHtml())
+                .contains("🔧 <b>Tool:</b> filesystem_read")
+                .contains("/tmp/file.txt");
+    }
+
+    @Test
     @DisplayName("should render empty tool arguments as missing query")
     void shouldRenderEmptyToolArgumentsAsMissingQuery() {
         TelegramAgentStreamModel model = new TelegramAgentStreamModel(false, false);

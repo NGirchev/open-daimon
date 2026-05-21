@@ -109,6 +109,8 @@ Only free models from the API whose id is in this list (and passes other filters
 | openrouter/free | CHAT, TOOL_CALLING, SUMMARIZATION, FREE (proxy) |
 | qwen/qwen3-4b:free | CHAT, SUMMARIZATION, FREE |
 | qwen/qwen3-coder:free | CHAT, SUMMARIZATION, FREE |
+| google/gemma-4-31b-it | CHAT, TOOL_CALLING, WEB, VISION, STRUCTURED_OUTPUT, THINKING (paid, ADMIN/VIP) |
+| deepseek/deepseek-v4-flash | CHAT, TOOL_CALLING, WEB, STRUCTURED_OUTPUT, THINKING (paid, ADMIN/VIP) |
 | qwen/qwen3-vl-235b-a22b-thinking | CHAT, VISION, SUMMARIZATION (paid) |
 | qwen/qwen3-vl-30b-a3b-thinking | CHAT, VISION, SUMMARIZATION (paid) |
 | stepfun/step-3.5-flash:free | CHAT, TOOL_CALLING, SUMMARIZATION, FREE |

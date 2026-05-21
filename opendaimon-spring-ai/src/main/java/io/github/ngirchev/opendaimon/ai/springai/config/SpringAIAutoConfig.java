@@ -19,6 +19,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
 import org.springframework.boot.web.reactive.function.client.WebClientCustomizer;
 import org.springframework.boot.web.client.RestClientCustomizer;
@@ -55,17 +58,23 @@ import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIPromptFactory;
 import io.github.ngirchev.opendaimon.ai.springai.service.SpringAIChatService;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelRotationAspect;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UnknownToolFallbackResolver;
+import io.github.ngirchev.opendaimon.ai.springai.tool.HttpApiTool;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessChecker;
 import io.github.ngirchev.opendaimon.ai.springai.tool.UrlLivenessCheckerImpl;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
+import io.github.ngirchev.opendaimon.ai.springai.tool.SpringAIExternalToolCatalogService;
+import io.github.ngirchev.opendaimon.common.ai.tool.ExternalToolCatalogService;
 import org.springframework.ai.model.tool.DefaultToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.resolution.DelegatingToolCallbackResolver;
 import org.springframework.ai.tool.resolution.SpringBeanToolCallbackResolver;
 import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.context.support.GenericApplicationContext;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterFreeModelResolver;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelsApiClient;
 import io.github.ngirchev.opendaimon.ai.springai.retry.OpenRouterModelStatsRecorder;
@@ -83,7 +92,7 @@ import io.github.ngirchev.opendaimon.common.service.SummarizationService;
     "org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration"
 })
 @AutoConfigureBefore(name = "org.springframework.ai.model.tool.autoconfigure.ToolCallingAutoConfiguration")
-@EnableConfigurationProperties({SpringAIProperties.class, OpenRouterModelsProperties.class})
+@EnableConfigurationProperties({SpringAIProperties.class, OpenRouterModelsProperties.class, McpToolAccessProperties.class})
 @Import(SpringAIFlywayConfig.class)
 @ConditionalOnProperty(name = FeatureToggle.Module.SPRING_AI_ENABLED, havingValue = "true")
 public class SpringAIAutoConfig {
@@ -158,11 +167,63 @@ public class SpringAIAutoConfig {
             ObjectProvider<OpenAiChatModel> openAiChatModelProvider,
             WebTools webTools,
             ChatMemory chatMemory,
-            SpringAIModelType springAIModelType
+            SpringAIModelType springAIModelType,
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            @Value("${" + FeatureToggle.Module.MCP_ENABLED + ":true}") boolean externalToolsEnabled,
+            McpToolAccessProperties mcpToolAccessProperties
     ) {
         // Providers are stored and resolved lazily on first request — ordering relative to
         // OllamaChatAutoConfiguration / OpenAiChatAutoConfiguration does not matter.
-        return new SpringAIPromptFactory(ollamaChatModelProvider, openAiChatModelProvider, webTools, chatMemory, springAIModelType);
+        return new SpringAIPromptFactory(
+                ollamaChatModelProvider,
+                openAiChatModelProvider,
+                webTools,
+                chatMemory,
+                springAIModelType,
+                externalToolCallbackProviders,
+                externalToolsEnabled,
+                mcpToolAccessProperties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ExternalToolCatalogService externalToolCatalogService(
+            ObjectProvider<WebTools> webToolsProvider,
+            ObjectProvider<HttpApiTool> httpApiToolProvider,
+            ObjectProvider<ToolCallbackProvider> externalToolCallbackProviders,
+            ObjectProvider<io.modelcontextprotocol.client.McpSyncClient> mcpSyncClients,
+            Environment environment,
+            @Value("${" + FeatureToggle.Module.MCP_ENABLED + ":true}") boolean externalToolsEnabled,
+            McpToolAccessProperties mcpToolAccessProperties) {
+        return new SpringAIExternalToolCatalogService(
+                webToolsProvider,
+                httpApiToolProvider,
+                externalToolCallbackProviders,
+                mcpSyncClients,
+                configuredMcpSourceNames(environment),
+                externalToolsEnabled,
+                mcpToolAccessProperties);
+    }
+
+    private static List<String> configuredMcpSourceNames(Environment environment) {
+        Binder binder = Binder.get(environment);
+        Map<String, String> displayNames = binder.bind("open-daimon.mcp.source-display-names",
+                        Bindable.mapOf(String.class, String.class))
+                .orElse(Map.of());
+        List<String> names = new java.util.ArrayList<>();
+        names.addAll(sourceNames(binder, "spring.ai.mcp.client.stdio.connections", displayNames));
+        names.addAll(sourceNames(binder, "spring.ai.mcp.client.sse.connections", displayNames));
+        names.addAll(sourceNames(binder, "spring.ai.mcp.client.streamable-http.connections", displayNames));
+        return names.stream().distinct().toList();
+    }
+
+    private static List<String> sourceNames(Binder binder, String prefix, Map<String, String> displayNames) {
+        return binder.bind(prefix, Bindable.mapOf(String.class, Object.class))
+                .map(LinkedHashMap::new)
+                .map(map -> map.keySet().stream()
+                        .map(name -> displayNames.getOrDefault(name, name))
+                        .toList())
+                .orElse(List.of());
     }
 
     @Bean

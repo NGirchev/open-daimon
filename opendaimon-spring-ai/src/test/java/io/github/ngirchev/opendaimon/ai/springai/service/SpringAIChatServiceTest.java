@@ -65,6 +65,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 anyBoolean(),
+                anyBoolean(),
+                any(),
                 any(),
                 any())).thenReturn(requestSpec);
 
@@ -95,6 +97,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 anyBoolean(),
+                anyBoolean(),
+                any(),
                 any(),
                 isNull())).thenReturn(requestSpec);
 
@@ -124,6 +128,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 anyBoolean(),
+                anyBoolean(),
+                any(),
                 any(),
                 any())).thenReturn(requestSpec);
 
@@ -161,6 +167,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 anyBoolean(),
+                anyBoolean(),
+                any(),
                 any(),
                 isNull())).thenReturn(requestSpec);
         Map<String, Object> options = Map.of("model", "options-model-name");
@@ -168,7 +176,7 @@ class SpringAIChatServiceTest {
         AIResponse response = chatService.callChatFromBody(configWithNullName, body, null, false, List.of());
         assertNotNull(response);
         assertEquals("From options model", ((SpringAIResponse) response).chatResponse().getResult().getOutput().getText());
-        verify(promptFactory).preparePrompt(eq(configWithNullName), eq("options-model-name"), eq(body), any(), anyBoolean(), any(), isNull());
+        verify(promptFactory).preparePrompt(eq(configWithNullName), eq("options-model-name"), eq(body), any(), anyBoolean(), anyBoolean(), any(), any(), isNull());
     }
 
     @Test
@@ -185,6 +193,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 anyBoolean(),
+                anyBoolean(),
+                any(),
                 any(),
                 any())).thenReturn(requestSpec);
 
@@ -202,6 +212,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 eq(true),
+                eq(false),
+                any(),
                 any(),
                 eq(options));
     }
@@ -221,6 +233,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 anyBoolean(),
+                anyBoolean(),
+                any(),
                 any(),
                 any())).thenReturn(requestSpec);
 
@@ -238,6 +252,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 eq(true),
+                eq(false),
+                any(),
                 any(),
                 eq(options));
     }
@@ -256,6 +272,8 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 anyBoolean(),
+                anyBoolean(),
+                any(),
                 any(),
                 any())).thenReturn(requestSpec);
 
@@ -273,6 +291,47 @@ class SpringAIChatServiceTest {
                 any(),
                 any(),
                 eq(false),
+                eq(false),
+                any(),
+                any(),
+                eq(options));
+    }
+
+    @Test
+    void callChat_externalToolsAllowedTrueWhenToolCallingInOptionalCapabilities() {
+        ChatResponse mockResponse = ChatResponse.builder()
+                .generations(List.of(new Generation(new AssistantMessage("ok"))))
+                .build();
+        org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec requestSpec =
+                mock(org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec.class, RETURNS_DEEP_STUBS);
+        when(requestSpec.call().chatResponse()).thenReturn(mockResponse);
+        when(promptFactory.preparePrompt(
+                eq(modelConfig),
+                any(),
+                any(),
+                any(),
+                anyBoolean(),
+                anyBoolean(),
+                any(),
+                any(),
+                any())).thenReturn(requestSpec);
+
+        OpenDaimonChatOptions options = new OpenDaimonChatOptions(0.7, 1000, "System", "User", false, Map.of());
+        ChatAICommand command = new ChatAICommand(
+                Set.of(ModelCapabilities.CHAT),
+                Set.of(ModelCapabilities.TOOL_CALLING),
+                0.7, 1000, null, "System", "User", false, Map.of(), Map.of(), List.of());
+
+        chatService.callChat(modelConfig, command, options, List.of());
+
+        verify(promptFactory).preparePrompt(
+                eq(modelConfig),
+                any(),
+                any(),
+                any(),
+                eq(false),
+                eq(true),
+                any(),
                 any(),
                 eq(options));
     }
@@ -281,7 +340,7 @@ class SpringAIChatServiceTest {
     void callChat_webClientResponseException_thrown() {
         org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec requestSpec =
                 mock(org.springframework.ai.chat.client.ChatClient.ChatClientRequestSpec.class, RETURNS_DEEP_STUBS);
-        when(promptFactory.preparePrompt(eq(modelConfig), any(), any(), any(), anyBoolean(), any(), any())).thenReturn(requestSpec);
+        when(promptFactory.preparePrompt(eq(modelConfig), any(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any())).thenReturn(requestSpec);
         WebClientResponseException error = WebClientResponseException.create(429, "Too Many Requests",
                 org.springframework.http.HttpHeaders.EMPTY, "rate limit".getBytes(java.nio.charset.StandardCharsets.UTF_8),
                 java.nio.charset.StandardCharsets.UTF_8);

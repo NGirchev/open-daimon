@@ -3,12 +3,11 @@ package io.github.ngirchev.opendaimon.telegram.service;
 import java.util.Map;
 
 /**
- * Per-tool friendly label mapping for the status transcript.
+ * Per-tool label mapping for the status transcript.
  *
- * <p>Given the raw agent tool name (e.g. {@code web_search}), returns a user-facing
- * English label (e.g. {@code Searching the web}) that is rendered into the
- * {@code 🔧 Tool: <label>} line of the status message. Unknown tools fall back to
- * a generic label.
+ * <p>Given the raw agent tool name (e.g. {@code web_search}), returns a status label
+ * that keeps the raw name visible. Unknown tools render as their raw name so MCP tools
+ * can be identified without adding a hardcoded label for each one.
  */
 public final class ToolLabels {
 
@@ -30,7 +29,11 @@ public final class ToolLabels {
         if (toolName == null || toolName.isBlank()) {
             return DEFAULT_LABEL;
         }
-        return LABELS.getOrDefault(toolName, DEFAULT_LABEL);
+        String friendlyLabel = LABELS.get(toolName);
+        if (friendlyLabel == null) {
+            return toolName;
+        }
+        return friendlyLabel + " (" + toolName + ")";
     }
 
     public static String truncateArg(String arg) {

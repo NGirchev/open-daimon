@@ -1,8 +1,10 @@
 package io.github.ngirchev.opendaimon.ai.springai.service;
 
 import io.github.ngirchev.opendaimon.ai.springai.config.SpringAIModelConfig;
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.ai.springai.tool.WebTools;
 import io.github.ngirchev.opendaimon.common.ai.ModelCapabilities;
+import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.OpenDaimonChatOptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,13 +21,19 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static io.github.ngirchev.opendaimon.common.ai.LlmParamNames.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -240,6 +248,162 @@ class SpringAIPromptFactoryTest {
         assertEquals(4000, ((OllamaChatOptions) options).getNumPredict());
     }
 
+    @Test
+    void preparePrompt_withExternalToolsEnabled_addsExternalToolCallbacks() {
+        ToolCallback externalTool = toolCallback("mcp_search");
+        ToolCallbackProvider provider = mock(ToolCallbackProvider.class);
+        when(provider.getToolCallbacks()).thenReturn(new ToolCallback[]{externalTool});
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ToolCallbackProvider> providers = mock(ObjectProvider.class);
+        when(providers.orderedStream()).thenReturn(Stream.of(provider));
+        SpringAIPromptFactory factory = new SpringAIPromptFactory(
+                chatClient,
+                chatClient,
+                webTools,
+                null,
+                springAIModelType,
+                providers,
+                true);
+
+        var spec = factory.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                null,
+                null,
+                false,
+                true,
+                Map.of(AICommand.USER_PRIORITY_FIELD, UserPriority.ADMIN.name()),
+                List.of(new UserMessage("Use the external tool if needed")),
+                new OpenDaimonChatOptions(0.7, 1000, null, "Use the external tool if needed", false, Map.of())
+        );
+
+        spec.call().chatResponse();
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(ollamaChatModel).call(captor.capture());
+
+        ChatOptions options = captor.getValue().getOptions();
+        assertInstanceOf(ToolCallingChatOptions.class, options);
+        ToolCallingChatOptions toolOptions = (ToolCallingChatOptions) options;
+        assertTrue(toolOptions.getToolCallbacks().stream()
+                .anyMatch(callback -> "mcp_search".equals(callback.getToolDefinition().name())));
+    }
+
+    @Test
+    void preparePrompt_withExternalToolsAllowedButNoPriority_doesNotAddExternalToolCallbacks() {
+        ToolCallback externalTool = toolCallback("mcp_search");
+        ToolCallbackProvider provider = mock(ToolCallbackProvider.class);
+        when(provider.getToolCallbacks()).thenReturn(new ToolCallback[]{externalTool});
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ToolCallbackProvider> providers = mock(ObjectProvider.class);
+        when(providers.orderedStream()).thenReturn(Stream.of(provider));
+        SpringAIPromptFactory factory = new SpringAIPromptFactory(
+                chatClient,
+                chatClient,
+                webTools,
+                null,
+                springAIModelType,
+                providers,
+                true);
+
+        var spec = factory.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                null,
+                null,
+                false,
+                true,
+                List.of(new UserMessage("Do not infer admin access")),
+                new OpenDaimonChatOptions(0.7, 1000, null, "Do not infer admin access", false, Map.of())
+        );
+
+        spec.call().chatResponse();
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(ollamaChatModel).call(captor.capture());
+
+        if (captor.getValue().getOptions() instanceof ToolCallingChatOptions toolOptions) {
+            assertTrue(toolOptions.getToolCallbacks() == null || toolOptions.getToolCallbacks().isEmpty());
+        }
+    }
+
+    @Test
+    void preparePrompt_withExternalToolsNotAllowed_doesNotAddExternalToolCallbacks() {
+        ToolCallback externalTool = toolCallback("mcp_search");
+        ToolCallbackProvider provider = mock(ToolCallbackProvider.class);
+        when(provider.getToolCallbacks()).thenReturn(new ToolCallback[]{externalTool});
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ToolCallbackProvider> providers = mock(ObjectProvider.class);
+        when(providers.orderedStream()).thenReturn(Stream.of(provider));
+        SpringAIPromptFactory factory = new SpringAIPromptFactory(
+                chatClient,
+                chatClient,
+                webTools,
+                null,
+                springAIModelType,
+                providers,
+                true);
+
+        var spec = factory.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                null,
+                null,
+                false,
+                false,
+                List.of(new UserMessage("Do not expose the external tool")),
+                new OpenDaimonChatOptions(0.7, 1000, null, "Do not expose the external tool", false, Map.of())
+        );
+
+        spec.call().chatResponse();
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(ollamaChatModel).call(captor.capture());
+
+        if (captor.getValue().getOptions() instanceof ToolCallingChatOptions toolOptions) {
+            assertTrue(toolOptions.getToolCallbacks() == null || toolOptions.getToolCallbacks().isEmpty());
+        }
+    }
+
+    @Test
+    void preparePrompt_regularUserGetsSharedMcpToolsButNotFilesystemTools() {
+        ToolCallback filesystemTool = toolCallback("read_file");
+        ToolCallback sharedTool = toolCallback("weather_lookup");
+        ToolCallbackProvider provider = mock(ToolCallbackProvider.class);
+        when(provider.getToolCallbacks()).thenReturn(new ToolCallback[]{filesystemTool, sharedTool});
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ToolCallbackProvider> providers = mock(ObjectProvider.class);
+        when(providers.orderedStream()).thenReturn(Stream.of(provider));
+        SpringAIPromptFactory factory = new SpringAIPromptFactory(
+                chatClient,
+                chatClient,
+                webTools,
+                null,
+                springAIModelType,
+                providers,
+                true);
+
+        var spec = factory.preparePrompt(
+                ollamaModelConfig,
+                "ollama-model",
+                null,
+                null,
+                false,
+                true,
+                Map.of(AICommand.USER_PRIORITY_FIELD, UserPriority.REGULAR.name()),
+                List.of(new UserMessage("Use shared tools only")),
+                new OpenDaimonChatOptions(0.7, 1000, null, "Use shared tools only", false, Map.of())
+        );
+
+        spec.call().chatResponse();
+        ArgumentCaptor<Prompt> captor = ArgumentCaptor.forClass(Prompt.class);
+        verify(ollamaChatModel).call(captor.capture());
+
+        assertInstanceOf(ToolCallingChatOptions.class, captor.getValue().getOptions());
+        ToolCallingChatOptions toolOptions = (ToolCallingChatOptions) captor.getValue().getOptions();
+        assertTrue(toolOptions.getToolCallbacks().stream()
+                .anyMatch(callback -> "weather_lookup".equals(callback.getToolDefinition().name())));
+        assertFalse(toolOptions.getToolCallbacks().stream()
+                .anyMatch(callback -> "read_file".equals(callback.getToolDefinition().name())));
+    }
+
     // --- null openAiChatClient (Ollama-only setup) ---
 
     @Test
@@ -298,5 +462,24 @@ class SpringAIPromptFactoryTest {
                 )
         );
         assertTrue(ex.getMessage().contains("spring.ai.openai.api-key"));
+    }
+
+    private static ToolCallback toolCallback(String name) {
+        ToolDefinition definition = ToolDefinition.builder()
+                .name(name)
+                .description(name + " description")
+                .inputSchema("{\"type\":\"object\"}")
+                .build();
+        return new ToolCallback() {
+            @Override
+            public ToolDefinition getToolDefinition() {
+                return definition;
+            }
+
+            @Override
+            public String call(String toolInput) {
+                return "ok";
+            }
+        };
     }
 }

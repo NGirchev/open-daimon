@@ -416,6 +416,52 @@ specific step.
 See `docs/usecases/agent-image-attachment.md` and the use-case fixture
 `TelegramAgentImageFixtureIT`.
 
+### External MCP tools
+
+OpenDaimon tool discovery has two sources:
+
+1. Built-in Spring beans converted through `ToolCallbacks.from(...)`:
+   `WebTools` (`web_search`, `fetch_url`) and `HttpApiTool` (`http_get`,
+   `http_post`, when enabled).
+2. External `ToolCallbackProvider` beans, including Spring AI MCP client providers
+   added by `opendaimon-mcp` / `spring-ai-starter-mcp-client`.
+
+`AgentAutoConfig#agentToolCallbacks` merges built-in callbacks with external
+provider callbacks. The normal `SpringAIPromptFactory` path performs the same
+merge before adding callbacks to `ChatClient` prompts, but external MCP callbacks
+are only considered when the command requests `TOOL_CALLING` in required or
+optional capabilities. External MCP tools are then filtered by
+`open-daimon.mcp.tool-access` rules using the command `userPriority` metadata
+before the model sees them. Missing or unknown priority denies external MCP
+tools.
+
+`open-daimon.mcp.enabled=false` disables OpenDaimon's consumption of external
+provider callbacks. Spring AI MCP client creation itself is controlled by
+`spring.ai.mcp.client.*`; bundled defaults keep `spring.ai.mcp.client.enabled`
+true, while concrete MCP server connections are supplied by the application
+configuration. The bundled `opendaimon-app` configures the filesystem stdio
+server; the published starter defaults do not start a concrete stdio server for
+downstream applications.
+
+`SpringAIExternalToolCatalogService` lists the same built-in tools and the
+role-filtered MCP tools for user-facing `/tools` output. MCP entries keep their
+resolved source display name, so Telegram can mark them as `mcp: <source>` while
+showing built-in groups such as `webtools` and `http-api` without an MCP marker.
+
+External provider callbacks are role-filtered. `SpringAIChatService` passes
+command metadata to `SpringAIPromptFactory`, and `SpringAgentLoopActions#resolveEffectiveTools`
+uses the same metadata in agent mode. By default, tools without an explicit rule
+are available to ADMIN, VIP, and REGULAR; filesystem MCP tools are matched by a
+default ADMIN-only rule. This is especially important for filesystem MCP: the
+filesystem server runs inside the OpenDaimon process/container and must not be
+available to regular users.
+
+Tool callbacks are deduplicated by `ToolDefinition.name()` with first-wins
+semantics. Built-in tools are registered first, so an MCP tool named `fetch_url`
+or `web_search` will not replace the OpenDaimon built-in implementation. External
+callbacks with reserved built-in names are ignored even when the corresponding
+built-in tool is not currently enabled for the prompt.
+
 ### Tool failure detection
 
 Spring AI's `@Tool` contract is **string-typed**: tool methods return a plain `String`

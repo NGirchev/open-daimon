@@ -139,6 +139,7 @@ Handlers sorted by `priority()` (lower = first). First handler where `canHandle(
 | `RoleTelegramCommandHandler` | `/role` | 0 |
 | `LanguageTelegramCommandHandler` | `/language` | 0 |
 | `ModelTelegramCommandHandler` | `/model` | 0 |
+| `ToolsTelegramCommandHandler` | `/tools` | 0 |
 | `BugreportTelegramCommandHandler` | `/bugreport` | 0 |
 | `HistoryTelegramCommandHandler` | `/history` | 0 |
 | `ThreadsTelegramCommandHandler` | `/threads` | 0 |
@@ -146,6 +147,16 @@ Handlers sorted by `priority()` (lower = first). First handler where `canHandle(
 | `BackoffCommandHandler` | any | `LOWEST_PRECEDENCE` |
 
 Each handler is conditional on `open-daimon.telegram.commands.<command>-enabled` (default: true).
+
+`/tools` lists all tools visible to the current invoker. It delegates to the
+common `ExternalToolCatalogService` SPI, so Telegram never applies tool access
+policy itself. Built-in tools are grouped by their built-in source names, while
+MCP tools are filtered through the same `open-daimon.mcp.tool-access` rules used
+by real tool execution and rendered with an `mcp:` source prefix. MCP tools are
+grouped by configured source display name when present (for example,
+`mcp: @modelcontextprotocol/server-filesystem@0.2.0 - read_file, list_directory`),
+otherwise by MCP client connection name, so the output identifies which MCP
+server provides each tool.
 
 ---
 
@@ -194,7 +205,7 @@ See the canonical specification in **[## Agent Mode — REACT Loop Telegram UX](
 2. A separate **answer message** that is created only when the final user answer is confirmed (`FINAL_ANSWER` or `MAX_ITERATIONS` fallback).
 3. Streaming `PARTIAL_ANSWER` chunks are kept in a Java-side model buffer and rendered as status overlay while the iteration is still open.
 
-Implementation: `TelegramMessageHandlerActions` feeds provider-neutral stream events into `TelegramAgentStreamModel` and flushes snapshots through `TelegramAgentStreamView`. Flush cadence is configured via `open-daimon.telegram.agent-stream-view.*` and enforced per chat by `TelegramChatPacer`. Assistant response is persisted in DB; keyboard status is sent afterwards.
+Implementation: `TelegramMessageHandlerActions` feeds provider-neutral stream events into `TelegramAgentStreamModel` and flushes snapshots through `TelegramAgentStreamView`. The `AgentRequest` receives pipeline-enriched `AICommand.metadata()` so downstream agent tools see fields added by `AIRequestPipeline`, including `userPriority` used by MCP tool-access rules. Flush cadence is configured via `open-daimon.telegram.agent-stream-view.*` and enforced per chat by `TelegramChatPacer`. Assistant response is persisted in DB; keyboard status is sent afterwards.
 
 ---
 
@@ -381,14 +392,15 @@ Implementation: `TelegramMessageHandlerActions` feeds provider-neutral stream ev
 **Trigger:** `/language`
 **Handler:** `LanguageTelegramCommandHandler` — sends one inline-menu message with current language, ru/en choices, and a localized cancel/close button.
 - This UI-only flow does not start the typing indicator.
+- New group chats start with no stored group language; command mapping falls back to the invoker's language until `/language` stores a chat-scoped value on the `TelegramGroup` row.
 - `LANG_CANCEL` acknowledges the callback and deletes the menu message without changing language.
 
 ---
 
 ### UC-19: `/language` — select via callback
 **Trigger:** `LANG_ru` or `LANG_en` callback
-**Handler:** `TelegramUserService.updateLanguageCode()` → `TelegramBotMenuService.setupBotMenuForUser()` — reloads bot command menu in new language for this user's chat.
-- Confirmation is callback-only (`telegram.language.updated`); the inline menu is deleted and no separate chat message is sent.
+**Handler:** `ChatSettingsService.updateLanguageCode()` → user or group owner (`TelegramUser` in private chats, `TelegramGroup` in groups) → `TelegramBotMenuService.setupBotMenuForUser()` — reloads bot command menu in the new chat language.
+- Confirmation is sent as both callback ack and a chat message (`telegram.language.updated`); the inline menu is deleted.
 
 ---
 

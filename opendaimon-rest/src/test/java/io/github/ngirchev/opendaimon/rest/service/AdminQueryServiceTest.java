@@ -6,6 +6,7 @@ import io.github.ngirchev.opendaimon.common.model.OpenDaimonMessage;
 import io.github.ngirchev.opendaimon.common.model.RequestType;
 import io.github.ngirchev.opendaimon.common.model.ResponseStatus;
 import io.github.ngirchev.opendaimon.common.model.ThreadScopeKind;
+import io.github.ngirchev.opendaimon.common.model.User;
 import io.github.ngirchev.opendaimon.common.repository.OpenDaimonMessageRepository;
 import io.github.ngirchev.opendaimon.rest.service.model.AdminConversationSummary;
 import io.github.ngirchev.opendaimon.rest.service.model.AdminMessageDetail;
@@ -34,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -62,7 +64,7 @@ class AdminQueryServiceTest {
         ConversationThread t = thread(10L, user);
         Pageable pageable = PageRequest.of(0, 25);
         Page<ConversationThread> page = new PageImpl<>(List.of(t), pageable, 1);
-        when(adminConversationRepository.findAllWithFilters(any(), any(), any(), eq(pageable))).thenReturn(page);
+        when(adminConversationRepository.findAllWithFilters(any(), any(), any(), any(), eq(pageable))).thenReturn(page);
 
         AdminPageResponse<AdminConversationSummary> result = service.listConversations(null, null, null, pageable);
 
@@ -75,6 +77,50 @@ class AdminQueryServiceTest {
         assertThat(dto.user().userType()).isEqualTo("REST");
         assertThat(dto.user().emailOrTelegramId()).isEqualTo("admin@test.com");
         assertThat(dto.user().isAdmin()).isTrue();
+    }
+
+    @Test
+    void shouldFilterTelegramGroupConversationsByChatScope() {
+        TelegramGroup group = new TelegramGroup();
+        group.setId(6L);
+        group.setTelegramId(-1001651885521L);
+        group.setTitle("Beer & Politics");
+        RestUser owner = new RestUser();
+        owner.setId(2L);
+        owner.setEmail("owner@test.com");
+        ConversationThread t = thread(11L, owner);
+        t.setScopeKind(ThreadScopeKind.TELEGRAM_CHAT);
+        t.setScopeId(-1001651885521L);
+        Pageable pageable = PageRequest.of(0, 25);
+        Page<ConversationThread> page = new PageImpl<>(List.of(t), pageable, 1);
+        when(adminUserRepository.findById(6L)).thenReturn(Optional.of(group));
+        when(adminConversationRepository.findAllWithFilters(
+                isNull(), eq(ThreadScopeKind.TELEGRAM_CHAT), eq(-1001651885521L), isNull(), eq(pageable)))
+                .thenReturn(page);
+
+        AdminPageResponse<AdminConversationSummary> result = service.listConversations(6L, null, null, pageable);
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.content().get(0).scopeKind()).isEqualTo(ThreadScopeKind.TELEGRAM_CHAT.name());
+        assertThat(result.content().get(0).scopeId()).isEqualTo(-1001651885521L);
+    }
+
+    @Test
+    void shouldMapTelegramGroupUserSummary() {
+        TelegramGroup group = new TelegramGroup();
+        group.setId(6L);
+        group.setTelegramId(-1001651885521L);
+        group.setTitle("Beer & Politics");
+        Pageable pageable = PageRequest.of(0, 25);
+        Page<User> page = new PageImpl<>(List.of(group), pageable, 1);
+        when(adminUserRepository.searchAll(null, pageable)).thenReturn(page);
+
+        AdminPageResponse<?> result = service.listUsers(null, pageable);
+
+        assertThat(result.content()).hasSize(1);
+        Object dto = result.content().get(0);
+        assertThat(dto).extracting("userType", "username", "emailOrTelegramId")
+                .containsExactly("TELEGRAM_GROUP", "Beer & Politics", "-1001651885521");
     }
 
     @Test
@@ -177,5 +223,27 @@ class AdminQueryServiceTest {
         m.setAttachments(attachments.isEmpty() ? null : List.copyOf(attachments));
         m.setCreatedAt(OffsetDateTime.now());
         return m;
+    }
+
+    public static class TelegramGroup extends User {
+
+        private Long telegramId;
+        private String title;
+
+        public Long getTelegramId() {
+            return telegramId;
+        }
+
+        public void setTelegramId(Long telegramId) {
+            this.telegramId = telegramId;
+        }
+
+        public String getTitle() {
+            return title;
+        }
+
+        public void setTitle(String title) {
+            this.title = title;
+        }
     }
 }

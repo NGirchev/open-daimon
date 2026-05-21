@@ -1,5 +1,12 @@
 spring:
   ai:
+    mcp:
+      client:
+        enabled: ${MCP_CLIENT_ENABLED:false}
+        name: open-daimon
+        version: ${OPEN_DAIMON_VERSION:dev}
+        type: SYNC
+        request-timeout: 30s
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
       request-timeout: 600s
@@ -147,6 +154,17 @@ open-daimon:
             User question:
             %s
           vision-extraction-prompt: "Extract ALL text content from this image exactly as written. Include all headings, paragraphs, tables, lists, captions, and any visible text. Preserve the original structure and formatting as much as possible. Output only the extracted text, no commentary."
+  mcp:
+    enabled: true
+    tool-access:
+      default-roles:
+        - ADMIN
+        - VIP
+        - REGULAR
+      rules:
+        - name-pattern: "^(?:[A-Za-z0-9_]+_)?(read_file|read_text_file|read_media_file|read_multiple_files|write_file|edit_file|create_directory|list_directory|list_directory_with_sizes|directory_tree|move_file|search_files|get_file_info|list_allowed_directories)$"
+          roles:
+            - ADMIN
   agent:
     enabled: true
     max-iterations: 10

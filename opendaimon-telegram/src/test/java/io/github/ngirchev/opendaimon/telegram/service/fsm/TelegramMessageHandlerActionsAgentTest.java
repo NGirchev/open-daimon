@@ -10,6 +10,7 @@ import io.github.ngirchev.opendaimon.common.ai.command.AICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.ChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.command.FixedModelChatAICommand;
 import io.github.ngirchev.opendaimon.common.ai.pipeline.AIRequestPipeline;
+import io.github.ngirchev.opendaimon.bulkhead.model.UserPriority;
 import io.github.ngirchev.opendaimon.common.service.AIGateway;
 import io.github.ngirchev.opendaimon.common.service.AIGatewayRegistry;
 import io.github.ngirchev.opendaimon.common.service.OpenDaimonMessageService;
@@ -149,6 +150,38 @@ class TelegramMessageHandlerActionsAgentTest {
         assertThat(request.maxIterations()).isEqualTo(MAX_ITERATIONS);
         assertThat(request.enabledTools()).isEmpty();
         assertThat(request.metadata()).containsKey(AICommand.THREAD_KEY_FIELD);
+    }
+
+    @Test
+    @DisplayName("generateResponse forwards pipeline metadata to agent request")
+    void generateResponse_agentEnabled_usesPipelineMetadata() {
+        TelegramCommand command = mock(TelegramCommand.class);
+        when(command.telegramId()).thenReturn(42L);
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(AICommand.THREAD_KEY_FIELD, "test-thread-key");
+        metadata.put(AICommand.USER_ID_FIELD, "42");
+        MessageHandlerContext ctx = new MessageHandlerContext(command, null, s -> {});
+        ctx.setMetadata(metadata);
+        ctx.setModelCapabilities(Set.of(ModelCapabilities.AUTO));
+        Map<String, String> pipelineMetadata = new HashMap<>(metadata);
+        pipelineMetadata.put(AICommand.USER_PRIORITY_FIELD, UserPriority.ADMIN.name());
+        ctx.setAiCommand(new ChatAICommand(
+                Set.of(ModelCapabilities.AUTO),
+                0.35,
+                4000,
+                "system",
+                "List filesystem files",
+                pipelineMetadata));
+
+        Flux<AgentStreamEvent> stream = Flux.just(AgentStreamEvent.finalAnswer("Files", 1));
+        ArgumentCaptor<AgentRequest> captor = ArgumentCaptor.forClass(AgentRequest.class);
+        when(agentExecutor.executeStream(captor.capture())).thenReturn(stream);
+
+        actions.generateResponse(ctx);
+
+        AgentRequest request = captor.getValue();
+        assertThat(request.metadata())
+                .containsEntry(AICommand.USER_PRIORITY_FIELD, UserPriority.ADMIN.name());
     }
 
     @Test
@@ -1133,7 +1166,7 @@ class TelegramMessageHandlerActionsAgentTest {
             verify(messageSender, atLeastOnce())
                     .editHtml(eq(CHAT_ID), eq(STATUS_MSG_ID), editCaptor.capture(), eq(true));
             String finalHtml = editCaptor.getValue();
-            assertThat(finalHtml).contains("🔧 <b>Tool:</b> Searching the web");
+            assertThat(finalHtml).contains("🔧 <b>Tool:</b> Searching the web (web_search)");
             assertThat(finalHtml).contains("<b>Query:</b>");
             // The label is HTML bold — no unformatted "Tool:" or "Query:" leaking through.
             assertThat(finalHtml).doesNotContain("🔧 Tool:");
