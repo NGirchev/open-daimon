@@ -1,1 +1,0 @@
-When the user says "задеплой", "deploy", "запусти", or "run" for this project, interpret it as Docker Compose deployment/restart by default: use docker compose with build, i.e. `docker compose up -d --build` (or the repository-equivalent command if it explicitly wraps that). Do not ask for clarification unless the user mentions a different target/environment.

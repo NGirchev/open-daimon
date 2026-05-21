@@ -52,3 +52,7 @@
 /.remember/
 /.m2repo/
 /mcp-filesystem/
+
+# Local Serena run memories
+/.serena/memories/run/application-start-command.md
+/.serena/memories/run/deploy_command_convention.md
