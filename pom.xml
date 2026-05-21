@@ -30,7 +30,7 @@
     </modules>
 
     <name>OpenDaimon</name>
-    <description>Multi-module Java project for AI services via Telegram, REST API, Web UI</description>
+    <description>Self-hosted Java/Spring Boot AI agent framework with FSM-based ReAct loop, extensible modules, Telegram assistant for personal/group chats, REST/Web UI, OpenRouter/Ollama, and Spring Boot starter.</description>
     <url>https://github.com/NGirchev/open-daimon</url>
 
     <licenses>

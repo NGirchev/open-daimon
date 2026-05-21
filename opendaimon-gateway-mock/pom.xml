@@ -19,6 +19,7 @@
 
     <artifactId>opendaimon-gateway-mock</artifactId>
     <name>OpenDaimon Gateway Mock</name>
+    <description>Mock gateway support module for local OpenDaimon development and integration testing.</description>
 
     <properties>
         <java.version>21</java.version>

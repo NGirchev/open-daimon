@@ -19,6 +19,7 @@
 
     <artifactId>opendaimon-spring-ai</artifactId>
     <name>OpenDaimon Spring AI</name>
+    <description>Spring AI integration for OpenDaimon agents with OpenRouter/Ollama support, ReAct/FSM runtime, memory, RAG, and tool orchestration.</description>
 
     <properties>
         <java.version>21</java.version>

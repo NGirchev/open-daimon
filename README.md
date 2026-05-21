@@ -1,4 +1,15 @@
-# 😈 OpenDaimon — Personal AI Assistant
+# 😈 OpenDaimon — Spring Boot Java AI Agent Framework
+
+**OpenDaimon** is a self-hosted Java/Spring Boot framework for building extensible AI agents on top of Spring AI. It
+runs an FSM-based ReAct loop, integrates OpenRouter and Ollama models, and exposes the agent through Telegram, REST API,
+and Web UI. Use it as a library, a Spring Boot starter, or a ready-to-run Telegram AI assistant for personal use and
+group chats.
+
+### Who it's for
+
+Java/Spring teams building conversational AI or internal bots; developers who want one backend with Telegram, REST, and
+Web UI; users who prefer to run a chat agent on their own infrastructure with local or OpenRouter models and no external
+subscriptions; anyone who needs trusted group access (e.g. family or team) without per-user signups elsewhere.
 
 <table>
   <tr>
@@ -66,17 +77,6 @@ docker compose logs -f opendaimon-app
 **Option 2 — Manual setup (after git clone):** See [Quick start](#quick-start) below.
 
 ---
-
-**OpenDaimon** (formerly **ai-bot**) is a multi-module Java platform for building AI-powered chat agents and chatbots.
-It connects to various AI providers via **Spring AI** (OpenRouter, Ollama) and exposes them through Telegram, REST API,
-and Web UI. Use it as a library to assemble your own pipelines and integrations, or run the full app as a private,
-self-hosted chat assistant.
-
-### Who it's for
-
-Java/Spring teams building conversational AI or internal bots; developers who want one backend with Telegram, REST, and
-Web UI; users who prefer to run a chat agent on their own infrastructure with local or OpenRouter models and no external
-subscriptions; anyone who needs trusted group access (e.g. family or team) without per-user signups elsewhere.
 
 ## Why OpenDaimon?
 
